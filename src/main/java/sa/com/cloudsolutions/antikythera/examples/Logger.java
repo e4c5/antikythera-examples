@@ -11,6 +11,7 @@ import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.CatchClause;
 import com.github.javaparser.ast.stmt.ForEachStmt;
 import com.github.javaparser.ast.stmt.ForStmt;
+import com.github.javaparser.ast.stmt.Statement;
 import com.github.javaparser.ast.stmt.WhileStmt;
 import com.github.javaparser.ast.visitor.ModifierVisitor;
 import com.github.javaparser.printer.lexicalpreservation.LexicalPreservingPrinter;
@@ -47,6 +48,18 @@ public class Logger {
                 }
 
                 if (functional || isLooping(mce)) {
+                    // Get immediate parent block
+                    Optional<Node> parent = mce.getParentNode();
+                    if (parent.isPresent() && parent.get() instanceof BlockStmt block) {
+                        if (block.getStatements().size() == 1) {
+                            // This block will be empty after removal
+                            Optional<Node> blockParent = block.getParentNode();
+                            if (blockParent.isPresent() && blockParent.get() instanceof Statement) {
+                                // Remove the statement containing the empty block
+                                blockParent.get().remove();
+                            }
+                        }
+                    }
                     return null;
                 }
                 mce.setName("debug");
@@ -100,11 +113,11 @@ public class Logger {
             File f = new File(fullPath);
 
             if (f.exists()) {
-                System.out.println(f.getPath());
+               // System.out.println(f.getPath());
 
                 PrintWriter writer = new PrintWriter(f);
 
-                writer.println(LexicalPreservingPrinter.print(cu));
+                writer.print(LexicalPreservingPrinter.print(cu));
                 writer.close();
 
             }
