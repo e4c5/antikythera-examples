@@ -34,10 +34,10 @@ public class Logger {
             if (mce.toString().startsWith("logger.")) {
                 count++;
 
-                BlockStmt stmt = AbstractCompiler.findBlockStatement(mce);
+                BlockStmt block = AbstractCompiler.findBlockStatement(mce);
 
-                if (stmt != null) {
-                    Optional<Node> n = stmt.getParentNode();
+                if (block != null) {
+                    Optional<Node> n = block.getParentNode();
                     if (n.isPresent()) {
                         Node node = n.get();
                         if (node instanceof CatchClause) {
@@ -48,16 +48,12 @@ public class Logger {
                 }
 
                 if (functional || isLooping(mce)) {
-                    // Get immediate parent block
-                    Optional<Node> parent = mce.getParentNode();
-                    if (parent.isPresent() && parent.get() instanceof BlockStmt block) {
-                        if (block.getStatements().size() == 1) {
-                            // This block will be empty after removal
-                            Optional<Node> blockParent = block.getParentNode();
-                            if (blockParent.isPresent() && blockParent.get() instanceof Statement) {
-                                // Remove the statement containing the empty block
-                                blockParent.get().remove();
-                            }
+                    if (block.getStatements().size() == 1) {
+                        // This block will be empty after removal
+                        Optional<Node> blockParent = block.getParentNode();
+                        if (blockParent.isPresent() && blockParent.get() instanceof Statement) {
+                            // Remove the statement containing the empty block
+                            blockParent.get().remove(block);
                         }
                     }
                     return null;
@@ -92,7 +88,11 @@ public class Logger {
         AbstractCompiler.preProcess();
 
         for (var entry : AntikytheraRunTime.getResolvedClasses().entrySet()) {
-            processClass(entry.getKey(), entry.getValue());
+            try {
+                processClass(entry.getKey(), entry.getValue());
+            } catch (UnsupportedOperationException uoe) {
+                System.out.println(entry.getKey() + " : " +uoe.getMessage());
+            }
         }
 
     }
