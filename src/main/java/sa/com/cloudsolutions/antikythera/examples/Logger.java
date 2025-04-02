@@ -11,6 +11,7 @@ import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.CatchClause;
 import com.github.javaparser.ast.stmt.ForEachStmt;
 import com.github.javaparser.ast.stmt.ForStmt;
+import com.github.javaparser.ast.stmt.IfStmt;
 import com.github.javaparser.ast.stmt.Statement;
 import com.github.javaparser.ast.stmt.WhileStmt;
 import com.github.javaparser.ast.visitor.ModifierVisitor;
@@ -24,13 +25,42 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.util.HashSet;
 import java.util.Optional;
+import java.util.Set;
 
 public class Logger {
     static int count;
 
+    static class BlockVisitor extends ModifierVisitor<Void> {
+        public BlockStmt visit(BlockStmt block, Void arg) {
+            super.visit(block, arg);
+            if (block.getStatements().isEmpty()) {
+                Optional<Node> parent = block.getParentNode();
+                if (parent.isPresent() && parent.get() instanceof IfStmt) {
+                    IfStmt ifStmt = (IfStmt) parent.get();
+                    if (ifStmt.getElseStmt().isPresent()) {
+                        Statement elseStmt = ifStmt.getElseStmt().get();
+                        if (elseStmt instanceof BlockStmt) {
+                            BlockStmt elseBlock = (BlockStmt) elseStmt;
+                            if (elseBlock.getStatements().isEmpty()) {
+                                return null;
+                            }
+                        }
+                    }
+                }
+                else {
+                    return null;
+                }
+            }
+            return block;
+        }
+    }
+
     static class LoggerVisitor extends ModifierVisitor<Boolean> {
         public MethodCallExpr visit(MethodCallExpr mce, Boolean functional) {
+            super.visit(mce, functional);
+
             if (mce.toString().startsWith("logger.")) {
                 count++;
 
@@ -48,14 +78,6 @@ public class Logger {
                 }
 
                 if (functional || isLooping(mce)) {
-                    if (block.getStatements().size() == 1) {
-                        // This block will be empty after removal
-                        Optional<Node> blockParent = block.getParentNode();
-                        if (blockParent.isPresent() && blockParent.get() instanceof Statement) {
-                            // Remove the statement containing the empty block
-                            blockParent.get().remove(block);
-                        }
-                    }
                     return null;
                 }
                 mce.setName("debug");
@@ -107,6 +129,8 @@ public class Logger {
         for (TypeDeclaration<?> decl : cu.getTypes()) {
             for (MethodDeclaration m : decl.getMethods()) {
                 m.accept(new LoggerVisitor(), false);
+                BlockVisitor blockVisitor = new BlockVisitor();
+                m.accept(blockVisitor, null);
             }
 
             String fullPath = Settings.getBasePath() + "/" + AbstractCompiler.classToPath(classname);
