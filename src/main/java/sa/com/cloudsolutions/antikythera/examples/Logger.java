@@ -61,7 +61,7 @@ public class Logger {
         public MethodCallExpr visit(MethodCallExpr mce, Boolean functional) {
             super.visit(mce, functional);
 
-            if (mce.toString().startsWith("logger.")) {
+            if (mce.toString().toLowerCase().startsWith("logger.")) {
                 count++;
 
                 BlockStmt block = AbstractCompiler.findBlockStatement(mce);
@@ -109,7 +109,7 @@ public class Logger {
         Settings.loadConfigMap();
         AbstractCompiler.preProcess();
 
-        for (var entry : AntikytheraRunTime.getResolvedClasses().entrySet()) {
+        for (var entry : AntikytheraRunTime.getResolvedCompilationUnits().entrySet()) {
             try {
                 processClass(entry.getKey(), entry.getValue());
             } catch (UnsupportedOperationException uoe) {
@@ -137,7 +137,7 @@ public class Logger {
             File f = new File(fullPath);
 
             if (f.exists()) {
-               // System.out.println(f.getPath());
+               //System.out.println(f.getPath());
 
                 PrintWriter writer = new PrintWriter(f);
 
