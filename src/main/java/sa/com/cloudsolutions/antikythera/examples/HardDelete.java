@@ -82,9 +82,6 @@ public class HardDelete {
                     System.out.println(className + "," + currentMethod
                             + "," + mce );
                 }
-                else {
-                    System.err.println(currentMethod + "," + mce + " is a soft delete" );
-                }
             });
         }
 
@@ -103,6 +100,7 @@ public class HardDelete {
                 for (MethodDeclaration method : methods) {
                     for (AnnotationExpr ann : method.getAnnotations()) {
                         if (ann.getNameAsString().equals(SOFT_DELETE_ANNOTATION)) {
+                            System.err.println(currentMethod + "," + mce + " is a soft delete" );
                             return true;
                         }
                     }
