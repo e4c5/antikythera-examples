@@ -167,13 +167,10 @@ public class Logger {
             File f = new File(fullPath);
 
             if (f.exists()) {
-               //System.out.println(f.getPath());
-
                 PrintWriter writer = new PrintWriter(f);
 
                 writer.print(LexicalPreservingPrinter.print(cu));
                 writer.close();
-
             }
         }
     }
