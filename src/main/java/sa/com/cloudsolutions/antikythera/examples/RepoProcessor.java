@@ -4,6 +4,7 @@ import java.io.*;
 import java.nio.file.*;
 import java.util.*;
 
+@SuppressWarnings("java:S106")
 public class RepoProcessor {
     private static BufferedWriter csvWriter;
     private static Path currentProject;
@@ -40,84 +41,73 @@ public class RepoProcessor {
     private static void processRepos(Path project) throws IOException, InterruptedException {
         try (DirectoryStream<Path> repos = Files.newDirectoryStream(project)) {
             for (Path repo : repos) {
-                if (!Files.isDirectory(repo)) continue;
-                Path pom = repo.resolve("pom.xml");
-                if (!Files.exists(pom)) continue;
-                currentRepo = repo;
-                String branch = findAndCheckoutBranch(repo);
-                if (branch == null) {
-                    System.out.println("No develop/Develop/development branch in " + repo);
-                    continue;
+                if (Files.isDirectory(repo)) {
+                    Path pom = repo.resolve("pom.xml");
+                    if (!Files.exists(pom)) continue;
+                    currentRepo = repo;
+                    String branch = findAndCheckoutBranch(repo);
+                    if (branch == null) {
+                        System.out.println("No develop/Develop/development branch in " + repo);
+                    } else {
+                        updateGeneratorYml(project.getFileName().toString(), repo.getFileName().toString());
+                        captureAndPrintHardDeleteOutput();
+                    }
                 }
-                runGitCommand(repo, "git pull");
-                updateGeneratorYml(project.getFileName().toString(), repo.getFileName().toString());
-                captureAndPrintHardDeleteOutput();
             }
         }
     }
 
     @SuppressWarnings("java:S106")
     private static void captureAndPrintHardDeleteOutput() {
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
         PrintStream originalOut = System.out;
-        PrintStream originalErr = System.err;
-        try (PrintStream ps = new PrintStream(baos)) {
-            System.setOut(ps);
-            System.setErr(ps);
-            sa.com.cloudsolutions.antikythera.examples.HardDelete.main(new String[]{});
-        } catch (Exception e) {
-            e.printStackTrace(originalOut);
-        } finally {
-            System.setOut(originalOut);
-            System.setErr(originalErr);
-        }
-        String hardDeleteOutput = baos.toString();
-        System.out.println("Output for repo: " + currentRepo);
-        System.out.println(hardDeleteOutput);
-        // Write to deletes.csv with project and repo prefix
         String projectName = currentProject.getFileName().toString();
         String repoName = currentRepo.getFileName().toString();
         try {
-            for (String line : hardDeleteOutput.split(System.lineSeparator())) {
-                if (!line.trim().isEmpty()) {
-                    csvWriter.write(projectName + "," + repoName + "," + line);
-                    csvWriter.newLine();
+            // Run HardDelete as a separate process
+            ProcessBuilder pb = new ProcessBuilder(
+                "java",
+                "-cp",
+                System.getProperty("java.class.path"),
+                "sa.com.cloudsolutions.antikythera.examples.HardDelete"
+            );
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    System.out.println("Output for repo: " + currentRepo);
+                    System.out.println(line);
+                    if (!line.trim().isEmpty()) {
+                        csvWriter.write(projectName + "," + repoName + "," + line);
+                        csvWriter.newLine();
+                    }
                 }
             }
+            process.waitFor();
             csvWriter.flush();
-        } catch (IOException ioe) {
-            System.err.println("Failed to write to deletes.csv: " + ioe.getMessage());
+        } catch (Exception e) {
+            e.printStackTrace(originalOut);
         }
     }
 
     private static String findAndCheckoutBranch(Path repo) throws IOException, InterruptedException {
+        System.out.println(repo);
         String[] branches = {"develop", "Develop", "development"};
         for (String branch : branches) {
-            if (branchExists(repo, branch)) {
-                // Discard changes and checkout
+            try {
                 runGitCommand(repo, "git reset --hard");
                 runGitCommand(repo, "git checkout " + branch);
+                runGitCommand(repo, "git pull"); // Always pull after successful checkout
                 return branch;
+            } catch (IOException | InterruptedException e) {
+                // Ignore and try next branch
             }
         }
         return null;
     }
 
-    private static boolean branchExists(Path repo, String branch) throws IOException, InterruptedException {
-        ProcessBuilder pb = new ProcessBuilder("git", "show-ref", "--verify", "--quiet", "refs/heads/" + branch);
-        pb.directory(repo.toFile());
-        Process p = pb.start();
-        int exit = p.waitFor();
-        if (exit == 0) return true;
-        // Try remote branch
-        pb = new ProcessBuilder("git", "ls-remote", "--heads", "origin", branch);
-        pb.directory(repo.toFile());
-        p = pb.start();
-        exit = p.waitFor();
-        return exit == 0;
-    }
-
     private static void runGitCommand(Path repo, String command) throws IOException, InterruptedException {
+
         String[] cmd = {"bash", "-c", command};
         ProcessBuilder pb = new ProcessBuilder(cmd);
         pb.directory(repo.toFile());
@@ -139,5 +129,9 @@ public class RepoProcessor {
             }
         }
         Files.write(ymlPath, lines);
+        // Copy to target/classes/generator.yml so classpath resource is updated
+        Path targetYml = Paths.get("target/classes/generator.yml");
+        Files.createDirectories(targetYml.getParent());
+        Files.copy(ymlPath, targetYml, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
     }
 }
