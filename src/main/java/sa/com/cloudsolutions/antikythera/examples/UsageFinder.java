@@ -19,7 +19,7 @@ public class UsageFinder {
         Settings.loadConfigMap(yamlFile);
         AbstractCompiler.preProcess();
 
-        Map<String, CompilationUnit> resolved = AntikytheraRunTime.getResolvedClasses();
+        Map<String, CompilationUnit> resolved = AntikytheraRunTime.getResolvedCompilationUnits();
 
         for (Map.Entry<String, CompilationUnit> entry : resolved.entrySet()) {
             String cls = entry.getKey();
