@@ -3,8 +3,10 @@ package sa.com.cloudsolutions.antikythera.examples;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.TypeDeclaration;
+import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.stmt.BlockStmt;
@@ -15,22 +17,38 @@ import com.github.javaparser.ast.stmt.IfStmt;
 import com.github.javaparser.ast.stmt.Statement;
 import com.github.javaparser.ast.stmt.WhileStmt;
 import com.github.javaparser.ast.visitor.ModifierVisitor;
+import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import com.github.javaparser.printer.lexicalpreservation.LexicalPreservingPrinter;
 import com.sun.source.tree.DoWhileLoopTree;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
+import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.PrintWriter;
-import java.util.HashSet;
 import java.util.Optional;
-import java.util.Set;
 
 public class Logger {
     static int count;
+    static String loggerField;
+
+    static class FieldVisitor extends VoidVisitorAdapter<CompilationUnit> {
+        @Override
+        public void visit(FieldDeclaration field, CompilationUnit cu) {
+            super.visit(field, cu);
+
+            VariableDeclarator vdecl = field.getVariable(0);
+            TypeWrapper wrapper = AbstractCompiler.findType(cu, vdecl.getTypeAsString());
+            if (wrapper != null) {
+                if (wrapper.getFullyQualifiedName().equals("org.slf4j.Logger")) {
+                    loggerField = vdecl.getNameAsString();
+                }
+            }
+        }
+    }
 
     static class BlockVisitor extends ModifierVisitor<Void> {
         public BlockStmt visit(BlockStmt block, Void arg) {
@@ -61,7 +79,7 @@ public class Logger {
         public MethodCallExpr visit(MethodCallExpr mce, Boolean functional) {
             super.visit(mce, functional);
 
-            if (mce.toString().toLowerCase().startsWith("logger.")) {
+            if (mce.toString().toLowerCase().startsWith(loggerField)) {
                 count++;
 
                 BlockStmt block = AbstractCompiler.findBlockStatement(mce);
@@ -127,6 +145,18 @@ public class Logger {
         }
 
         for (TypeDeclaration<?> decl : cu.getTypes()) {
+            FieldVisitor visitor = new FieldVisitor();
+            if (decl.getAnnotationByName("Slf4j").isPresent()) {
+                loggerField = "log";
+            }
+            else {
+                loggerField = null;
+                decl.accept(visitor, cu);
+                if (loggerField == null) {
+                    loggerField = "logger";
+                }
+            }
+
             for (MethodDeclaration m : decl.getMethods()) {
                 m.accept(new LoggerVisitor(), false);
                 BlockVisitor blockVisitor = new BlockVisitor();
