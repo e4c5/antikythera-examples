@@ -25,6 +25,7 @@ public class HardDelete {
     static TypeDeclaration<?> current;
     // Map repository variable name to its type
     private static final Map<String, String> repoVars = new HashMap<>();
+    private static String currentMethod;
 
     public static class FieldVisitor extends VoidVisitorAdapter<CompilationUnit> {
         @Override
@@ -76,13 +77,13 @@ public class HardDelete {
 
             mce.getScope().ifPresent(scope -> {
                 String varName = scope.toString();
-                if (repoVars.containsKey(varName)) {
-                    if (!hasSoftDeleteAnnotation(mce, cu, varName)) {
-                        String className = current.asClassOrInterfaceDeclaration().getFullyQualifiedName().orElseThrow();
-                        System.out.println(className
-                                + "," + mce + " in " +
-                                cu.getStorage().map(Object::toString).orElse("unknown file"));
-                    }
+                if (repoVars.containsKey(varName) && !hasSoftDeleteAnnotation(mce, cu, varName)) {
+                    String className = current.asClassOrInterfaceDeclaration().getFullyQualifiedName().orElseThrow();
+                    System.out.println(className + "," + currentMethod
+                            + "," + mce );
+                }
+                else {
+                    System.err.println(currentMethod + "," + mce + " is a soft delete" );
                 }
             });
         }
@@ -92,8 +93,8 @@ public class HardDelete {
             // Try to resolve the repository type and method, then check for custom annotation
             Optional<TypeDeclaration<?>> repoType = cu.getTypes().stream()
                 .filter(td -> td.getMembers().stream()
-                    .anyMatch(m -> m instanceof FieldDeclaration &&
-                        ((FieldDeclaration) m).getVariables().stream()
+                    .anyMatch(m -> m instanceof FieldDeclaration field &&
+                        field.getVariables().stream()
                             .anyMatch(v -> v.getNameAsString().equals(repoVar))))
                 .findFirst();
 
@@ -112,6 +113,19 @@ public class HardDelete {
         }
     }
 
+    public static class MethodVisitor extends VoidVisitorAdapter<CompilationUnit> {
+        @Override
+        public void visit(MethodDeclaration md, CompilationUnit cu) {
+            super.visit(md, cu);
+            setCurrentMethod(md.getNameAsString());
+            md.accept(new HardDeleteVisitor(), cu);
+        }
+    }
+
+    static void setCurrentMethod(String currentMethod) {
+        HardDelete.currentMethod = currentMethod;
+    }
+
     public static void main(String[] args) throws IOException {
         Settings.loadConfigMap();
         AbstractCompiler.preProcess();
@@ -125,7 +139,7 @@ public class HardDelete {
                         current = wrapper.getType();
                         repoVars.clear();
                         decl.accept(new FieldVisitor(), cu);
-                        decl.accept(new HardDeleteVisitor(), cu);
+                        decl.accept(new MethodVisitor(), cu);
                     }
                 }
             } catch (UnsupportedOperationException uoe) {
