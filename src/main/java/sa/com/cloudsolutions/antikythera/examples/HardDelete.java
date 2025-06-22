@@ -20,20 +20,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+@SuppressWarnings("java:S106")
 public class HardDelete {
     static TypeDeclaration<?> current;
+    // Map repository variable name to its type
+    private static final Map<String, String> repoVars = new HashMap<>();
 
-    /**
-     * Visitor to detect hard delete method calls on JPARepository instances.
-     * If a delete method has a custom annotation, it's not considered a hard delete.
-     */
-    public static class HardDeleteVisitor extends VoidVisitorAdapter<CompilationUnit> {
-        // Map repository variable name to its type
-        private final Map<String, String> repoVars = new HashMap<>();
-
-        // Change this to your actual soft-delete annotation name
-        private static final String SOFT_DELETE_ANNOTATION = "SoftDelete";
-
+    public static class FieldVisitor extends VoidVisitorAdapter<CompilationUnit> {
         @Override
         public void visit(FieldDeclaration field, CompilationUnit cu) {
             super.visit(field, cu);
@@ -43,6 +36,37 @@ public class HardDelete {
                 repoVars.put(vdecl.getNameAsString(), wrapper.getFullyQualifiedName());
             }
         }
+
+
+        private boolean isJpaRepository(TypeWrapper wrapper) {
+            if ("org.springframework.data.jpa.repository.JpaRepository".equals(wrapper.getFullyQualifiedName())) {
+                return true;
+            }
+            if (wrapper.getClazz() != null) {
+                Class<?> clazz = wrapper.getClazz();
+                for (Class<?> iface : clazz.getInterfaces()) {
+                    if (iface.getName().contains("Repository")) {
+                        return true;
+                    }
+                }
+            }
+            if (wrapper.getType() != null && wrapper.getType().isClassOrInterfaceDeclaration()) {
+                for(ClassOrInterfaceType iface : wrapper.getType().asClassOrInterfaceDeclaration().getExtendedTypes()) {
+                    if (iface.getNameAsString().contains("Repository")) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+    }
+
+    /**
+     * Visitor to detect hard delete method calls on JPARepository instances.
+     * If a delete method has a custom annotation, it's not considered a hard delete.
+     */
+    public static class HardDeleteVisitor extends VoidVisitorAdapter<CompilationUnit> {
+        private static final String SOFT_DELETE_ANNOTATION = "Query";
 
         @Override
         public void visit(MethodCallExpr mce, CompilationUnit cu) {
@@ -63,30 +87,6 @@ public class HardDelete {
             });
         }
 
-        private boolean isJpaRepository(TypeWrapper wrapper) {
-            if (wrapper != null) {
-                if ("org.springframework.data.jpa.repository.JpaRepository".equals(wrapper.getFullyQualifiedName())) {
-                    return true;
-                }
-                if (wrapper.getClazz() != null) {
-                    Class<?> clazz = wrapper.getClazz();
-                    for (Class<?> iface : clazz.getInterfaces()) {
-                        if (iface.getName().contains("Repository")) {
-                            return true;
-                        }
-                    }
-                }
-                if (wrapper.getType() != null && wrapper.getType().isClassOrInterfaceDeclaration()) {
-                    for(ClassOrInterfaceType iface : wrapper.getType().asClassOrInterfaceDeclaration().getExtendedTypes()) {
-                        if (iface.getNameAsString().contains("Repository")) {
-                            return true;
-                        }
-                    }
-                }
-            }
-
-            return false;
-        }
 
         private boolean hasSoftDeleteAnnotation(MethodCallExpr mce, CompilationUnit cu, String repoVar) {
             // Try to resolve the repository type and method, then check for custom annotation
@@ -123,6 +123,8 @@ public class HardDelete {
                     TypeWrapper wrapper = AbstractCompiler.findType(cu, decl.getNameAsString());
                     if (wrapper != null && wrapper.getType() != null) {
                         current = wrapper.getType();
+                        repoVars.clear();
+                        decl.accept(new FieldVisitor(), cu);
                         decl.accept(new HardDeleteVisitor(), cu);
                     }
                 }
