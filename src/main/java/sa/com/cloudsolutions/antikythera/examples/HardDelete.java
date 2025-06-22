@@ -11,6 +11,8 @@ import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
+import sa.com.cloudsolutions.antikythera.configuration.Settings;
+import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -19,6 +21,7 @@ import java.util.Map;
 import java.util.Optional;
 
 public class HardDelete {
+    static TypeDeclaration<?> current;
 
     /**
      * Visitor to detect hard delete method calls on JPARepository instances.
@@ -51,7 +54,9 @@ public class HardDelete {
                 String varName = scope.toString();
                 if (repoVars.containsKey(varName)) {
                     if (!hasSoftDeleteAnnotation(mce, cu, varName)) {
-                        System.out.println("Hard delete detected: " + mce + " in " +
+                        String className = current.asClassOrInterfaceDeclaration().getFullyQualifiedName().orElseThrow();
+                        System.out.println(className
+                                + "," + mce + " in " +
                                 cu.getStorage().map(Object::toString).orElse("unknown file"));
                     }
                 }
@@ -108,14 +113,18 @@ public class HardDelete {
     }
 
     public static void main(String[] args) throws IOException {
-        sa.com.cloudsolutions.antikythera.configuration.Settings.loadConfigMap();
-        sa.com.cloudsolutions.antikythera.parser.AbstractCompiler.preProcess();
+        Settings.loadConfigMap();
+        AbstractCompiler.preProcess();
 
-        for (var entry : sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime.getResolvedCompilationUnits().entrySet()) {
+        for (var entry : AntikytheraRunTime.getResolvedCompilationUnits().entrySet()) {
             try {
                 CompilationUnit cu = entry.getValue();
                 for (TypeDeclaration<?> decl : cu.getTypes()) {
-                    decl.accept(new HardDeleteVisitor(), cu);
+                    TypeWrapper wrapper = AbstractCompiler.findType(cu, decl.getNameAsString());
+                    if (wrapper != null && wrapper.getType() != null) {
+                        current = wrapper.getType();
+                        decl.accept(new HardDeleteVisitor(), cu);
+                    }
                 }
             } catch (UnsupportedOperationException uoe) {
                 System.out.println(entry.getKey() + " : " + uoe.getMessage());
