@@ -11,12 +11,97 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 public class Indexes {
+
+    /** Simple DTO to expose index information to callers. */
+    public static class IndexInfo {
+        public final String type; // PRIMARY_KEY, UNIQUE_CONSTRAINT, UNIQUE_INDEX, INDEX
+        public final String name;
+        public final List<String> columns;
+        public IndexInfo(String type, String name, List<String> columns) {
+            this.type = type;
+            this.name = name;
+            this.columns = columns;
+        }
+        @Override
+        public String toString() {
+            return type + ";" + name + ";" + String.join(",", columns);
+        }
+    }
+
+    /**
+     * Load Liquibase indexes from the given XML and return a table->indexes map.
+     * The map value is a list of IndexInfo entries in declaration order (after includes and drops applied).
+     */
+    public static Map<String, List<IndexInfo>> load(File liquibaseXml) throws Exception {
+        Map<String, List<Index>> raw = parseLiquibaseFile(liquibaseXml);
+        Map<String, List<IndexInfo>> out = new LinkedHashMap<>();
+        for (Map.Entry<String, List<Index>> e : raw.entrySet()) {
+            List<IndexInfo> list = new ArrayList<>();
+            for (Index idx : e.getValue()) {
+                list.add(new IndexInfo(idx.type, idx.name, new ArrayList<>(idx.columns)));
+            }
+            out.put(e.getKey(), list);
+        }
+        return out;
+    }
+
+    /**
+     * Convenience: return the set of all PK columns per table.
+     */
+    public static Map<String, Set<String>> primaryKeyColumns(File liquibaseXml) throws Exception {
+        Map<String, Set<String>> map = new LinkedHashMap<>();
+        for (Map.Entry<String, List<IndexInfo>> e : load(liquibaseXml).entrySet()) {
+            Set<String> cols = e.getValue().stream()
+                    .filter(i -> "PRIMARY_KEY".equals(i.type))
+                    .flatMap(i -> i.columns.stream())
+                    .map(String::toLowerCase)
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+            map.put(e.getKey(), cols);
+        }
+        return map;
+    }
+
+    /**
+     * Convenience: return the set of first columns of UNIQUE constraints/indexes per table.
+     */
+    public static Map<String, Set<String>> uniqueFirstColumns(File liquibaseXml) throws Exception {
+        Map<String, Set<String>> map = new LinkedHashMap<>();
+        for (Map.Entry<String, List<IndexInfo>> e : load(liquibaseXml).entrySet()) {
+            Set<String> cols = e.getValue().stream()
+                    .filter(i -> "UNIQUE_CONSTRAINT".equals(i.type) || "UNIQUE_INDEX".equals(i.type))
+                    .map(i -> i.columns.isEmpty()? null : i.columns.get(0))
+                    .filter(Objects::nonNull)
+                    .map(String::toLowerCase)
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+            map.put(e.getKey(), cols);
+        }
+        return map;
+    }
+
+    /**
+     * Convenience: return the set of first columns of non-unique indexes per table.
+     */
+    public static Map<String, Set<String>> indexFirstColumns(File liquibaseXml) throws Exception {
+        Map<String, Set<String>> map = new LinkedHashMap<>();
+        for (Map.Entry<String, List<IndexInfo>> e : load(liquibaseXml).entrySet()) {
+            Set<String> cols = e.getValue().stream()
+                    .filter(i -> "INDEX".equals(i.type))
+                    .map(i -> i.columns.isEmpty()? null : i.columns.get(0))
+                    .filter(Objects::nonNull)
+                    .map(String::toLowerCase)
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+            map.put(e.getKey(), cols);
+        }
+        return map;
+    }
 
     public static void main(String[] args) {
         if (args == null || args.length != 1) {
