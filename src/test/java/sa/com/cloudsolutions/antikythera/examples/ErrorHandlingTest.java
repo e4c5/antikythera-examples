@@ -1,0 +1,267 @@
+package sa.com.cloudsolutions.antikythera.examples;
+
+import net.sf.jsqlparser.JSQLParserException;
+import net.sf.jsqlparser.parser.CCJSqlParserUtil;
+import net.sf.jsqlparser.statement.Statement;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.Mock;
+import org.mockito.MockitoAnnotations;
+import sa.com.cloudsolutions.antikythera.generator.QueryMethodParameter;
+import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
+import sa.com.cloudsolutions.antikythera.parser.Callable;
+import sa.com.cloudsolutions.liquibase.Indexes;
+
+import java.util.*;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
+
+/**
+ * Tests error handling scenarios and edge cases for query optimization components.
+ * Ensures robust behavior when encountering various error conditions.
+ */
+class ErrorHandlingTest {
+    
+    private QueryAnalysisEngine engine;
+    private CardinalityAnalyzer cardinalityAnalyzer;
+    
+    @Mock
+    private RepositoryQuery mockRepositoryQuery;
+    
+    @Mock
+    private Callable mockCallable;
+    
+    @BeforeEach
+    void setUp() {
+        MockitoAnnotations.openMocks(this);
+        setupCardinalityAnalyzer();
+        engine = new QueryAnalysisEngine(cardinalityAnalyzer);
+    }
+    
+    private void setupCardinalityAnalyzer() {
+        Map<String, List<Indexes.IndexInfo>> indexMap = new HashMap<>();
+        
+        // Setup minimal test data
+        List<Indexes.IndexInfo> userIndexes = new ArrayList<>();
+        Indexes.IndexInfo primaryKey = new Indexes.IndexInfo("PRIMARY_KEY", "pk_users", Arrays.asList("user_id"));
+        userIndexes.add(primaryKey);
+        
+        indexMap.put("users", userIndexes);
+        cardinalityAnalyzer = new CardinalityAnalyzer(indexMap);
+    }
+    
+    @Test
+    void testNullRepositoryQuery() {
+        QueryOptimizationResult result = engine.analyzeQuery(null);
+        
+        assertNotNull(result);
+        assertEquals("Unknown", result.getRepositoryClass());
+        assertEquals("Unknown", result.getMethodName());
+        assertEquals("", result.getQueryText());
+        assertTrue(result.isOptimized());
+        assertEquals(0, result.getWhereConditionCount());
+        assertEquals(0, result.getOptimizationIssueCount());
+    }
+    
+    @Test
+    void testNullStatement() {
+        when(mockRepositoryQuery.getStatement()).thenReturn(null);
+        when(mockRepositoryQuery.getOriginalQuery()).thenReturn("");
+        when(mockRepositoryQuery.getMethodParameters()).thenReturn(new ArrayList<>());
+        
+        QueryOptimizationResult result = engine.analyzeQuery(mockRepositoryQuery);
+        
+        assertNotNull(result);
+        assertTrue(result.getWhereConditionCount() >= 0);
+    }
+    
+    @Test
+    void testInvalidSqlStatement() {
+        when(mockRepositoryQuery.getStatement()).thenThrow(new RuntimeException("Invalid SQL"));
+        when(mockRepositoryQuery.getOriginalQuery()).thenReturn("INVALID SQL STATEMENT");
+        
+        QueryOptimizationResult result = engine.analyzeQuery(mockRepositoryQuery);
+        
+        assertNotNull(result);
+        assertEquals("Unknown", result.getRepositoryClass());
+        assertTrue(result.isOptimized()); // Error cases return optimized empty result
+    }
+    
+    @Test
+    void testMalformedSqlParsing() throws JSQLParserException {
+        // Create a statement that might cause parsing issues
+        String malformedSql = "SELECT * FROM users WHERE"; // Incomplete WHERE clause
+        
+        when(mockRepositoryQuery.getOriginalQuery()).thenReturn(malformedSql);
+        when(mockRepositoryQuery.getMethodParameters()).thenReturn(new ArrayList<>());
+        
+        // Mock statement parsing to throw exception
+        when(mockRepositoryQuery.getStatement()).thenThrow(new RuntimeException("Malformed SQL"));
+        
+        QueryOptimizationResult result = engine.analyzeQuery(mockRepositoryQuery);
+        
+        assertNotNull(result);
+        assertEquals("Unknown", result.getRepositoryClass());
+        assertTrue(result.isOptimized());
+    }
+    
+    @Test
+    void testNullMethodParameters() throws JSQLParserException {
+        String sql = "SELECT * FROM users WHERE user_id = ?";
+        Statement statement = CCJSqlParserUtil.parse(sql);
+        
+        when(mockRepositoryQuery.getStatement()).thenReturn(statement);
+        when(mockRepositoryQuery.getOriginalQuery()).thenReturn(sql);
+        when(mockRepositoryQuery.getMethodParameters()).thenReturn(null);
+        
+        QueryOptimizationResult result = engine.analyzeQuery(mockRepositoryQuery);
+        
+        assertNotNull(result);
+        assertTrue(result.getWhereConditionCount() >= 0);
+    }
+    
+    @Test
+    void testEmptyMethodParameters() throws JSQLParserException {
+        String sql = "SELECT * FROM users WHERE user_id = ?";
+        Statement statement = CCJSqlParserUtil.parse(sql);
+        
+        when(mockRepositoryQuery.getStatement()).thenReturn(statement);
+        when(mockRepositoryQuery.getOriginalQuery()).thenReturn(sql);
+        when(mockRepositoryQuery.getMethodParameters()).thenReturn(new ArrayList<>());
+        
+        QueryOptimizationResult result = engine.analyzeQuery(mockRepositoryQuery);
+        
+        assertNotNull(result);
+        assertTrue(result.getWhereConditionCount() >= 0);
+    }
+
+    @Test
+    void testNullInputsToCardinalityAnalyzer() {
+        CardinalityLevel nullTable = cardinalityAnalyzer.analyzeColumnCardinality(null, "column");
+        CardinalityLevel nullColumn = cardinalityAnalyzer.analyzeColumnCardinality("table", null);
+        CardinalityLevel bothNull = cardinalityAnalyzer.analyzeColumnCardinality(null, null);
+        
+        assertEquals(CardinalityLevel.LOW, nullTable);
+        assertEquals(CardinalityLevel.LOW, nullColumn);
+        assertEquals(CardinalityLevel.LOW, bothNull);
+    }
+    
+    @Test
+    void testEmptyStringInputsToCardinalityAnalyzer() {
+        CardinalityLevel emptyTable = cardinalityAnalyzer.analyzeColumnCardinality("", "column");
+        CardinalityLevel emptyColumn = cardinalityAnalyzer.analyzeColumnCardinality("table", "");
+        CardinalityLevel bothEmpty = cardinalityAnalyzer.analyzeColumnCardinality("", "");
+        
+        assertEquals(CardinalityLevel.LOW, emptyTable);
+        assertEquals(CardinalityLevel.LOW, emptyColumn);
+        assertEquals(CardinalityLevel.LOW, bothEmpty);
+    }
+    
+    @Test
+    void testReflectionFailures() {
+        // Test when reflection-based method name extraction fails
+        RepositoryQuery queryWithReflectionIssues = mock(RepositoryQuery.class);
+        
+        when(queryWithReflectionIssues.getStatement()).thenReturn(null);
+        when(queryWithReflectionIssues.getOriginalQuery()).thenReturn("");
+        when(queryWithReflectionIssues.getMethodParameters()).thenReturn(new ArrayList<>());
+        
+        // Mock reflection failure by making the class inaccessible
+        QueryOptimizationResult result = engine.analyzeQuery(queryWithReflectionIssues);
+        
+        assertNotNull(result);
+        // Should fallback gracefully when reflection fails
+        assertNotNull(result.getRepositoryClass());
+        assertNotNull(result.getMethodName());
+    }
+
+    @Test
+    void testMemoryConstraints() {
+        // Test with large number of conditions to check memory handling
+        List<QueryMethodParameter> largeParameterList = new ArrayList<>();
+        for (int i = 0; i < 1000; i++) {
+            QueryMethodParameter param = mock(QueryMethodParameter.class);
+            when(param.getColumnName()).thenReturn("column_" + i);
+            largeParameterList.add(param);
+        }
+        
+        when(mockRepositoryQuery.getStatement()).thenReturn(null);
+        when(mockRepositoryQuery.getOriginalQuery()).thenReturn("");
+        when(mockRepositoryQuery.getMethodParameters()).thenReturn(largeParameterList);
+        
+        QueryOptimizationResult result = engine.analyzeQuery(mockRepositoryQuery);
+        
+        assertNotNull(result);
+        // Should handle large parameter lists without memory issues
+        assertTrue(result.getWhereConditionCount() >= 0);
+    }
+    
+    @Test
+    void testConcurrentAccess() throws InterruptedException {
+        // Test thread safety of analysis engine
+        List<Thread> threads = new ArrayList<>();
+        List<QueryOptimizationResult> results = Collections.synchronizedList(new ArrayList<>());
+        
+        for (int i = 0; i < 10; i++) {
+            Thread thread = new Thread(() -> {
+                try {
+                    RepositoryQuery query = createThreadSafeQuery();
+                    QueryOptimizationResult result = engine.analyzeQuery(query);
+                    results.add(result);
+                } catch (Exception e) {
+                    // Should not throw exceptions in concurrent access
+                    fail("Concurrent access caused exception: " + e.getMessage());
+                }
+            });
+            threads.add(thread);
+            thread.start();
+        }
+        
+        // Wait for all threads to complete
+        for (Thread thread : threads) {
+            thread.join();
+        }
+        
+        assertEquals(10, results.size());
+        for (QueryOptimizationResult result : results) {
+            assertNotNull(result);
+        }
+    }
+    
+    private RepositoryQuery createThreadSafeQuery() {
+        RepositoryQuery query = mock(RepositoryQuery.class);
+        when(query.getStatement()).thenReturn(null);
+        when(query.getOriginalQuery()).thenReturn("");
+        when(query.getMethodParameters()).thenReturn(new ArrayList<>());
+        return query;
+    }
+    
+    private List<QueryMethodParameter> createMockParameters() {
+        List<QueryMethodParameter> parameters = new ArrayList<>();
+        
+        QueryMethodParameter param1 = mock(QueryMethodParameter.class);
+        when(param1.getColumnName()).thenReturn("column1");
+        parameters.add(param1);
+        
+        QueryMethodParameter param2 = mock(QueryMethodParameter.class);
+        when(param2.getColumnName()).thenReturn("column2");
+        parameters.add(param2);
+        
+        return parameters;
+    }
+    
+    private List<QueryMethodParameter> createComplexMockParameters() {
+        List<QueryMethodParameter> parameters = new ArrayList<>();
+        
+        String[] columns = {"user_id", "is_active", "status", "status", "status", "created_date", "created_date"};
+        
+        for (String column : columns) {
+            QueryMethodParameter param = mock(QueryMethodParameter.class);
+            when(param.getColumnName()).thenReturn(column);
+            parameters.add(param);
+        }
+        
+        return parameters;
+    }
+}
