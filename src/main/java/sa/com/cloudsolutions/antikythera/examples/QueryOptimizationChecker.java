@@ -1,8 +1,6 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
-import com.github.javaparser.ast.body.MethodDeclaration;
-import net.sf.jsqlparser.JSQLParserException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
@@ -17,7 +15,6 @@ import sa.com.cloudsolutions.liquibase.Indexes;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Paths;
-import java.sql.SQLException;
 import java.util.List;
 import java.util.Map;
 
@@ -58,12 +55,7 @@ public class QueryOptimizationChecker {
             TypeWrapper typeWrapper = entry.getValue();
 
             if (isJpaRepository(typeWrapper)) {
-                try {
-                    analyzeRepository(fullyQualifiedName, typeWrapper);
-                } catch (Exception e) {
-                    logger.error("Error analyzing repository {}: {}", fullyQualifiedName, e.getMessage());
-                    // Continue processing other repositories
-                }
+                analyzeRepository(fullyQualifiedName, typeWrapper);
             }
         }
     }
@@ -232,12 +224,12 @@ public class QueryOptimizationChecker {
      * @return priority value for sorting
      */
     private int getSeverityPriority(OptimizationIssue.Severity severity) {
-        switch (severity) {
-            case HIGH: return 0;
-            case MEDIUM: return 1;
-            case LOW: return 2;
-            default: return 3;
-        }
+        return switch (severity) {
+            case HIGH -> 0;
+            case MEDIUM -> 1;
+            case LOW -> 2;
+            default -> 3;
+        };
     }
     
     /**
