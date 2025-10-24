@@ -126,7 +126,7 @@ public class QueryOptimizationResult {
      */
     public List<OptimizationIssue> getIssuesBySeverity(OptimizationIssue.Severity severity) {
         return optimizationIssues.stream()
-                .filter(issue -> issue.getSeverity() == severity)
+                .filter(issue -> issue.severity() == severity)
                 .collect(Collectors.toList());
     }
     
