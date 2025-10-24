@@ -13,6 +13,7 @@ import sa.com.cloudsolutions.antikythera.parser.RepositoryParser;
 import sa.com.cloudsolutions.liquibase.Indexes;
 
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.file.Paths;
 import java.util.List;
@@ -45,9 +46,8 @@ public class QueryOptimizationChecker {
     /**
      * Analyzes all JPA repositories using RepositoryParser to extract and analyze queries.
      * 
-     * @throws Exception if analysis fails
      */
-    public void analyze() throws Exception {
+    public void analyze() throws FileNotFoundException {
         Map<String, TypeWrapper> resolvedTypes = AntikytheraRunTime.getResolvedTypes();
 
         for (Map.Entry<String, TypeWrapper> entry : resolvedTypes.entrySet()) {
@@ -67,13 +67,11 @@ public class QueryOptimizationChecker {
      * @return true if it's a JPA repository, false otherwise
      */
     private boolean isJpaRepository(TypeWrapper typeWrapper) {
-        if (typeWrapper.getType() instanceof ClassOrInterfaceDeclaration classOrInterface) {
-            if (classOrInterface.isInterface()) {
-                for (var extendedType : classOrInterface.getExtendedTypes()) {
-                    if (extendedType.getNameAsString().contains("JpaRepository") ||
-                        extendedType.toString().contains("JpaRepository")) {
-                        return true;
-                    }
+        if (typeWrapper.getType() instanceof ClassOrInterfaceDeclaration classOrInterface && classOrInterface.isInterface()) {
+            for (var extendedType : classOrInterface.getExtendedTypes()) {
+                if (extendedType.getNameAsString().contains("JpaRepository") ||
+                    extendedType.toString().contains("JpaRepository")) {
+                    return true;
                 }
             }
         }
@@ -85,36 +83,29 @@ public class QueryOptimizationChecker {
      * 
      * @param fullyQualifiedName the fully qualified class name of the repository
      * @param typeWrapper the TypeWrapper representing the repository
-     * @throws Exception if analysis fails
      */
-    private void analyzeRepository(String fullyQualifiedName, TypeWrapper typeWrapper) throws Exception {
+    private void analyzeRepository(String fullyQualifiedName, TypeWrapper typeWrapper) throws FileNotFoundException {
         logger.debug("Analyzing repository: {}", fullyQualifiedName);
         
-        try {
-            // Use RepositoryParser to process the repository type
-            repositoryParser.compile(AbstractCompiler.classToPath(fullyQualifiedName));
-            repositoryParser.processTypes();
-            
-            // Build all queries using RepositoryParser
-            repositoryParser.buildQueries();
-            
-            // Analyze each method in the repository to get its queries
-            if (typeWrapper.getType() != null) {
-                var declaration = typeWrapper.getType().asClassOrInterfaceDeclaration();
-                
-                for (var method : declaration.getMethods()) {
-                    Callable callable = new Callable(method, null);
-                    RepositoryQuery repositoryQuery = repositoryParser.get(callable);
-                    
-                    if (repositoryQuery != null) {
-                        analyzeRepositoryQuery(fullyQualifiedName, callable, repositoryQuery);
-                    }
+        // Use RepositoryParser to process the repository type
+        repositoryParser.compile(AbstractCompiler.classToPath(fullyQualifiedName));
+        repositoryParser.processTypes();
+
+        // Build all queries using RepositoryParser
+        repositoryParser.buildQueries();
+
+        // Analyze each method in the repository to get its queries
+        if (typeWrapper.getType() != null) {
+            var declaration = typeWrapper.getType().asClassOrInterfaceDeclaration();
+
+            for (var method : declaration.getMethods()) {
+                Callable callable = new Callable(method, null);
+                RepositoryQuery repositoryQuery = repositoryParser.get(callable);
+
+                if (repositoryQuery != null) {
+                    analyzeRepositoryQuery(fullyQualifiedName, callable, repositoryQuery);
                 }
             }
-            
-        } catch (IOException e) {
-            logger.error("Error compiling repository {}: {}", fullyQualifiedName, e.getMessage());
-            throw new Exception("Failed to compile repository: " + fullyQualifiedName, e);
         }
     }
 
@@ -401,13 +392,7 @@ public class QueryOptimizationChecker {
             System.exit(1);
         }
 
-        try {
-            QueryOptimizationChecker checker = new QueryOptimizationChecker(liquibaseXml);
-            checker.analyze();
-        } catch (Exception e) {
-            System.err.println("Error during analysis: " + e.getMessage());
-            e.printStackTrace();
-            System.exit(1);
-        }
+        QueryOptimizationChecker checker = new QueryOptimizationChecker(liquibaseXml);
+        checker.analyze();
     }
 }
