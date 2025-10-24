@@ -252,8 +252,25 @@ public class Indexes {
             if (isBlank(ref)) continue;
             File child = resolveRelative(file, ref);
             if (!child.exists()) {
-                System.err.println("Warning: included file not found: " + child.getPath());
-                continue;
+                // Fallback: try again after stripping 'db/changelog/' (and Windows variant) from the path
+                String stripped = ref;
+                if (ref.contains("db/changelog/")) {
+                    stripped = ref.replace("db/changelog/", "");
+                } else if (ref.contains("db\\changelog\\")) {
+                    stripped = ref.replace("db\\changelog\\", "");
+                }
+                if (!Objects.equals(stripped, ref)) {
+                    File retry = resolveRelative(file, stripped);
+                    if (retry.exists()) {
+                        child = retry;
+                    } else {
+                        System.err.println("Warning: included file not found (after fallback): " + child.getPath() + " | retried: " + retry.getPath());
+                        continue;
+                    }
+                } else {
+                    System.err.println("Warning: included file not found: " + child.getPath());
+                    continue;
+                }
             }
             Map<String, List<Index>> childMap = parseLiquibaseFile(child, visited);
             merge(result, childMap);
@@ -265,8 +282,25 @@ public class Indexes {
             if (isBlank(dir)) continue;
             File baseDir = resolveRelative(file, dir);
             if (!baseDir.exists() || !baseDir.isDirectory()) {
-                System.err.println("Warning: includeAll path not found or not a directory: " + baseDir.getPath());
-                continue;
+                // Fallback: try again after stripping 'db/changelog/' (and Windows variant) from the path
+                String stripped = dir;
+                if (dir.contains("db/changelog/")) {
+                    stripped = dir.replace("db/changelog/", "");
+                } else if (dir.contains("db\\changelog\\")) {
+                    stripped = dir.replace("db\\changelog\\", "");
+                }
+                if (!Objects.equals(stripped, dir)) {
+                    File retryDir = resolveRelative(file, stripped);
+                    if (retryDir.exists() && retryDir.isDirectory()) {
+                        baseDir = retryDir;
+                    } else {
+                        System.err.println("Warning: includeAll path not found or not a directory (after fallback): " + baseDir.getPath() + " | retried: " + retryDir.getPath());
+                        continue;
+                    }
+                } else {
+                    System.err.println("Warning: includeAll path not found or not a directory: " + baseDir.getPath());
+                    continue;
+                }
             }
             File[] files = baseDir.listFiles((d, name) -> name.toLowerCase().endsWith(".xml"));
             if (files == null) continue;
