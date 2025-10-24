@@ -18,8 +18,8 @@ public class CardinalityAnalyzer {
     private final Map<String, Map<String, ColumnDataType>> columnTypeMap;
 
     // User-provided overrides for column cardinality (lower-cased column names)
-    private static Set<String> USER_DEFINED_LOW = Collections.emptySet();
-    private static Set<String> USER_DEFINED_HIGH = Collections.emptySet();
+    private static Set<String> userDefinedLow = Collections.emptySet();
+    private static Set<String> userDefinedHigh = Collections.emptySet();
 
     /**
      * Column data type categories for cardinality purposes.
@@ -35,8 +35,8 @@ public class CardinalityAnalyzer {
      * Provided column names should be lower-cased; this method does not modify case.
      */
     public static void configureUserDefinedCardinality(Set<String> low, Set<String> high) {
-        USER_DEFINED_LOW = low != null ? low : Collections.emptySet();
-        USER_DEFINED_HIGH = high != null ? high : Collections.emptySet();
+        userDefinedLow = low != null ? low : Collections.emptySet();
+        userDefinedHigh = high != null ? high : Collections.emptySet();
     }
     
     /**
@@ -77,10 +77,10 @@ public class CardinalityAnalyzer {
         String normalizedColumnName = columnName.toLowerCase();
 
         // Honor user-defined overrides first (high takes precedence if listed in both)
-        if (USER_DEFINED_HIGH.contains(normalizedColumnName)) {
+        if (userDefinedHigh.contains(normalizedColumnName)) {
             return CardinalityLevel.HIGH;
         }
-        if (USER_DEFINED_LOW.contains(normalizedColumnName)) {
+        if (userDefinedLow.contains(normalizedColumnName)) {
             return CardinalityLevel.LOW;
         }
         
@@ -187,25 +187,6 @@ public class CardinalityAnalyzer {
         
         return indexes.stream()
                 .filter(index -> "UNIQUE_CONSTRAINT".equals(index.type) || "UNIQUE_INDEX".equals(index.type))
-                .flatMap(index -> index.columns.stream())
-                .anyMatch(col -> col.toLowerCase().equals(columnName));
-    }
-    
-    /**
-     * Checks if a column has a regular (non-unique) index.
-     * 
-     * @param tableName the name of the table (should be normalized to lowercase)
-     * @param columnName the name of the column (should be normalized to lowercase)
-     * @return true if the column has a regular index, false otherwise
-     */
-    private boolean hasRegularIndex(String tableName, String columnName) {
-        List<Indexes.IndexInfo> indexes = indexMap.get(tableName);
-        if (indexes == null) {
-            return false;
-        }
-        
-        return indexes.stream()
-                .filter(index -> "INDEX".equals(index.type))
                 .flatMap(index -> index.columns.stream())
                 .anyMatch(col -> col.toLowerCase().equals(columnName));
     }

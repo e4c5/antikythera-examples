@@ -1,5 +1,7 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import sa.com.cloudsolutions.liquibase.Indexes;
 
 import java.io.File;
@@ -9,103 +11,131 @@ import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashSet;
-import java.util.List;
 import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 /**
- * Coverage tests for QueryOptimizationChecker using reflection to access private helpers.
- * This project uses simple main-method tests with Java asserts.
+ * Proper JUnit 5 unit tests for QueryOptimizationChecker using reflection to access private helpers.
  */
-public class QueryOptimizationCheckerTest {
+class QueryOptimizationCheckerTest {
 
-    public static void main(String[] args) throws Exception {
-        System.out.println("=== QueryOptimizationChecker Coverage Test ===\n");
+    private File liquibaseFile;
+    private QueryOptimizationChecker checker;
+    private Class<?> cls;
 
-        // 1) Prepare a minimal Liquibase file that can be parsed
+    @BeforeEach
+    void setUp() throws Exception {
         Path tmpDir = Files.createTempDirectory("qoc-test");
-        File lb = tmpDir.resolve("db.changelog-master.xml").toFile();
-        try (FileWriter fw = new FileWriter(lb)) {
+        liquibaseFile = tmpDir.resolve("db.changelog-master.xml").toFile();
+        try (FileWriter fw = new FileWriter(liquibaseFile)) {
             fw.write("<databaseChangeLog xmlns=\"http://www.liquibase.org/xml/ns/dbchangelog\"></databaseChangeLog>");
         }
+        assertTrue(Indexes.load(liquibaseFile).isEmpty(), "Expected empty index map for minimal Liquibase file");
+        checker = new QueryOptimizationChecker(liquibaseFile.getAbsolutePath());
+        cls = QueryOptimizationChecker.class;
+    }
 
-        // Sanity: Indexes.load should work and return an empty map
-        assert Indexes.load(lb).isEmpty();
-
-        QueryOptimizationChecker checker = new QueryOptimizationChecker(lb.getAbsolutePath());
-
-        // Use reflection helpers
-        Class<?> cls = QueryOptimizationChecker.class;
-
-        // parseListArg
+    @Test
+    void testParseListArg() throws Exception {
         Method parseListArg = cls.getDeclaredMethod("parseListArg", String[].class, String.class);
         parseListArg.setAccessible(true);
         @SuppressWarnings("unchecked")
         Set<String> low = (Set<String>) parseListArg.invoke(null, new Object[]{new String[]{"--low-cardinality=email,is_active,  USER_ID   ", "--other=x"}, "--low-cardinality="});
-        assert low.contains("email");
-        assert low.contains("is_active");
-        assert low.contains("user_id");
-        assert low.size() == 3;
+        assertTrue(low.contains("email"));
+        assertTrue(low.contains("is_active"));
+        assertTrue(low.contains("user_id"));
+        assertEquals(3, low.size());
+    }
+
+    @Test
+    void testParseListArg_NoMatch() throws Exception {
+        Method parseListArg = cls.getDeclaredMethod("parseListArg", String[].class, String.class);
+        parseListArg.setAccessible(true);
         @SuppressWarnings("unchecked")
         Set<String> none = (Set<String>) parseListArg.invoke(null, new Object[]{new String[]{"--foo=bar"}, "--low-cardinality="});
-        assert none.isEmpty();
+        assertTrue(none.isEmpty());
+    }
 
-        // getSeverityPriority ordering
+    @Test
+    void testSeverityPriorityOrdering() throws Exception {
         Method getSeverityPriority = cls.getDeclaredMethod("getSeverityPriority", OptimizationIssue.Severity.class);
         getSeverityPriority.setAccessible(true);
         int pHigh = (int) getSeverityPriority.invoke(checker, OptimizationIssue.Severity.HIGH);
         int pMed = (int) getSeverityPriority.invoke(checker, OptimizationIssue.Severity.MEDIUM);
         int pLow = (int) getSeverityPriority.invoke(checker, OptimizationIssue.Severity.LOW);
-        assert pHigh < pMed && pMed < pLow;
+        assertTrue(pHigh < pMed && pMed < pLow);
+    }
 
-        // getSeverityIcon mapping
+    @Test
+    void testSeverityIconMapping() throws Exception {
         Method getSeverityIcon = cls.getDeclaredMethod("getSeverityIcon", OptimizationIssue.Severity.class);
         getSeverityIcon.setAccessible(true);
         String iHigh = (String) getSeverityIcon.invoke(checker, OptimizationIssue.Severity.HIGH);
         String iMed = (String) getSeverityIcon.invoke(checker, OptimizationIssue.Severity.MEDIUM);
         String iLow = (String) getSeverityIcon.invoke(checker, OptimizationIssue.Severity.LOW);
-        assert "🔴".equals(iHigh);
-        assert "🟡".equals(iMed);
-        assert "🟢".equals(iLow);
+        assertEquals("🔴", iHigh);
+        assertEquals("🟡", iMed);
+        assertEquals("🟢", iLow);
+    }
 
-        // inferTableNameFromQuery and safe fallback
+    @Test
+    void testInferTableNameFromQuery() throws Exception {
         Method inferFromQuery = cls.getDeclaredMethod("inferTableNameFromQuery", String.class);
         inferFromQuery.setAccessible(true);
         String table1 = (String) inferFromQuery.invoke(checker, "SELECT * FROM public.users u WHERE u.id = ?");
-        assert "users".equals(table1);
+        assertEquals("users", table1);
+    }
+
+    @Test
+    void testInferTableNameFromQuerySafeFallback() throws Exception {
         Method inferSafe = cls.getDeclaredMethod("inferTableNameFromQuerySafe", String.class, String.class);
         inferSafe.setAccessible(true);
         String table2 = (String) inferSafe.invoke(checker, null, "UserAccountRepository");
-        // camel to snake
-        assert "user_account".equals(table2);
+        assertEquals("user_account", table2);
+    }
 
-        // buildLiquibaseNonLockingIndexChangeSet
+    @Test
+    void testBuildLiquibaseNonLockingIndexChangeSet() throws Exception {
         Method buildCreate = cls.getDeclaredMethod("buildLiquibaseNonLockingIndexChangeSet", String.class, String.class);
         buildCreate.setAccessible(true);
         String createXml = (String) buildCreate.invoke(checker, "users", "email");
-        assert createXml.contains("CREATE INDEX CONCURRENTLY idx_users_email ON users (email)")
-                || createXml.contains("CREATE INDEX idx_users_email ON users (email)");
-        assert createXml.toLowerCase().contains("rollback");
+        assertTrue(
+                createXml.contains("CREATE INDEX CONCURRENTLY idx_users_email ON users (email)")
+                        || createXml.contains("CREATE INDEX idx_users_email ON users (email)")
+        );
+        assertTrue(createXml.toLowerCase().contains("rollback"));
+    }
 
-        // buildLiquibaseDropIndexChangeSet
+    @Test
+    void testBuildLiquibaseDropIndexChangeSet() throws Exception {
         Method buildDrop = cls.getDeclaredMethod("buildLiquibaseDropIndexChangeSet", String.class);
         buildDrop.setAccessible(true);
         String dropXml = (String) buildDrop.invoke(checker, "idx_users_email");
-        assert dropXml.contains("DROP INDEX CONCURRENTLY IF EXISTS idx_users_email")
-                || dropXml.contains("DROP INDEX idx_users_email");
+        assertTrue(
+                dropXml.contains("DROP INDEX CONCURRENTLY IF EXISTS idx_users_email")
+                        || dropXml.contains("DROP INDEX idx_users_email")
+        );
+    }
 
-        // sanitize
+    @Test
+    void testSanitize() throws Exception {
         Method sanitize = cls.getDeclaredMethod("sanitize", String.class);
         sanitize.setAccessible(true);
-        assert "abc_123".equals(sanitize.invoke(checker, "Abc-123"));
-        assert "".equals(sanitize.invoke(checker, null));
+        assertEquals("abc_123", sanitize.invoke(checker, "Abc-123"));
+        assertEquals("", sanitize.invoke(checker, (Object) null));
+    }
 
-        // indent
+    @Test
+    void testIndent() throws Exception {
         Method indent = cls.getDeclaredMethod("indent", String.class, int.class);
         indent.setAccessible(true);
         String indented = (String) indent.invoke(checker, "a\nb", 2);
-        assert indented.equals("  a\n  b");
+        assertEquals("  a\n  b", indented);
+    }
 
-        // printConsolidatedIndexActions: seed suggestedNewIndexes via reflection and check counters
+    @Test
+    void testPrintConsolidatedIndexActions() throws Exception {
         Field suggested = cls.getDeclaredField("suggestedNewIndexes");
         suggested.setAccessible(true);
         @SuppressWarnings("unchecked")
@@ -113,7 +143,6 @@ public class QueryOptimizationCheckerTest {
         suggestedSet.add("users|email");
         suggestedSet.add("orders|user_id");
 
-        // Capture output
         java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
         java.io.PrintStream originalOut = System.out;
         System.setOut(new java.io.PrintStream(baos));
@@ -123,11 +152,8 @@ public class QueryOptimizationCheckerTest {
             System.setOut(originalOut);
         }
         String out = baos.toString();
-        assert out.contains("SUGGESTED NEW INDEXES");
-        assert checker.getTotalIndexCreateRecommendations() >= 2;
-        // No drops expected from empty Liquibase file
-        assert checker.getTotalIndexDropRecommendations() >= 0;
-
-        System.out.println("\n✅ QueryOptimizationChecker helper coverage OK");
+        assertTrue(out.contains("SUGGESTED NEW INDEXES"));
+        assertTrue(checker.getTotalIndexCreateRecommendations() >= 2);
+        assertTrue(checker.getTotalIndexDropRecommendations() >= 0);
     }
 }
