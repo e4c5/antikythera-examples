@@ -1,8 +1,5 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
-import sa.com.cloudsolutions.antikythera.generator.QueryMethodParameter;
-import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
-
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -178,8 +175,8 @@ public class QueryOptimizationReportingDemo {
                 WhereCondition firstCondition = result.getFirstCondition();
                 String cardinalityInfo = firstCondition != null ? 
                     String.format(" (First condition uses %s cardinality column: %s)", 
-                                 firstCondition.getCardinality().toString().toLowerCase(),
-                                 firstCondition.getColumnName()) : "";
+                                 firstCondition.cardinality().toString().toLowerCase(),
+                                 firstCondition.columnName()) : "";
                 
                 System.out.println(String.format("✓ OPTIMIZED: %s.%s - Query is already optimized%s",
                                                 result.getRepositoryClass(), 
@@ -218,12 +215,12 @@ public class QueryOptimizationReportingDemo {
         }
         
         private int getSeverityPriority(OptimizationIssue.Severity severity) {
-            switch (severity) {
-                case HIGH: return 0;
-                case MEDIUM: return 1;
-                case LOW: return 2;
-                default: return 3;
-            }
+            return switch (severity) {
+                case HIGH -> 0;
+                case MEDIUM -> 1;
+                case LOW -> 2;
+                default -> 3;
+            };
         }
         
         private String formatOptimizationIssueEnhanced(OptimizationIssue issue, int issueNumber, 
@@ -251,17 +248,17 @@ public class QueryOptimizationReportingDemo {
         }
         
         private String getSeverityIcon(OptimizationIssue.Severity severity) {
-            switch (severity) {
-                case HIGH: return "🔴";
-                case MEDIUM: return "🟡";
-                case LOW: return "🟢";
-                default: return "⚪";
-            }
+            return switch (severity) {
+                case HIGH -> "🔴";
+                case MEDIUM -> "🟡";
+                case LOW -> "🟢";
+                default -> "⚪";
+            };
         }
         
         private WhereCondition findConditionByColumn(QueryOptimizationResult result, String columnName) {
             return result.getWhereConditions().stream()
-                .filter(condition -> columnName.equals(condition.getColumnName()))
+                .filter(condition -> columnName.equals(condition.columnName()))
                 .findFirst()
                 .orElse(null);
         }
@@ -269,23 +266,19 @@ public class QueryOptimizationReportingDemo {
         private String formatConditionWithCardinality(String columnName, WhereCondition condition) {
             if (condition != null) {
                 return String.format("%s (%s cardinality)", columnName, 
-                                   condition.getCardinality().toString().toLowerCase());
+                                   condition.cardinality().toString().toLowerCase());
             } else {
                 return columnName + " (cardinality unknown)";
             }
         }
         
         private String getPerformanceImpactExplanation(OptimizationIssue.Severity severity) {
-            switch (severity) {
-                case HIGH:
-                    return "Significant performance degradation likely - low cardinality column filters fewer rows";
-                case MEDIUM:
-                    return "Moderate performance improvement possible - better column ordering can reduce query time";
-                case LOW:
-                    return "Minor performance optimization opportunity - small potential gains";
-                default:
-                    return "Performance impact unknown";
-            }
+            return switch (severity) {
+                case HIGH -> "Significant performance degradation likely - low cardinality column filters fewer rows";
+                case MEDIUM -> "Moderate performance improvement possible - better column ordering can reduce query time";
+                case LOW -> "Minor performance optimization opportunity - small potential gains";
+                default -> "Performance impact unknown";
+            };
         }
         
         private void addColumnReorderingRecommendations(QueryOptimizationResult result, List<OptimizationIssue> issues) {
