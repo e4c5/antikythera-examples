@@ -26,9 +26,10 @@ import java.util.Optional;
  * to identify WHERE clause optimization opportunities based on column cardinality.
  */
 public class QueryAnalysisEngine {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(QueryAnalysisEngine.class);
-    
+    public static final String UNKNOWN = "Unknown";
+
     private final CardinalityAnalyzer cardinalityAnalyzer;
     
     /**
@@ -65,7 +66,7 @@ public class QueryAnalysisEngine {
                                                            String repositoryClassName) {
         if (repositoryQuery == null) {
             logger.warn("Cannot analyze null repository query");
-            return createEmptyResult("Unknown", "Unknown", "");
+            return createEmptyResult(UNKNOWN, UNKNOWN, "");
         }
         
         // Enhanced repository class and method name extraction using Callable information
@@ -162,7 +163,7 @@ public class QueryAnalysisEngine {
      * Infers table name from repository class name.
      */
     private String inferTableNameFromRepositoryClass(String repositoryClass) {
-        if (repositoryClass == null || repositoryClass.equals("Unknown")) {
+        if (repositoryClass == null || repositoryClass.equals(UNKNOWN)) {
             return "unknown_table";
         }
         
@@ -587,15 +588,7 @@ public class QueryAnalysisEngine {
         }
         return null;
     }
-    
-    /**
-     * Gets the repository class name from the RepositoryQuery.
-     * Enhanced to use RepositoryQuery's methodDeclaration when available.
-     */
-    private String getRepositoryClassName(RepositoryQuery repositoryQuery) {
-        return getRepositoryClassNameEnhanced(repositoryQuery, null, null);
-    }
-    
+
     /**
      * Gets the method name from the RepositoryQuery.
      * Enhanced to use RepositoryQuery's methodDeclaration when available.
@@ -629,7 +622,7 @@ public class QueryAnalysisEngine {
                 return callable.asMethodDeclaration().findAncestor(
                     com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
                     .map(cls -> cls.getNameAsString())
-                    .orElse("Unknown");
+                    .orElse(UNKNOWN);
             } catch (Exception e) {
                 logger.debug("Error getting class name from Callable: {}", e.getMessage());
             }
@@ -646,7 +639,7 @@ public class QueryAnalysisEngine {
                 return reflectedCallable.asMethodDeclaration().findAncestor(
                     com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
                     .map(cls -> cls.getNameAsString())
-                    .orElse("Unknown");
+                    .orElse(UNKNOWN);
             }
         } catch (Exception e) {
             logger.debug("Error getting repository class name via reflection: {}", e.getMessage());
@@ -662,7 +655,7 @@ public class QueryAnalysisEngine {
             logger.debug("Error converting table name to repository class: {}", e.getMessage());
         }
         
-        return "Unknown";
+        return UNKNOWN;
     }
     
     /**
@@ -704,7 +697,7 @@ public class QueryAnalysisEngine {
             return inferMethodNameFromParameters(parameters);
         }
         
-        return "Unknown";
+        return UNKNOWN;
     }
     
     /**
@@ -712,7 +705,7 @@ public class QueryAnalysisEngine {
      */
     private String convertTableNameToRepositoryClass(String tableName) {
         if (tableName == null || tableName.isEmpty()) {
-            return "Unknown";
+            return UNKNOWN;
         }
         
         // Convert snake_case to PascalCase and add Repository suffix
