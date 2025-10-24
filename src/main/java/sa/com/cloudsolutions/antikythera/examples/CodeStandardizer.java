@@ -41,6 +41,7 @@ public class CodeStandardizer {
         public final String methodName;
         public final List<String> oldParamNames;
         public final List<String> newParamNames;
+
         public SignatureUpdate(String fqn, String methodName, List<String> oldParamNames, List<String> newParamNames) {
             this.repositoryClassFqn = fqn;
             this.methodName = methodName;
@@ -54,8 +55,6 @@ public class CodeStandardizer {
      * Returns an optional SignatureUpdate for derived methods whose parameter order was changed.
      */
     public Optional<SignatureUpdate> standardize(String repositoryClassFqn,
-                                                 Callable callable,
-                                                 RepositoryQuery repositoryQuery,
                                                  QueryOptimizationResult result) throws IOException {
         Path filePath = Path.of(AbstractCompiler.classToPath(repositoryClassFqn));
         String source = Files.readString(filePath);
