@@ -161,7 +161,7 @@ public class QueryOptimizationResult {
      */
     public List<WhereCondition> getConditionsByCardinality(CardinalityLevel cardinality) {
         return whereConditions.stream()
-                .filter(condition -> condition.getCardinality() == cardinality)
+                .filter(condition -> condition.cardinality() == cardinality)
                 .collect(Collectors.toList());
     }
     
@@ -172,7 +172,7 @@ public class QueryOptimizationResult {
      */
     public WhereCondition getFirstCondition() {
         return whereConditions.stream()
-                .filter(condition -> condition.getPosition() == 0)
+                .filter(condition -> condition.position() == 0)
                 .findFirst()
                 .orElse(null);
     }
@@ -220,8 +220,8 @@ public class QueryOptimizationResult {
             report.append("\nWHERE Conditions:\n");
             for (WhereCondition condition : whereConditions) {
                 report.append(String.format("  %d. %s %s (Cardinality: %s)%n", 
-                            condition.getPosition() + 1, condition.getColumnName(), 
-                            condition.getOperator(), condition.getCardinality()));
+                            condition.position() + 1, condition.columnName(),
+                            condition.operator(), condition.cardinality()));
             }
         }
         

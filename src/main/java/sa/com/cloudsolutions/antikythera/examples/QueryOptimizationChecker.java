@@ -14,11 +14,13 @@ import sa.com.cloudsolutions.liquibase.Indexes;
 
 import java.io.File;
 import java.io.FileNotFoundException;
-import java.io.IOException;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
+import java.util.HashSet;
+import java.util.Set;
 
+@SuppressWarnings("java:S3457")
 public class QueryOptimizationChecker {
     
     private static final Logger logger = LoggerFactory.getLogger(QueryOptimizationChecker.class);
@@ -158,8 +160,8 @@ public class QueryOptimizationChecker {
             WhereCondition firstCondition = result.getFirstCondition();
             String cardinalityInfo = firstCondition != null ? 
                 String.format(" (First condition uses %s cardinality column: %s)", 
-                             firstCondition.getCardinality().toString().toLowerCase(),
-                             firstCondition.getColumnName()) : "";
+                             firstCondition.cardinality().toString().toLowerCase(),
+                             firstCondition.columnName()) : "";
             
             System.out.println(String.format("✓ OPTIMIZED: %s.%s - Query is already optimized%s",
                                             result.getRepositoryClass(), 
@@ -266,12 +268,12 @@ public class QueryOptimizationChecker {
      * @return icon string for the severity
      */
     private String getSeverityIcon(OptimizationIssue.Severity severity) {
-        switch (severity) {
-            case HIGH: return "🔴";
-            case MEDIUM: return "🟡";
-            case LOW: return "🟢";
-            default: return "⚪";
-        }
+        return switch (severity) {
+            case HIGH -> "🔴";
+            case MEDIUM -> "🟡";
+            case LOW -> "🟢";
+            default -> "⚪";
+        };
     }
     
     /**
@@ -283,7 +285,7 @@ public class QueryOptimizationChecker {
      */
     private WhereCondition findConditionByColumn(QueryOptimizationResult result, String columnName) {
         return result.getWhereConditions().stream()
-            .filter(condition -> columnName.equals(condition.getColumnName()))
+            .filter(condition -> columnName.equals(condition.columnName()))
             .findFirst()
             .orElse(null);
     }
@@ -298,7 +300,7 @@ public class QueryOptimizationChecker {
     private String formatConditionWithCardinality(String columnName, WhereCondition condition) {
         if (condition != null) {
             return String.format("%s (%s cardinality)", columnName, 
-                               condition.getCardinality().toString().toLowerCase());
+                               condition.cardinality().toString().toLowerCase());
         } else {
             return columnName + " (cardinality unknown)";
         }
@@ -311,16 +313,12 @@ public class QueryOptimizationChecker {
      * @return explanation of the performance impact
      */
     private String getPerformanceImpactExplanation(OptimizationIssue.Severity severity) {
-        switch (severity) {
-            case HIGH:
-                return "Significant performance degradation likely - low cardinality column filters fewer rows";
-            case MEDIUM:
-                return "Moderate performance improvement possible - better column ordering can reduce query time";
-            case LOW:
-                return "Minor performance optimization opportunity - small potential gains";
-            default:
-                return "Performance impact unknown";
-        }
+        return switch (severity) {
+            case HIGH -> "Significant performance degradation likely - low cardinality column filters fewer rows";
+            case MEDIUM -> "Moderate performance improvement possible - better column ordering can reduce query time";
+            case LOW -> "Minor performance optimization opportunity - small potential gains";
+            default -> "Performance impact unknown";
+        };
     }
     
     /**
@@ -392,7 +390,37 @@ public class QueryOptimizationChecker {
             System.exit(1);
         }
 
+        // Parse optional CLI parameters for cardinality overrides
+        Set<String> lowOverride = parseListArg(args, "--low-cardinality=");
+        Set<String> highOverride = parseListArg(args, "--high-cardinality=");
+        if ((lowOverride != null && !lowOverride.isEmpty()) || (highOverride != null && !highOverride.isEmpty())) {
+            CardinalityAnalyzer.configureUserDefinedCardinality(
+                lowOverride != null ? lowOverride : new HashSet<>(),
+                highOverride != null ? highOverride : new HashSet<>()
+            );
+        }
+
         QueryOptimizationChecker checker = new QueryOptimizationChecker(liquibaseXml);
         checker.analyze();
+    }
+
+    private static Set<String> parseListArg(String[] args, String prefix) {
+        if (args == null || args.length == 0) return new HashSet<>();
+        for (String arg : args) {
+            if (arg != null && arg.startsWith(prefix)) {
+                String value = arg.substring(prefix.length());
+                HashSet<String> set = new HashSet<>();
+                if (!value.isEmpty()) {
+                    for (String token : value.split(",")) {
+                        if (token != null) {
+                            String t = token.trim().toLowerCase();
+                            if (!t.isEmpty()) set.add(t);
+                        }
+                    }
+                }
+                return set;
+            }
+        }
+        return new HashSet<>();
     }
 }

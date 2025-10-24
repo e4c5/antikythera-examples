@@ -389,7 +389,7 @@ public class QueryAnalysisEngine {
         
         // Find the first condition (position 0)
         Optional<WhereCondition> firstConditionOpt = conditions.stream()
-            .filter(condition -> condition.getPosition() == 0)
+            .filter(condition -> condition.position() == 0)
             .findFirst();
             
         if (!firstConditionOpt.isPresent()) {
@@ -411,15 +411,15 @@ public class QueryAnalysisEngine {
                 String cardinalityDetails = getCardinalityDetails(tableName, firstCondition, recommended);
                 String description = String.format(
                     "Query starts with %s cardinality column '%s' but %s cardinality column '%s' is available. %s",
-                    firstCondition.getCardinality().toString().toLowerCase(),
-                    firstCondition.getColumnName(),
-                    recommended.getCardinality().toString().toLowerCase(),
-                    recommended.getColumnName(),
+                    firstCondition.cardinality().toString().toLowerCase(),
+                    firstCondition.columnName(),
+                    recommended.cardinality().toString().toLowerCase(),
+                    recommended.columnName(),
                     cardinalityDetails);
                     
                 OptimizationIssue issue = new OptimizationIssue(
-                    repositoryClass, methodName, firstCondition.getColumnName(),
-                    recommended.getColumnName(), description, OptimizationIssue.Severity.HIGH, queryText);
+                    repositoryClass, methodName, firstCondition.columnName(),
+                    recommended.columnName(), description, OptimizationIssue.Severity.HIGH, queryText);
                 issues.add(issue);
             }
         }
@@ -432,7 +432,7 @@ public class QueryAnalysisEngine {
         if (highCardinalityConditions.size() > 1) {
             // Find the most selective high cardinality column (primary keys are most selective)
             Optional<WhereCondition> primaryKeyCondition = highCardinalityConditions.stream()
-                .filter(condition -> cardinalityAnalyzer.isPrimaryKey(tableName, condition.getColumnName()))
+                .filter(condition -> cardinalityAnalyzer.isPrimaryKey(tableName, condition.columnName()))
                 .findFirst();
                 
             if (primaryKeyCondition.isPresent() && !firstCondition.equals(primaryKeyCondition.get())) {
@@ -443,14 +443,14 @@ public class QueryAnalysisEngine {
                 String description = String.format(
                     "Primary key column '%s' should appear first in WHERE clause for optimal performance. " +
                     "Currently starts with '%s' (%s cardinality). %s",
-                    recommended.getColumnName(),
-                    firstCondition.getColumnName(),
-                    firstCondition.getCardinality().toString().toLowerCase(),
+                    recommended.columnName(),
+                    firstCondition.columnName(),
+                    firstCondition.cardinality().toString().toLowerCase(),
                     selectivityDetails);
                     
                 OptimizationIssue issue = new OptimizationIssue(
-                    repositoryClass, methodName, firstCondition.getColumnName(),
-                    recommended.getColumnName(), description, OptimizationIssue.Severity.MEDIUM, queryText);
+                    repositoryClass, methodName, firstCondition.columnName(),
+                    recommended.columnName(), description, OptimizationIssue.Severity.MEDIUM, queryText);
                 issues.add(issue);
             }
         }
@@ -540,19 +540,13 @@ public class QueryAnalysisEngine {
      * Extracts the table name from a SQL statement.
      */
     private String extractTableName(Statement statement) {
-        try {
-            if (statement instanceof Select select) {
-                if (select.getSelectBody() instanceof PlainSelect plainSelect) {
-                    if (plainSelect.getFromItem() != null) {
-                        String fromItem = plainSelect.getFromItem().toString();
-                        // Handle table aliases (e.g., "table_name t" -> "table_name")
-                        String[] parts = fromItem.split("\\s+");
-                        return parts[0];
-                    }
-                }
+        if (statement instanceof Select select && select.getSelectBody() instanceof PlainSelect plainSelect) {
+            if (plainSelect.getFromItem() != null) {
+                String fromItem = plainSelect.getFromItem().toString();
+                // Handle table aliases (e.g., "table_name t" -> "table_name")
+                String[] parts = fromItem.split("\\s+");
+                return parts[0];
             }
-        } catch (Exception e) {
-            logger.debug("Error extracting table name: {}", e.getMessage());
         }
         return null;
     }
@@ -749,7 +743,7 @@ public class QueryAnalysisEngine {
         
         // Explain why the current condition is problematic
         if (currentCondition.isLowCardinality()) {
-            if (cardinalityAnalyzer.isBooleanColumn(tableName, currentCondition.getColumnName())) {
+            if (cardinalityAnalyzer.isBooleanColumn(tableName, currentCondition.columnName())) {
                 details.append("Boolean columns filter roughly 50% of rows. ");
             } else {
                 details.append("Low cardinality columns filter fewer rows, requiring more processing. ");
@@ -758,9 +752,9 @@ public class QueryAnalysisEngine {
         
         // Explain why the recommended condition is better
         if (recommendedCondition.isHighCardinality()) {
-            if (cardinalityAnalyzer.isPrimaryKey(tableName, recommendedCondition.getColumnName())) {
+            if (cardinalityAnalyzer.isPrimaryKey(tableName, recommendedCondition.columnName())) {
                 details.append("Primary keys provide unique row identification for optimal filtering.");
-            } else if (cardinalityAnalyzer.hasUniqueConstraint(tableName, recommendedCondition.getColumnName())) {
+            } else if (cardinalityAnalyzer.hasUniqueConstraint(tableName, recommendedCondition.columnName())) {
                 details.append("Unique columns provide highly selective filtering.");
             } else {
                 details.append("High cardinality columns filter more rows earlier in query execution.");
@@ -781,9 +775,9 @@ public class QueryAnalysisEngine {
     private String getSelectivityDetails(String tableName, WhereCondition currentCondition, WhereCondition recommendedCondition) {
         StringBuilder details = new StringBuilder();
         
-        if (cardinalityAnalyzer.isPrimaryKey(tableName, recommendedCondition.getColumnName())) {
+        if (cardinalityAnalyzer.isPrimaryKey(tableName, recommendedCondition.columnName())) {
             details.append("Primary keys provide maximum selectivity (1 row per value). ");
-        } else if (cardinalityAnalyzer.hasUniqueConstraint(tableName, recommendedCondition.getColumnName())) {
+        } else if (cardinalityAnalyzer.hasUniqueConstraint(tableName, recommendedCondition.columnName())) {
             details.append("Unique constraints provide high selectivity. ");
         }
         

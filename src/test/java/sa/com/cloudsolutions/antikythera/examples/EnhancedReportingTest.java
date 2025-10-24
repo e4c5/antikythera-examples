@@ -98,8 +98,8 @@ public class EnhancedReportingTest {
         
         WhereCondition firstCondition = optimizedResult.getFirstCondition();
         assert firstCondition != null;
-        assert firstCondition.getColumnName().equals("user_id");
-        assert firstCondition.getCardinality() == CardinalityLevel.HIGH;
+        assert firstCondition.columnName().equals("user_id");
+        assert firstCondition.cardinality() == CardinalityLevel.HIGH;
         
         // Test conditions by cardinality filtering
         List<WhereCondition> highCardinalityConditions = optimizedResult.getConditionsByCardinality(CardinalityLevel.HIGH);
@@ -107,8 +107,8 @@ public class EnhancedReportingTest {
         
         assert highCardinalityConditions.size() == 1;
         assert lowCardinalityConditions.size() == 1;
-        assert highCardinalityConditions.get(0).getColumnName().equals("user_id");
-        assert lowCardinalityConditions.get(0).getColumnName().equals("is_active");
+        assert highCardinalityConditions.get(0).columnName().equals("user_id");
+        assert lowCardinalityConditions.get(0).columnName().equals("is_active");
         
         System.out.println("✓ QueryOptimizationResult enhancements verified");
         System.out.println("  - Confirmation reporting for optimized queries: ✓");

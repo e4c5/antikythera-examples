@@ -4,6 +4,8 @@ import sa.com.cloudsolutions.liquibase.Indexes;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Collections;
+import java.util.Set;
 
 /**
  * Analyzes column cardinality based on database metadata from Liquibase IndexInfo data.
@@ -12,6 +14,19 @@ import java.util.Map;
 public class CardinalityAnalyzer {
     
     private final Map<String, List<Indexes.IndexInfo>> indexMap;
+
+    // User-provided overrides for column cardinality (lower-cased column names)
+    private static Set<String> USER_DEFINED_LOW = Collections.emptySet();
+    private static Set<String> USER_DEFINED_HIGH = Collections.emptySet();
+
+    /**
+     * Configure user-defined low/high cardinality columns.
+     * Provided column names should be lower-cased; this method does not modify case.
+     */
+    public static void configureUserDefinedCardinality(Set<String> low, Set<String> high) {
+        USER_DEFINED_LOW = low != null ? low : Collections.emptySet();
+        USER_DEFINED_HIGH = high != null ? high : Collections.emptySet();
+    }
     
     /**
      * Creates a new CardinalityAnalyzer with the provided index information.
@@ -36,6 +51,14 @@ public class CardinalityAnalyzer {
         
         String normalizedTableName = tableName.toLowerCase();
         String normalizedColumnName = columnName.toLowerCase();
+
+        // Honor user-defined overrides first (high takes precedence if listed in both)
+        if (USER_DEFINED_HIGH.contains(normalizedColumnName)) {
+            return CardinalityLevel.HIGH;
+        }
+        if (USER_DEFINED_LOW.contains(normalizedColumnName)) {
+            return CardinalityLevel.LOW;
+        }
         
         // Check if column is a primary key (highest cardinality)
         if (isPrimaryKey(normalizedTableName, normalizedColumnName)) {
