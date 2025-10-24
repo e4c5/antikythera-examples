@@ -185,8 +185,8 @@ public class QueryOptimizationChecker {
         List<OptimizationIssue> sortedIssues = issues.stream()
             .sorted((issue1, issue2) -> {
                 // Sort by severity priority: HIGH (0) -> MEDIUM (1) -> LOW (2)
-                int priority1 = getSeverityPriority(issue1.getSeverity());
-                int priority2 = getSeverityPriority(issue2.getSeverity());
+                int priority1 = getSeverityPriority(issue1.severity());
+                int priority2 = getSeverityPriority(issue2.severity());
                 return Integer.compare(priority1, priority2);
             })
             .toList();
@@ -239,24 +239,24 @@ public class QueryOptimizationChecker {
         StringBuilder formatted = new StringBuilder();
         
         // Issue header with severity indicator
-        String severityIcon = getSeverityIcon(issue.getSeverity());
+        String severityIcon = getSeverityIcon(issue.severity());
         formatted.append(String.format("  %s Issue #%d [%s PRIORITY]: %s", 
                                       severityIcon, issueNumber, 
-                                      issue.getSeverity().toString(), 
-                                      issue.getDescription()));
+                                      issue.severity().toString(),
+                                      issue.description()));
         
         // Current vs recommended with cardinality information
-        WhereCondition currentCondition = findConditionByColumn(result, issue.getCurrentFirstColumn());
-        WhereCondition recommendedCondition = findConditionByColumn(result, issue.getRecommendedFirstColumn());
+        WhereCondition currentCondition = findConditionByColumn(result, issue.currentFirstColumn());
+        WhereCondition recommendedCondition = findConditionByColumn(result, issue.recommendedFirstColumn());
         
         formatted.append(String.format("\n    Current first condition: %s", 
-                                      formatConditionWithCardinality(issue.getCurrentFirstColumn(), currentCondition)));
+                                      formatConditionWithCardinality(issue.currentFirstColumn(), currentCondition)));
         formatted.append(String.format("\n    Recommended first condition: %s", 
-                                      formatConditionWithCardinality(issue.getRecommendedFirstColumn(), recommendedCondition)));
+                                      formatConditionWithCardinality(issue.recommendedFirstColumn(), recommendedCondition)));
         
         // Performance impact explanation
         formatted.append(String.format("\n    Performance Impact: %s", 
-                                      getPerformanceImpactExplanation(issue.getSeverity())));
+                                      getPerformanceImpactExplanation(issue.severity())));
         
         return formatted.toString();
     }
@@ -348,11 +348,11 @@ public class QueryOptimizationChecker {
             System.out.println("    🔴 HIGH PRIORITY:");
             for (OptimizationIssue issue : highPriorityIssues) {
                 System.out.println(String.format("      • Move '%s' condition to the beginning of WHERE clause", 
-                                                issue.getRecommendedFirstColumn()));
+                                                issue.recommendedFirstColumn()));
                 System.out.println(String.format("        Replace: WHERE %s = ? AND %s = ?", 
-                                                issue.getCurrentFirstColumn(), issue.getRecommendedFirstColumn()));
+                                                issue.currentFirstColumn(), issue.recommendedFirstColumn()));
                 System.out.println(String.format("        With:    WHERE %s = ? AND %s = ?", 
-                                                issue.getRecommendedFirstColumn(), issue.getCurrentFirstColumn()));
+                                                issue.recommendedFirstColumn(), issue.currentFirstColumn()));
             }
         }
         
@@ -361,7 +361,7 @@ public class QueryOptimizationChecker {
             System.out.println("    🟡 MEDIUM PRIORITY:");
             for (OptimizationIssue issue : mediumPriorityIssues) {
                 System.out.println(String.format("      • Consider reordering: place '%s' before '%s' in WHERE clause", 
-                                                issue.getRecommendedFirstColumn(), issue.getCurrentFirstColumn()));
+                                                issue.recommendedFirstColumn(), issue.currentFirstColumn()));
             }
         }
         

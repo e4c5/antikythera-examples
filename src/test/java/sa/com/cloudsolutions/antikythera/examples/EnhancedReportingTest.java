@@ -43,11 +43,11 @@ public class EnhancedReportingTest {
         );
         
         // Verify enhanced properties
-        assert highSeverityIssue.getRepositoryClass().equals("UserRepository");
-        assert highSeverityIssue.getMethodName().equals("findByIsActiveAndUserId");
-        assert highSeverityIssue.getCurrentFirstColumn().equals("is_active");
-        assert highSeverityIssue.getRecommendedFirstColumn().equals("user_id");
-        assert highSeverityIssue.getSeverity() == OptimizationIssue.Severity.HIGH;
+        assert highSeverityIssue.repositoryClass().equals("UserRepository");
+        assert highSeverityIssue.methodName().equals("findByIsActiveAndUserId");
+        assert highSeverityIssue.currentFirstColumn().equals("is_active");
+        assert highSeverityIssue.recommendedFirstColumn().equals("user_id");
+        assert highSeverityIssue.severity() == OptimizationIssue.Severity.HIGH;
         assert highSeverityIssue.isHighSeverity();
         assert !highSeverityIssue.isMediumSeverity();
         assert !highSeverityIssue.isLowSeverity();
