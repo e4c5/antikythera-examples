@@ -28,6 +28,7 @@ public class QueryOptimizationChecker {
     private final RepositoryParser repositoryParser;
     private final CardinalityAnalyzer cardinalityAnalyzer;
     private final QueryAnalysisEngine analysisEngine;
+    private final String liquibaseXmlPath;
 
     // Aggregated counters for summary and exit code logic
     private int totalQueriesAnalyzed = 0;
@@ -47,6 +48,7 @@ public class QueryOptimizationChecker {
      * @throws Exception if initialization fails
      */
     public QueryOptimizationChecker(String liquibaseXmlPath) throws Exception {
+        this.liquibaseXmlPath = liquibaseXmlPath;
         // Load database metadata for cardinality analysis
         Map<String, List<Indexes.IndexInfo>> indexMap = Indexes.load(new File(liquibaseXmlPath));
         
@@ -130,6 +132,9 @@ public class QueryOptimizationChecker {
      * @param callable the callable representing the repository method
      * @param repositoryQuery the RepositoryQuery object containing parsed query information
      */
+    private final java.util.List<CodeStandardizer.SignatureUpdate> signatureUpdates = new java.util.ArrayList<>();
+    private final CodeStandardizer standardizer = new CodeStandardizer();
+
     private void analyzeRepositoryQuery(String repositoryClassName, Callable callable, RepositoryQuery repositoryQuery) {
         // Count every repository method query analyzed
         totalQueriesAnalyzed++;
@@ -139,6 +144,14 @@ public class QueryOptimizationChecker {
 
         // Report optimization issues with enhanced reporting
         reportOptimizationResults(result);
+
+        // Apply standardization changes to code
+        try {
+            java.util.Optional<CodeStandardizer.SignatureUpdate> up = standardizer.standardize(repositoryClassName, callable, repositoryQuery, result);
+            up.ifPresent(signatureUpdates::add);
+        } catch (Exception e) {
+            logger.warn("Failed to standardize method {}.{}: {}", result.getRepositoryClass(), result.getMethodName(), e.getMessage());
+        }
     }
     
     /**
@@ -566,6 +579,120 @@ public class QueryOptimizationChecker {
     public int getTotalIndexCreateRecommendations() { return totalIndexCreateRecommendations; }
     public int getTotalIndexDropRecommendations() { return totalIndexDropRecommendations; }
 
+    /**
+     * Generates a Liquibase changes file from consolidated suggestions and includes it in the master file.
+     */
+    public void generateLiquibaseChangesFile() {
+        try {
+            if (suggestedNewIndexes.isEmpty()) return;
+            StringBuilder sb = new StringBuilder();
+            for (String key : suggestedNewIndexes) {
+                String[] parts = key.split("\\|", 2);
+                String table = parts.length > 0 ? parts[0] : "<TABLE_NAME>";
+                String column = parts.length > 1 ? parts[1] : "<COLUMN_NAME>";
+                sb.append("\n").append(buildLiquibaseNonLockingIndexChangeSet(table, column)).append("\n");
+            }
+            // For simplicity, only include create index changes here
+            File master = new File(this.liquibaseXmlPath);
+            LiquibaseChangesWriter writer = new LiquibaseChangesWriter();
+            writer.write(master, sb.toString());
+        } catch (Exception e) {
+            logger.warn("Failed to generate Liquibase changes file: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Apply recorded signature updates to usage sites in classes that @Autowired the given repository.
+     * This reorders call arguments to match the new parameter order. Only same-arity calls are modified.
+     */
+    public void applySignatureUpdatesToUsages() {
+        if (signatureUpdates.isEmpty()) return;
+        Map<String, java.util.List<CodeStandardizer.SignatureUpdate>> byRepo = new java.util.HashMap<>();
+        for (CodeStandardizer.SignatureUpdate up : signatureUpdates) {
+            byRepo.computeIfAbsent(up.repositoryClassFqn, k -> new java.util.ArrayList<>()).add(up);
+        }
+        Map<String, com.github.javaparser.ast.CompilationUnit> units = AntikytheraRunTime.getResolvedCompilationUnits();
+        for (Map.Entry<String, com.github.javaparser.ast.CompilationUnit> e : units.entrySet()) {
+            String fqn = e.getKey();
+            com.github.javaparser.ast.CompilationUnit cu = e.getValue();
+            boolean modified = false;
+            // Find classes with @Autowired fields that match any repo
+            java.util.List<com.github.javaparser.ast.body.ClassOrInterfaceDeclaration> classes = cu.findAll(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
+            for (com.github.javaparser.ast.body.ClassOrInterfaceDeclaration cls : classes) {
+                java.util.Map<String, String> autowiredFields = new java.util.HashMap<>(); // fieldName -> typeSimple
+                for (com.github.javaparser.ast.body.FieldDeclaration fd : cls.getFields()) {
+                    if (fd.getAnnotationByName("Autowired").isPresent()) {
+                        for (var var : fd.getVariables()) {
+                            String typeName = var.getType().toString();
+                            String simple = simpleName(typeName);
+                            autowiredFields.put(var.getNameAsString(), simple);
+                        }
+                    }
+                }
+                if (autowiredFields.isEmpty()) continue;
+
+                java.util.List<com.github.javaparser.ast.expr.MethodCallExpr> calls = cu.findAll(com.github.javaparser.ast.expr.MethodCallExpr.class);
+                for (com.github.javaparser.ast.expr.MethodCallExpr call : calls) {
+                    String scopeName = getScopeName(call.getScope().orElse(null));
+                    if (scopeName == null) continue;
+                    String fieldTypeSimple = autowiredFields.get(scopeName);
+                    if (fieldTypeSimple == null) continue;
+                    // Try all updates whose repo simple name matches
+                    for (Map.Entry<String, java.util.List<CodeStandardizer.SignatureUpdate>> upEntry : byRepo.entrySet()) {
+                        String repoFqn = upEntry.getKey();
+                        String repoSimple = simpleName(repoFqn);
+                        if (!repoSimple.equals(fieldTypeSimple)) continue;
+                        for (CodeStandardizer.SignatureUpdate up : upEntry.getValue()) {
+                            if (!up.methodName.equals(call.getNameAsString())) continue;
+                            java.util.List<String> oldNames = up.oldParamNames;
+                            java.util.List<String> newNames = up.newParamNames;
+                            com.github.javaparser.ast.NodeList<com.github.javaparser.ast.expr.Expression> args = call.getArguments();
+                            if (args.size() != oldNames.size() || oldNames.size() != newNames.size()) continue;
+                            // Map old param name to index
+                            java.util.Map<String, Integer> oldIndex = new java.util.HashMap<>();
+                            for (int i = 0; i < oldNames.size(); i++) oldIndex.put(oldNames.get(i), i);
+                            com.github.javaparser.ast.NodeList<com.github.javaparser.ast.expr.Expression> reordered = new com.github.javaparser.ast.NodeList<>();
+                            boolean ok = true;
+                            for (String pname : newNames) {
+                                Integer idx = oldIndex.get(pname);
+                                if (idx == null || idx >= args.size()) { ok = false; break; }
+                                reordered.add(args.get(idx));
+                            }
+                            if (!ok) continue;
+                            call.setArguments(reordered);
+                            modified = true;
+                            logger.info("Reordered call args for {}.{} in {}", repoSimple, up.methodName, fqn);
+                        }
+                    }
+                }
+            }
+            if (modified) {
+                try {
+                    java.nio.file.Path p = java.nio.file.Path.of(sa.com.cloudsolutions.antikythera.parser.AbstractCompiler.classToPath(fqn));
+                    java.nio.file.Files.writeString(p, cu.toString());
+                } catch (Exception ex) {
+                    logger.warn("Failed writing updated usages in {}: {}", fqn, ex.getMessage());
+                }
+            }
+        }
+    }
+
+    private String getScopeName(com.github.javaparser.ast.expr.Expression scope) {
+        if (scope == null) return null;
+        if (scope.isNameExpr()) return scope.asNameExpr().getNameAsString();
+        if (scope.isFieldAccessExpr()) return scope.asFieldAccessExpr().getNameAsString();
+        if (scope.isThisExpr()) return "this"; // unlikely useful
+        return null;
+    }
+
+    private String simpleName(String typeName) {
+        if (typeName == null) return null;
+        int lt = typeName.lastIndexOf('<');
+        if (lt > 0) typeName = typeName.substring(0, lt);
+        int dot = typeName.lastIndexOf('.');
+        return dot >= 0 ? typeName.substring(dot + 1) : typeName;
+    }
+
     public static void main(String[] args) throws Exception {
         Settings.loadConfigMap();
         AbstractCompiler.preProcess();
@@ -591,9 +718,13 @@ public class QueryOptimizationChecker {
 
         QueryOptimizationChecker checker = new QueryOptimizationChecker(liquibaseXml);
         checker.analyze();
+        // Apply any method signature updates to usages in @Autowired consumers
+        checker.applySignatureUpdatesToUsages();
 
         // Print consolidated index actions at end of analysis
         checker.printConsolidatedIndexActions();
+        // Generate Liquibase file with suggested changes and include in master
+        checker.generateLiquibaseChangesFile();
 
         // Print execution summary
         int queries = checker.getTotalQueriesAnalyzed();
