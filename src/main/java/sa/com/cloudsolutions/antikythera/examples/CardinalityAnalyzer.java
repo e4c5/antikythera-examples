@@ -209,4 +209,30 @@ public class CardinalityAnalyzer {
                 .flatMap(index -> index.columns.stream())
                 .anyMatch(col -> col.toLowerCase().equals(columnName));
     }
+
+    /**
+     * Checks if there exists any index on the table where the specified column is the leading column.
+     * Considers primary key, unique indexes/constraints, and regular indexes.
+     *
+     * @param tableName the table name (any case)
+     * @param columnName the column name (any case)
+     * @return true if there is an index whose first column matches the given column
+     */
+    public boolean hasIndexWithLeadingColumn(String tableName, String columnName) {
+        if (tableName == null || columnName == null) {
+            return false;
+        }
+        String t = tableName.toLowerCase();
+        String c = columnName.toLowerCase();
+        List<Indexes.IndexInfo> indexes = indexMap.get(t);
+        if (indexes == null) return false;
+        for (Indexes.IndexInfo idx : indexes) {
+            if (idx.columns == null || idx.columns.isEmpty()) continue;
+            String first = idx.columns.get(0);
+            if (first != null && first.equalsIgnoreCase(c)) {
+                return true;
+            }
+        }
+        return false;
+    }
 }
