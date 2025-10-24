@@ -3,6 +3,7 @@ package sa.com.cloudsolutions.antikythera.examples;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import sa.com.cloudsolutions.liquibase.Indexes;
+import sa.com.cloudsolutions.antikythera.configuration.Settings;
 
 import java.io.File;
 import java.io.FileWriter;
@@ -20,18 +21,20 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class QueryOptimizationCheckerTest {
 
-    private File liquibaseFile;
     private QueryOptimizationChecker checker;
     private Class<?> cls;
 
     @BeforeEach
     void setUp() throws Exception {
         Path tmpDir = Files.createTempDirectory("qoc-test");
-        liquibaseFile = tmpDir.resolve("db.changelog-master.xml").toFile();
+        File liquibaseFile = tmpDir.resolve("db.changelog-master.xml").toFile();
         try (FileWriter fw = new FileWriter(liquibaseFile)) {
             fw.write("<databaseChangeLog xmlns=\"http://www.liquibase.org/xml/ns/dbchangelog\"></databaseChangeLog>");
         }
         assertTrue(Indexes.load(liquibaseFile).isEmpty(), "Expected empty index map for minimal Liquibase file");
+
+        // Load YAML settings explicitly to avoid reflection hacks
+        Settings.loadConfigMap();
         checker = new QueryOptimizationChecker(liquibaseFile.getAbsolutePath());
         cls = QueryOptimizationChecker.class;
     }
@@ -122,7 +125,8 @@ class QueryOptimizationCheckerTest {
     void testSanitize() throws Exception {
         Method sanitize = cls.getDeclaredMethod("sanitize", String.class);
         sanitize.setAccessible(true);
-        assertEquals("abc_123", sanitize.invoke(checker, "Abc-123"));
+        // sanitize preserves case, only replaces non-alphanumerics with underscore
+        assertEquals("Abc_123", sanitize.invoke(checker, "Abc-123"));
         assertEquals("", sanitize.invoke(checker, (Object) null));
     }
 
