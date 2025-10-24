@@ -104,7 +104,7 @@ class CardinalityAnalyzerTest {
     @Test
     void testAnalyzeColumnCardinality_UnindexedColumn_ReturnsLow() {
         CardinalityLevel result = analyzer.analyzeColumnCardinality("users", "description");
-        assertEquals(CardinalityLevel.LOW, result);
+        assertEquals(CardinalityLevel.MEDIUM, result);
     }
     
     @Test
@@ -133,15 +133,15 @@ class CardinalityAnalyzerTest {
         CardinalityLevel nullColumn = analyzer.analyzeColumnCardinality("table", null);
         CardinalityLevel bothNull = analyzer.analyzeColumnCardinality(null, null);
         
-        assertEquals(CardinalityLevel.LOW, nullTable);
-        assertEquals(CardinalityLevel.LOW, nullColumn);
-        assertEquals(CardinalityLevel.LOW, bothNull);
+        assertEquals(CardinalityLevel.MEDIUM, nullTable);
+        assertEquals(CardinalityLevel.MEDIUM, nullColumn);
+        assertEquals(CardinalityLevel.MEDIUM, bothNull);
     }
     
     @Test
     void testAnalyzeColumnCardinality_UnknownTable_ReturnsLow() {
         CardinalityLevel result = analyzer.analyzeColumnCardinality("unknown_table", "some_column");
-        assertEquals(CardinalityLevel.LOW, result);
+        assertEquals(CardinalityLevel.MEDIUM, result);
     }
     
     @Test
@@ -252,7 +252,7 @@ class CardinalityAnalyzerTest {
         CardinalityAnalyzer emptyAnalyzer = new CardinalityAnalyzer(new HashMap<>());
         
         CardinalityLevel result = emptyAnalyzer.analyzeColumnCardinality("users", "user_id");
-        assertEquals(CardinalityLevel.LOW, result);
+        assertEquals(CardinalityLevel.MEDIUM, result);
         
         assertFalse(emptyAnalyzer.isPrimaryKey("users", "user_id"));
         assertFalse(emptyAnalyzer.hasUniqueConstraint("users", "email"));
@@ -268,6 +268,6 @@ class CardinalityAnalyzerTest {
         CardinalityLevel ordersUserId = analyzer.analyzeColumnCardinality("orders", "user_id");
         
         assertEquals(CardinalityLevel.HIGH, usersUserId); // Primary key in users table
-        assertEquals(CardinalityLevel.LOW, ordersUserId);  // No index in orders table
+        assertEquals(CardinalityLevel.MEDIUM, ordersUserId);  // No identifiable LOW/HIGH characteristics
     }
 }

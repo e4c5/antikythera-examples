@@ -393,12 +393,8 @@ public class QueryOptimizationChecker {
         // Parse optional CLI parameters for cardinality overrides
         Set<String> lowOverride = parseListArg(args, "--low-cardinality=");
         Set<String> highOverride = parseListArg(args, "--high-cardinality=");
-        if ((lowOverride != null && !lowOverride.isEmpty()) || (highOverride != null && !highOverride.isEmpty())) {
-            CardinalityAnalyzer.configureUserDefinedCardinality(
-                lowOverride != null ? lowOverride : new HashSet<>(),
-                highOverride != null ? highOverride : new HashSet<>()
-            );
-        }
+
+        CardinalityAnalyzer.configureUserDefinedCardinality(lowOverride, highOverride);
 
         QueryOptimizationChecker checker = new QueryOptimizationChecker(liquibaseXml);
         checker.analyze();

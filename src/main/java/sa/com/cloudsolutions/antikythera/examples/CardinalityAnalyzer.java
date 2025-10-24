@@ -14,10 +14,21 @@ import java.util.Set;
 public class CardinalityAnalyzer {
     
     private final Map<String, List<Indexes.IndexInfo>> indexMap;
+    // Optional map of table -> (column -> data type) for accurate low-cardinality detection
+    private final Map<String, Map<String, ColumnDataType>> columnTypeMap;
 
     // User-provided overrides for column cardinality (lower-cased column names)
     private static Set<String> USER_DEFINED_LOW = Collections.emptySet();
     private static Set<String> USER_DEFINED_HIGH = Collections.emptySet();
+
+    /**
+     * Column data type categories for cardinality purposes.
+     */
+    public enum ColumnDataType {
+        BOOLEAN,
+        ENUM,
+        OTHER
+    }
 
     /**
      * Configure user-defined low/high cardinality columns.
@@ -34,7 +45,20 @@ public class CardinalityAnalyzer {
      * @param indexMap Map of table names to their index information
      */
     public CardinalityAnalyzer(Map<String, List<Indexes.IndexInfo>> indexMap) {
+        this(indexMap, null);
+    }
+
+    /**
+     * Creates a new CardinalityAnalyzer with index information and optional column type information.
+     * Table and column names should be lower-cased in the map for consistent matching.
+     *
+     * @param indexMap Map of table names to their index information
+     * @param columnTypeMap Optional map of table -> (column -> ColumnDataType)
+     */
+    public CardinalityAnalyzer(Map<String, List<Indexes.IndexInfo>> indexMap,
+                               Map<String, Map<String, ColumnDataType>> columnTypeMap) {
         this.indexMap = indexMap;
+        this.columnTypeMap = columnTypeMap;
     }
     
     /**
@@ -46,7 +70,7 @@ public class CardinalityAnalyzer {
      */
     public CardinalityLevel analyzeColumnCardinality(String tableName, String columnName) {
         if (tableName == null || columnName == null) {
-            return CardinalityLevel.LOW;
+            return CardinalityLevel.MEDIUM;
         }
         
         String normalizedTableName = tableName.toLowerCase();
@@ -70,20 +94,41 @@ public class CardinalityAnalyzer {
             return CardinalityLevel.HIGH;
         }
         
-        // Check if column is boolean type (low cardinality)
-        if (isBooleanColumn(normalizedTableName, normalizedColumnName)) {
+        // Prefer entity metadata: boolean or enum columns are low cardinality
+        if (isBooleanOrEnumByType(normalizedTableName, normalizedColumnName)) {
+            return CardinalityLevel.LOW;
+        }
+
+        // Fallback heuristic only if no type metadata is available
+        if (!hasTypeMetadata(normalizedTableName, normalizedColumnName) &&
+            isBooleanColumn(normalizedTableName, normalizedColumnName)) {
             return CardinalityLevel.LOW;
         }
         
-        // Check if column is indexed (medium cardinality)
-        if (hasRegularIndex(normalizedTableName, normalizedColumnName)) {
-            return CardinalityLevel.MEDIUM;
-        }
-        
-        // Default to low cardinality for unindexed columns
-        return CardinalityLevel.LOW;
+        // If the column cannot be readily identified as LOW or HIGH, mark as MEDIUM
+        return CardinalityLevel.MEDIUM;
     }
     
+    private boolean hasTypeMetadata(String tableName, String columnName) {
+        if (columnTypeMap == null) return false;
+        Map<String, ColumnDataType> cols = columnTypeMap.get(tableName);
+        if (cols == null) return false;
+        return cols.containsKey(columnName);
+    }
+
+    /**
+     * Determines if the column type (from entity metadata) implies low cardinality.
+     * Returns true for BOOLEAN or ENUM types.
+     */
+    public boolean isBooleanOrEnumByType(String tableName, String columnName) {
+        if (columnTypeMap == null) return false;
+        Map<String, ColumnDataType> cols = columnTypeMap.get(tableName);
+        if (cols == null) return false;
+        ColumnDataType type = cols.get(columnName);
+        if (type == null) return false;
+        return type == ColumnDataType.BOOLEAN || type == ColumnDataType.ENUM;
+    }
+
     /**
      * Checks if a column is a primary key.
      * 
