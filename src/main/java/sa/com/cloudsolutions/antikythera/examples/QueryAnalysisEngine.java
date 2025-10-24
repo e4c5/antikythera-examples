@@ -76,7 +76,7 @@ public class QueryAnalysisEngine {
         
         try {
             // Check if this is a native query or HQL
-            boolean isNativeQuery = isNativeQuery(repositoryQuery);
+            boolean isNativeQuery = repositoryQuery.isNative();
             logger.debug("Analyzing {} query for {}.{}", isNativeQuery ? "native SQL" : "HQL", repositoryClass, methodName);
             
             Statement statement = repositoryQuery.getStatement();
@@ -107,28 +107,7 @@ public class QueryAnalysisEngine {
             return createEmptyResult(repositoryClass, methodName, queryText);
         }
     }
-    
-    /**
-     * Determines if the RepositoryQuery represents a native SQL query or HQL.
-     */
-    private boolean isNativeQuery(RepositoryQuery repositoryQuery) {
-        try {
-            // Use reflection to access the isNative field
-            java.lang.reflect.Field field = repositoryQuery.getClass().getDeclaredField("isNative");
-            field.setAccessible(true);
-            return field.getBoolean(repositoryQuery);
-        } catch (Exception e) {
-            logger.debug("Could not determine if query is native: {}", e.getMessage());
-            // Fallback: check if original query contains SQL keywords that suggest native SQL
-            String originalQuery = repositoryQuery.getOriginalQuery();
-            if (originalQuery != null) {
-                String upperQuery = originalQuery.toUpperCase();
-                return upperQuery.contains("SELECT ") && upperQuery.contains("FROM ");
-            }
-            return false;
-        }
-    }
-    
+
     /**
      * Handles analysis of derived query methods (findBy*, countBy*, etc.).
      */
@@ -219,38 +198,32 @@ public class QueryAnalysisEngine {
      */
     private void extractConditionsFromExpression(Expression expression, List<WhereCondition> conditions, 
                                                String tableName, RepositoryQuery repositoryQuery, int position) {
-        if (expression instanceof AndExpression) {
-            AndExpression andExpr = (AndExpression) expression;
+        if (expression instanceof AndExpression andExpr) {
             // Process left side first (maintains order for optimization analysis)
             extractConditionsFromExpression(andExpr.getLeftExpression(), conditions, tableName, repositoryQuery, position);
             extractConditionsFromExpression(andExpr.getRightExpression(), conditions, tableName, repositoryQuery, 
                                           position + getConditionCount(andExpr.getLeftExpression()));
-        } else if (expression instanceof OrExpression) {
-            OrExpression orExpr = (OrExpression) expression;
+        } else if (expression instanceof OrExpression orExpr) {
             // For OR expressions, both sides are equally important for optimization
             extractConditionsFromExpression(orExpr.getLeftExpression(), conditions, tableName, repositoryQuery, position);
             extractConditionsFromExpression(orExpr.getRightExpression(), conditions, tableName, repositoryQuery, 
                                           position + getConditionCount(orExpr.getLeftExpression()));
-        } else if (expression instanceof ComparisonOperator) {
-            ComparisonOperator comparison = (ComparisonOperator) expression;
+        } else if (expression instanceof ComparisonOperator comparison) {
             WhereCondition condition = createConditionFromComparison(comparison, tableName, repositoryQuery, position);
             if (condition != null) {
                 conditions.add(condition);
             }
-        } else if (expression instanceof Between) {
-            Between between = (Between) expression;
+        } else if (expression instanceof Between between) {
             WhereCondition condition = createConditionFromBetween(between, tableName, repositoryQuery, position);
             if (condition != null) {
                 conditions.add(condition);
             }
-        } else if (expression instanceof InExpression) {
-            InExpression inExpr = (InExpression) expression;
+        } else if (expression instanceof InExpression inExpr) {
             WhereCondition condition = createConditionFromIn(inExpr, tableName, repositoryQuery, position);
             if (condition != null) {
                 conditions.add(condition);
             }
-        } else if (expression instanceof IsNullExpression) {
-            IsNullExpression isNull = (IsNullExpression) expression;
+        } else if (expression instanceof IsNullExpression isNull) {
             WhereCondition condition = createConditionFromIsNull(isNull, tableName, repositoryQuery, position);
             if (condition != null) {
                 conditions.add(condition);
@@ -268,20 +241,18 @@ public class QueryAnalysisEngine {
     private WhereCondition createConditionFromComparison(ComparisonOperator comparison, String tableName, 
                                                         RepositoryQuery repositoryQuery, int position) {
         Expression leftExpr = comparison.getLeftExpression();
-        if (!(leftExpr instanceof Column)) {
-            return null;
+        if (leftExpr instanceof Column column) {
+            String columnName = extractColumnName(column);
+            String operator = comparison.getStringExpression();
+
+            // Enhanced parameter mapping using RepositoryQuery's parameter mapping capabilities
+            QueryMethodParameter parameter = findMatchingParameterEnhanced(repositoryQuery, columnName, comparison.getRightExpression());
+
+            CardinalityLevel cardinality = cardinalityAnalyzer.analyzeColumnCardinality(tableName, columnName);
+
+            return new WhereCondition(columnName, operator, cardinality, position, parameter);
         }
-        
-        Column column = (Column) leftExpr;
-        String columnName = extractColumnName(column);
-        String operator = comparison.getStringExpression();
-        
-        // Enhanced parameter mapping using RepositoryQuery's parameter mapping capabilities
-        QueryMethodParameter parameter = findMatchingParameterEnhanced(repositoryQuery, columnName, comparison.getRightExpression());
-        
-        CardinalityLevel cardinality = cardinalityAnalyzer.analyzeColumnCardinality(tableName, columnName);
-        
-        return new WhereCondition(columnName, operator, cardinality, position, parameter);
+        return null;
     }
     
     /**
@@ -491,8 +462,7 @@ public class QueryAnalysisEngine {
      * Counts the number of individual conditions in an expression.
      */
     private int getConditionCount(Expression expression) {
-        if (expression instanceof BinaryExpression) {
-            BinaryExpression binaryExpr = (BinaryExpression) expression;
+        if (expression instanceof BinaryExpression binaryExpr) {
             return getConditionCount(binaryExpr.getLeftExpression()) + getConditionCount(binaryExpr.getRightExpression());
         }
         return 1;
@@ -571,10 +541,8 @@ public class QueryAnalysisEngine {
      */
     private String extractTableName(Statement statement) {
         try {
-            if (statement instanceof Select) {
-                Select select = (Select) statement;
-                if (select.getSelectBody() instanceof PlainSelect) {
-                    PlainSelect plainSelect = (PlainSelect) select.getSelectBody();
+            if (statement instanceof Select select) {
+                if (select.getSelectBody() instanceof PlainSelect plainSelect) {
                     if (plainSelect.getFromItem() != null) {
                         String fromItem = plainSelect.getFromItem().toString();
                         // Handle table aliases (e.g., "table_name t" -> "table_name")
@@ -627,23 +595,16 @@ public class QueryAnalysisEngine {
                 logger.debug("Error getting class name from Callable: {}", e.getMessage());
             }
         }
-        
-        // Third priority: use reflection to access RepositoryQuery's methodDeclaration
-        try {
-            java.lang.reflect.Field field = repositoryQuery.getClass().getDeclaredField("methodDeclaration");
-            field.setAccessible(true);
-            sa.com.cloudsolutions.antikythera.parser.Callable reflectedCallable = 
-                (sa.com.cloudsolutions.antikythera.parser.Callable) field.get(repositoryQuery);
-            
-            if (reflectedCallable != null && reflectedCallable.isMethodDeclaration()) {
-                return reflectedCallable.asMethodDeclaration().findAncestor(
-                    com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
-                    .map(cls -> cls.getNameAsString())
-                    .orElse(UNKNOWN);
-            }
-        } catch (Exception e) {
-            logger.debug("Error getting repository class name via reflection: {}", e.getMessage());
+
+        sa.com.cloudsolutions.antikythera.parser.Callable reflectedCallable = repositoryQuery.getMethodDeclaration();
+
+        if (reflectedCallable != null && reflectedCallable.isMethodDeclaration()) {
+            return reflectedCallable.asMethodDeclaration().findAncestor(
+                com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
+                .map(cls -> cls.getNameAsString())
+                .orElse(UNKNOWN);
         }
+
         
         // Fallback: convert table name to repository class
         try {
@@ -676,21 +637,12 @@ public class QueryAnalysisEngine {
                 logger.debug("Error getting method name from Callable: {}", e.getMessage());
             }
         }
-        
-        // Second priority: use reflection to access RepositoryQuery's methodDeclaration
-        try {
-            java.lang.reflect.Field field = repositoryQuery.getClass().getDeclaredField("methodDeclaration");
-            field.setAccessible(true);
-            sa.com.cloudsolutions.antikythera.parser.Callable reflectedCallable = 
-                (sa.com.cloudsolutions.antikythera.parser.Callable) field.get(repositoryQuery);
-            
-            if (reflectedCallable != null && reflectedCallable.isMethodDeclaration()) {
-                return reflectedCallable.asMethodDeclaration().getNameAsString();
-            }
-        } catch (Exception e) {
-            logger.debug("Error getting method name via reflection: {}", e.getMessage());
+
+        sa.com.cloudsolutions.antikythera.parser.Callable reflectedCallable = repositoryQuery.getMethodDeclaration();
+        if (reflectedCallable != null && reflectedCallable.isMethodDeclaration()) {
+            return reflectedCallable.asMethodDeclaration().getNameAsString();
         }
-        
+
         // Fallback: infer from parameters
         List<QueryMethodParameter> parameters = repositoryQuery.getMethodParameters();
         if (parameters != null && !parameters.isEmpty()) {
