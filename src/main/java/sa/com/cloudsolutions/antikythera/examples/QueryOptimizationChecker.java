@@ -29,6 +29,11 @@ public class QueryOptimizationChecker {
     private final CardinalityAnalyzer cardinalityAnalyzer;
     private final QueryAnalysisEngine analysisEngine;
 
+    // Aggregated counters for summary and exit code logic
+    private int totalQueriesAnalyzed = 0;
+    private int totalHighPriorityRecommendations = 0;
+    private int totalMediumPriorityRecommendations = 0;
+
     /**
      * Creates a new QueryOptimizationChecker that uses RepositoryParser for comprehensive query analysis.
      * 
@@ -120,6 +125,9 @@ public class QueryOptimizationChecker {
      * @param repositoryQuery the RepositoryQuery object containing parsed query information
      */
     private void analyzeRepositoryQuery(String repositoryClassName, Callable callable, RepositoryQuery repositoryQuery) {
+        // Count every repository method query analyzed
+        totalQueriesAnalyzed++;
+
         // Use QueryAnalysisEngine to analyze the query with enhanced Callable information
         QueryOptimizationResult result = analysisEngine.analyzeQueryWithCallable(repositoryQuery, callable, repositoryClassName);
 
@@ -190,6 +198,12 @@ public class QueryOptimizationChecker {
                 return Integer.compare(priority1, priority2);
             })
             .toList();
+
+        // Update global recommendation counters
+        int highCount = (int) issues.stream().filter(OptimizationIssue::isHighSeverity).count();
+        int mediumCount = (int) issues.stream().filter(OptimizationIssue::isMediumSeverity).count();
+        this.totalHighPriorityRecommendations += highCount;
+        this.totalMediumPriorityRecommendations += mediumCount;
         
         // Report header with summary
         System.out.println(String.format("\n⚠ OPTIMIZATION NEEDED: %s.%s (%d issue%s found)",
@@ -255,8 +269,10 @@ public class QueryOptimizationChecker {
                                       formatConditionWithCardinality(issue.recommendedFirstColumn(), recommendedCondition)));
         
         // Performance impact explanation
-        formatted.append(String.format("\n    Performance Impact: %s", 
-                                      getPerformanceImpactExplanation(issue.severity())));
+        if (!isIndexCreationForLeadingMedium(issue)) {
+            formatted.append(String.format("\n    Performance Impact: %s", 
+                                          getPerformanceImpactExplanation(issue.severity())));
+        }
         
         return formatted.toString();
     }
@@ -347,6 +363,10 @@ public class QueryOptimizationChecker {
         if (!highPriorityIssues.isEmpty()) {
             System.out.println("    🔴 HIGH PRIORITY:");
             for (OptimizationIssue issue : highPriorityIssues) {
+                // Skip reordering recommendation when the recommended column is already first
+                if (issue.recommendedFirstColumn() != null && issue.recommendedFirstColumn().equals(issue.currentFirstColumn())) {
+                    continue;
+                }
                 System.out.println(String.format("      • Move '%s' condition to the beginning of WHERE clause", 
                                                 issue.recommendedFirstColumn()));
                 System.out.println(String.format("        Replace: WHERE %s = ? AND %s = ?", 
@@ -360,6 +380,10 @@ public class QueryOptimizationChecker {
         if (!mediumPriorityIssues.isEmpty()) {
             System.out.println("    🟡 MEDIUM PRIORITY:");
             for (OptimizationIssue issue : mediumPriorityIssues) {
+                // Skip reordering recommendation when the recommended column is already first
+                if (issue.recommendedFirstColumn() != null && issue.recommendedFirstColumn().equals(issue.currentFirstColumn())) {
+                    continue;
+                }
                 System.out.println(String.format("      • Consider reordering: place '%s' before '%s' in WHERE clause", 
                                                 issue.recommendedFirstColumn(), issue.currentFirstColumn()));
             }
@@ -371,7 +395,98 @@ public class QueryOptimizationChecker {
         System.out.println("      • Unique indexed columns are more selective than non-unique columns");
         System.out.println("      • Avoid leading with boolean or low-cardinality columns");
         System.out.println("      • Consider adding indexes for frequently queried columns");
+
+        // If there are high-priority index-creation issues for a leading medium-cardinality column,
+        // show a Liquibase changeSet that can be applied without locking
+        List<OptimizationIssue> indexIssues = highPriorityIssues.stream()
+                .filter(this::isIndexCreationForLeadingMedium)
+                .toList();
+        if (!indexIssues.isEmpty()) {
+            for (OptimizationIssue idxIssue : indexIssues) {
+                String table = inferTableNameFromQuerySafe(result.getQueryText(), result.getRepositoryClass());
+                String col = idxIssue.recommendedFirstColumn() != null ? idxIssue.recommendedFirstColumn() : idxIssue.currentFirstColumn();
+                String snippet = buildLiquibaseNonLockingIndexChangeSet(table, col);
+                System.out.println("\n      • Suggested index (non-locking):\n" + indent(snippet, 8));
+            }
+        }
     }
+
+    // Helpers to tailor output for index recommendations
+    private boolean isIndexCreationForLeadingMedium(OptimizationIssue issue) {
+        if (issue == null) return false;
+        boolean same = issue.recommendedFirstColumn() != null && issue.recommendedFirstColumn().equals(issue.currentFirstColumn());
+        boolean mentionsCreate = issue.description() != null && issue.description().toLowerCase().contains("create an index");
+        return issue.isHighSeverity() && same && mentionsCreate;
+    }
+
+    private String inferTableNameFromQuerySafe(String queryText, String repositoryClass) {
+        String t = inferTableNameFromQuery(queryText);
+        if (t != null) return t;
+        return inferTableNameFromRepositoryClassName(repositoryClass);
+    }
+
+    private String inferTableNameFromQuery(String queryText) {
+        if (queryText == null) return null;
+        String lower = queryText;
+        java.util.regex.Pattern p = java.util.regex.Pattern.compile("(?i)\\bfrom\\s+([\\\"`'\\w\\.]+)");
+        java.util.regex.Matcher m = p.matcher(lower);
+        if (m.find()) {
+            String raw = m.group(1);
+            // remove schema and quotes
+            String last = raw;
+            int dot = raw.lastIndexOf('.');
+            if (dot >= 0 && dot < raw.length() - 1) last = raw.substring(dot + 1);
+            last = last.replace("`", "").replace("\"", "").replace("'", "");
+            return last;
+        }
+        return null;
+    }
+
+    private String inferTableNameFromRepositoryClassName(String repositoryClass) {
+        if (repositoryClass == null) return "<TABLE_NAME>";
+        String simple = repositoryClass;
+        int dot = simple.lastIndexOf('.');
+        if (dot >= 0) simple = simple.substring(dot + 1);
+        if (simple.endsWith("Repository")) simple = simple.substring(0, simple.length() - "Repository".length());
+        // convert CamelCase to snake_case
+        String snake = simple.replaceAll("(?<!^)([A-Z])", "_$1").toLowerCase();
+        return snake.isEmpty() ? "<TABLE_NAME>" : snake;
+    }
+
+    private String buildLiquibaseNonLockingIndexChangeSet(String tableName, String columnName) {
+        if (columnName == null || columnName.isEmpty()) columnName = "<COLUMN_NAME>";
+        if (tableName == null || tableName.isEmpty()) tableName = "<TABLE_NAME>";
+        String idxName = ("idx_" + sanitize(tableName) + "_" + sanitize(columnName)).toLowerCase();
+        String id = idxName + "_" + System.currentTimeMillis();
+        return "<changeSet id=\"" + id + "\" author=\"antikythera\">\n" +
+               "  <preConditions onFail=\"MARK_RAN\">\n" +
+               "    <not>\n" +
+               "      <indexExists tableName=\"" + tableName + "\" indexName=\"" + idxName + "\"/>\n" +
+               "    </not>\n" +
+               "  </preConditions>\n" +
+               "  <sql dbms=\"postgresql\">CREATE INDEX CONCURRENTLY " + idxName + " ON " + tableName + " (" + columnName + ");</sql>\n" +
+               "  <rollback>\n" +
+               "    <sql dbms=\"postgresql\">DROP INDEX CONCURRENTLY IF EXISTS " + idxName + ";</sql>\n" +
+               "  </rollback>\n" +
+               "</changeSet>";
+    }
+
+    private String sanitize(String s) {
+        return s == null ? "" : s.replaceAll("[^A-Za-z0-9_]+", "_");
+    }
+
+    private String indent(String s, int spaces) {
+        String pad = " ".repeat(Math.max(0, spaces));
+        return java.util.Arrays.stream(s.split("\n"))
+                .map(line -> pad + line)
+                .reduce((a,b) -> a + "\n" + b)
+                .orElse(pad + s);
+    }
+
+    // Summary getters
+    public int getTotalQueriesAnalyzed() { return totalQueriesAnalyzed; }
+    public int getTotalHighPriorityRecommendations() { return totalHighPriorityRecommendations; }
+    public int getTotalMediumPriorityRecommendations() { return totalMediumPriorityRecommendations; }
 
     public static void main(String[] args) throws Exception {
         Settings.loadConfigMap();
@@ -398,6 +513,25 @@ public class QueryOptimizationChecker {
 
         QueryOptimizationChecker checker = new QueryOptimizationChecker(liquibaseXml);
         checker.analyze();
+
+        // Print execution summary
+        int queries = checker.getTotalQueriesAnalyzed();
+        int high = checker.getTotalHighPriorityRecommendations();
+        int medium = checker.getTotalMediumPriorityRecommendations();
+        System.out.println(String.format("\nSUMMARY: Analyzed %d quer%s. Recommendations given: %d high priorit%s, %d medium priorit%s.",
+                queries,
+                queries == 1 ? "y" : "ies",
+                high,
+                high == 1 ? "y" : "ies",
+                medium,
+                medium == 1 ? "y" : "ies"));
+
+        // Exit with non-zero if at least 1 high and at least 10 medium priority recommendations
+        if (high >= 1 && medium >= 10) {
+            System.exit(1);
+        } else {
+            System.exit(0);
+        }
     }
 
     private static Set<String> parseListArg(String[] args, String prefix) {

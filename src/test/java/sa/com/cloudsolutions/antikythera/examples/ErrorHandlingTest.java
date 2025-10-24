@@ -142,9 +142,9 @@ class ErrorHandlingTest {
         CardinalityLevel nullColumn = cardinalityAnalyzer.analyzeColumnCardinality("table", null);
         CardinalityLevel bothNull = cardinalityAnalyzer.analyzeColumnCardinality(null, null);
         
-        assertEquals(CardinalityLevel.LOW, nullTable);
-        assertEquals(CardinalityLevel.LOW, nullColumn);
-        assertEquals(CardinalityLevel.LOW, bothNull);
+        assertEquals(CardinalityLevel.MEDIUM, nullTable);
+        assertEquals(CardinalityLevel.MEDIUM, nullColumn);
+        assertEquals(CardinalityLevel.MEDIUM, bothNull);
     }
     
     @Test
@@ -153,9 +153,9 @@ class ErrorHandlingTest {
         CardinalityLevel emptyColumn = cardinalityAnalyzer.analyzeColumnCardinality("table", "");
         CardinalityLevel bothEmpty = cardinalityAnalyzer.analyzeColumnCardinality("", "");
         
-        assertEquals(CardinalityLevel.LOW, emptyTable);
-        assertEquals(CardinalityLevel.LOW, emptyColumn);
-        assertEquals(CardinalityLevel.LOW, bothEmpty);
+        assertEquals(CardinalityLevel.MEDIUM, emptyTable);
+        assertEquals(CardinalityLevel.MEDIUM, emptyColumn);
+        assertEquals(CardinalityLevel.MEDIUM, bothEmpty);
     }
     
     @Test

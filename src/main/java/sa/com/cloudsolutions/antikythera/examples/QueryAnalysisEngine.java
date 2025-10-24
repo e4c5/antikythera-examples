@@ -398,15 +398,31 @@ public class QueryAnalysisEngine {
         
         WhereCondition firstCondition = firstConditionOpt.get();
         
-        // Check if first condition is low cardinality while high cardinality alternatives exist
+        // New rule: If the first condition is MEDIUM cardinality, ensure there is a supporting index
+        if (firstCondition.cardinality() == CardinalityLevel.MEDIUM) {
+            boolean hasLeadingIndex = cardinalityAnalyzer.hasIndexWithLeadingColumn(tableName, firstCondition.columnName());
+            if (!hasLeadingIndex) {
+                String description = String.format(
+                        "First WHERE condition uses medium cardinality column '%s' but no index starts with this column. " +
+                        "Create an index with leading column '%s' to improve query performance.",
+                        firstCondition.columnName(), firstCondition.columnName());
+                OptimizationIssue indexIssue = new OptimizationIssue(
+                        repositoryClass, methodName, firstCondition.columnName(),
+                        firstCondition.columnName(), description, OptimizationIssue.Severity.HIGH, queryText);
+                issues.add(indexIssue);
+            }
+        }
+        
+        // Check if first condition is low cardinality while higher-cardinality alternatives exist
         if (firstCondition.isLowCardinality()) {
+            // Prefer HIGH over MEDIUM if both exist
             Optional<WhereCondition> highCardinalityAlternative = conditions.stream()
                 .filter(WhereCondition::isHighCardinality)
                 .findFirst();
-                
+
             if (highCardinalityAlternative.isPresent()) {
                 WhereCondition recommended = highCardinalityAlternative.get();
-                
+
                 // Enhanced description with cardinality information
                 String cardinalityDetails = getCardinalityDetails(tableName, firstCondition, recommended);
                 String description = String.format(
@@ -416,11 +432,29 @@ public class QueryAnalysisEngine {
                     recommended.cardinality().toString().toLowerCase(),
                     recommended.columnName(),
                     cardinalityDetails);
-                    
+
                 OptimizationIssue issue = new OptimizationIssue(
                     repositoryClass, methodName, firstCondition.columnName(),
                     recommended.columnName(), description, OptimizationIssue.Severity.HIGH, queryText);
                 issues.add(issue);
+            } else {
+                // New rule: LOW followed by any MEDIUM should also be flagged
+                Optional<WhereCondition> mediumCardinalityAlternative = conditions.stream()
+                    .filter(cond -> cond.cardinality() == CardinalityLevel.MEDIUM)
+                    .findFirst();
+
+                if (mediumCardinalityAlternative.isPresent()) {
+                    WhereCondition recommended = mediumCardinalityAlternative.get();
+                    String description = String.format(
+                        "Query starts with low cardinality column '%s' but a medium cardinality column '%s' occurs later in the WHERE clause. Consider reordering for better selectivity.",
+                        firstCondition.columnName(),
+                        recommended.columnName());
+
+                    OptimizationIssue issue = new OptimizationIssue(
+                        repositoryClass, methodName, firstCondition.columnName(),
+                        recommended.columnName(), description, OptimizationIssue.Severity.MEDIUM, queryText);
+                    issues.add(issue);
+                }
             }
         }
         
