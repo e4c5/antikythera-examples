@@ -20,11 +20,12 @@ import java.util.Map;
 import java.util.HashSet;
 import java.util.Set;
 
-@SuppressWarnings("java:S3457")
+@SuppressWarnings({"java:S3457", "java:S106"})
 public class QueryOptimizationChecker {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(QueryOptimizationChecker.class);
-    
+    public static final String TABLE_NAME_TAG = "<TABLE_NAME>";
+
     private final RepositoryParser repositoryParser;
     private final CardinalityAnalyzer cardinalityAnalyzer;
     private final QueryAnalysisEngine analysisEngine;
@@ -147,7 +148,7 @@ public class QueryOptimizationChecker {
 
         // Apply standardization changes to code
         try {
-            java.util.Optional<CodeStandardizer.SignatureUpdate> up = standardizer.standardize(repositoryClassName, callable, repositoryQuery, result);
+            java.util.Optional<CodeStandardizer.SignatureUpdate> up = standardizer.standardize(repositoryClassName, result);
             up.ifPresent(signatureUpdates::add);
         } catch (Exception e) {
             logger.warn("Failed to standardize method {}.{}: {}", result.getRepositoryClass(), result.getMethodName(), e.getMessage());
@@ -451,19 +452,19 @@ public class QueryOptimizationChecker {
     }
 
     private String inferTableNameFromRepositoryClassName(String repositoryClass) {
-        if (repositoryClass == null) return "<TABLE_NAME>";
+        if (repositoryClass == null) return TABLE_NAME_TAG;
         String simple = repositoryClass;
         int dot = simple.lastIndexOf('.');
         if (dot >= 0) simple = simple.substring(dot + 1);
         if (simple.endsWith("Repository")) simple = simple.substring(0, simple.length() - "Repository".length());
         // convert CamelCase to snake_case
         String snake = simple.replaceAll("(?<!^)([A-Z])", "_$1").toLowerCase();
-        return snake.isEmpty() ? "<TABLE_NAME>" : snake;
+        return snake.isEmpty() ? TABLE_NAME_TAG : snake;
     }
 
     private String buildLiquibaseNonLockingIndexChangeSet(String tableName, String columnName) {
         if (columnName == null || columnName.isEmpty()) columnName = "<COLUMN_NAME>";
-        if (tableName == null || tableName.isEmpty()) tableName = "<TABLE_NAME>";
+        if (tableName == null || tableName.isEmpty()) tableName = TABLE_NAME_TAG;
         String idxName = ("idx_" + sanitize(tableName) + "_" + sanitize(columnName)).toLowerCase();
         String id = idxName + "_" + System.currentTimeMillis();
         return "<changeSet id=\"" + id + "\" author=\"antikythera\">\n" +
@@ -513,7 +514,7 @@ public class QueryOptimizationChecker {
             int count = 0;
             for (String key : suggestedNewIndexes) {
                 String[] parts = key.split("\\|", 2);
-                String table = parts.length > 0 ? parts[0] : "<TABLE_NAME>";
+                String table = parts.length > 0 ? parts[0] : TABLE_NAME_TAG;
                 String column = parts.length > 1 ? parts[1] : "<COLUMN_NAME>";
                 String snippet = buildLiquibaseNonLockingIndexChangeSet(table, column);
                 // print only the changeSet block, no leading names or bullets
@@ -588,7 +589,7 @@ public class QueryOptimizationChecker {
             StringBuilder sb = new StringBuilder();
             for (String key : suggestedNewIndexes) {
                 String[] parts = key.split("\\|", 2);
-                String table = parts.length > 0 ? parts[0] : "<TABLE_NAME>";
+                String table = parts.length > 0 ? parts[0] : TABLE_NAME_TAG;
                 String column = parts.length > 1 ? parts[1] : "<COLUMN_NAME>";
                 sb.append("\n").append(buildLiquibaseNonLockingIndexChangeSet(table, column)).append("\n");
             }
@@ -753,22 +754,21 @@ public class QueryOptimizationChecker {
     }
 
     private static Set<String> parseListArg(String[] args, String prefix) {
-        if (args == null || args.length == 0) return new HashSet<>();
+        HashSet<String> set = new HashSet<>();
+
         for (String arg : args) {
             if (arg != null && arg.startsWith(prefix)) {
                 String value = arg.substring(prefix.length());
-                HashSet<String> set = new HashSet<>();
+
                 if (!value.isEmpty()) {
                     for (String token : value.split(",")) {
-                        if (token != null) {
-                            String t = token.trim().toLowerCase();
-                            if (!t.isEmpty()) set.add(t);
-                        }
+                        String t = token.trim().toLowerCase();
+                        if (!t.isEmpty()) set.add(t);
                     }
                 }
                 return set;
             }
         }
-        return new HashSet<>();
+        return set;
     }
 }
