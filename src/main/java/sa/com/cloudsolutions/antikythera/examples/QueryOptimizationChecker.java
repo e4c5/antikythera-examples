@@ -34,6 +34,12 @@ public class QueryOptimizationChecker {
     private int totalHighPriorityRecommendations = 0;
     private int totalMediumPriorityRecommendations = 0;
 
+    // Aggregated, de-duplicated suggestions for new indexes (key format: table|column)
+    private final java.util.LinkedHashSet<String> suggestedNewIndexes = new java.util.LinkedHashSet<>();
+    // Counters for consolidated index actions
+    private int totalIndexCreateRecommendations = 0;
+    private int totalIndexDropRecommendations = 0;
+
     /**
      * Creates a new QueryOptimizationChecker that uses RepositoryParser for comprehensive query analysis.
      * 
@@ -220,6 +226,9 @@ public class QueryOptimizationChecker {
         
         // Add specific recommendations for column reordering
         addColumnReorderingRecommendations(result, sortedIssues);
+
+        // Collect any index creation suggestions for consolidation at the end
+        collectIndexSuggestions(result, sortedIssues);
         
         System.out.println(); // Add blank line for readability
     }
@@ -395,20 +404,6 @@ public class QueryOptimizationChecker {
         System.out.println("      • Unique indexed columns are more selective than non-unique columns");
         System.out.println("      • Avoid leading with boolean or low-cardinality columns");
         System.out.println("      • Consider adding indexes for frequently queried columns");
-
-        // If there are high-priority index-creation issues for a leading medium-cardinality column,
-        // show a Liquibase changeSet that can be applied without locking
-        List<OptimizationIssue> indexIssues = highPriorityIssues.stream()
-                .filter(this::isIndexCreationForLeadingMedium)
-                .toList();
-        if (!indexIssues.isEmpty()) {
-            for (OptimizationIssue idxIssue : indexIssues) {
-                String table = inferTableNameFromQuerySafe(result.getQueryText(), result.getRepositoryClass());
-                String col = idxIssue.recommendedFirstColumn() != null ? idxIssue.recommendedFirstColumn() : idxIssue.currentFirstColumn();
-                String snippet = buildLiquibaseNonLockingIndexChangeSet(table, col);
-                System.out.println("\n      • Suggested index (non-locking):\n" + indent(snippet, 8));
-            }
-        }
     }
 
     // Helpers to tailor output for index recommendations
@@ -465,10 +460,91 @@ public class QueryOptimizationChecker {
                "    </not>\n" +
                "  </preConditions>\n" +
                "  <sql dbms=\"postgresql\">CREATE INDEX CONCURRENTLY " + idxName + " ON " + tableName + " (" + columnName + ");</sql>\n" +
+               "  <sql dbms=\"oracle\">CREATE INDEX " + idxName + " ON " + tableName + " (" + columnName + ") ONLINE</sql>\n" +
                "  <rollback>\n" +
                "    <sql dbms=\"postgresql\">DROP INDEX CONCURRENTLY IF EXISTS " + idxName + ";</sql>\n" +
+               "    <sql dbms=\"oracle\">DROP INDEX " + idxName + "</sql>\n" +
                "  </rollback>\n" +
                "</changeSet>";
+    }
+
+    private String buildLiquibaseDropIndexChangeSet(String indexName) {
+        if (indexName == null || indexName.isEmpty()) indexName = "<INDEX_NAME>";
+        String id = ("drop_" + sanitize(indexName) + "_" + System.currentTimeMillis()).toLowerCase();
+        return "<changeSet id=\"" + id + "\" author=\"antikythera\">\n" +
+               "  <preConditions onFail=\"MARK_RAN\">\n" +
+               "    <indexExists indexName=\"" + indexName + "\"/>\n" +
+               "  </preConditions>\n" +
+               "  <sql dbms=\"postgresql\">DROP INDEX CONCURRENTLY IF EXISTS " + indexName + ";</sql>\n" +
+               "  <sql dbms=\"oracle\">DROP INDEX " + indexName + "</sql>\n" +
+               "</changeSet>";
+    }
+
+    private void collectIndexSuggestions(QueryOptimizationResult result, List<OptimizationIssue> issues) {
+        if (issues == null || issues.isEmpty()) return;
+        List<OptimizationIssue> idxIssues = issues.stream().filter(this::isIndexCreationForLeadingMedium).toList();
+        if (idxIssues.isEmpty()) return;
+        for (OptimizationIssue idxIssue : idxIssues) {
+            String table = inferTableNameFromQuerySafe(result.getQueryText(), result.getRepositoryClass());
+            String col = idxIssue.recommendedFirstColumn() != null ? idxIssue.recommendedFirstColumn() : idxIssue.currentFirstColumn();
+            if (table == null || col == null) continue;
+            String key = (table + "|" + col).toLowerCase();
+            suggestedNewIndexes.add(key);
+        }
+    }
+
+    public void printConsolidatedIndexActions() {
+        // Print consolidated suggested new indexes as raw changeSets only
+        if (!suggestedNewIndexes.isEmpty()) {
+            System.out.println("\n📦 SUGGESTED NEW INDEXES (consolidated):");
+            int count = 0;
+            for (String key : suggestedNewIndexes) {
+                String[] parts = key.split("\\|", 2);
+                String table = parts.length > 0 ? parts[0] : "<TABLE_NAME>";
+                String column = parts.length > 1 ? parts[1] : "<COLUMN_NAME>";
+                String snippet = buildLiquibaseNonLockingIndexChangeSet(table, column);
+                // print only the changeSet block, no leading names or bullets
+                System.out.println("\n" + indent(snippet, 0));
+                count++;
+            }
+            totalIndexCreateRecommendations = count;
+        } else {
+            totalIndexCreateRecommendations = 0;
+        }
+
+        // Analyze existing indexes to suggest drops for low-cardinality leading columns
+        java.util.LinkedHashSet<String> dropCandidates = new java.util.LinkedHashSet<>();
+        try {
+            java.util.Map<String, java.util.List<sa.com.cloudsolutions.liquibase.Indexes.IndexInfo>> map = cardinalityAnalyzer.snapshotIndexMap();
+            for (var entry : map.entrySet()) {
+                String table = entry.getKey();
+                for (var idx : entry.getValue()) {
+                    if (!"INDEX".equals(idx.type)) continue; // avoid PKs and unique constraints
+                    if (idx.columns == null || idx.columns.isEmpty()) continue;
+                    String first = idx.columns.get(0);
+                    if (first == null) continue;
+                    CardinalityLevel card = cardinalityAnalyzer.analyzeColumnCardinality(table, first);
+                    if (card == CardinalityLevel.LOW && idx.name != null && !idx.name.isEmpty()) {
+                        dropCandidates.add(idx.name);
+                    }
+                }
+            }
+        } catch (Exception ignore) {
+            // snapshotIndexMap does not throw, this is just a safety net
+        }
+        if (!dropCandidates.isEmpty()) {
+            System.out.println("\n🗑 SUGGESTED INDEX DROPS (leading low-cardinality columns):");
+            int dcount = 0;
+            for (String idxName : dropCandidates) {
+                String snippet = buildLiquibaseDropIndexChangeSet(idxName);
+                // print only the changeSet block, no leading names or bullets
+                System.out.println("\n" + indent(snippet, 0));
+                dcount++;
+            }
+            totalIndexDropRecommendations = dcount;
+        } else {
+            totalIndexDropRecommendations = 0;
+        }
     }
 
     private String sanitize(String s) {
@@ -487,6 +563,8 @@ public class QueryOptimizationChecker {
     public int getTotalQueriesAnalyzed() { return totalQueriesAnalyzed; }
     public int getTotalHighPriorityRecommendations() { return totalHighPriorityRecommendations; }
     public int getTotalMediumPriorityRecommendations() { return totalMediumPriorityRecommendations; }
+    public int getTotalIndexCreateRecommendations() { return totalIndexCreateRecommendations; }
+    public int getTotalIndexDropRecommendations() { return totalIndexDropRecommendations; }
 
     public static void main(String[] args) throws Exception {
         Settings.loadConfigMap();
@@ -514,17 +592,26 @@ public class QueryOptimizationChecker {
         QueryOptimizationChecker checker = new QueryOptimizationChecker(liquibaseXml);
         checker.analyze();
 
+        // Print consolidated index actions at end of analysis
+        checker.printConsolidatedIndexActions();
+
         // Print execution summary
         int queries = checker.getTotalQueriesAnalyzed();
         int high = checker.getTotalHighPriorityRecommendations();
         int medium = checker.getTotalMediumPriorityRecommendations();
-        System.out.println(String.format("\nSUMMARY: Analyzed %d quer%s. Recommendations given: %d high priorit%s, %d medium priorit%s.",
+        int createCount = checker.getTotalIndexCreateRecommendations();
+        int dropCount = checker.getTotalIndexDropRecommendations();
+        System.out.println(String.format("\nSUMMARY: Analyzed %d quer%s. Recommendations given: %d high priorit%s, %d medium priorit%s. Index actions: %d creation%s, %d drop%s.",
                 queries,
                 queries == 1 ? "y" : "ies",
                 high,
                 high == 1 ? "y" : "ies",
                 medium,
-                medium == 1 ? "y" : "ies"));
+                medium == 1 ? "y" : "ies",
+                createCount,
+                createCount == 1 ? "" : "s",
+                dropCount,
+                dropCount == 1 ? "" : "s"));
 
         // Exit with non-zero if at least 1 high and at least 10 medium priority recommendations
         if (high >= 1 && medium >= 10) {

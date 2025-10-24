@@ -235,4 +235,12 @@ public class CardinalityAnalyzer {
         }
         return false;
     }
+
+    /**
+     * Provides a read-only snapshot of the indexes parsed from Liquibase.
+     * Key: table name (as parsed), Value: list of IndexInfo for that table.
+     */
+    public Map<String, List<Indexes.IndexInfo>> snapshotIndexMap() {
+        return java.util.Collections.unmodifiableMap(indexMap);
+    }
 }
