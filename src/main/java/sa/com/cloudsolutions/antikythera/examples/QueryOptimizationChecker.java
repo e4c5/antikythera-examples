@@ -122,7 +122,7 @@ public class QueryOptimizationChecker {
                 RepositoryQuery repositoryQuery = repositoryParser.get(callable);
 
                 if (repositoryQuery != null) {
-                    analyzeRepositoryQuery(fullyQualifiedName, callable, repositoryQuery);
+                    analyzeRepositoryQuery(repositoryQuery);
                 }
             }
         }
@@ -131,24 +131,21 @@ public class QueryOptimizationChecker {
     /**
      * Analyzes a single repository query using QueryAnalysisEngine.
      * Enhanced to pass Callable information for better repository class and method name reporting.
-     * 
-     * @param repositoryClassName the repository class name
-     * @param callable the callable representing the repository method
      * @param repositoryQuery the RepositoryQuery object containing parsed query information
      */
-    private void analyzeRepositoryQuery(String repositoryClassName, Callable callable, RepositoryQuery repositoryQuery) {
+    private void analyzeRepositoryQuery(RepositoryQuery repositoryQuery) {
         // Count every repository method query analyzed
         totalQueriesAnalyzed++;
 
         // Use QueryAnalysisEngine to analyze the query with enhanced Callable information
-        QueryOptimizationResult result = analysisEngine.analyzeQueryWithCallable(repositoryQuery, callable, repositoryClassName);
+        QueryOptimizationResult result = analysisEngine.analyzeQueryWithCallable(repositoryQuery);
 
         // Report optimization issues with enhanced reporting
         reportOptimizationResults(result);
 
         // Apply standardization changes to code
         try {
-            java.util.Optional<CodeStandardizer.SignatureUpdate> up = standardizer.standardize(repositoryClassName, result);
+            java.util.Optional<CodeStandardizer.SignatureUpdate> up = standardizer.standardize(result);
             up.ifPresent(signatureUpdates::add);
         } catch (Exception e) {
             logger.warn("Failed to standardize method {}.{}: {}", result.getRepositoryClass(), result.getMethodName(), e.getMessage());
