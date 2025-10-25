@@ -14,6 +14,7 @@ import sa.com.cloudsolutions.liquibase.Indexes;
 
 import java.io.File;
 import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
@@ -67,7 +68,7 @@ public class QueryOptimizationChecker {
      * Analyzes all JPA repositories using RepositoryParser to extract and analyze queries.
      * 
      */
-    public void analyze() throws FileNotFoundException {
+    public void analyze() throws IOException {
         Map<String, TypeWrapper> resolvedTypes = AntikytheraRunTime.getResolvedTypes();
 
         for (Map.Entry<String, TypeWrapper> entry : resolvedTypes.entrySet()) {
@@ -104,7 +105,7 @@ public class QueryOptimizationChecker {
      * @param fullyQualifiedName the fully qualified class name of the repository
      * @param typeWrapper the TypeWrapper representing the repository
      */
-    protected void analyzeRepository(String fullyQualifiedName, TypeWrapper typeWrapper) throws FileNotFoundException {
+    protected void analyzeRepository(String fullyQualifiedName, TypeWrapper typeWrapper) throws IOException {
         logger.debug("Analyzing repository: {}", fullyQualifiedName);
 
         // Use RepositoryParser to process the repository type
