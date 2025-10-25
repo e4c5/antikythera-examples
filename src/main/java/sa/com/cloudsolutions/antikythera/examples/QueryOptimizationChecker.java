@@ -634,19 +634,15 @@ public class QueryOptimizationChecker {
                         for (CodeStandardizer.SignatureUpdate up : upEntry.getValue()) {
                             if (!up.methodName.equals(call.getNameAsString())) continue;
                             java.util.List<String> oldNames = up.oldParamNames;
-                            java.util.List<String> newNames = up.newParamNames;
+
                             com.github.javaparser.ast.NodeList<com.github.javaparser.ast.expr.Expression> args = call.getArguments();
-                            if (args.size() != oldNames.size() || oldNames.size() != newNames.size()) continue;
+
                             // Map old param name to index
                             java.util.Map<String, Integer> oldIndex = new java.util.HashMap<>();
                             for (int i = 0; i < oldNames.size(); i++) oldIndex.put(oldNames.get(i), i);
                             com.github.javaparser.ast.NodeList<com.github.javaparser.ast.expr.Expression> reordered = new com.github.javaparser.ast.NodeList<>();
                             boolean ok = true;
-                            for (String pname : newNames) {
-                                Integer idx = oldIndex.get(pname);
-                                if (idx == null || idx >= args.size()) { ok = false; break; }
-                                reordered.add(args.get(idx));
-                            }
+
                             if (!ok) continue;
                             call.setArguments(reordered);
                             modified = true;
