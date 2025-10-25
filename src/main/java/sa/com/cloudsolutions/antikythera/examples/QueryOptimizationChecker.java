@@ -15,6 +15,7 @@ import sa.com.cloudsolutions.liquibase.Indexes;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.HashSet;
@@ -23,27 +24,27 @@ import java.util.Set;
 @SuppressWarnings({"java:S3457", "java:S106"})
 public class QueryOptimizationChecker {
 
-    private static final Logger logger = LoggerFactory.getLogger(QueryOptimizationChecker.class);
+    protected static final Logger logger = LoggerFactory.getLogger(QueryOptimizationChecker.class);
     public static final String TABLE_NAME_TAG = "<TABLE_NAME>";
 
-    private final RepositoryParser repositoryParser;
-    private final CardinalityAnalyzer cardinalityAnalyzer;
-    private final QueryAnalysisEngine analysisEngine;
-    private final String liquibaseXmlPath;
+    protected final RepositoryParser repositoryParser;
+    protected final CardinalityAnalyzer cardinalityAnalyzer;
+    protected final QueryAnalysisEngine analysisEngine;
+    protected final File liquibaseXmlPath;
 
     // Aggregated counters for summary and exit code logic
-    private int totalQueriesAnalyzed = 0;
-    private int totalHighPriorityRecommendations = 0;
-    private int totalMediumPriorityRecommendations = 0;
+    protected int totalQueriesAnalyzed = 0;
+    protected int totalHighPriorityRecommendations = 0;
+    protected int totalMediumPriorityRecommendations = 0;
 
     // Aggregated, de-duplicated suggestions for new indexes (key format: table|column)
-    private final java.util.LinkedHashSet<String> suggestedNewIndexes = new java.util.LinkedHashSet<>();
+    protected final java.util.LinkedHashSet<String> suggestedNewIndexes = new java.util.LinkedHashSet<>();
     // Counters for consolidated index actions
-    private int totalIndexCreateRecommendations = 0;
-    private int totalIndexDropRecommendations = 0;
+    protected int totalIndexCreateRecommendations = 0;
+    protected int totalIndexDropRecommendations = 0;
 
-    private final java.util.List<CodeStandardizer.SignatureUpdate> signatureUpdates = new java.util.ArrayList<>();
-    private final CodeStandardizer standardizer = new CodeStandardizer();
+    protected final List<CodeStandardizer.SignatureUpdate> signatureUpdates = new ArrayList<>();
+    protected final List<QueryOptimizationResult> results = new ArrayList<>();
 
     /**
      * Creates a new QueryOptimizationChecker that uses RepositoryParser for comprehensive query analysis.
@@ -51,10 +52,10 @@ public class QueryOptimizationChecker {
      * @param liquibaseXmlPath path to the Liquibase XML file for database metadata
      * @throws Exception if initialization fails
      */
-    public QueryOptimizationChecker(String liquibaseXmlPath) throws Exception {
+    public QueryOptimizationChecker(File liquibaseXmlPath) throws Exception {
         this.liquibaseXmlPath = liquibaseXmlPath;
         // Load database metadata for cardinality analysis
-        Map<String, List<Indexes.IndexInfo>> indexMap = Indexes.load(new File(liquibaseXmlPath));
+        Map<String, List<Indexes.IndexInfo>> indexMap = Indexes.load(liquibaseXmlPath);
         
         // Initialize components
         this.cardinalityAnalyzer = new CardinalityAnalyzer(indexMap);
@@ -103,7 +104,7 @@ public class QueryOptimizationChecker {
      * @param fullyQualifiedName the fully qualified class name of the repository
      * @param typeWrapper the TypeWrapper representing the repository
      */
-    private void analyzeRepository(String fullyQualifiedName, TypeWrapper typeWrapper) throws FileNotFoundException {
+    protected void analyzeRepository(String fullyQualifiedName, TypeWrapper typeWrapper) throws FileNotFoundException {
         logger.debug("Analyzing repository: {}", fullyQualifiedName);
 
         // Use RepositoryParser to process the repository type
@@ -112,7 +113,7 @@ public class QueryOptimizationChecker {
 
         // Build all queries using RepositoryParser
         repositoryParser.buildQueries();
-
+        results.clear();
         // Analyze each method in the repository to get its queries
         if (typeWrapper.getType() != null) {
             var declaration = typeWrapper.getType().asClassOrInterfaceDeclaration();
@@ -122,7 +123,7 @@ public class QueryOptimizationChecker {
                 RepositoryQuery repositoryQuery = repositoryParser.get(callable);
 
                 if (repositoryQuery != null) {
-                    analyzeRepositoryQuery(repositoryQuery);
+                    results.add(analyzeRepositoryQuery(repositoryQuery));
                 }
             }
         }
@@ -133,7 +134,7 @@ public class QueryOptimizationChecker {
      * Enhanced to pass Callable information for better repository class and method name reporting.
      * @param repositoryQuery the RepositoryQuery object containing parsed query information
      */
-    private void analyzeRepositoryQuery(RepositoryQuery repositoryQuery) {
+    protected QueryOptimizationResult analyzeRepositoryQuery(RepositoryQuery repositoryQuery) {
         // Count every repository method query analyzed
         totalQueriesAnalyzed++;
 
@@ -142,14 +143,8 @@ public class QueryOptimizationChecker {
 
         // Report optimization issues with enhanced reporting
         reportOptimizationResults(result);
+        return result;
 
-        // Apply standardization changes to code
-        try {
-            java.util.Optional<CodeStandardizer.SignatureUpdate> up = standardizer.standardize(result);
-            up.ifPresent(signatureUpdates::add);
-        } catch (Exception e) {
-            logger.warn("Failed to standardize method {}.{}: {}", result.getRepositoryClass(), result.getMethodName(), e.getMessage());
-        }
     }
     
     /**
@@ -160,10 +155,6 @@ public class QueryOptimizationChecker {
      * @param result the analysis results to report
      */
     private void reportOptimizationResults(QueryOptimizationResult result) {
-        if (result == null) {
-            return;
-        }
-        
         List<OptimizationIssue> issues = result.getOptimizationIssues();
         
         if (issues.isEmpty()) {
@@ -591,9 +582,8 @@ public class QueryOptimizationChecker {
                 sb.append("\n").append(buildLiquibaseNonLockingIndexChangeSet(table, column)).append("\n");
             }
             // For simplicity, only include create index changes here
-            File master = new File(this.liquibaseXmlPath);
             LiquibaseChangesWriter writer = new LiquibaseChangesWriter();
-            writer.write(master, sb.toString());
+            writer.write(liquibaseXmlPath, sb.toString());
         } catch (Exception e) {
             logger.warn("Failed to generate Liquibase changes file: {}", e.getMessage());
         }
@@ -691,11 +681,8 @@ public class QueryOptimizationChecker {
         return dot >= 0 ? typeName.substring(dot + 1) : typeName;
     }
 
-    public static void main(String[] args) throws Exception {
-        long s = System.currentTimeMillis();
-        Settings.loadConfigMap();
-        AbstractCompiler.preProcess();
-        
+
+    protected static File getLiquibasePath() {
         String basePath = (String) Settings.getProperty("base_path");
         if (basePath == null) {
             System.err.println("base_path not found in generator.yml");
@@ -708,6 +695,14 @@ public class QueryOptimizationChecker {
             System.err.println("Liquibase file not found: " + liquibaseXml);
             System.exit(1);
         }
+        return liquibaseFile;
+    }
+
+
+    public static void main(String[] args) throws Exception {
+        long s = System.currentTimeMillis();
+        Settings.loadConfigMap();
+        AbstractCompiler.preProcess();
 
         // Parse optional CLI parameters for cardinality overrides
         Set<String> lowOverride = parseListArg(args, "--low-cardinality=");
@@ -715,7 +710,7 @@ public class QueryOptimizationChecker {
 
         CardinalityAnalyzer.configureUserDefinedCardinality(lowOverride, highOverride);
 
-        QueryOptimizationChecker checker = new QueryOptimizationChecker(liquibaseXml);
+        QueryOptimizationChecker checker = new QueryOptimizationChecker(getLiquibasePath());
         checker.analyze();
         // Apply any method signature updates to usages in @Autowired consumers
         checker.applySignatureUpdatesToUsages();
@@ -752,7 +747,7 @@ public class QueryOptimizationChecker {
         }
     }
 
-    private static Set<String> parseListArg(String[] args, String prefix) {
+    protected static Set<String> parseListArg(String[] args, String prefix) {
         HashSet<String> set = new HashSet<>();
 
         for (String arg : args) {
