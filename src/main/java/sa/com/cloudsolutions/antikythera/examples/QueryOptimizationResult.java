@@ -1,5 +1,8 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
+import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import sa.com.cloudsolutions.antikythera.parser.Callable;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -10,9 +13,7 @@ import java.util.stream.Collectors;
  * issues, WHERE clause conditions, and summary statistics.
  */
 public class QueryOptimizationResult {
-    
-    private final String repositoryClass;
-    private final String methodName;
+    Callable method;
     private final String queryText;
     private final List<WhereCondition> whereConditions;
     private final List<OptimizationIssue> optimizationIssues;
@@ -21,16 +22,14 @@ public class QueryOptimizationResult {
     /**
      * Creates a new QueryOptimizationResult instance.
      * 
-     * @param repositoryClass the fully qualified name of the repository class
-     * @param methodName the name of the repository method analyzed
+     * @param method the method declaration being analyzed
      * @param queryText the full query text that was analyzed
      * @param whereConditions the list of WHERE clause conditions found in the query
      * @param optimizationIssues the list of optimization issues identified
      */
-    public QueryOptimizationResult(String repositoryClass, String methodName, String queryText,
-                                 List<WhereCondition> whereConditions, List<OptimizationIssue> optimizationIssues) {
-        this.repositoryClass = repositoryClass;
-        this.methodName = methodName;
+    public QueryOptimizationResult(Callable method, String queryText,
+                                   List<WhereCondition> whereConditions, List<OptimizationIssue> optimizationIssues) {
+        this.method = method;
         this.queryText = queryText;
         this.whereConditions = new ArrayList<>(whereConditions != null ? whereConditions : Collections.emptyList());
         this.optimizationIssues = new ArrayList<>(optimizationIssues != null ? optimizationIssues : Collections.emptyList());
@@ -43,7 +42,8 @@ public class QueryOptimizationResult {
      * @return the fully qualified repository class name
      */
     public String getRepositoryClass() {
-        return repositoryClass;
+        return method.getCallableDeclaration()
+                .findAncestor(ClassOrInterfaceDeclaration.class).orElseThrow().getFullyQualifiedName().orElseThrow();
     }
     
     /**
@@ -52,7 +52,7 @@ public class QueryOptimizationResult {
      * @return the method name
      */
     public String getMethodName() {
-        return methodName;
+        return method.getNameAsString();
     }
     
     /**
@@ -194,7 +194,7 @@ public class QueryOptimizationResult {
      */
     public String getSummaryReport() {
         StringBuilder report = new StringBuilder();
-        report.append(String.format("Query Analysis Results for %s.%s%n", repositoryClass, methodName));
+        report.append(String.format("Query Analysis Results for %s.%s%n", getRepositoryClass(), getMethodName()));
         report.append(String.format("Query: %s%n", queryText));
         report.append(String.format("WHERE Conditions: %d%n", getWhereConditionCount()));
         report.append(String.format("Optimization Issues: %d%n", getOptimizationIssueCount()));
@@ -240,7 +240,7 @@ public class QueryOptimizationResult {
     public String toString() {
         return String.format("QueryOptimizationResult{repositoryClass='%s', methodName='%s', " +
                            "whereConditions=%d, optimizationIssues=%d, isOptimized=%s}",
-                           repositoryClass, methodName, whereConditions.size(), 
+                           getRepositoryClass(), getMethodName(), whereConditions.size(),
                            optimizationIssues.size(), isOptimized);
     }
     
@@ -250,15 +250,12 @@ public class QueryOptimizationResult {
         if (obj == null || getClass() != obj.getClass()) return false;
         
         QueryOptimizationResult that = (QueryOptimizationResult) obj;
-        return repositoryClass.equals(that.repositoryClass) &&
-               methodName.equals(that.methodName) &&
-               queryText.equals(that.queryText);
+        return method.equals(that.method) && queryText.equals(that.queryText);
     }
     
     @Override
     public int hashCode() {
-        int result = repositoryClass.hashCode();
-        result = 31 * result + methodName.hashCode();
+        int result = method.hashCode();
         result = 31 * result + queryText.hashCode();
         return result;
     }
