@@ -8,6 +8,8 @@ import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.expr.*;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import org.junit.jupiter.api.Test;
+import sa.com.cloudsolutions.antikythera.evaluator.Evaluator;
+import sa.com.cloudsolutions.antikythera.evaluator.EvaluatorFactory;
 import sa.com.cloudsolutions.antikythera.generator.QueryMethodParameter;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
 import sa.com.cloudsolutions.antikythera.parser.Callable;
@@ -40,8 +42,9 @@ class CodeStandardizerTest {
     }
 
     @Test
-    void reorderQueryAnnotation_AND_only_high_to_low() {
+    void reorderQueryAnnotation_AND_only_high_to_low() throws ReflectiveOperationException {
         // Build method with @Query annotation
+        Evaluator eval = EvaluatorFactory.create("", Evaluator.class);
         CompilationUnit cu = new CompilationUnit();
         ClassOrInterfaceDeclaration clazz = newRepoClass(cu, "UserRepository");
 
@@ -62,7 +65,7 @@ class CodeStandardizerTest {
         List<OptimizationIssue> issues = List.of(newIssue(callable, "is_active", "email", originalQuery));
         QueryOptimizationResult qres = new QueryOptimizationResult(callable, originalQuery, conditions, issues);
 
-        CodeStandardizer cs = new CodeStandardizer();
+        CodeStandardizer cs = new CodeStandardizer(eval);
         Optional<CodeStandardizer.SignatureUpdate> update = cs.standardize(qres);
         assertTrue(update.isEmpty(), "Annotated methods should not produce a signature update");
 
@@ -87,7 +90,8 @@ class CodeStandardizerTest {
     }
 
     @Test
-    void annotatedQuery_with_OR_is_left_unchanged() {
+    void annotatedQuery_with_OR_is_left_unchanged() throws ReflectiveOperationException {
+        Evaluator eval = EvaluatorFactory.create("", Evaluator.class);
         CompilationUnit cu = new CompilationUnit();
         ClassOrInterfaceDeclaration clazz = newRepoClass(cu, "OrderRepository");
         MethodDeclaration md = clazz.addMethod("findByStatusOrUser", com.github.javaparser.ast.Modifier.Keyword.PUBLIC);
@@ -101,7 +105,7 @@ class CodeStandardizerTest {
         List<OptimizationIssue> issues = List.of(newIssue(callable, "status", "user_id", originalQuery));
         QueryOptimizationResult qres = new QueryOptimizationResult(callable, originalQuery, conditions, issues);
 
-        CodeStandardizer cs = new CodeStandardizer();
+        CodeStandardizer cs = new CodeStandardizer(eval);
         cs.standardize(qres);
 
         String after = md.getAnnotationByName("Query").get().asSingleMemberAnnotationExpr().getMemberValue().asStringLiteralExpr().getValue();
@@ -109,7 +113,7 @@ class CodeStandardizerTest {
     }
 
     @Test
-    void reorderParameters_for_derived_method_returns_update_and_mutates_signature() {
+    void reorderParameters_for_derived_method_returns_update_and_mutates_signature() throws ReflectiveOperationException {
         // Build a derived method (no @Query) with three parameters
         CompilationUnit cu = new CompilationUnit();
         ClassOrInterfaceDeclaration clazz = newRepoClass(cu, "UserRepository2");
@@ -138,7 +142,7 @@ class CodeStandardizerTest {
         List<OptimizationIssue> issues = List.of(newIssue(callable, "active", "email", null));
         QueryOptimizationResult qres = new QueryOptimizationResult(callable, null, conditions, issues);
 
-        CodeStandardizer cs = new CodeStandardizer();
+        CodeStandardizer cs = new CodeStandardizer(null);
         Optional<CodeStandardizer.SignatureUpdate> sig = cs.standardize(qres);
         assertTrue(sig.isEmpty(), "Already optimal order should not produce a SignatureUpdate");
 
@@ -160,7 +164,7 @@ class CodeStandardizerTest {
     }
 
     @Test
-    void annotatedQuery_already_ordered_results_in_no_change() {
+    void annotatedQuery_already_ordered_results_in_no_change() throws ReflectiveOperationException {
         CompilationUnit cu = new CompilationUnit();
         ClassOrInterfaceDeclaration clazz = newRepoClass(cu, "UserRepository3");
         MethodDeclaration md = clazz.addMethod("findByEmailThenAge", com.github.javaparser.ast.Modifier.Keyword.PUBLIC);
@@ -176,7 +180,7 @@ class CodeStandardizerTest {
         List<OptimizationIssue> issues = List.of(newIssue(callable, "email", "email", originalQuery));
         QueryOptimizationResult qres = new QueryOptimizationResult(callable, originalQuery, conditions, issues);
 
-        CodeStandardizer cs = new CodeStandardizer();
+        CodeStandardizer cs = new CodeStandardizer(null);
         cs.standardize(qres);
 
         String after = md.getAnnotationByName("Query").get().asSingleMemberAnnotationExpr().getMemberValue().asStringLiteralExpr().getValue();
