@@ -7,9 +7,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
+import org.mockito.Answers;
 import sa.com.cloudsolutions.antikythera.generator.QueryMethodParameter;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
 import sa.com.cloudsolutions.antikythera.parser.Callable;
+import com.github.javaparser.ast.body.CallableDeclaration;
+import com.github.javaparser.ast.body.MethodDeclaration;
 import sa.com.cloudsolutions.liquibase.Indexes;
 
 import java.util.*;
@@ -37,6 +40,11 @@ class ErrorHandlingTest {
         MockitoAnnotations.openMocks(this);
         setupCardinalityAnalyzer();
         engine = new QueryAnalysisEngine(cardinalityAnalyzer);
+
+        // Default stubbing to avoid NPEs in QueryAnalysisEngine when method metadata is accessed
+        if (mockRepositoryQuery != null) {
+            stubMethodMeta(mockRepositoryQuery, "UserRepository", "findAll");
+        }
     }
     
     private void setupCardinalityAnalyzer() {
@@ -50,11 +58,21 @@ class ErrorHandlingTest {
         indexMap.put("users", userIndexes);
         cardinalityAnalyzer = new CardinalityAnalyzer(indexMap);
     }
+
+    // Helper to stub minimal method metadata required by QueryAnalysisEngine
+    private void stubMethodMeta(RepositoryQuery query, String className, String methodName) {
+        Callable callable = mock(Callable.class, Answers.RETURNS_DEEP_STUBS);
+        when(callable.getCallableDeclaration().getNameAsString()).thenReturn(className);
+        when(callable.getNameAsString()).thenReturn(methodName);
+        when(query.getMethodDeclaration()).thenReturn(callable);
+        when(query.getTable()).thenReturn("users");
+    }
     
     @Test
     void testNullRepositoryQuery() {
         // API no longer supports null RepositoryQuery; use a minimal mock instead
         RepositoryQuery mockQuery = mock(RepositoryQuery.class);
+        stubMethodMeta(mockQuery, "UserRepository", "findAll");
         when(mockQuery.getStatement()).thenReturn(null);
         when(mockQuery.getOriginalQuery()).thenReturn("");
         when(mockQuery.getMethodParameters()).thenReturn(new ArrayList<>());
@@ -217,6 +235,7 @@ class ErrorHandlingTest {
     
     private RepositoryQuery createThreadSafeQuery() {
         RepositoryQuery query = mock(RepositoryQuery.class);
+        stubMethodMeta(query, "UserRepository", "findAll");
         when(query.getStatement()).thenReturn(null);
         when(query.getOriginalQuery()).thenReturn("");
         when(query.getMethodParameters()).thenReturn(new ArrayList<>());
