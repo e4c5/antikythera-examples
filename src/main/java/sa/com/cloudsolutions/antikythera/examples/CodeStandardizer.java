@@ -2,7 +2,6 @@ package sa.com.cloudsolutions.antikythera.examples;
 
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
-import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.AnnotationExpr;
 import com.github.javaparser.ast.expr.MemberValuePair;
@@ -11,11 +10,8 @@ import com.github.javaparser.ast.expr.SingleMemberAnnotationExpr;
 import com.github.javaparser.ast.expr.StringLiteralExpr;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.generator.QueryMethodParameter;
-import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
-import sa.com.cloudsolutions.antikythera.parser.Callable;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -54,8 +50,8 @@ public class CodeStandardizer {
      * Standardize a single repository method based on analysis result.
      * Returns an optional SignatureUpdate for derived methods whose parameter order was changed.
      */
-    public Optional<SignatureUpdate> standardize(String repositoryClassFqn,
-                                                 QueryOptimizationResult result) throws IOException {
+    public Optional<SignatureUpdate> standardize(QueryOptimizationResult result) throws IOException {
+        String repositoryClassFqn = result.getRepositoryClass();
         Path filePath = Path.of(AbstractCompiler.classToPath(repositoryClassFqn));
         String source = Files.readString(filePath);
         CompilationUnit cu = AntikytheraRunTime.getResolvedCompilationUnits().get(repositoryClassFqn);
@@ -78,7 +74,7 @@ public class CodeStandardizer {
             return Optional.empty();
         } else {
             // Derived (non-annotated) method: reorder parameters by cardinality HIGH->MEDIUM->LOW when safely mappable
-            Optional<SignatureUpdate> update = reorderDerivedMethodParams(repositoryClassFqn, cu, method, result, filePath);
+            Optional<SignatureUpdate> update = reorderDerivedMethodParams(repositoryClassFqn, method, result);
             if (update.isPresent()) {
                 try {
                     Files.writeString(filePath, cu.toString(), StandardCharsets.UTF_8);
@@ -89,10 +85,8 @@ public class CodeStandardizer {
     }
 
     private Optional<SignatureUpdate> reorderDerivedMethodParams(String repositoryClassFqn,
-                                                                 CompilationUnit cu,
                                                                  MethodDeclaration method,
-                                                                 QueryOptimizationResult result,
-                                                                 Path filePath) {
+                                                                 QueryOptimizationResult result) {
         try {
             // Skip if method has no parameters or only one
             if (method.getParameters().size() < 2) return Optional.empty();
@@ -181,7 +175,6 @@ public class CodeStandardizer {
         }
         if (queryText == null || !queryText.toLowerCase(Locale.ROOT).contains(" where ")) return false;
 
-        String beforeWhere = queryText.replaceAll("(?is)(.*?)(?=\n|$)", ""); // not used
         String[] split = queryText.split("(?i)\\bwhere\\b", 2);
         if (split.length < 2) return false;
         String head = split[0];

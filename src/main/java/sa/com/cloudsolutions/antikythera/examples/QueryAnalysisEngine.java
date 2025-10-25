@@ -50,7 +50,7 @@ public class QueryAnalysisEngine {
      * @return the analysis results including WHERE conditions and optimization issues
      */
     public QueryOptimizationResult analyzeQuery(RepositoryQuery repositoryQuery) {
-        return analyzeQueryWithCallable(repositoryQuery, null, null);
+        return analyzeQueryWithCallable(repositoryQuery);
     }
     
     /**
@@ -58,16 +58,12 @@ public class QueryAnalysisEngine {
      * Enhanced to include repository class name and method name from Callable objects.
      * 
      * @param repositoryQuery the repository query to analyze
-     * @param callable the callable representing the repository method (may be null)
-     * @param repositoryClassName the repository class name (may be null)
      * @return the analysis results including WHERE conditions and optimization issues
      */
-    public QueryOptimizationResult analyzeQueryWithCallable(RepositoryQuery repositoryQuery, 
-                                                           Callable callable,
-                                                           String repositoryClassName) {
+    public QueryOptimizationResult analyzeQueryWithCallable(RepositoryQuery repositoryQuery) {
         // Enhanced repository class and method name extraction using Callable information
-        String repositoryClass = getRepositoryClassNameEnhanced(repositoryQuery, callable, repositoryClassName);
-        String methodName = getMethodNameEnhanced(repositoryQuery, callable);
+        String repositoryClass = repositoryQuery.getMethodDeclaration().getCallableDeclaration().getNameAsString();
+        String methodName = repositoryQuery.getMethodDeclaration().getNameAsString();
         String queryText = getQueryText(repositoryQuery);
         
         try {
@@ -85,7 +81,7 @@ public class QueryAnalysisEngine {
             String tableName = extractTableName(statement);
             if (tableName == null) {
                 logger.debug("Could not extract table name from query: {}", queryText);
-                return createEmptyResult(callable, queryText);
+                return createEmptyResult(repositoryQuery, queryText);
             }
             
             // Extract WHERE clause conditions using RepositoryQuery's parsing capabilities
@@ -95,12 +91,12 @@ public class QueryAnalysisEngine {
             List<OptimizationIssue> optimizationIssues = analyzeConditionOrdering(
                 whereConditions, repositoryQuery, queryText);
             
-            return new QueryOptimizationResult(callable, queryText,
+            return new QueryOptimizationResult(repositoryQuery.getMethodDeclaration(), queryText,
                                              whereConditions, optimizationIssues);
             
         } catch (Exception e) {
             logger.error("Error analyzing query for {}.{}: {}", repositoryClass, methodName, e.getMessage());
-            return createEmptyResult(callable, queryText);
+            return createEmptyResult(repositoryQuery, queryText);
         }
     }
 
@@ -561,68 +557,6 @@ public class QueryAnalysisEngine {
     }
 
     /**
-     * Gets the method name from the RepositoryQuery.
-     * Enhanced to use RepositoryQuery's methodDeclaration when available.
-     */
-    private String getMethodName(RepositoryQuery repositoryQuery) {
-        return getMethodNameEnhanced(repositoryQuery, null);
-    }
-    
-    /**
-     * Enhanced method to get repository class name using Callable information.
-     * Prioritizes Callable information over reflection-based extraction.
-     * 
-     * @param repositoryQuery the repository query
-     * @param callable the callable object (may be null)
-     * @param repositoryClassName the repository class name (may be null)
-     * @return the repository class name
-     */
-    private String getRepositoryClassNameEnhanced(RepositoryQuery repositoryQuery, 
-                                                 sa.com.cloudsolutions.antikythera.parser.Callable callable,
-                                                 String repositoryClassName) {
-        // First priority: use provided repository class name
-        if (repositoryClassName != null && !repositoryClassName.isEmpty()) {
-            // Extract simple class name from fully qualified name
-            String[] parts = repositoryClassName.split("\\.");
-            return parts[parts.length - 1];
-        }
-        
-        // Second priority: use Callable information
-        if (callable != null && callable.isMethodDeclaration()) {
-            try {
-                return callable.asMethodDeclaration().findAncestor(
-                    com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
-                    .map(cls -> cls.getNameAsString())
-                    .orElse(UNKNOWN);
-            } catch (Exception e) {
-                logger.debug("Error getting class name from Callable: {}", e.getMessage());
-            }
-        }
-
-        sa.com.cloudsolutions.antikythera.parser.Callable reflectedCallable = repositoryQuery.getMethodDeclaration();
-
-        if (reflectedCallable != null && reflectedCallable.isMethodDeclaration()) {
-            return reflectedCallable.asMethodDeclaration().findAncestor(
-                com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
-                .map(cls -> cls.getNameAsString())
-                .orElse(UNKNOWN);
-        }
-
-        
-        // Fallback: convert table name to repository class
-        try {
-            String tableName = extractTableName(repositoryQuery.getStatement());
-            if (tableName != null) {
-                return convertTableNameToRepositoryClass(tableName);
-            }
-        } catch (Exception e) {
-            logger.debug("Error converting table name to repository class: {}", e.getMessage());
-        }
-        
-        return UNKNOWN;
-    }
-    
-    /**
      * Enhanced method to get method name using Callable information.
      * Prioritizes Callable information over reflection-based extraction.
      * 
@@ -728,7 +662,7 @@ public class QueryAnalysisEngine {
             }
             
             // Check if this is a derived query method (no explicit query)
-            String methodName = getMethodName(repositoryQuery);
+            String methodName = repositoryQuery.getMethodDeclaration().getNameAsString();
             if (methodName.startsWith("findBy") || methodName.startsWith("countBy") || 
                 methodName.startsWith("deleteBy") || methodName.startsWith("existsBy")) {
                 return "Derived query method: " + methodName;
@@ -802,7 +736,7 @@ public class QueryAnalysisEngine {
     /**
      * Creates an empty result for cases where analysis cannot be performed.
      */
-    private QueryOptimizationResult createEmptyResult(Callable callable, String queryText) {
-        return new QueryOptimizationResult(callable, queryText, new ArrayList<>(), new ArrayList<>());
+    private QueryOptimizationResult createEmptyResult(RepositoryQuery query, String queryText) {
+        return new QueryOptimizationResult(query.getMethodDeclaration(), queryText, new ArrayList<>(), new ArrayList<>());
     }
 }
