@@ -1,5 +1,10 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
+import com.github.javaparser.ast.expr.Expression;
+import com.github.javaparser.ast.expr.FieldAccessExpr;
+import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.ast.expr.NameExpr;
+import com.github.javaparser.ast.visitor.ModifierVisitor;
 import com.github.javaparser.printer.lexicalpreservation.LexicalPreservingPrinter;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
@@ -7,8 +12,10 @@ import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -24,6 +31,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
      */
     public QueryOptimizer(File liquibaseXmlPath) throws Exception {
         super(liquibaseXmlPath);
+        Fields.buildDependencies();
     }
 
     @Override
@@ -33,115 +41,72 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         }
         super.analyzeRepository(fullyQualifiedName, typeWrapper);
         CodeStandardizer standardizer = new CodeStandardizer();
-        boolean modified = false;
+        List<CodeStandardizer.SignatureUpdate> updates = new ArrayList<>();
+
         for (QueryOptimizationResult result : results) {
             if (!result.isOptimized()) {
                 Optional<CodeStandardizer.SignatureUpdate> bada =  standardizer.standardize(result);
                 if (bada.isPresent()) {
-                    modified = true;
+                    updates.add(bada.get());
                 }
             }
         }
-        if (modified) {
-            String fullPath = Settings.getBasePath() + "src/main/java/" + AbstractCompiler.classToPath(fullyQualifiedName);
-            File f = new File(fullPath);
-
-            if (f.exists()) {
-                PrintWriter writer = new PrintWriter(f);
-
-                writer.print(LexicalPreservingPrinter.print(AntikytheraRunTime.getCompilationUnit(fullyQualifiedName)));
-                writer.close();
-            }
+        if (!updates.isEmpty()) {
+            writeFile(fullyQualifiedName);
         }
+        applySignatureUpdatesToUsages(updates, fullyQualifiedName);
     }
-
-
-    private String getScopeName(com.github.javaparser.ast.expr.Expression scope) {
-        if (scope == null) return null;
-        if (scope.isNameExpr()) return scope.asNameExpr().getNameAsString();
-        if (scope.isFieldAccessExpr()) return scope.asFieldAccessExpr().getNameAsString();
-        if (scope.isThisExpr()) return "this"; // unlikely useful
-        return null;
-    }
-
-    private String simpleName(String typeName) {
-        if (typeName == null) return null;
-        int lt = typeName.lastIndexOf('<');
-        if (lt > 0) typeName = typeName.substring(0, lt);
-        int dot = typeName.lastIndexOf('.');
-        return dot >= 0 ? typeName.substring(dot + 1) : typeName;
-    }
-
 
     /**
      * Apply recorded signature updates to usage sites in classes that @Autowired the given repository.
      * This reorders call arguments to match the new parameter order. Only same-arity calls are modified.
      */
-    public void applySignatureUpdatesToUsages() {
-        if (signatureUpdates.isEmpty()) return;
-        Map<String, List<CodeStandardizer.SignatureUpdate>> byRepo = new java.util.HashMap<>();
-        for (CodeStandardizer.SignatureUpdate up : signatureUpdates) {
-            byRepo.computeIfAbsent(up.repositoryClassFqn, k -> new java.util.ArrayList<>()).add(up);
+    public void applySignatureUpdatesToUsages(List<CodeStandardizer.SignatureUpdate> updates, String fullyQualifiedName) throws FileNotFoundException {
+        Map<String, String> fields = Fields.getFieldDependencies(fullyQualifiedName);
+        for (Map.Entry<String, String> entry : fields.entrySet()) {
+            String className = entry.getKey();
+            String fieldName = entry.getValue();
+            TypeWrapper typeWrapper = AntikytheraRunTime.getResolvedTypes().get(className);
+            NameChangeVisitor visitor = new NameChangeVisitor(fieldName);
+            typeWrapper.getType().accept(visitor, updates);
+            if (visitor.modified) {
+                writeFile(fullyQualifiedName);
+            }
         }
-        Map<String, com.github.javaparser.ast.CompilationUnit> units = AntikytheraRunTime.getResolvedCompilationUnits();
-        for (Map.Entry<String, com.github.javaparser.ast.CompilationUnit> e : units.entrySet()) {
-            String fqn = e.getKey();
-            com.github.javaparser.ast.CompilationUnit cu = e.getValue();
-            boolean modified = false;
-            // Find classes with @Autowired fields that match any repo
-            java.util.List<com.github.javaparser.ast.body.ClassOrInterfaceDeclaration> classes = cu.findAll(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
-            for (com.github.javaparser.ast.body.ClassOrInterfaceDeclaration cls : classes) {
-                java.util.Map<String, String> autowiredFields = new java.util.HashMap<>(); // fieldName -> typeSimple
-                for (com.github.javaparser.ast.body.FieldDeclaration fd : cls.getFields()) {
-                    if (fd.getAnnotationByName("Autowired").isPresent()) {
-                        for (var var : fd.getVariables()) {
-                            String typeName = var.getType().toString();
-                            String simple = simpleName(typeName);
-                            autowiredFields.put(var.getNameAsString(), simple);
-                        }
-                    }
-                }
-                if (autowiredFields.isEmpty()) continue;
+    }
 
-                java.util.List<com.github.javaparser.ast.expr.MethodCallExpr> calls = cu.findAll(com.github.javaparser.ast.expr.MethodCallExpr.class);
-                for (com.github.javaparser.ast.expr.MethodCallExpr call : calls) {
-                    String scopeName = getScopeName(call.getScope().orElse(null));
-                    if (scopeName == null) continue;
-                    String fieldTypeSimple = autowiredFields.get(scopeName);
-                    if (fieldTypeSimple == null) continue;
-                    // Try all updates whose repo simple name matches
-                    for (Map.Entry<String, java.util.List<CodeStandardizer.SignatureUpdate>> upEntry : byRepo.entrySet()) {
-                        String repoFqn = upEntry.getKey();
-                        String repoSimple = simpleName(repoFqn);
-                        if (!repoSimple.equals(fieldTypeSimple)) continue;
-                        for (CodeStandardizer.SignatureUpdate up : upEntry.getValue()) {
-                            if (!up.methodName.equals(call.getNameAsString())) continue;
-                            java.util.List<String> oldNames = up.oldParamNames;
+    private static void writeFile(String fullyQualifiedName) throws FileNotFoundException {
+        String fullPath = Settings.getBasePath() + "src/main/java/" + AbstractCompiler.classToPath(fullyQualifiedName);
+        File f = new File(fullPath);
 
-                            com.github.javaparser.ast.NodeList<com.github.javaparser.ast.expr.Expression> args = call.getArguments();
+        if (f.exists()) {
+            PrintWriter writer = new PrintWriter(f);
 
-                            // Map old param name to index
-                            java.util.Map<String, Integer> oldIndex = new java.util.HashMap<>();
-                            for (int i = 0; i < oldNames.size(); i++) oldIndex.put(oldNames.get(i), i);
-                            com.github.javaparser.ast.NodeList<com.github.javaparser.ast.expr.Expression> reordered = new com.github.javaparser.ast.NodeList<>();
-                            boolean ok = true;
+            writer.print(LexicalPreservingPrinter.print(AntikytheraRunTime.getCompilationUnit(fullyQualifiedName)));
+            writer.close();
+        }
+    }
 
-                            if (!ok) continue;
-                            call.setArguments(reordered);
-                            modified = true;
-                            logger.info("Reordered call args for {}.{} in {}", repoSimple, up.methodName, fqn);
-                        }
+    static class NameChangeVisitor extends ModifierVisitor<List<CodeStandardizer.SignatureUpdate>> {
+        String fielName;
+        boolean modified;
+        NameChangeVisitor(String fieldName) {
+            this.fielName = fieldName;
+        }
+
+        @Override
+        public MethodCallExpr visit(MethodCallExpr mce, List<CodeStandardizer.SignatureUpdate> updates) {
+            super.visit(mce, updates);
+            Optional<Expression> scope = mce.getScope();
+            if (scope.isPresent() && scope.get() instanceof NameExpr fe && fe.getNameAsString().equals(fielName)) {
+                for (CodeStandardizer.SignatureUpdate update : updates) {
+                    if (update.methodName.equals(mce.getNameAsString())) {
+                        mce.setName(update.newMethodName);
+                        modified = true;
                     }
                 }
             }
-            if (modified) {
-                try {
-                    java.nio.file.Path p = java.nio.file.Path.of(sa.com.cloudsolutions.antikythera.parser.AbstractCompiler.classToPath(fqn));
-                    java.nio.file.Files.writeString(p, cu.toString());
-                } catch (Exception ex) {
-                    logger.warn("Failed writing updated usages in {}: {}", fqn, ex.getMessage());
-                }
-            }
+            return mce;
         }
     }
 
@@ -158,8 +123,6 @@ public class QueryOptimizer extends QueryOptimizationChecker{
 
         QueryOptimizer checker = new QueryOptimizer(getLiquibasePath());
         checker.analyze();
-        // Apply any method signature updates to usages in @Autowired consumers
-        checker.applySignatureUpdatesToUsages();
 
         // Print consolidated index actions at end of analysis
         checker.printConsolidatedIndexActions();
