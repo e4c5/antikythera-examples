@@ -42,6 +42,9 @@ public class QueryOptimizationChecker {
     private int totalIndexCreateRecommendations = 0;
     private int totalIndexDropRecommendations = 0;
 
+    private final java.util.List<CodeStandardizer.SignatureUpdate> signatureUpdates = new java.util.ArrayList<>();
+    private final CodeStandardizer standardizer = new CodeStandardizer();
+
     /**
      * Creates a new QueryOptimizationChecker that uses RepositoryParser for comprehensive query analysis.
      * 
@@ -102,7 +105,7 @@ public class QueryOptimizationChecker {
      */
     private void analyzeRepository(String fullyQualifiedName, TypeWrapper typeWrapper) throws FileNotFoundException {
         logger.debug("Analyzing repository: {}", fullyQualifiedName);
-        
+
         // Use RepositoryParser to process the repository type
         repositoryParser.compile(AbstractCompiler.classToPath(fullyQualifiedName));
         repositoryParser.processTypes();
@@ -133,9 +136,6 @@ public class QueryOptimizationChecker {
      * @param callable the callable representing the repository method
      * @param repositoryQuery the RepositoryQuery object containing parsed query information
      */
-    private final java.util.List<CodeStandardizer.SignatureUpdate> signatureUpdates = new java.util.ArrayList<>();
-    private final CodeStandardizer standardizer = new CodeStandardizer();
-
     private void analyzeRepositoryQuery(String repositoryClassName, Callable callable, RepositoryQuery repositoryQuery) {
         // Count every repository method query analyzed
         totalQueriesAnalyzed++;
@@ -695,6 +695,7 @@ public class QueryOptimizationChecker {
     }
 
     public static void main(String[] args) throws Exception {
+        long s = System.currentTimeMillis();
         Settings.loadConfigMap();
         AbstractCompiler.preProcess();
         
@@ -745,6 +746,7 @@ public class QueryOptimizationChecker {
                 dropCount,
                 dropCount == 1 ? "" : "s"));
 
+        System.out.println("Time taken " + (System.currentTimeMillis() - s) + " ms.");
         // Exit with non-zero if at least 1 high and at least 10 medium priority recommendations
         if (high >= 1 && medium >= 10) {
             System.exit(1);
@@ -757,16 +759,12 @@ public class QueryOptimizationChecker {
         HashSet<String> set = new HashSet<>();
 
         for (String arg : args) {
-            if (arg != null && arg.startsWith(prefix)) {
+            if (arg.startsWith(prefix)) {
                 String value = arg.substring(prefix.length());
-
-                if (!value.isEmpty()) {
-                    for (String token : value.split(",")) {
-                        String t = token.trim().toLowerCase();
-                        if (!t.isEmpty()) set.add(t);
-                    }
+                for (String token : value.split(",")) {
+                    String t = token.trim().toLowerCase();
+                    if (!t.isEmpty()) set.add(t);
                 }
-                return set;
             }
         }
         return set;

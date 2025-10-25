@@ -1,10 +1,12 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
+import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
+
 /**
  * Represents an identified query optimization issue with detailed information
  * about the problem and recommended improvements.
  */
-public record OptimizationIssue(String repositoryClass, String methodName, String currentFirstColumn,
+public record OptimizationIssue(RepositoryQuery query, String currentFirstColumn,
                                 String recommendedFirstColumn, String description,
                                 sa.com.cloudsolutions.antikythera.examples.OptimizationIssue.Severity severity,
                                 String queryText) {
@@ -39,7 +41,9 @@ public record OptimizationIssue(String repositoryClass, String methodName, Strin
      */
     public String getFormattedReport() {
         StringBuilder report = new StringBuilder();
-        report.append(String.format("[%s] %s.%s%n", severity, repositoryClass, methodName));
+        report.append(String.format("[%s] %s.%s%n", severity,
+                query.getMethodDeclaration().getClassOrInterfaceDeclaration().getFullyQualifiedName(),
+                query.getMethodDeclaration().getNameAsString()));
         report.append(String.format("  Issue: %s%n", description));
         report.append(String.format("  Current first condition: %s%n", currentFirstColumn));
         report.append(String.format("  Recommended first condition: %s%n", recommendedFirstColumn));
@@ -82,7 +86,8 @@ public record OptimizationIssue(String repositoryClass, String methodName, Strin
     public String toString() {
         return String.format("OptimizationIssue{repositoryClass='%s', methodName='%s', " +
                         "currentFirstColumn='%s', recommendedFirstColumn='%s', severity=%s}",
-                repositoryClass, methodName, currentFirstColumn,
+                query.getMethodDeclaration().getClassOrInterfaceDeclaration().getFullyQualifiedName(),
+                query.getMethodDeclaration(), currentFirstColumn,
                 recommendedFirstColumn, severity);
     }
 
@@ -92,8 +97,7 @@ public record OptimizationIssue(String repositoryClass, String methodName, Strin
         if (obj == null || getClass() != obj.getClass()) return false;
 
         OptimizationIssue that = (OptimizationIssue) obj;
-        return repositoryClass.equals(that.repositoryClass) &&
-                methodName.equals(that.methodName) &&
+        return query.equals(that.query) &&
                 currentFirstColumn.equals(that.currentFirstColumn) &&
                 recommendedFirstColumn.equals(that.recommendedFirstColumn) &&
                 severity == that.severity;
@@ -101,8 +105,7 @@ public record OptimizationIssue(String repositoryClass, String methodName, Strin
 
     @Override
     public int hashCode() {
-        int result = repositoryClass.hashCode();
-        result = 31 * result + methodName.hashCode();
+        int result = query.hashCode();
         result = 31 * result + currentFirstColumn.hashCode();
         result = 31 * result + recommendedFirstColumn.hashCode();
         result = 31 * result + severity.hashCode();

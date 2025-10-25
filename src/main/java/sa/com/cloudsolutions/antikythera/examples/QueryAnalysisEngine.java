@@ -16,6 +16,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.generator.QueryMethodParameter;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
+import sa.com.cloudsolutions.antikythera.parser.Callable;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -62,13 +63,8 @@ public class QueryAnalysisEngine {
      * @return the analysis results including WHERE conditions and optimization issues
      */
     public QueryOptimizationResult analyzeQueryWithCallable(RepositoryQuery repositoryQuery, 
-                                                           sa.com.cloudsolutions.antikythera.parser.Callable callable,
+                                                           Callable callable,
                                                            String repositoryClassName) {
-        if (repositoryQuery == null) {
-            logger.warn("Cannot analyze null repository query");
-            return createEmptyResult(UNKNOWN, UNKNOWN, "");
-        }
-        
         // Enhanced repository class and method name extraction using Callable information
         String repositoryClass = getRepositoryClassNameEnhanced(repositoryQuery, callable, repositoryClassName);
         String methodName = getMethodNameEnhanced(repositoryQuery, callable);
@@ -82,14 +78,14 @@ public class QueryAnalysisEngine {
             Statement statement = repositoryQuery.getStatement();
             if (statement == null) {
                 logger.debug("No parsed statement available for {}.{}", repositoryClass, methodName);
-                return handleDerivedQuery(repositoryQuery, repositoryClass, methodName, queryText);
+                return handleDerivedQuery(repositoryQuery, queryText);
             }
             
             // Extract table name for cardinality analysis
             String tableName = extractTableName(statement);
             if (tableName == null) {
                 logger.debug("Could not extract table name from query: {}", queryText);
-                return createEmptyResult(repositoryClass, methodName, queryText);
+                return createEmptyResult(callable, queryText);
             }
             
             // Extract WHERE clause conditions using RepositoryQuery's parsing capabilities
@@ -97,29 +93,28 @@ public class QueryAnalysisEngine {
             
             // Analyze condition ordering for optimization opportunities
             List<OptimizationIssue> optimizationIssues = analyzeConditionOrdering(
-                whereConditions, tableName, repositoryClass, methodName, queryText);
+                whereConditions, repositoryQuery, queryText);
             
-            return new QueryOptimizationResult(repositoryClass, methodName, queryText, 
+            return new QueryOptimizationResult(callable, queryText,
                                              whereConditions, optimizationIssues);
             
         } catch (Exception e) {
             logger.error("Error analyzing query for {}.{}: {}", repositoryClass, methodName, e.getMessage());
-            return createEmptyResult(repositoryClass, methodName, queryText);
+            return createEmptyResult(callable, queryText);
         }
     }
 
     /**
      * Handles analysis of derived query methods (findBy*, countBy*, etc.).
      */
-    private QueryOptimizationResult handleDerivedQuery(RepositoryQuery repositoryQuery, String repositoryClass, 
-                                                      String methodName, String queryText) {
+    private QueryOptimizationResult handleDerivedQuery(RepositoryQuery repositoryQuery, String queryText) {
         // For derived queries, we can still analyze the method parameters to infer WHERE conditions
         List<WhereCondition> whereConditions = new ArrayList<>();
         List<OptimizationIssue> optimizationIssues = new ArrayList<>();
         
         if (repositoryQuery.getMethodParameters() != null && !repositoryQuery.getMethodParameters().isEmpty()) {
             // Infer table name from repository class
-            String tableName = inferTableNameFromRepositoryClass(repositoryClass);
+            String tableName = repositoryQuery.getTable();
             
             // Create conditions based on method parameters
             for (int i = 0; i < repositoryQuery.getMethodParameters().size(); i++) {
@@ -132,25 +127,12 @@ public class QueryAnalysisEngine {
             }
             
             // Analyze the inferred conditions
-            optimizationIssues = analyzeConditionOrdering(whereConditions, tableName, repositoryClass, methodName, queryText);
+            optimizationIssues = analyzeConditionOrdering(whereConditions, repositoryQuery, queryText);
         }
         
-        return new QueryOptimizationResult(repositoryClass, methodName, queryText, whereConditions, optimizationIssues);
+        return new QueryOptimizationResult(repositoryQuery.getMethodDeclaration(), queryText, whereConditions, optimizationIssues);
     }
-    
-    /**
-     * Infers table name from repository class name.
-     */
-    private String inferTableNameFromRepositoryClass(String repositoryClass) {
-        if (repositoryClass == null || repositoryClass.equals(UNKNOWN)) {
-            return "unknown_table";
-        }
-        
-        // Remove "Repository" suffix and convert to snake_case
-        String entityName = repositoryClass.replace("Repository", "");
-        return convertCamelToSnakeCase(entityName);
-    }
-    
+
     /**
      * Extracts WHERE clause conditions using RepositoryQuery's expression parsing capabilities.
      * 
@@ -373,14 +355,11 @@ public class QueryAnalysisEngine {
      * Analyzes condition ordering to identify optimization opportunities.
      * 
      * @param conditions the list of WHERE conditions to analyze
-     * @param tableName the table name for context
-     * @param repositoryClass the repository class name for reporting
-     * @param methodName the method name for reporting
+     * @param query the repository query
      * @param queryText the full query text for reporting
      * @return list of optimization issues found
      */
-    private List<OptimizationIssue> analyzeConditionOrdering(List<WhereCondition> conditions, String tableName,
-                                                            String repositoryClass, String methodName, String queryText) {
+    private List<OptimizationIssue> analyzeConditionOrdering(List<WhereCondition> conditions, RepositoryQuery query, String queryText) {
         List<OptimizationIssue> issues = new ArrayList<>();
         
         if (conditions.isEmpty()) {
@@ -400,14 +379,13 @@ public class QueryAnalysisEngine {
         
         // New rule: If the first condition is MEDIUM cardinality, ensure there is a supporting index
         if (firstCondition.cardinality() == CardinalityLevel.MEDIUM) {
-            boolean hasLeadingIndex = cardinalityAnalyzer.hasIndexWithLeadingColumn(tableName, firstCondition.columnName());
+            boolean hasLeadingIndex = cardinalityAnalyzer.hasIndexWithLeadingColumn(query.getTable(), firstCondition.columnName());
             if (!hasLeadingIndex) {
                 String description = String.format(
                         "First WHERE condition uses medium cardinality column '%s' but no index starts with this column. " +
                         "Create an index with leading column '%s' to improve query performance.",
                         firstCondition.columnName(), firstCondition.columnName());
-                OptimizationIssue indexIssue = new OptimizationIssue(
-                        repositoryClass, methodName, firstCondition.columnName(),
+                OptimizationIssue indexIssue = new OptimizationIssue(query, firstCondition.columnName(),
                         firstCondition.columnName(), description, OptimizationIssue.Severity.HIGH, queryText);
                 issues.add(indexIssue);
             }
@@ -424,7 +402,7 @@ public class QueryAnalysisEngine {
                 WhereCondition recommended = highCardinalityAlternative.get();
 
                 // Enhanced description with cardinality information
-                String cardinalityDetails = getCardinalityDetails(tableName, firstCondition, recommended);
+                String cardinalityDetails = getCardinalityDetails(query.getTable(), firstCondition, recommended);
                 String description = String.format(
                     "Query starts with %s cardinality column '%s' but %s cardinality column '%s' is available. %s",
                     firstCondition.cardinality().toString().toLowerCase(),
@@ -433,8 +411,7 @@ public class QueryAnalysisEngine {
                     recommended.columnName(),
                     cardinalityDetails);
 
-                OptimizationIssue issue = new OptimizationIssue(
-                    repositoryClass, methodName, firstCondition.columnName(),
+                OptimizationIssue issue = new OptimizationIssue(query, firstCondition.columnName(),
                     recommended.columnName(), description, OptimizationIssue.Severity.HIGH, queryText);
                 issues.add(issue);
             } else {
@@ -450,8 +427,7 @@ public class QueryAnalysisEngine {
                         firstCondition.columnName(),
                         recommended.columnName());
 
-                    OptimizationIssue issue = new OptimizationIssue(
-                        repositoryClass, methodName, firstCondition.columnName(),
+                    OptimizationIssue issue = new OptimizationIssue(query, firstCondition.columnName(),
                         recommended.columnName(), description, OptimizationIssue.Severity.MEDIUM, queryText);
                     issues.add(issue);
                 }
@@ -466,14 +442,14 @@ public class QueryAnalysisEngine {
         if (highCardinalityConditions.size() > 1) {
             // Find the most selective high cardinality column (primary keys are most selective)
             Optional<WhereCondition> primaryKeyCondition = highCardinalityConditions.stream()
-                .filter(condition -> cardinalityAnalyzer.isPrimaryKey(tableName, condition.columnName()))
+                .filter(condition -> cardinalityAnalyzer.isPrimaryKey(query.getTable(), condition.columnName()))
                 .findFirst();
                 
             if (primaryKeyCondition.isPresent() && !firstCondition.equals(primaryKeyCondition.get())) {
                 WhereCondition recommended = primaryKeyCondition.get();
                 
                 // Enhanced description with cardinality and selectivity information
-                String selectivityDetails = getSelectivityDetails(tableName, firstCondition, recommended);
+                String selectivityDetails = getSelectivityDetails(query.getTable(), firstCondition, recommended);
                 String description = String.format(
                     "Primary key column '%s' should appear first in WHERE clause for optimal performance. " +
                     "Currently starts with '%s' (%s cardinality). %s",
@@ -482,8 +458,7 @@ public class QueryAnalysisEngine {
                     firstCondition.cardinality().toString().toLowerCase(),
                     selectivityDetails);
                     
-                OptimizationIssue issue = new OptimizationIssue(
-                    repositoryClass, methodName, firstCondition.columnName(),
+                OptimizationIssue issue = new OptimizationIssue(query, firstCondition.columnName(),
                     recommended.columnName(), description, OptimizationIssue.Severity.MEDIUM, queryText);
                 issues.add(issue);
             }
@@ -827,8 +802,7 @@ public class QueryAnalysisEngine {
     /**
      * Creates an empty result for cases where analysis cannot be performed.
      */
-    private QueryOptimizationResult createEmptyResult(String repositoryClass, String methodName, String queryText) {
-        return new QueryOptimizationResult(repositoryClass, methodName, queryText, 
-                                         new ArrayList<>(), new ArrayList<>());
+    private QueryOptimizationResult createEmptyResult(Callable callable, String queryText) {
+        return new QueryOptimizationResult(callable, queryText, new ArrayList<>(), new ArrayList<>());
     }
 }
