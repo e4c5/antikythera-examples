@@ -6,6 +6,7 @@ import com.github.javaparser.ast.expr.MemberValuePair;
 import com.github.javaparser.ast.expr.NormalAnnotationExpr;
 import com.github.javaparser.ast.expr.SingleMemberAnnotationExpr;
 import com.github.javaparser.ast.expr.StringLiteralExpr;
+import sa.com.cloudsolutions.antikythera.evaluator.Evaluator;
 import sa.com.cloudsolutions.antikythera.generator.QueryMethodParameter;
 
 import java.util.*;
@@ -24,9 +25,15 @@ import java.util.stream.Collectors;
 @SuppressWarnings({"java:S1192", "java:S106"})
 public class CodeStandardizer {
 
+    private final Evaluator eval;
+    public CodeStandardizer(Evaluator eval) {
+        this.eval = eval;
+    }
+
     public static class SignatureUpdate {
         public final String repositoryClassFqn;
         public final String methodName;
+        public String newMethodName;
         public final List<String> oldParamNames;
         public final List<String> newParamNames;
 
@@ -42,7 +49,7 @@ public class CodeStandardizer {
      * Standardize a single repository method based on analysis result.
      * Returns an optional SignatureUpdate for derived methods whose parameter order was changed.
      */
-    public Optional<SignatureUpdate> standardize(QueryOptimizationResult result)  {
+    public Optional<SignatureUpdate> standardize(QueryOptimizationResult result) throws ReflectiveOperationException {
         String repositoryClassFqn = result.getRepositoryClass();
         for (OptimizationIssue issue : result.getOptimizationIssues()) {
             if (!issue.currentFirstColumn().equals(issue.recommendedFirstColumn())) {
@@ -59,16 +66,9 @@ public class CodeStandardizer {
         return Optional.empty();
     }
 
-    private Optional<SignatureUpdate> reorderDerivedMethodParams(String repositoryClassFqn,
-                                                                 CallableDeclaration method,
-                                                                 QueryOptimizationResult result) {
-
-        // Skip if method has no parameters or only one
-        if (method.getParameters().size() < 2) return Optional.empty();
-
+    Map<String, Integer> prioritize(QueryOptimizationResult result) {
         // Only handle simple AND-only derived cases: ensure result has conditions with parameters
         List<WhereCondition> conditions = new ArrayList<>(result.getWhereConditions());
-        if (conditions.isEmpty()) return Optional.empty();
 
         // Build mapping from parameter name to desired priority based on associated WhereCondition
         Map<String, Integer> nameToPriority = new HashMap<>();
@@ -87,7 +87,15 @@ public class CodeStandardizer {
                 }
             }
         }
-        if (nameToPriority.isEmpty()) return Optional.empty();
+        return nameToPriority;
+    }
+
+    private Optional<SignatureUpdate> reorderDerivedMethodParams(String repositoryClassFqn,
+                                                                 CallableDeclaration<?> method,
+                                                                 QueryOptimizationResult result) {
+        Map<String, Integer> nameToPriority = prioritize(result);
+        // Skip if method has no parameters or only one
+        if (method.getParameters().size() < 2) return Optional.empty();
 
         // Current parameter names in declaration order
         List<com.github.javaparser.ast.body.Parameter> current = new ArrayList<>(method.getParameters());
@@ -111,7 +119,61 @@ public class CodeStandardizer {
         for (var p : sorted) method.addParameter(p);
 
         List<String> newNames = sorted.stream().map(p -> p.getNameAsString()).toList();
-        return Optional.of(new SignatureUpdate(repositoryClassFqn, method.getNameAsString(), oldNames, newNames));
+
+        // Attempt to also rename derived method so that property order in the name matches new parameter order
+        String originalName = method.getNameAsString();
+        String updatedName = originalName;
+        int byIdx = originalName.indexOf("By");
+        if (byIdx > 0 && byIdx + 2 <= originalName.length()) {
+            String prefix = originalName.substring(0, byIdx + 2); // includes "By"
+            String suffix = originalName.substring(byIdx + 2);
+            // Only handle simple AND chains (no Or)
+            if (!suffix.contains("Or")) {
+                List<String> tokens = new ArrayList<>(Arrays.asList(suffix.split("And")));
+                // Build mapping from normalized param name -> token as it appears in method name
+                Map<String, String> normToToken = new HashMap<>();
+                for (String t : tokens) {
+                    String pn = decapitalize(t);
+                    normToToken.put(normalizeName(pn), t);
+                }
+                // Build new token order following newNames; if a param isn't mapped, keep original order fallback
+                List<String> reorderedTokens = new ArrayList<>();
+                boolean mappingOk = true;
+                for (String pName : newNames) {
+                    String tok = normToToken.get(normalizeName(pName));
+                    if (tok == null) { mappingOk = false; break; }
+                    reorderedTokens.add(tok);
+                }
+                if (mappingOk && reorderedTokens.size() == tokens.size() && !reorderedTokens.equals(tokens)) {
+                    updatedName = prefix + String.join("And", reorderedTokens);
+                    method.setName(updatedName);
+                }
+            }
+        }
+
+        SignatureUpdate su = new SignatureUpdate(repositoryClassFqn, originalName, oldNames, newNames);
+        if (!Objects.equals(updatedName, originalName)) {
+            su.newMethodName = updatedName;
+        }
+        return Optional.of(su);
+    }
+
+    private static String decapitalize(String s) {
+        if (s == null || s.isEmpty()) return s;
+        if (s.length() == 1) return s.toLowerCase();
+        return Character.toLowerCase(s.charAt(0)) + s.substring(1);
+    }
+
+    private static String normalizeName(String s) {
+        if (s == null) return null;
+        StringBuilder sb = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (Character.isLetterOrDigit(c)) {
+                sb.append(Character.toLowerCase(c));
+            }
+        }
+        return sb.toString();
     }
 
     private int priority(CardinalityLevel level) {
@@ -122,10 +184,10 @@ public class CodeStandardizer {
         };
     }
 
-    String getQuery(AnnotationExpr ann) {
+    String getQuery(AnnotationExpr ann) throws ReflectiveOperationException {
         if (ann.isSingleMemberAnnotationExpr()) {
             var s = ann.asSingleMemberAnnotationExpr().getMemberValue();
-            return s.asStringLiteralExpr().getValue();
+            return eval.evaluateExpression(s).getValue().toString();
         } else if (ann.isNormalAnnotationExpr()) {
             NormalAnnotationExpr na = ann.asNormalAnnotationExpr();
             for (MemberValuePair p : na.getPairs()) {
@@ -142,7 +204,7 @@ public class CodeStandardizer {
      * Heuristic: split by case-insensitive " and ", match each part to a WhereCondition by column name,
      * then sort parts by HIGH, MEDIUM, LOW cardinality.
      */
-    private boolean rewriteQueryAnnotation(QueryOptimizationResult result, AnnotationExpr ann) {
+    private boolean rewriteQueryAnnotation(QueryOptimizationResult result, AnnotationExpr ann) throws ReflectiveOperationException {
         String queryText = getQuery(ann);
 
         if (queryText == null) {
@@ -154,9 +216,16 @@ public class CodeStandardizer {
         String head = split[0];
         String tail = split[1];
 
-        // Split tail by AND (ignore OR cases for safety: leave them unchanged)
-        if (tail.toLowerCase(Locale.ROOT).contains(" or ")) return false; // do not touch OR for safety
-        List<String> parts = Arrays.stream(tail.split("(?i)\\band\\b"))
+        // Separate WHERE body from trailing clauses like ORDER BY / GROUP BY / HAVING / LIMIT / OFFSET / FETCH / FOR UPDATE
+        int suffixStart = indexOfRegex(tail, "(?i)\\b(order\\s+by|group\\s+by|having|limit|offset|fetch|for\\s+update)\\b");
+        String whereBody = suffixStart >= 0 ? tail.substring(0, suffixStart) : tail;
+        String suffix = suffixStart >= 0 ? tail.substring(suffixStart) : "";
+
+        // Ignore OR cases in WHERE body for safety
+        if (java.util.regex.Pattern.compile("(?i)\\bor\\b").matcher(whereBody).find()) return false;
+
+        // Split body by AND
+        List<String> parts = Arrays.stream(whereBody.split("(?i)\\band\\b"))
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
                 .collect(Collectors.toList());
@@ -182,9 +251,13 @@ public class CodeStandardizer {
         for (int i = 0; i < parts.size(); i++) {
             if (!usedIdx.contains(i)) ordered.add(parts.get(i));
         }
-        if (ordered.equals(parts)) return false;
 
-        String newQuery = head + " WHERE " + String.join(" AND ", ordered);
+        String newQuery = head + " WHERE " + String.join(" AND ", ordered) + suffix;
+        updateAnnotation(ann, newQuery);
+        return true;
+    }
+
+    private static void updateAnnotation(AnnotationExpr ann, String newQuery) {
         if (ann.isSingleMemberAnnotationExpr()) {
             SingleMemberAnnotationExpr s = ann.asSingleMemberAnnotationExpr();
             s.setMemberValue(new StringLiteralExpr(newQuery));
@@ -197,7 +270,12 @@ public class CodeStandardizer {
                 }
             }
         }
-        return true;
+    }
+
+    private static int indexOfRegex(String input, String regex) {
+        if (input == null || input.isEmpty()) return -1;
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile(regex).matcher(input);
+        return m.find() ? m.start() : -1;
     }
 
     private int matchPartIndex(List<String> parts, String columnName) {

@@ -2,14 +2,17 @@ package sa.com.cloudsolutions.antikythera.examples;
 
 import com.github.javaparser.ast.expr.*;
 import org.junit.jupiter.api.Test;
+import sa.com.cloudsolutions.antikythera.evaluator.Evaluator;
+import sa.com.cloudsolutions.antikythera.evaluator.EvaluatorFactory;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class CodeStandardizerGetQueryTest {
 
     @Test
-    void returnsQueryFromSingleMemberAnnotation() {
-        CodeStandardizer cs = new CodeStandardizer();
+    void returnsQueryFromSingleMemberAnnotation() throws ReflectiveOperationException {
+        Evaluator eval = EvaluatorFactory.create("", Evaluator.class);
+        CodeStandardizer cs = new CodeStandardizer(eval);
         String sql = "SELECT * FROM users WHERE email = :email";
         AnnotationExpr ann = new SingleMemberAnnotationExpr(new Name("Query"), new StringLiteralExpr(sql));
 
@@ -18,8 +21,8 @@ class CodeStandardizerGetQueryTest {
     }
 
     @Test
-    void returnsQueryFromNormalAnnotationValuePair() {
-        CodeStandardizer cs = new CodeStandardizer();
+    void returnsQueryFromNormalAnnotationValuePair() throws ReflectiveOperationException {
+        CodeStandardizer cs = new CodeStandardizer(null);
         String sql = "SELECT * FROM orders WHERE id = :id";
         NormalAnnotationExpr ann = new NormalAnnotationExpr();
         ann.setName(new Name("Query"));
@@ -32,8 +35,8 @@ class CodeStandardizerGetQueryTest {
     }
 
     @Test
-    void returnsNullWhenNoStringValuePresent() {
-        CodeStandardizer cs = new CodeStandardizer();
+    void returnsNullWhenNoStringValuePresent() throws ReflectiveOperationException {
+        CodeStandardizer cs = new CodeStandardizer(null);
         // Marker annotation: @Query
         AnnotationExpr marker = new MarkerAnnotationExpr(new Name("Query"));
         assertNull(cs.getQuery(marker));

@@ -1,6 +1,8 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
+import sa.com.cloudsolutions.antikythera.evaluator.Evaluator;
+import sa.com.cloudsolutions.antikythera.evaluator.EvaluatorFactory;
 import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
@@ -21,9 +23,10 @@ public class QueryOptimizer extends QueryOptimizationChecker{
     }
 
     @Override
-    protected void analyzeRepository(String fullyQualifiedName, TypeWrapper typeWrapper) throws IOException {
+    protected void analyzeRepository(String fullyQualifiedName, TypeWrapper typeWrapper) throws IOException, ReflectiveOperationException {
         super.analyzeRepository(fullyQualifiedName, typeWrapper);
-        CodeStandardizer standardizer = new CodeStandardizer();
+        Evaluator eval = EvaluatorFactory.create(fullyQualifiedName, Evaluator.class);
+        CodeStandardizer standardizer = new CodeStandardizer(eval);
         for (QueryOptimizationResult result : results) {
             if (!result.isOptimized()) {
                 Optional<CodeStandardizer.SignatureUpdate> bada =  standardizer.standardize(result);
