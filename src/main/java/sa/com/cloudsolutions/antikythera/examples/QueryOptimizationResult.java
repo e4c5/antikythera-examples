@@ -1,6 +1,7 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
 import sa.com.cloudsolutions.antikythera.parser.Callable;
 
 import java.util.ArrayList;
@@ -13,8 +14,7 @@ import java.util.stream.Collectors;
  * issues, WHERE clause conditions, and summary statistics.
  */
 public class QueryOptimizationResult {
-    Callable method;
-    private final String queryText;
+    private final RepositoryQuery query;
     private final List<WhereCondition> whereConditions;
     private final List<OptimizationIssue> optimizationIssues;
     private final boolean isOptimized;
@@ -22,15 +22,13 @@ public class QueryOptimizationResult {
     /**
      * Creates a new QueryOptimizationResult instance.
      * 
-     * @param method the method declaration being analyzed
-     * @param queryText the full query text that was analyzed
+     * @param query the full query that was analyzed
      * @param whereConditions the list of WHERE clause conditions found in the query
      * @param optimizationIssues the list of optimization issues identified
      */
-    public QueryOptimizationResult(Callable method, String queryText,
+    public QueryOptimizationResult(RepositoryQuery query,
                                    List<WhereCondition> whereConditions, List<OptimizationIssue> optimizationIssues) {
-        this.method = method;
-        this.queryText = queryText;
+        this.query = query;
         this.whereConditions = new ArrayList<>(whereConditions != null ? whereConditions : Collections.emptyList());
         this.optimizationIssues = new ArrayList<>(optimizationIssues != null ? optimizationIssues : Collections.emptyList());
         this.isOptimized = this.optimizationIssues.isEmpty();
@@ -42,7 +40,7 @@ public class QueryOptimizationResult {
      * @return the fully qualified repository class name
      */
     public String getRepositoryClass() {
-        return method.getCallableDeclaration()
+        return query.getMethodDeclaration().getCallableDeclaration()
                 .findAncestor(ClassOrInterfaceDeclaration.class).orElseThrow().getFullyQualifiedName().orElseThrow();
     }
     
@@ -52,7 +50,7 @@ public class QueryOptimizationResult {
      * @return the method name
      */
     public String getMethodName() {
-        return method.getNameAsString();
+        return query.getMethodName();
     }
     
     /**
@@ -60,8 +58,8 @@ public class QueryOptimizationResult {
      * 
      * @return the query text
      */
-    public String getQueryText() {
-        return queryText;
+    public RepositoryQuery getQuery() {
+        return query;
     }
     
     /**
@@ -195,7 +193,7 @@ public class QueryOptimizationResult {
     public String getSummaryReport() {
         StringBuilder report = new StringBuilder();
         report.append(String.format("Query Analysis Results for %s.%s%n", getRepositoryClass(), getMethodName()));
-        report.append(String.format("Query: %s%n", queryText));
+        report.append(String.format("Query: %s%n", query));
         report.append(String.format("WHERE Conditions: %d%n", getWhereConditionCount()));
         report.append(String.format("Optimization Issues: %d%n", getOptimizationIssueCount()));
         report.append(String.format("Is Optimized: %s%n", isOptimized ? "Yes" : "No"));
@@ -243,24 +241,8 @@ public class QueryOptimizationResult {
                            getRepositoryClass(), getMethodName(), whereConditions.size(),
                            optimizationIssues.size(), isOptimized);
     }
-    
-    @Override
-    public boolean equals(Object obj) {
-        if (this == obj) return true;
-        if (obj == null || getClass() != obj.getClass()) return false;
-        
-        QueryOptimizationResult that = (QueryOptimizationResult) obj;
-        return method.equals(that.method) && queryText.equals(that.queryText);
-    }
-    
-    @Override
-    public int hashCode() {
-        int result = method.hashCode();
-        result = 31 * result + queryText.hashCode();
-        return result;
-    }
 
     public Callable getMethod() {
-        return method;
+        return getQuery().getMethodDeclaration();
     }
 }

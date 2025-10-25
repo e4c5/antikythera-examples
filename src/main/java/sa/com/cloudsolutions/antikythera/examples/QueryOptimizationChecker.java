@@ -186,7 +186,7 @@ public class QueryOptimizationChecker {
                                             cardinalityInfo));
             
             if (logger.isDebugEnabled()) {
-                logger.debug("Query details: {}", result.getQueryText());
+                logger.debug("Query details: {}", result.getQuery());
             }
         }
     }
@@ -488,7 +488,7 @@ public class QueryOptimizationChecker {
         List<OptimizationIssue> idxIssues = issues.stream().filter(this::isIndexCreationForLeadingMedium).toList();
         if (idxIssues.isEmpty()) return;
         for (OptimizationIssue idxIssue : idxIssues) {
-            String table = inferTableNameFromQuerySafe(result.getQueryText(), result.getRepositoryClass());
+            String table = result.getQuery().getTable();
             String col = idxIssue.recommendedFirstColumn() != null ? idxIssue.recommendedFirstColumn() : idxIssue.currentFirstColumn();
             if (table == null || col == null) continue;
             String key = (table + "|" + col).toLowerCase();
