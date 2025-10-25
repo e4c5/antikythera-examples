@@ -32,8 +32,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
             return;
         }
         super.analyzeRepository(fullyQualifiedName, typeWrapper);
-        Evaluator eval = EvaluatorFactory.create(fullyQualifiedName, Evaluator.class);
-        CodeStandardizer standardizer = new CodeStandardizer(eval);
+        CodeStandardizer standardizer = new CodeStandardizer();
         boolean modified = false;
         for (QueryOptimizationResult result : results) {
             if (!result.isOptimized()) {
