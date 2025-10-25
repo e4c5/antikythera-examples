@@ -62,59 +62,56 @@ public class CodeStandardizer {
     private Optional<SignatureUpdate> reorderDerivedMethodParams(String repositoryClassFqn,
                                                                  CallableDeclaration method,
                                                                  QueryOptimizationResult result) {
-        try {
-            // Skip if method has no parameters or only one
-            if (method.getParameters().size() < 2) return Optional.empty();
 
-            // Only handle simple AND-only derived cases: ensure result has conditions with parameters
-            List<WhereCondition> conditions = new ArrayList<>(result.getWhereConditions());
-            if (conditions.isEmpty()) return Optional.empty();
+        // Skip if method has no parameters or only one
+        if (method.getParameters().size() < 2) return Optional.empty();
 
-            // Build mapping from parameter name to desired priority based on associated WhereCondition
-            Map<String, Integer> nameToPriority = new HashMap<>();
-            for (WhereCondition wc : conditions) {
-                QueryMethodParameter qp = wc.parameter();
-                if (qp != null) {
-                    String pname = null;
-                    if (qp.getParameter() != null) {
-                        pname = qp.getParameter().getNameAsString();
-                    }
-                    if (pname == null || pname.isBlank()) {
-                        pname = qp.getPlaceHolderName();
-                    }
-                    if (pname != null && !pname.isBlank()) {
-                        nameToPriority.put(pname, priority(wc.cardinality()));
-                    }
+        // Only handle simple AND-only derived cases: ensure result has conditions with parameters
+        List<WhereCondition> conditions = new ArrayList<>(result.getWhereConditions());
+        if (conditions.isEmpty()) return Optional.empty();
+
+        // Build mapping from parameter name to desired priority based on associated WhereCondition
+        Map<String, Integer> nameToPriority = new HashMap<>();
+        for (WhereCondition wc : conditions) {
+            QueryMethodParameter qp = wc.parameter();
+            if (qp != null) {
+                String pname = null;
+                if (qp.getParameter() != null) {
+                    pname = qp.getParameter().getNameAsString();
+                }
+                if (pname == null || pname.isBlank()) {
+                    pname = qp.getPlaceHolderName();
+                }
+                if (pname != null && !pname.isBlank()) {
+                    nameToPriority.put(pname, priority(wc.cardinality()));
                 }
             }
-            if (nameToPriority.isEmpty()) return Optional.empty();
-
-            // Current parameter names in declaration order
-            List<com.github.javaparser.ast.body.Parameter> current = new ArrayList<>(method.getParameters());
-            List<String> oldNames = current.stream().map(p -> p.getNameAsString()).toList();
-
-            // Sort parameters by priority, then keep original relative order for ties
-            List<com.github.javaparser.ast.body.Parameter> sorted = new ArrayList<>(current);
-            sorted.sort(Comparator.comparingInt((com.github.javaparser.ast.body.Parameter p) ->
-                    nameToPriority.getOrDefault(p.getNameAsString(), Integer.MAX_VALUE))
-                    .thenComparingInt(p -> oldNames.indexOf(p.getNameAsString())));
-
-            // If no real change, bail
-            boolean changed = false;
-            for (int i = 0; i < current.size(); i++) {
-                if (!current.get(i).getNameAsString().equals(sorted.get(i).getNameAsString())) { changed = true; break; }
-            }
-            if (!changed) return Optional.empty();
-
-            // Apply new parameter order
-            method.getParameters().clear();
-            for (var p : sorted) method.addParameter(p);
-
-            List<String> newNames = sorted.stream().map(p -> p.getNameAsString()).toList();
-            return Optional.of(new SignatureUpdate(repositoryClassFqn, method.getNameAsString(), oldNames, newNames));
-        } catch (Exception ex) {
-            return Optional.empty();
         }
+        if (nameToPriority.isEmpty()) return Optional.empty();
+
+        // Current parameter names in declaration order
+        List<com.github.javaparser.ast.body.Parameter> current = new ArrayList<>(method.getParameters());
+        List<String> oldNames = current.stream().map(p -> p.getNameAsString()).toList();
+
+        // Sort parameters by priority, then keep original relative order for ties
+        List<com.github.javaparser.ast.body.Parameter> sorted = new ArrayList<>(current);
+        sorted.sort(Comparator.comparingInt((com.github.javaparser.ast.body.Parameter p) ->
+                nameToPriority.getOrDefault(p.getNameAsString(), Integer.MAX_VALUE))
+                .thenComparingInt(p -> oldNames.indexOf(p.getNameAsString())));
+
+        // If no real change, bail
+        boolean changed = false;
+        for (int i = 0; i < current.size(); i++) {
+            if (!current.get(i).getNameAsString().equals(sorted.get(i).getNameAsString())) { changed = true; break; }
+        }
+        if (!changed) return Optional.empty();
+
+        // Apply new parameter order
+        method.getParameters().clear();
+        for (var p : sorted) method.addParameter(p);
+
+        List<String> newNames = sorted.stream().map(p -> p.getNameAsString()).toList();
+        return Optional.of(new SignatureUpdate(repositoryClassFqn, method.getNameAsString(), oldNames, newNames));
     }
 
     private int priority(CardinalityLevel level) {
@@ -125,6 +122,20 @@ public class CodeStandardizer {
         };
     }
 
+    String getQuery(AnnotationExpr ann) {
+        if (ann.isSingleMemberAnnotationExpr()) {
+            var s = ann.asSingleMemberAnnotationExpr().getMemberValue();
+            return s.asStringLiteralExpr().getValue();
+        } else if (ann.isNormalAnnotationExpr()) {
+            NormalAnnotationExpr na = ann.asNormalAnnotationExpr();
+            for (MemberValuePair p : na.getPairs()) {
+                if (p.getNameAsString().equals("value") && p.getValue().isStringLiteralExpr()) {
+                    return p.getValue().asStringLiteralExpr().getValue();
+                }
+            }
+        }
+        return null;
+    }
 
     /**
      * Rewrite the @Query annotation value by reordering conditions in the WHERE clause.
@@ -132,20 +143,11 @@ public class CodeStandardizer {
      * then sort parts by HIGH, MEDIUM, LOW cardinality.
      */
     private boolean rewriteQueryAnnotation(QueryOptimizationResult result, AnnotationExpr ann) {
-        String queryText = null;
-        if (ann.isSingleMemberAnnotationExpr()) {
-            var s = ann.asSingleMemberAnnotationExpr().getMemberValue();
-            if (s.isStringLiteralExpr()) queryText = s.asStringLiteralExpr().getValue();
-        } else if (ann.isNormalAnnotationExpr()) {
-            NormalAnnotationExpr na = ann.asNormalAnnotationExpr();
-            for (MemberValuePair p : na.getPairs()) {
-                if (p.getNameAsString().equals("value") && p.getValue().isStringLiteralExpr()) {
-                    queryText = p.getValue().asStringLiteralExpr().getValue();
-                    break;
-                }
-            }
+        String queryText = getQuery(ann);
+
+        if (queryText == null) {
+            return false;
         }
-        if (queryText == null || !queryText.toLowerCase(Locale.ROOT).contains(" where ")) return false;
 
         String[] split = queryText.split("(?i)\\bwhere\\b", 2);
         if (split.length < 2) return false;
