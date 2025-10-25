@@ -1,7 +1,6 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
 import com.github.javaparser.ast.expr.Expression;
-import com.github.javaparser.ast.expr.FieldAccessExpr;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.visitor.ModifierVisitor;
@@ -46,9 +45,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         for (QueryOptimizationResult result : results) {
             if (!result.isOptimized()) {
                 Optional<CodeStandardizer.SignatureUpdate> bada =  standardizer.standardize(result);
-                if (bada.isPresent()) {
-                    updates.add(bada.get());
-                }
+                bada.ifPresent(updates::add);
             }
         }
         if (!updates.isEmpty()) {
@@ -70,7 +67,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
             NameChangeVisitor visitor = new NameChangeVisitor(fieldName);
             typeWrapper.getType().accept(visitor, updates);
             if (visitor.modified) {
-                writeFile(fullyQualifiedName);
+                writeFile(className);
             }
         }
     }
@@ -80,9 +77,19 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         File f = new File(fullPath);
 
         if (f.exists()) {
+            var cu = AntikytheraRunTime.getCompilationUnit(fullyQualifiedName);
+            if (cu == null) {
+                // No parsed CompilationUnit available, skip writing to avoid truncating the file
+                return;
+            }
+            // Ensure lexical preservation is initialized so original whitespace/comments are preserved
+            try {
+                LexicalPreservingPrinter.setup(cu);
+            } catch (IllegalStateException ignored) {
+                // Already set up; safe to ignore
+            }
             PrintWriter writer = new PrintWriter(f);
-
-            writer.print(LexicalPreservingPrinter.print(AntikytheraRunTime.getCompilationUnit(fullyQualifiedName)));
+            writer.print(LexicalPreservingPrinter.print(cu));
             writer.close();
         }
     }

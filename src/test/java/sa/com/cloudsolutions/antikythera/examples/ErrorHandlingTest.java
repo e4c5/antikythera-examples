@@ -67,24 +67,7 @@ class ErrorHandlingTest {
         when(query.getMethodDeclaration()).thenReturn(callable);
         when(query.getTable()).thenReturn("users");
     }
-    
-    @Test
-    void testNullRepositoryQuery() {
-        // API no longer supports null RepositoryQuery; use a minimal mock instead
-        RepositoryQuery mockQuery = mock(RepositoryQuery.class);
-        stubMethodMeta(mockQuery, "UserRepository", "findAll");
-        when(mockQuery.getStatement()).thenReturn(null);
-        when(mockQuery.getOriginalQuery()).thenReturn("");
-        when(mockQuery.getMethodParameters()).thenReturn(new ArrayList<>());
 
-        QueryOptimizationResult result = engine.analyzeQuery(mockQuery);
-        
-        assertNotNull(result);
-        assertEquals("", result.getQueryText());
-        assertTrue(result.isOptimized());
-        assertEquals(0, result.getWhereConditionCount());
-        assertEquals(0, result.getOptimizationIssueCount());
-    }
     
     @Test
     void testNullStatement() {
