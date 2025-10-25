@@ -184,32 +184,13 @@ public class CodeStandardizer {
         };
     }
 
-    String getQuery(AnnotationExpr ann) throws ReflectiveOperationException {
-        if (ann.isSingleMemberAnnotationExpr()) {
-            var s = ann.asSingleMemberAnnotationExpr().getMemberValue();
-            return eval.evaluateExpression(s).getValue().toString();
-        } else if (ann.isNormalAnnotationExpr()) {
-            NormalAnnotationExpr na = ann.asNormalAnnotationExpr();
-            for (MemberValuePair p : na.getPairs()) {
-                if (p.getNameAsString().equals("value") && p.getValue().isStringLiteralExpr()) {
-                    return p.getValue().asStringLiteralExpr().getValue();
-                }
-            }
-        }
-        return null;
-    }
-
     /**
      * Rewrite the @Query annotation value by reordering conditions in the WHERE clause.
      * Heuristic: split by case-insensitive " and ", match each part to a WhereCondition by column name,
      * then sort parts by HIGH, MEDIUM, LOW cardinality.
      */
     private boolean rewriteQueryAnnotation(QueryOptimizationResult result, AnnotationExpr ann) throws ReflectiveOperationException {
-        String queryText = getQuery(ann);
-
-        if (queryText == null) {
-            return false;
-        }
+        String queryText = result.getQuery().toString();
 
         String[] split = queryText.split("(?i)\\bwhere\\b", 2);
         if (split.length < 2) return false;

@@ -1,6 +1,8 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
+import com.github.javaparser.printer.lexicalpreservation.LexicalPreservingPrinter;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
+import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.evaluator.Evaluator;
 import sa.com.cloudsolutions.antikythera.evaluator.EvaluatorFactory;
 import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
@@ -8,9 +10,11 @@ import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.PrintWriter;
 import java.util.Optional;
 import java.util.Set;
 
+@SuppressWarnings("java:S106")
 public class QueryOptimizer extends QueryOptimizationChecker{
     /**
      * Creates a new QueryOptimizationChecker that uses RepositoryParser for comprehensive query analysis.
@@ -24,15 +28,30 @@ public class QueryOptimizer extends QueryOptimizationChecker{
 
     @Override
     protected void analyzeRepository(String fullyQualifiedName, TypeWrapper typeWrapper) throws IOException, ReflectiveOperationException {
+        if (!fullyQualifiedName.endsWith("HospitalNursingClinicRepository")) {
+            return;
+        }
         super.analyzeRepository(fullyQualifiedName, typeWrapper);
         Evaluator eval = EvaluatorFactory.create(fullyQualifiedName, Evaluator.class);
         CodeStandardizer standardizer = new CodeStandardizer(eval);
+        boolean modified = false;
         for (QueryOptimizationResult result : results) {
             if (!result.isOptimized()) {
                 Optional<CodeStandardizer.SignatureUpdate> bada =  standardizer.standardize(result);
                 if (bada.isPresent()) {
-
+                    modified = true;
                 }
+            }
+        }
+        if (modified) {
+            String fullPath = Settings.getBasePath() + "src/main/java/" + AbstractCompiler.classToPath(fullyQualifiedName);
+            File f = new File(fullPath);
+
+            if (f.exists()) {
+                PrintWriter writer = new PrintWriter(f);
+
+                writer.print(LexicalPreservingPrinter.print(AntikytheraRunTime.getCompilationUnit(fullyQualifiedName)));
+                writer.close();
             }
         }
     }
@@ -64,7 +83,8 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         int medium = checker.getTotalMediumPriorityRecommendations();
         int createCount = checker.getTotalIndexCreateRecommendations();
         int dropCount = checker.getTotalIndexDropRecommendations();
-        System.out.println(String.format("\nSUMMARY: Analyzed %d quer%s. Recommendations given: %d high priorit%s, %d medium priorit%s. Index actions: %d creation%s, %d drop%s.",
+        System.out.printf(
+                "%nSUMMARY: Analyzed %d quer%s. Recommendations given: %d high priorit%s, %d medium priorit%s. Index actions: %d creation%s, %d drop%s.",
                 queries,
                 queries == 1 ? "y" : "ies",
                 high,
@@ -74,7 +94,8 @@ public class QueryOptimizer extends QueryOptimizationChecker{
                 createCount,
                 createCount == 1 ? "" : "s",
                 dropCount,
-                dropCount == 1 ? "" : "s"));
+                dropCount == 1 ? "" : "s"
+        );
 
         System.out.println("Time taken " + (System.currentTimeMillis() - s) + " ms.");
         // Exit with non-zero if at least 1 high and at least 10 medium priority recommendations
