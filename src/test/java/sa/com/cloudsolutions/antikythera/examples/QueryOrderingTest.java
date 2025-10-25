@@ -5,6 +5,8 @@ import net.sf.jsqlparser.statement.Statement;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
+import sa.com.cloudsolutions.antikythera.parser.Callable;
+import org.mockito.Answers;
 import sa.com.cloudsolutions.liquibase.Indexes;
 
 import java.util.*;
@@ -37,6 +39,13 @@ class QueryOrderingTest {
         Statement stmt = CCJSqlParserUtil.parse(sql);
 
         RepositoryQuery repoQuery = mock(RepositoryQuery.class);
+        // Provide minimal method metadata to avoid NPEs in QueryAnalysisEngine
+        Callable callable = mock(Callable.class, Answers.RETURNS_DEEP_STUBS);
+        when(callable.getCallableDeclaration().getNameAsString()).thenReturn("UserRepository");
+        when(callable.getNameAsString()).thenReturn("findByNameAndIsActive");
+        when(repoQuery.getMethodDeclaration()).thenReturn(callable);
+        when(repoQuery.getTable()).thenReturn("users");
+
         when(repoQuery.getStatement()).thenReturn(stmt);
         when(repoQuery.getOriginalQuery()).thenReturn(sql);
         when(repoQuery.getMethodParameters()).thenReturn(Collections.emptyList());

@@ -35,7 +35,7 @@ class QueryOptimizationCheckerTest {
 
         // Load YAML settings explicitly to avoid reflection hacks
         Settings.loadConfigMap();
-        checker = new QueryOptimizationChecker(liquibaseFile.getAbsolutePath());
+        checker = new QueryOptimizationChecker(liquibaseFile);
         cls = QueryOptimizationChecker.class;
     }
 
