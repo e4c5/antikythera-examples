@@ -5,9 +5,8 @@ import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.nio.file.Paths;
+import java.util.Optional;
 import java.util.Set;
 
 public class QueryOptimizer extends QueryOptimizationChecker{
@@ -22,15 +21,14 @@ public class QueryOptimizer extends QueryOptimizationChecker{
     }
 
     @Override
-    protected void analyzeRepository(String fullyQualifiedName, TypeWrapper typeWrapper) throws FileNotFoundException {
+    protected void analyzeRepository(String fullyQualifiedName, TypeWrapper typeWrapper) throws IOException {
         super.analyzeRepository(fullyQualifiedName, typeWrapper);
         CodeStandardizer standardizer = new CodeStandardizer();
         for (QueryOptimizationResult result : results) {
             if (!result.isOptimized()) {
-                try {
-                    standardizer.standardize(result);
-                } catch (IOException e) {
-                    throw new RuntimeException(e);
+                Optional<CodeStandardizer.SignatureUpdate> bada =  standardizer.standardize(result);
+                if (bada.isPresent()) {
+
                 }
             }
         }
@@ -41,15 +39,13 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         Settings.loadConfigMap();
         AbstractCompiler.preProcess();
 
-
-
         // Parse optional CLI parameters for cardinality overrides
         Set<String> lowOverride = parseListArg(args, "--low-cardinality=");
         Set<String> highOverride = parseListArg(args, "--high-cardinality=");
 
         CardinalityAnalyzer.configureUserDefinedCardinality(lowOverride, highOverride);
 
-        QueryOptimizationChecker checker = new QueryOptimizationChecker(getLiquibasePath());
+        QueryOptimizer checker = new QueryOptimizer(getLiquibasePath());
         checker.analyze();
         // Apply any method signature updates to usages in @Autowired consumers
         checker.applySignatureUpdatesToUsages();

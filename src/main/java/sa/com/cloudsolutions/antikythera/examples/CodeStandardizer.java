@@ -1,21 +1,13 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
-import com.github.javaparser.StaticJavaParser;
-import com.github.javaparser.ast.CompilationUnit;
-import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.CallableDeclaration;
 import com.github.javaparser.ast.expr.AnnotationExpr;
 import com.github.javaparser.ast.expr.MemberValuePair;
 import com.github.javaparser.ast.expr.NormalAnnotationExpr;
 import com.github.javaparser.ast.expr.SingleMemberAnnotationExpr;
 import com.github.javaparser.ast.expr.StringLiteralExpr;
-import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.generator.QueryMethodParameter;
-import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -50,42 +42,25 @@ public class CodeStandardizer {
      * Standardize a single repository method based on analysis result.
      * Returns an optional SignatureUpdate for derived methods whose parameter order was changed.
      */
-    public Optional<SignatureUpdate> standardize(QueryOptimizationResult result) throws IOException {
+    public Optional<SignatureUpdate> standardize(QueryOptimizationResult result)  {
         String repositoryClassFqn = result.getRepositoryClass();
-        Path filePath = Path.of(AbstractCompiler.classToPath(repositoryClassFqn));
-        String source = Files.readString(filePath);
-        CompilationUnit cu = AntikytheraRunTime.getResolvedCompilationUnits().get(repositoryClassFqn);
-        if (cu == null) {
-            cu = StaticJavaParser.parse(source);
-        }
-
-        // Locate the method
-        Optional<MethodDeclaration> methodOpt = cu.findAll(MethodDeclaration.class).stream()
-                .filter(md -> md.getNameAsString().equals(result.getMethodName()))
-                .findFirst();
-        if (methodOpt.isEmpty()) return Optional.empty();
-        MethodDeclaration method = methodOpt.get();
-
-        boolean hasQueryAnnotation = method.getAnnotationByName("Query").isPresent();
-        if (hasQueryAnnotation) {
-            if (rewriteQueryAnnotation(method, result)) {
-                Files.writeString(filePath, cu.toString(), StandardCharsets.UTF_8);
+        for (OptimizationIssue issue : result.getOptimizationIssues()) {
+            if (!issue.currentFirstColumn().equals(issue.recommendedFirstColumn())) {
+                CallableDeclaration<?> method = result.getMethod().getCallableDeclaration();
+                Optional<AnnotationExpr> q = method.getAnnotationByName("Query");
+                if (q.isPresent()) {
+                    rewriteQueryAnnotation(result, q.get());
+                    return Optional.empty();
+                } else {
+                    return reorderDerivedMethodParams(repositoryClassFqn, method, result);
+                }
             }
-            return Optional.empty();
-        } else {
-            // Derived (non-annotated) method: reorder parameters by cardinality HIGH->MEDIUM->LOW when safely mappable
-            Optional<SignatureUpdate> update = reorderDerivedMethodParams(repositoryClassFqn, method, result);
-            if (update.isPresent()) {
-                try {
-                    Files.writeString(filePath, cu.toString(), StandardCharsets.UTF_8);
-                } catch (IOException ignored) {}
-            }
-            return update;
         }
+        return Optional.empty();
     }
 
     private Optional<SignatureUpdate> reorderDerivedMethodParams(String repositoryClassFqn,
-                                                                 MethodDeclaration method,
+                                                                 CallableDeclaration method,
                                                                  QueryOptimizationResult result) {
         try {
             // Skip if method has no parameters or only one
@@ -156,10 +131,7 @@ public class CodeStandardizer {
      * Heuristic: split by case-insensitive " and ", match each part to a WhereCondition by column name,
      * then sort parts by HIGH, MEDIUM, LOW cardinality.
      */
-    private boolean rewriteQueryAnnotation(MethodDeclaration method, QueryOptimizationResult result) {
-        Optional<AnnotationExpr> queryAnnOpt = method.getAnnotationByName("Query");
-        if (queryAnnOpt.isEmpty()) return false;
-        AnnotationExpr ann = queryAnnOpt.get();
+    private boolean rewriteQueryAnnotation(QueryOptimizationResult result, AnnotationExpr ann) {
         String queryText = null;
         if (ann.isSingleMemberAnnotationExpr()) {
             var s = ann.asSingleMemberAnnotationExpr().getMemberValue();

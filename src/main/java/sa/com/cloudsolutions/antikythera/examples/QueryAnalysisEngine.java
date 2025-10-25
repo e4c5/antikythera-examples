@@ -360,18 +360,8 @@ public class QueryAnalysisEngine {
         if (conditions.isEmpty()) {
             return issues;
         }
-        
-        // Find the first condition (position 0)
-        Optional<WhereCondition> firstConditionOpt = conditions.stream()
-            .filter(condition -> condition.position() == 0)
-            .findFirst();
-            
-        if (!firstConditionOpt.isPresent()) {
-            return issues;
-        }
-        
-        WhereCondition firstCondition = firstConditionOpt.get();
-        
+        WhereCondition firstCondition = conditions.getFirst();
+
         // New rule: If the first condition is MEDIUM cardinality, ensure there is a supporting index
         if (firstCondition.cardinality() == CardinalityLevel.MEDIUM) {
             boolean hasLeadingIndex = cardinalityAnalyzer.hasIndexWithLeadingColumn(query.getTable(), firstCondition.columnName());

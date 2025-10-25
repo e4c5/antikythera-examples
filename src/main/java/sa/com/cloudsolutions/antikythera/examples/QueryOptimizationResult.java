@@ -259,4 +259,8 @@ public class QueryOptimizationResult {
         result = 31 * result + queryText.hashCode();
         return result;
     }
+
+    public Callable getMethod() {
+        return method;
+    }
 }
