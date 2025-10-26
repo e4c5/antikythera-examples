@@ -41,58 +41,62 @@ Analyze each input query and provide the optimized code element that a developer
 
 Examples 1:
   Old method : 
-    MarScheduleHeaderEntity findFirstByHospitalGroupIdAndHospitalIdAndRxBarcode(Integer groupId, Integer hospitalId,String rxBarcode);
+    OrderHeaderEntity findFirstByCompanyIdAndRestaurantIdAndOrderCode(Integer companyId, Integer restaurantId, String orderCode);
   Cardinality
-    - hospital_id low
-    - groupId low
-    - rx_barcode medium
+    - restaurant_id low
+    - company_id low
+    - order_code medium
   Optimized method:  
-    MarScheduleHeaderEntity findFirstByRxBarcodeAndHospitalGroupIdAndHospitalId(String rxBarcode, Integer groupId, Integer hospitalId);
+    OrderHeaderEntity findFirstByOrderCodeAndCompanyIdAndRestaurantId(String orderCode, Integer companyId, Integer restaurantId);
   
 Example 2:
   Old Method:
-    MarScheduleHeaderEntity findFirstByHospitalGroupIdAndHospitalIdAndMarHeaderId(Integer groupId, Integer hospitalId, Long detailId);
+    OrderHeaderEntity findFirstByCompanyIdAndRestaurantIdAndOrderHeaderId(Integer companyId, Integer restaurantId, Long orderHeaderId);
   Cardinality:
-    - group_id low
-    - hospital_id low
-    - detail_id high
+    - company_id low
+    - restaurant_id low
+    - order_header_id high
   Optimized method:  
-    MarScheduleHeaderEntity findFirstByMarHeaderIdAndHospitalGroupIdAndHospitalId(Long detailId, Integer groupId, Integer hospitalId);
+    OrderHeaderEntity findFirstByOrderHeaderIdAndCompanyIdAndRestaurantId(Long orderHeaderId, Integer companyId, Integer restaurantId);
 
 Example 3:
   Old method:
-    List<MarScheduleHeaderEntity> findAllByRxBarcode(String rxBarcode);
+    List<OrderHeaderEntity> findAllByOrderCode(String orderCode);
   Cardinality:
-    rx_barcode - high
+    order_code - high
   Optimized method:
-    List<MarScheduleHeaderEntity> findAllByRxBarcode(String rxBarcode);
+    List<OrderHeaderEntity> findAllByOrderCode(String orderCode);
     (unchanged since no optimization is possible)
      
 Example 4:
   Old Method
-     @Query("SELECT direction.directionId FROM DirectionMapping direction WHERE direction.hospitalGroupId = :groupId AND direction.hospitalId = :hospitalId AND direction.isActive = true AND direction.noRefill = true ")
-     List<Integer> findAllActiveNoRefillDirectionIdsByHospitalGroupIdAndHospitalId(@Param("groupId") Integer groupId, @Param("hospitalId") Integer hospitalId);
+     @Query("SELECT menu.menuId FROM MenuMapping menu WHERE menu.companyId = :companyId AND menu.restaurantId = :restaurantId AND menu.isActive = true AND menu.isSeasonal = true ")
+     List<Integer> findAllActiveSeasonalMenuIdsByCompanyIdAndRestaurantId(@Param("companyId") Integer companyId, @Param("restaurantId") Integer restaurantId);
   Cardinality:
-     - hospitalGroupId - low
-     - hospitalId - low
-     - isActive - low
-     - noRefill - low
-  notes: This is a non native query annotation, need to work with the column names.
+     company_id - low
+     restaurant_id - low
+     is_active - low
+     is_seasonal - low
+  notes: This is a non native query annotation. The cardinality maybe provided as the snake cased database column names rather than the camel cased field names. The snake cased names need to be converted to camcel cased.
   Optimized method:
-     @Query("SELECT direction.directionId FROM DirectionMapping direction WHERE direction.hospitalGroupId = :groupId AND direction.hospitalId = :hospitalId AND direction.isActive = true AND direction.noRefill = true ")
-     List<Integer> findAllActiveNoRefillDirectionIdsByHospitalGroupIdAndHospitalId(@Param("groupId") Integer groupId, @Param("hospitalId") Integer hospitalId);
+     @Query("SELECT menu.menuId FROM MenuMapping menu WHERE menu.companyId = :companyId AND menu.restaurantId = :restaurantId AND menu.isActive = true AND menu.isSeasonal = true ")
+     List<Integer> findAllActiveSeasonalMenuIdsByCompanyIdAndRestaurantId(@Param("companyId") Integer companyId, @Param("restaurantId") Integer restaurantId);
      (unchanged since no optimization is possible)
 
 Example 5:
    Old Method:
      @Transactional
-     @Query("SELECT di.directionId, dit.directionDescription, dit.directionLongDescription FROM DirectionMapping di JOIN di.translateSet dit WHERE di.hospitalGroupId = :hospitalGroupId AND di.hospitalId = :hospitalId AND dit.cultureCode = :cultureCode")
-     List<Object[]>  findAllDirectionMappingSummaryByHospitalTdAndHospitalGroupId(@Param("hospitalId") Integer hospitalId, @Param("hospitalGroupId") Integer hospitalGroupId, @Param("cultureCode") String cultureCode); 
+     @Query("SELECT mm.menuId, mmt.menuDescription, mmt.menuLongDescription FROM MenuMapping mm JOIN mm.translateSet mmt WHERE mm.companyId = :companyId AND mm.restaurantId = :restaurantId AND mmt.cultureCode = :cultureCode")
+     List<Object[]>  findAllMenuMappingSummaryByRestaurantIdAndCompanyId(@Param("restaurantId") Integer restaurantId, @Param("companyId") Integer companyId, @Param("cultureCode") String cultureCode);
+   Cardinality:
+     restaurant_id - low
+     company_id - low
+     culture_code - medium
    notes:
-     This is a non native query that involves a join
+     This is a non native query that involves a join. Snake case to camel case translations may need to happen.
    Optimized method:
-     @Query("SELECT di.directionId, dit.directionDescription, dit.directionLongDescription FROM DirectionMapping di JOIN di.translateSet dit WHERE dit.cultureCode = :cultureCode AND di.hospitalGroupId = :hospitalGroupId AND di.hospitalId = :hospitalId")
-     List<Object[]>  findAllDirectionMappingSummaryByHospitalTdAndHospitalGroupId(@Param("hospitalId") Integer hospitalId, @Param("hospitalGroupId") Integer hospitalGroupId, @Param("cultureCode") String cultureCode);
+     @Query("SELECT mm.menuId, mmt.menuDescription, mmt.menuLongDescription FROM MenuMapping mm JOIN mm.translateSet mmt WHERE mmt.cultureCode = :cultureCode AND mm.companyId = :companyId AND mm.restaurantId = :restaurantId")
+     List<Object[]>  findAllMenuMappingSummaryByRestaurantIdAndCompanyId(@Param("restaurantId") Integer restaurantId, @Param("companyId") Integer companyId, @Param("cultureCode") String cultureCode);
 
 
 Final notes:

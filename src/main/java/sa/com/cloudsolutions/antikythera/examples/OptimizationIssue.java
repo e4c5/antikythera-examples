@@ -38,14 +38,14 @@ public record OptimizationIssue(RepositoryQuery query, List<String> currentColum
      */
     public enum Severity {
         /**
-         * High severity: Low cardinality column first with high cardinality alternatives available.
+         * High severity: Low-cardinality column first with high-cardinality alternatives available.
          * This represents the most significant performance impact.
          */
         HIGH,
 
         /**
          * Medium severity: Suboptimal ordering of high cardinality columns.
-         * Performance improvement possible but less critical.
+         * Performance improvement is possible but less critical.
          */
         MEDIUM,
 
@@ -156,8 +156,7 @@ public record OptimizationIssue(RepositoryQuery query, List<String> currentColum
 
     @Override
     public String toString() {
-        return String.format("OptimizationIssue{repositoryClass='%s', methodName='%s', " +
-                        "currentColumnOrder=%s, recommendedColumnOrder=%s, severity=%s}",
+        return String.format("%s.%s : currentColumnOrder=%s, recommendedColumnOrder=%s, severity=%s",
                 query.getMethodDeclaration().getClassOrInterfaceDeclaration().getFullyQualifiedName(),
                 query.getMethodDeclaration(), currentColumnOrder,
                 recommendedColumnOrder, severity);

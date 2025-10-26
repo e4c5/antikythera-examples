@@ -50,6 +50,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         if (!updates.isEmpty()) {
             writeFile(fullyQualifiedName);
         }
+        System.exit(0);
 //        applySignatureUpdatesToUsages(updates, fullyQualifiedName);
     }
 
