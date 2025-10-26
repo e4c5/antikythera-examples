@@ -5,7 +5,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
-import sa.com.cloudsolutions.antikythera.generator.QueryMethodParameter;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
 import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
@@ -17,6 +16,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.HashSet;
@@ -27,6 +27,7 @@ public class QueryOptimizationChecker {
 
     protected static final Logger logger = LoggerFactory.getLogger(QueryOptimizationChecker.class);
     public static final String TABLE_NAME_TAG = "<TABLE_NAME>";
+    public static final String COLUMN_NAME_TAG = "<COLUMN_NAME>";
 
     protected final RepositoryParser repositoryParser;
     protected final CardinalityAnalyzer cardinalityAnalyzer;
@@ -41,12 +42,11 @@ public class QueryOptimizationChecker {
     protected int totalMediumPriorityRecommendations = 0;
 
     // Aggregated, de-duplicated suggestions for new indexes (key format: table|column)
-    protected final java.util.LinkedHashSet<String> suggestedNewIndexes = new java.util.LinkedHashSet<>();
+    protected final LinkedHashSet<String> suggestedNewIndexes = new LinkedHashSet<>();
     // Counters for consolidated index actions
     protected int totalIndexCreateRecommendations = 0;
     protected int totalIndexDropRecommendations = 0;
 
-    protected final List<CodeStandardizer.SignatureUpdate> signatureUpdates = new ArrayList<>();
     protected final List<QueryOptimizationResult> results = new ArrayList<>();
     
     // Token usage tracking for AI service
@@ -182,7 +182,6 @@ public class QueryOptimizationChecker {
         TokenUsage tokenUsage = aiService.getLastTokenUsage();
         cumulativeTokenUsage.add(tokenUsage);
         System.out.printf("🤖 AI Analysis for %s: %s%n", repositoryName, tokenUsage.getFormattedReport());
-        logger.info("AI analysis completed for {}: {}", repositoryName, tokenUsage.getFormattedReport());
         
         return llmRecommendations;
     }
@@ -213,31 +212,23 @@ public class QueryOptimizationChecker {
      * Extracts columns from WHERE clauses and method parameters to get real query column usage.
      */
     private void addWhereClauseColumnCardinality(QueryBatch batch, RepositoryQuery query) {
-        try {
-            // Use existing QueryAnalysisEngine to extract WHERE conditions from the actual query
-            QueryOptimizationResult tempResult = analysisEngine.analyzeQueryWithCallable(query);
-            List<WhereCondition> whereConditions = tempResult.getWhereConditions();
-            
-            // Add cardinality information for each WHERE clause column
-            for (WhereCondition condition : whereConditions) {
-                String columnName = condition.columnName();
-                CardinalityLevel cardinality = condition.cardinality();
-                
-                if (columnName != null && cardinality != null) {
-                    batch.addColumnCardinality(columnName, cardinality);
-                    logger.debug("Added WHERE clause cardinality info: {} -> {} for query {}", 
-                            columnName, cardinality, query.getMethodName());
-                }
+        // Use existing QueryAnalysisEngine to extract WHERE conditions from the actual query
+        QueryOptimizationResult tempResult = analysisEngine.analyzeQueryWithCallable(query);
+        List<WhereCondition> whereConditions = tempResult.getWhereConditions();
+
+        // Add cardinality information for each WHERE clause column
+        for (WhereCondition condition : whereConditions) {
+            String columnName = condition.columnName();
+            CardinalityLevel cardinality = condition.cardinality();
+
+            if (columnName != null && cardinality != null) {
+                batch.addColumnCardinality(columnName, cardinality);
+                logger.debug("Added WHERE clause cardinality info: {} -> {} for query {}",
+                        columnName, cardinality, query.getMethodName());
             }
-            
-        } catch (Exception e) {
-            logger.debug("Could not extract WHERE clause cardinality for query {}: {}", 
-                    query.getMethodName(), e.getMessage());
         }
     }
 
-
-    
     /**
      * Analyzes LLM recommendations and checks for required indexes.
      * This is where we do our programmatic analysis AFTER getting LLM recommendations.
@@ -502,7 +493,7 @@ public class QueryOptimizationChecker {
         }
         
         // Add specific recommendations for column reordering
-        addColumnReorderingRecommendations(result, sortedIssues);
+        addColumnReorderingRecommendations(sortedIssues);
 
         // Collect any index creation suggestions for consolidation at the end
         collectIndexSuggestions(result, sortedIssues);
@@ -628,11 +619,10 @@ public class QueryOptimizationChecker {
     /**
      * Adds specific recommendations for column reordering in WHERE clauses.
      * Enhanced to handle AI recommendations and required indexes.
-     * 
-     * @param result the analysis result
+     *
      * @param issues the list of optimization issues
      */
-    private void addColumnReorderingRecommendations(QueryOptimizationResult result, List<OptimizationIssue> issues) {
+    private void addColumnReorderingRecommendations(List<OptimizationIssue> issues) {
         if (issues.isEmpty()) {
             return;
         }
@@ -656,12 +646,12 @@ public class QueryOptimizationChecker {
                 if (issue.recommendedFirstColumn().equals(issue.currentFirstColumn())) {
                     continue;
                 }
-                System.out.println(String.format("      • Move '%s' condition to the beginning of WHERE clause", 
-                                                issue.recommendedFirstColumn()));
-                System.out.println(String.format("        Replace: WHERE %s = ? AND %s = ?", 
-                                                issue.currentFirstColumn(), issue.recommendedFirstColumn()));
-                System.out.println(String.format("        With:    WHERE %s = ? AND %s = ?", 
-                                                issue.recommendedFirstColumn(), issue.currentFirstColumn()));
+                System.out.printf("      • Move '%s' condition to the beginning of WHERE clause%n",
+                                                issue.recommendedFirstColumn());
+                System.out.printf("        Replace: WHERE %s = ? AND %s = ?%n",
+                                                issue.currentFirstColumn(), issue.recommendedFirstColumn());
+                System.out.printf("        With:    WHERE %s = ? AND %s = ?%n",
+                                                issue.recommendedFirstColumn(), issue.currentFirstColumn());
                 
                 // Add required indexes if specified by AI with status check
                 if (!issue.getRequiredIndexes().isEmpty()) {
@@ -673,9 +663,9 @@ public class QueryOptimizationChecker {
                             String column = parts[1];
                             boolean hasExistingIndex = cardinalityAnalyzer.hasIndexWithLeadingColumn(table, column);
                             String status = hasExistingIndex ? "✓ EXISTS" : "⚠ CREATE NEEDED";
-                            System.out.println(String.format("          • %s.%s [%s]", table, column, status));
+                            System.out.printf("          • %s.%s [%s]%n", table, column, status);
                         } else {
-                            System.out.println(String.format("          • %s", indexRecommendation));
+                            System.out.printf("          • %s%n", indexRecommendation);
                         }
                     }
                 }
@@ -690,8 +680,8 @@ public class QueryOptimizationChecker {
                 if (issue.recommendedFirstColumn().equals(issue.currentFirstColumn())) {
                     continue;
                 }
-                System.out.println(String.format("      • Consider reordering: place '%s' before '%s' in WHERE clause", 
-                                                issue.recommendedFirstColumn(), issue.currentFirstColumn()));
+                System.out.printf("      • Consider reordering: place '%s' before '%s' in WHERE clause%n",
+                                                issue.recommendedFirstColumn(), issue.currentFirstColumn());
                 
                 // Add required indexes if specified by AI with status check
                 if (!issue.getRequiredIndexes().isEmpty()) {
@@ -755,7 +745,7 @@ public class QueryOptimizationChecker {
     }
 
     private String buildLiquibaseNonLockingIndexChangeSet(String tableName, String columnName) {
-        if (columnName.isEmpty()) columnName = "<COLUMN_NAME>";
+        if (columnName.isEmpty()) columnName = COLUMN_NAME_TAG;
         if (tableName.isEmpty()) tableName = TABLE_NAME_TAG;
         String idxName = ("idx_" + sanitize(tableName) + "_" + sanitize(columnName)).toLowerCase();
         String id = idxName + "_" + System.currentTimeMillis();
@@ -840,7 +830,7 @@ public class QueryOptimizationChecker {
             for (String key : suggestedNewIndexes) {
                 String[] parts = key.split("\\|", 2);
                 String table = parts.length > 0 ? parts[0] : TABLE_NAME_TAG;
-                String column = parts.length > 1 ? parts[1] : "<COLUMN_NAME>";
+                String column = parts.length > 1 ? parts[1] : COLUMN_NAME_TAG;
                 
                 // Use existing buildLiquibaseNonLockingIndexChangeSet logic
                 String snippet = buildLiquibaseNonLockingIndexChangeSet(table, column);
@@ -939,7 +929,7 @@ public class QueryOptimizationChecker {
             for (String key : suggestedNewIndexes) {
                 String[] parts = key.split("\\|", 2);
                 String table = parts.length > 0 ? parts[0] : TABLE_NAME_TAG;
-                String column = parts.length > 1 ? parts[1] : "<COLUMN_NAME>";
+                String column = parts.length > 1 ? parts[1] : COLUMN_NAME_TAG;
                 
                 // Use existing buildLiquibaseNonLockingIndexChangeSet logic
                 String changeSet = buildLiquibaseNonLockingIndexChangeSet(table, column);
