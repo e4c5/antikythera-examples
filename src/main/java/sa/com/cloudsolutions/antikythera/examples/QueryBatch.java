@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Groups RepositoryQuery objects by repository for batch processing with AI service.
+ * Groups RepositoryQuery items by repository for batch processing with AI service.
  * Contains queries from a single repository along with their cardinality information.
  */
 public class QueryBatch {
@@ -25,14 +25,6 @@ public class QueryBatch {
         this.repositoryName = repositoryName;
         this.queries = new ArrayList<>();
         this.columnCardinalities = new HashMap<>();
-    }
-
-    public String getRepositoryName() {
-        return repositoryName;
-    }
-
-    public void setRepositoryName(String repositoryName) {
-        this.repositoryName = repositoryName;
     }
 
     public List<RepositoryQuery> getQueries() {
