@@ -32,25 +32,4 @@ public record WhereCondition(String columnName, String operator, CardinalityLeve
         return String.format("WhereCondition{columnName='%s', operator='%s', cardinality=%s, position=%d}",
                 columnName, operator, cardinality, position);
     }
-
-    @Override
-    public boolean equals(Object obj) {
-        if (this == obj) return true;
-        if (obj == null || getClass() != obj.getClass()) return false;
-
-        WhereCondition that = (WhereCondition) obj;
-        return position == that.position &&
-                columnName.equals(that.columnName) &&
-                operator.equals(that.operator) &&
-                cardinality == that.cardinality;
-    }
-
-    @Override
-    public int hashCode() {
-        int result = columnName.hashCode();
-        result = 31 * result + operator.hashCode();
-        result = 31 * result + cardinality.hashCode();
-        result = 31 * result + position;
-        return result;
-    }
 }

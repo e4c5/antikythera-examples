@@ -89,7 +89,6 @@ public class QueryOptimizationChecker {
 
             if (isJpaRepository(typeWrapper)) {
                 analyzeRepository(fullyQualifiedName, typeWrapper);
-                System.exit(0);
             }
         }
     }
