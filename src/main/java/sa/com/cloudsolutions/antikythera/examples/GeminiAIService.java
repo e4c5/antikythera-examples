@@ -90,7 +90,8 @@ public class GeminiAIService {
     }
 
     /**
-     * Builds the request payload for the Gemini AI API using the new structured JSON format.
+     * Builds the request payload for the Gemini AI API using proper message structure.
+     * Separates system instructions from user query data for better API interaction.
      */
     private String buildRequestPayload(QueryBatch batch) {
         // Build the JSON array of queries as expected by the new prompt
@@ -124,26 +125,33 @@ public class GeminiAIService {
         
         queriesJson.append("]");
         
-        // Build the user prompt with the JSON array
-        String userPrompt = "Please analyze the following queries:\n" + queriesJson.toString();
+        // Build properly structured Gemini API request with separate system and user content
+        return buildGeminiApiRequest(queriesJson.toString());
+    }
 
-        // Build Gemini API request format
-
+    /**
+     * Builds the Gemini API request with proper message structure.
+     * Uses Gemini's contents format with separate parts for system and user content.
+     */
+    private String buildGeminiApiRequest(String userQueryData) {
+        // Escape strings for JSON
+        String escapedSystemPrompt = escapeJsonString(systemPrompt);
+        String escapedUserData = escapeJsonString(userQueryData);
+        
         return String.format("""
             {
-              "contents": [{
-                "parts": [{
-                  "text": "%s\\n\\nUser Query:\\n%s"
-                }]
-              }],
-              "generationConfig": {
-                "temperature": 0.1,
-                "maxOutputTokens": 4000
-              }
+              "contents": [
+                {
+                  "role": "system",
+                  "content": "%s"
+                },
+                {
+                  "role": "user",
+                  "content": "%s"
+                }
+              ]
             }
-            """,
-            systemPrompt.replace("\"", "\\\"").replace("\n", "\\n"),
-            userPrompt.replace("\"", "\\\"").replace("\n", "\\n"));
+            """, escapedSystemPrompt, escapedUserData);
     }
 
     /**
