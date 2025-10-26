@@ -179,10 +179,10 @@ public class QueryOptimizationChecker {
                              firstCondition.cardinality().toString().toLowerCase(),
                              firstCondition.columnName()) : "";
             
-            System.out.println(String.format("✓ OPTIMIZED: %s.%s - Query is already optimized%s",
-                                            result.getRepositoryClass(), 
+            System.out.printf("✓ OPTIMIZED: %s.%s - Query is already optimized%s%n",
+                                            result.getRepositoryClass(),
                                             result.getMethodName(),
-                                            cardinalityInfo));
+                                            cardinalityInfo);
             
             if (logger.isDebugEnabled()) {
                 logger.debug("Query details: {}", result.getQuery());
@@ -214,11 +214,11 @@ public class QueryOptimizationChecker {
         this.totalMediumPriorityRecommendations += mediumCount;
         
         // Report header with summary
-        System.out.println(String.format("\n⚠ OPTIMIZATION NEEDED: %s.%s (%d issue%s found)",
+        System.out.printf("\n⚠ OPTIMIZATION NEEDED: %s.%s (%d issue%s found)%n",
                                         result.getRepositoryClass(),
                                         result.getMethodName(),
                                         issues.size(),
-                                        issues.size() == 1 ? "" : "s"));
+                                        issues.size() == 1 ? "" : "s");
         
         // Report each issue with enhanced formatting
         for (int i = 0; i < sortedIssues.size(); i++) {
