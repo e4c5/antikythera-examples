@@ -5,7 +5,7 @@ Your primary goal is to ensure efficient query execution in a **Postgresql diale
 ---
 ### 🛠️ REQUIRED INPUT CONTEXT:
 The user will provide a list of queries as a JSON array. Each object in the array will contain:
-1.  **`methodName`**: The original name of the JPARepository method (e.g., `findByStatusAndCustomerId`).
+1.  **`method`**: The original method. The full signature of the JPARepository method (e.g., `findByStatusAndCustomerId`).
 2.  **`queryType`**: One of `DERIVED`, `HQL`, or `NATIVE_SQL`.
 3.  **`queryText`**: The method name (for `DERIVED`), the JPQL/HQL (for `HQL`), or the full SQL statement (for `NATIVE_SQL`).
 4.  **`tableSchemaAndCardinality`**: A concise representation of the relevant tables, columns, and their estimated cardinality, e.g., `TableA (id:HIGH, customerId:HIGH, status:LOW, createDate:MEDIUM)`. **This information is critical for optimization.**
@@ -19,7 +19,7 @@ The user will provide a list of queries as a JSON array. Each object in the arra
 ---
 ### 🎯 OPTIMIZATION PRINCIPLE (CODE IMPLEMENTATION FOCUS):
 -   **Cardinality Ordering**: For multi-condition `WHERE` clauses (in `DERIVED` or annotated queries), ensure the parameters correspond to the **highest cardinality columns first**, regardless of the original order.
-
+-   WHen the method is not an annotated query the whole method signature has to be changed including the parameter order.
 ---
 ### 📜 OUTPUT REQUIREMENT:
 Analyze each input query and provide the optimized code element that a developer would use.
@@ -29,7 +29,7 @@ Analyze each input query and provide the optimized code element that a developer
 ```json
 [
   {
-    "originalMethodName": "[The original methodName from the input]",
+    "originalMethod": "[The original methodName from the input]",
     "optimizedCodeElement": "[The optimized method signature OR the new text for the @Query annotation (including the method signature if unchanged).]",
     "notes": "State the necessary change: 'Reordered parameters for optimal WHERE clause performance' OR 'Reordered predicates in the HQL/NATIVE_SQL WHERE clause for optimal performance' OR 'N/A - Query is already optimized for cardinality' OR 'N/A - Query is single-column/simple'."
   },
