@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
+import sa.com.cloudsolutions.antikythera.parser.RepositoryParser;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -89,23 +90,42 @@ public class GeminiAIService {
     }
 
     /**
-     * Builds the request payload for the Gemini AI API.
+     * Builds the request payload for the Gemini AI API using the new structured JSON format.
      */
     private String buildRequestPayload(QueryBatch batch) {
-        StringBuilder userPrompt = new StringBuilder();
-        userPrompt.append("Repository: ").append(batch.getRepositoryName()).append("\n\n");
-        userPrompt.append("Column Cardinalities:\n");
-        for (var entry : batch.getColumnCardinalities().entrySet()) {
-            userPrompt.append("- ").append(entry.getKey()).append(": ").append(entry.getValue()).append("\n");
-        }
-        userPrompt.append("\nQueries to analyze:\n");
+        // Build the JSON array of queries as expected by the new prompt
+        StringBuilder queriesJson = new StringBuilder();
+        queriesJson.append("[");
         
         for (int i = 0; i < batch.getQueries().size(); i++) {
             RepositoryQuery query = batch.getQueries().get(i);
-            userPrompt.append(String.format("%d. Method: %s\n", i + 1, query.getMethodName()));
-            userPrompt.append(String.format("   Type: %s\n", query.isNative() ? "NATIVE_SQL" : "HQL"));
-            userPrompt.append(String.format("   Query: %s\n\n", query.getOriginalQuery()));
+            if (i > 0) {
+                queriesJson.append(",");
+            }
+            
+            // Determine query type
+            String queryType = determineQueryType(query);
+            
+            // Build table schema and cardinality string
+            String tableSchemaAndCardinality = buildTableSchemaString(batch, query);
+            
+            // Escape JSON strings properly
+            String methodName = escapeJsonString(query.getMethodName());
+            String queryText = escapeJsonString(getQueryText(query));
+            
+            queriesJson.append(String.format("""
+                {
+                  "methodName": "%s",
+                  "queryType": "%s",
+                  "queryText": "%s",
+                  "tableSchemaAndCardinality": "%s"
+                }""", methodName, queryType, queryText, tableSchemaAndCardinality));
         }
+        
+        queriesJson.append("]");
+        
+        // Build the user prompt with the JSON array
+        String userPrompt = "Please analyze the following queries:\n" + queriesJson.toString();
 
         // Build Gemini API request format
         String requestJson = String.format("""
@@ -122,9 +142,77 @@ public class GeminiAIService {
             }
             """, 
             systemPrompt.replace("\"", "\\\"").replace("\n", "\\n"),
-            userPrompt.toString().replace("\"", "\\\"").replace("\n", "\\n"));
+            userPrompt.replace("\"", "\\\"").replace("\n", "\\n"));
 
         return requestJson;
+    }
+
+    /**
+     * Determines the query type based on the RepositoryQuery.
+     */
+    private String determineQueryType(RepositoryQuery query) {
+        if (query.isNative()) {
+            return "NATIVE_SQL";
+        } else if (query.getOriginalQuery() != null && !query.getOriginalQuery().isEmpty()) {
+            return "HQL";
+        } else {
+            return "DERIVED";
+        }
+    }
+
+    /**
+     * Gets the appropriate query text based on the query type.
+     */
+    private String getQueryText(RepositoryQuery query) {
+        String queryType = determineQueryType(query);
+        switch (queryType) {
+            case "DERIVED":
+                return query.getMethodName();
+            case "HQL":
+            case "NATIVE_SQL":
+                return query.getOriginalQuery() != null ? query.getOriginalQuery() : query.getQuery();
+            default:
+                return query.getMethodName();
+        }
+    }
+
+    /**
+     * Builds the table schema and cardinality string for the AI prompt.
+     */
+    private String buildTableSchemaString(QueryBatch batch, RepositoryQuery query) {
+        StringBuilder schema = new StringBuilder();
+        String tableName = query.getTable();
+        if (tableName == null || tableName.isEmpty()) {
+            tableName = "UnknownTable";
+        }
+        
+        schema.append(tableName).append(" (");
+        
+        boolean first = true;
+        for (var entry : batch.getColumnCardinalities().entrySet()) {
+            if (!first) {
+                schema.append(", ");
+            }
+            schema.append(entry.getKey()).append(":").append(entry.getValue());
+            first = false;
+        }
+        
+        schema.append(")");
+        return schema.toString();
+    }
+
+    /**
+     * Escapes a string for JSON format.
+     */
+    private String escapeJsonString(String str) {
+        if (str == null) {
+            return "";
+        }
+        return str.replace("\\", "\\\\")
+                  .replace("\"", "\\\"")
+                  .replace("\n", "\\n")
+                  .replace("\r", "\\r")
+                  .replace("\t", "\\t");
     }
 
     /**
@@ -199,14 +287,210 @@ public class GeminiAIService {
 
     /**
      * Parses the text response from AI to extract optimization recommendations.
+     * Expects a JSON array response format as defined in the new prompt.
      */
     private List<OptimizationIssue> parseRecommendations(String textResponse, QueryBatch batch) {
         List<OptimizationIssue> issues = new ArrayList<>();
         
-        // Simple parsing - in a real implementation, this would be more robust
-        // For now, return empty list as this is a basic implementation
-        logger.debug("AI Response received: {}", textResponse);
+        try {
+            logger.debug("AI Response received: {}", textResponse);
+            
+            // Extract JSON from the response (it might be wrapped in markdown code blocks)
+            String jsonResponse = extractJsonFromResponse(textResponse);
+            
+            if (jsonResponse == null || jsonResponse.trim().isEmpty()) {
+                logger.warn("No valid JSON found in AI response");
+                return issues;
+            }
+            
+            // Parse the JSON array
+            JsonNode responseArray = objectMapper.readTree(jsonResponse);
+            
+            if (!responseArray.isArray()) {
+                logger.warn("AI response is not a JSON array as expected");
+                return issues;
+            }
+            
+            // Process each optimization recommendation
+            List<RepositoryQuery> queries = batch.getQueries();
+            for (int i = 0; i < responseArray.size() && i < queries.size(); i++) {
+                JsonNode recommendation = responseArray.get(i);
+                RepositoryQuery originalQuery = queries.get(i);
+                
+                OptimizationIssue issue = parseOptimizationRecommendation(recommendation, originalQuery);
+                if (issue != null) {
+                    issues.add(issue);
+                }
+            }
+            
+        } catch (Exception e) {
+            logger.error("Error parsing AI response: {}", e.getMessage(), e);
+            // Return empty list on parsing errors to avoid breaking the flow
+        }
         
         return issues;
+    }
+
+    /**
+     * Extracts JSON content from the AI response, handling markdown code blocks.
+     */
+    private String extractJsonFromResponse(String response) {
+        if (response == null) {
+            return null;
+        }
+        
+        // Look for JSON array patterns
+        int jsonStart = response.indexOf('[');
+        int jsonEnd = response.lastIndexOf(']');
+        
+        if (jsonStart >= 0 && jsonEnd > jsonStart) {
+            return response.substring(jsonStart, jsonEnd + 1);
+        }
+        
+        // If no array found, try to find JSON in code blocks
+        String[] lines = response.split("\n");
+        StringBuilder jsonBuilder = new StringBuilder();
+        boolean inCodeBlock = false;
+        boolean foundJson = false;
+        
+        for (String line : lines) {
+            if (line.trim().startsWith("```")) {
+                inCodeBlock = !inCodeBlock;
+                continue;
+            }
+            
+            if (inCodeBlock || line.trim().startsWith("[") || foundJson) {
+                jsonBuilder.append(line).append("\n");
+                foundJson = true;
+                if (line.trim().endsWith("]")) {
+                    break;
+                }
+            }
+        }
+        
+        String result = jsonBuilder.toString().trim();
+        return result.isEmpty() ? null : result;
+    }
+
+    /**
+     * Parses a single optimization recommendation from the AI response.
+     */
+    private OptimizationIssue parseOptimizationRecommendation(JsonNode recommendation, RepositoryQuery originalQuery) {
+        try {
+            String originalMethodName = recommendation.path("originalMethodName").asText();
+            String optimizedCodeElement = recommendation.path("optimizedCodeElement").asText();
+            String notes = recommendation.path("notes").asText();
+            
+            // Determine if optimization was applied
+            boolean isOptimized = !notes.contains("N/A") && !notes.contains("unchanged") && !notes.contains("already optimized");
+            
+            if (!isOptimized) {
+                // No optimization needed
+                return null;
+            }
+            
+            // Extract recommended column order from the optimized method signature
+            List<String> recommendedColumnOrder = extractColumnOrderFromMethod(optimizedCodeElement);
+            List<String> currentColumnOrder = extractColumnOrderFromMethod(originalQuery.getMethodName());
+            
+            // Create optimization issue
+            OptimizationIssue.Severity severity = determineSeverity(notes, currentColumnOrder, recommendedColumnOrder);
+            
+            String description = buildOptimizationDescription(notes, currentColumnOrder, recommendedColumnOrder);
+            
+            // Extract any index recommendations from the notes
+            List<String> requiredIndexes = extractIndexRecommendations(notes, recommendedColumnOrder);
+            
+            return new OptimizationIssue(
+                originalQuery,
+                currentColumnOrder,
+                recommendedColumnOrder,
+                description,
+                severity,
+                originalQuery.getQuery(),
+                notes, // AI explanation
+                requiredIndexes
+            );
+            
+        } catch (Exception e) {
+            logger.warn("Error parsing optimization recommendation: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Extracts column order from a method signature.
+     */
+    private List<String> extractColumnOrderFromMethod(String methodSignature) {
+        List<String> columns = new ArrayList<>();
+        
+        if (methodSignature == null) {
+            return columns;
+        }
+        
+        // Extract method name part (before parentheses)
+        String methodName = methodSignature.split("\\(")[0];
+        
+        // Handle derived query method names like findByColumnAAndColumnB
+        if (methodName.contains("By")) {
+            String[] parts = methodName.split("By", 2);
+            if (parts.length > 1) {
+                String conditions = parts[1];
+                // Split by And/Or but keep the logic simple for now
+                String[] conditionParts = conditions.split("And|Or");
+                for (String part : conditionParts) {
+                    if (!part.trim().isEmpty()) {
+                        // Convert camelCase to snake_case using RepositoryParser utility
+                        String columnName = RepositoryParser.camelToSnake(part.trim());
+                        columns.add(columnName);
+                    }
+                }
+            }
+        }
+        
+        return columns;
+    }
+
+
+
+    /**
+     * Determines the severity of the optimization issue.
+     */
+    private OptimizationIssue.Severity determineSeverity(String notes, List<String> currentOrder, List<String> recommendedOrder) {
+        if (notes.toLowerCase().contains("high") || notes.toLowerCase().contains("primary key")) {
+            return OptimizationIssue.Severity.HIGH;
+        } else if (notes.toLowerCase().contains("medium") || !currentOrder.equals(recommendedOrder)) {
+            return OptimizationIssue.Severity.MEDIUM;
+        } else {
+            return OptimizationIssue.Severity.LOW;
+        }
+    }
+
+    /**
+     * Builds a description for the optimization issue.
+     */
+    private String buildOptimizationDescription(String notes, List<String> currentOrder, List<String> recommendedOrder) {
+        if (currentOrder.isEmpty() || recommendedOrder.isEmpty()) {
+            return "Query optimization recommended: " + notes;
+        }
+        
+        return String.format("Reorder WHERE conditions: move '%s' before '%s' for better performance", 
+                           recommendedOrder.get(0), currentOrder.get(0));
+    }
+
+    /**
+     * Extracts index recommendations from the AI notes.
+     */
+    private List<String> extractIndexRecommendations(String notes, List<String> recommendedColumns) {
+        List<String> indexes = new ArrayList<>();
+        
+        // For now, suggest indexes on the recommended first column
+        if (!recommendedColumns.isEmpty()) {
+            // This is a simplified approach - in practice, you'd parse more sophisticated recommendations
+            String firstColumn = recommendedColumns.get(0);
+            indexes.add("table." + firstColumn); // Placeholder format
+        }
+        
+        return indexes;
     }
 }
