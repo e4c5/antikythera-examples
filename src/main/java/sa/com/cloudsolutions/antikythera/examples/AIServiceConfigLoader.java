@@ -47,6 +47,10 @@ public class AIServiceConfigLoader {
             config.setProvider(provider);
         }
         
+        if (configMap.get("model") instanceof String model) {
+            config.setModel(model);
+        }
+        
         if (configMap.get("api_endpoint") instanceof String apiEndpoint) {
             config.setApiEndpoint(apiEndpoint);
         }

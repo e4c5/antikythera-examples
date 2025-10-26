@@ -6,6 +6,7 @@ package sa.com.cloudsolutions.antikythera.examples;
  */
 public class AIServiceConfig {
     private String provider;
+    private String model;
     private String apiEndpoint;
     private String apiKey;
     private int timeoutSeconds;
@@ -19,7 +20,8 @@ public class AIServiceConfig {
     public AIServiceConfig() {
         // Reasonable defaults for most use cases
         this.provider = "gemini";
-        this.apiEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
+        this.model = "gemini-1.5-flash";
+        this.apiEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent";
         this.timeoutSeconds = 60;  // Increased for AI processing time
         this.maxRetries = 2;       // Reduced to avoid excessive retries
         this.queriesPerRequest = 10; // More conservative batch size
@@ -37,8 +39,24 @@ public class AIServiceConfig {
         this.provider = provider;
     }
 
+    public String getModel() {
+        return model;
+    }
+
+    public void setModel(String model) {
+        this.model = model;
+    }
+
     public String getApiEndpoint() {
         return apiEndpoint;
+    }
+
+    /**
+     * Gets the resolved API endpoint with the model name substituted.
+     * @return the complete API endpoint URL
+     */
+    public String getResolvedApiEndpoint() {
+        return apiEndpoint.replace("{model}", model);
     }
 
     public void setApiEndpoint(String apiEndpoint) {
@@ -139,8 +157,8 @@ public class AIServiceConfig {
 
     @Override
     public String toString() {
-        return String.format("AIServiceConfig{provider='%s', apiEndpoint='%s', timeoutSeconds=%d, " +
+        return String.format("AIServiceConfig{provider='%s', model='%s', apiEndpoint='%s', timeoutSeconds=%d, " +
                         "maxRetries=%d, queriesPerRequest=%d, trackUsage=%s}",
-                provider, apiEndpoint, timeoutSeconds, maxRetries, queriesPerRequest, trackUsage);
+                provider, model, getResolvedApiEndpoint(), timeoutSeconds, maxRetries, queriesPerRequest, trackUsage);
     }
 }
