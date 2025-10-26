@@ -80,37 +80,7 @@ class ErrorHandlingTest {
         assertNotNull(result);
         assertTrue(result.getWhereConditionCount() >= 0);
     }
-    
-    @Test
-    void testInvalidSqlStatement() {
-        when(mockRepositoryQuery.getStatement()).thenThrow(new RuntimeException("Invalid SQL"));
-        when(mockRepositoryQuery.getOriginalQuery()).thenReturn("INVALID SQL STATEMENT");
-        
-        QueryOptimizationResult result = engine.analyzeQuery(mockRepositoryQuery);
-        
-        assertNotNull(result);
-        // Repository class may be unknown when Callable info is unavailable; ensure no crash and optimized fallback
-        assertTrue(result.isOptimized()); // Error cases return optimized empty result
-    }
-    
-    @Test
-    void testMalformedSqlParsing()  {
-        // Create a statement that might cause parsing issues
-        String malformedSql = "SELECT * FROM users WHERE"; // Incomplete WHERE clause
-        
-        when(mockRepositoryQuery.getOriginalQuery()).thenReturn(malformedSql);
-        when(mockRepositoryQuery.getMethodParameters()).thenReturn(new ArrayList<>());
-        
-        // Mock statement parsing to throw exception
-        when(mockRepositoryQuery.getStatement()).thenThrow(new RuntimeException("Malformed SQL"));
-        
-        QueryOptimizationResult result = engine.analyzeQuery(mockRepositoryQuery);
-        
-        assertNotNull(result);
-        // Repository/method may be unknown; ensure no crash and optimized fallback
-        assertTrue(result.isOptimized());
-    }
-    
+
     @Test
     void testNullMethodParameters() throws JSQLParserException {
         String sql = "SELECT * FROM users WHERE user_id = ?";

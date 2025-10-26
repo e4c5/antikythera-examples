@@ -120,7 +120,7 @@ public class QueryOptimizationChecker {
 
             for (var method : declaration.getMethods()) {
                 Callable callable = new Callable(method, null);
-                RepositoryQuery repositoryQuery = repositoryParser.get(callable);
+                RepositoryQuery repositoryQuery = repositoryParser.getQueryFromRepositoryMethod(callable);
 
                 if (repositoryQuery != null) {
                     results.add(analyzeRepositoryQuery(repositoryQuery));

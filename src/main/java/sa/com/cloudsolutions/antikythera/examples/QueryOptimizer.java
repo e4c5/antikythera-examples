@@ -52,7 +52,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         if (!updates.isEmpty()) {
             writeFile(fullyQualifiedName);
         }
-        applySignatureUpdatesToUsages(updates, fullyQualifiedName);
+//        applySignatureUpdatesToUsages(updates, fullyQualifiedName);
     }
 
     /**
@@ -138,7 +138,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         long s = System.currentTimeMillis();
         Settings.loadConfigMap();
         AbstractCompiler.preProcess();
-
+        System.out.println("Time to preprocess   " + (System.currentTimeMillis() - s) + "ms");
         // Parse optional CLI parameters for cardinality overrides
         Set<String> lowOverride = parseListArg(args, "--low-cardinality=");
         Set<String> highOverride = parseListArg(args, "--high-cardinality=");
@@ -146,6 +146,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         CardinalityAnalyzer.configureUserDefinedCardinality(lowOverride, highOverride);
 
         QueryOptimizer checker = new QueryOptimizer(getLiquibasePath());
+        System.out.println("Time to build field map   " + (System.currentTimeMillis() - s) + "ms");
         checker.analyze();
 
         // Print consolidated index actions at end of analysis
