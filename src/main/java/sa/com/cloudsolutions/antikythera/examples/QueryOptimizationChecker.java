@@ -47,6 +47,9 @@ public class QueryOptimizationChecker {
 
     protected final List<CodeStandardizer.SignatureUpdate> signatureUpdates = new ArrayList<>();
     protected final List<QueryOptimizationResult> results = new ArrayList<>();
+    
+    // Token usage tracking for AI service
+    protected final TokenUsage cumulativeTokenUsage = new TokenUsage();
 
     /**
      * Creates a new QueryOptimizationChecker that uses RepositoryParser for comprehensive query analysis.
@@ -176,8 +179,10 @@ public class QueryOptimizationChecker {
         // Process AI recommendations and integrate with existing reporting
         processAIRecommendations(aiRecommendations, repositoryResults);
         
-        // Report token usage
+        // Track and report token usage
         TokenUsage tokenUsage = aiService.getLastTokenUsage();
+        cumulativeTokenUsage.add(tokenUsage);
+        System.out.printf("🤖 AI Analysis for %s: %s%n", repositoryName, tokenUsage.getFormattedReport());
         logger.info("AI analysis completed for {}: {}", repositoryName, tokenUsage.getFormattedReport());
     }
     
@@ -185,9 +190,15 @@ public class QueryOptimizationChecker {
      * Processes AI recommendations and integrates them with existing reporting system.
      */
     private void processAIRecommendations(List<OptimizationIssue> aiRecommendations, List<QueryOptimizationResult> repositoryResults) {
-        // For now, fall back to existing programmatic analysis reporting
-        // This will be enhanced in future tasks to handle AI-generated recommendations
-        for (QueryOptimizationResult result : repositoryResults) {
+        // Match AI recommendations with repository results and update them
+        for (int i = 0; i < repositoryResults.size() && i < aiRecommendations.size(); i++) {
+            QueryOptimizationResult result = repositoryResults.get(i);
+            OptimizationIssue aiRecommendation = aiRecommendations.get(i);
+            
+            // Replace existing optimization issues with AI-enhanced ones
+            result.clearOptimizationIssues();
+            result.addOptimizationIssue(aiRecommendation);
+            
             reportOptimizationResults(result);
         }
     }
@@ -314,8 +325,8 @@ public class QueryOptimizationChecker {
     }
     
     /**
-     * Formats an optimization issue with enhanced display including cardinality information
-     * and specific recommendations.
+     * Formats an optimization issue with enhanced display including cardinality information,
+     * AI explanations, and required indexes.
      * 
      * @param issue the optimization issue to format
      * @param issueNumber the issue number for display
@@ -342,10 +353,15 @@ public class QueryOptimizationChecker {
         formatted.append(String.format("\n    Recommended first condition: %s", 
                                       formatConditionWithCardinality(issue.recommendedFirstColumn(), recommendedCondition)));
         
-        // Performance impact explanation
-        if (!isIndexCreationForLeadingMedium(issue)) {
-            formatted.append(String.format("\n    Performance Impact: %s", 
-                                          getPerformanceImpactExplanation(issue.severity())));
+        // AI explanation
+        if (issue.hasAIRecommendation()) {
+            formatted.append(String.format("\n    🤖 AI Explanation: %s", issue.aiExplanation()));
+        }
+        
+        // Required indexes if specified
+        if (!issue.getRequiredIndexes().isEmpty()) {
+            formatted.append(String.format("\n    📋 Required Indexes: %s", 
+                                          String.join(", ", issue.getRequiredIndexes())));
         }
         
         return formatted.toString();
@@ -396,23 +412,11 @@ public class QueryOptimizationChecker {
         }
     }
     
-    /**
-     * Gets a performance impact explanation based on severity level.
-     * 
-     * @param severity the severity level
-     * @return explanation of the performance impact
-     */
-    private String getPerformanceImpactExplanation(OptimizationIssue.Severity severity) {
-        return switch (severity) {
-            case HIGH -> "Significant performance degradation likely - low cardinality column filters fewer rows";
-            case MEDIUM -> "Moderate performance improvement possible - better column ordering can reduce query time";
-            case LOW -> "Minor performance optimization opportunity - small potential gains";
-            default -> "Performance impact unknown";
-        };
-    }
+
     
     /**
      * Adds specific recommendations for column reordering in WHERE clauses.
+     * Enhanced to handle AI recommendations and required indexes.
      * 
      * @param result the analysis result
      * @param issues the list of optimization issues
@@ -447,6 +451,12 @@ public class QueryOptimizationChecker {
                                                 issue.currentFirstColumn(), issue.recommendedFirstColumn()));
                 System.out.println(String.format("        With:    WHERE %s = ? AND %s = ?", 
                                                 issue.recommendedFirstColumn(), issue.currentFirstColumn()));
+                
+                // Add required indexes if specified by AI
+                if (!issue.getRequiredIndexes().isEmpty()) {
+                    System.out.println(String.format("        Required indexes: %s", 
+                                                    String.join(", ", issue.getRequiredIndexes())));
+                }
             }
         }
         
@@ -460,20 +470,23 @@ public class QueryOptimizationChecker {
                 }
                 System.out.println(String.format("      • Consider reordering: place '%s' before '%s' in WHERE clause", 
                                                 issue.recommendedFirstColumn(), issue.currentFirstColumn()));
+                
+                // Add required indexes if specified by AI
+                if (!issue.getRequiredIndexes().isEmpty()) {
+                    System.out.println(String.format("        Suggested indexes: %s", 
+                                                    String.join(", ", issue.getRequiredIndexes())));
+                }
             }
         }
         
-        // General optimization tips
-        System.out.println("    💡 OPTIMIZATION TIPS:");
-        System.out.println("      • Primary key columns should appear first when possible");
-        System.out.println("      • Unique indexed columns are more selective than non-unique columns");
-        System.out.println("      • Avoid leading with boolean or low-cardinality columns");
-        System.out.println("      • Consider adding indexes for frequently queried columns");
+        // AI-powered insights
+        System.out.println("    🤖 AI-POWERED INSIGHTS:");
+        System.out.println("      • Recommendations above are generated using AI analysis");
+        System.out.println("      • AI considers query patterns, cardinality, and database optimization principles");
     }
 
     // Helpers to tailor output for index recommendations
     private boolean isIndexCreationForLeadingMedium(OptimizationIssue issue) {
-        if (issue == null) return false;
         boolean same = issue.recommendedFirstColumn() != null && issue.recommendedFirstColumn().equals(issue.currentFirstColumn());
         boolean mentionsCreate = issue.description() != null && issue.description().toLowerCase().contains("create an index");
         return issue.isHighSeverity() && same && mentionsCreate;
@@ -486,10 +499,8 @@ public class QueryOptimizationChecker {
     }
 
     private String inferTableNameFromQuery(String queryText) {
-        if (queryText == null) return null;
-        String lower = queryText;
         java.util.regex.Pattern p = java.util.regex.Pattern.compile("(?i)\\bfrom\\s+([\\\"`'\\w\\.]+)");
-        java.util.regex.Matcher m = p.matcher(lower);
+        java.util.regex.Matcher m = p.matcher(queryText);
         if (m.find()) {
             String raw = m.group(1);
             // remove schema and quotes
@@ -503,7 +514,6 @@ public class QueryOptimizationChecker {
     }
 
     private String inferTableNameFromRepositoryClassName(String repositoryClass) {
-        if (repositoryClass == null) return TABLE_NAME_TAG;
         String simple = repositoryClass;
         int dot = simple.lastIndexOf('.');
         if (dot >= 0) simple = simple.substring(dot + 1);
@@ -514,8 +524,8 @@ public class QueryOptimizationChecker {
     }
 
     private String buildLiquibaseNonLockingIndexChangeSet(String tableName, String columnName) {
-        if (columnName == null || columnName.isEmpty()) columnName = "<COLUMN_NAME>";
-        if (tableName == null || tableName.isEmpty()) tableName = TABLE_NAME_TAG;
+        if (columnName.isEmpty()) columnName = "<COLUMN_NAME>";
+        if (tableName.isEmpty()) tableName = TABLE_NAME_TAG;
         String idxName = ("idx_" + sanitize(tableName) + "_" + sanitize(columnName)).toLowerCase();
         String id = idxName + "_" + System.currentTimeMillis();
         return "<changeSet id=\"" + id + "\" author=\"antikythera\">\n" +
@@ -534,7 +544,7 @@ public class QueryOptimizationChecker {
     }
 
     private String buildLiquibaseDropIndexChangeSet(String indexName) {
-        if (indexName == null || indexName.isEmpty()) indexName = "<INDEX_NAME>";
+        if (indexName.isEmpty()) indexName = "<INDEX_NAME>";
         String id = ("drop_" + sanitize(indexName) + "_" + System.currentTimeMillis()).toLowerCase();
         return "<changeSet id=\"" + id + "\" author=\"antikythera\">\n" +
                "  <preConditions onFail=\"MARK_RAN\">\n" +
@@ -546,13 +556,12 @@ public class QueryOptimizationChecker {
     }
 
     private void collectIndexSuggestions(QueryOptimizationResult result, List<OptimizationIssue> issues) {
-        if (issues == null || issues.isEmpty()) return;
+        if (issues.isEmpty()) return;
         List<OptimizationIssue> idxIssues = issues.stream().filter(this::isIndexCreationForLeadingMedium).toList();
         if (idxIssues.isEmpty()) return;
         for (OptimizationIssue idxIssue : idxIssues) {
             String table = result.getQuery().getTable();
             String col = idxIssue.recommendedFirstColumn() != null ? idxIssue.recommendedFirstColumn() : idxIssue.currentFirstColumn();
-            if (table == null || col == null) continue;
             String key = (table + "|" + col).toLowerCase();
             suggestedNewIndexes.add(key);
         }
@@ -587,9 +596,8 @@ public class QueryOptimizationChecker {
                     if (!"INDEX".equals(idx.type)) continue; // avoid PKs and unique constraints
                     if (idx.columns == null || idx.columns.isEmpty()) continue;
                     String first = idx.columns.get(0);
-                    if (first == null) continue;
                     CardinalityLevel card = cardinalityAnalyzer.analyzeColumnCardinality(table, first);
-                    if (card == CardinalityLevel.LOW && idx.name != null && !idx.name.isEmpty()) {
+                    if (card == CardinalityLevel.LOW && !idx.name.isEmpty()) {
                         dropCandidates.add(idx.name);
                     }
                 }
@@ -613,7 +621,7 @@ public class QueryOptimizationChecker {
     }
 
     private String sanitize(String s) {
-        return s == null ? "" : s.replaceAll("[^A-Za-z0-9_]+", "_");
+        return s.replaceAll("[^A-Za-z0-9_]+", "_");
     }
 
     private String indent(String s, int spaces) {
@@ -630,6 +638,7 @@ public class QueryOptimizationChecker {
     public int getTotalMediumPriorityRecommendations() { return totalMediumPriorityRecommendations; }
     public int getTotalIndexCreateRecommendations() { return totalIndexCreateRecommendations; }
     public int getTotalIndexDropRecommendations() { return totalIndexDropRecommendations; }
+    public TokenUsage getCumulativeTokenUsage() { return cumulativeTokenUsage; }
 
     /**
      * Generates a Liquibase changes file from consolidated suggestions and includes it in the master file.
@@ -694,6 +703,8 @@ public class QueryOptimizationChecker {
         int medium = checker.getTotalMediumPriorityRecommendations();
         int createCount = checker.getTotalIndexCreateRecommendations();
         int dropCount = checker.getTotalIndexDropRecommendations();
+        TokenUsage totalTokenUsage = checker.getCumulativeTokenUsage();
+        
         System.out.println(String.format("\nSUMMARY: Analyzed %d quer%s. Recommendations given: %d high priorit%s, %d medium priorit%s. Index actions: %d creation%s, %d drop%s.",
                 queries,
                 queries == 1 ? "y" : "ies",
@@ -705,6 +716,11 @@ public class QueryOptimizationChecker {
                 createCount == 1 ? "" : "s",
                 dropCount,
                 dropCount == 1 ? "" : "s"));
+
+        // Add token usage reporting to summary
+        if (totalTokenUsage.getTotalTokens() > 0) {
+            System.out.println(String.format("🤖 AI Service Usage: %s", totalTokenUsage.getFormattedReport()));
+        }
 
         System.out.println("Time taken " + (System.currentTimeMillis() - s) + " ms.");
         // Exit with non-zero if at least 1 high and at least 10 medium priority recommendations

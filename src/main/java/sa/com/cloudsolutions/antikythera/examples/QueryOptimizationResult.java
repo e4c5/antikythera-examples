@@ -245,4 +245,24 @@ public class QueryOptimizationResult {
     public Callable getMethod() {
         return getQuery().getMethodDeclaration();
     }
+    
+    /**
+     * Clears all optimization issues from this result.
+     * Used when replacing programmatic analysis with AI recommendations.
+     */
+    public void clearOptimizationIssues() {
+        optimizationIssues.clear();
+    }
+    
+    /**
+     * Adds an optimization issue to this result.
+     * Used when integrating AI recommendations.
+     * 
+     * @param issue the optimization issue to add
+     */
+    public void addOptimizationIssue(OptimizationIssue issue) {
+        if (issue != null) {
+            optimizationIssues.add(issue);
+        }
+    }
 }
