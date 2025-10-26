@@ -209,7 +209,7 @@ public class CardinalityAnalyzer {
         if (indexes == null) return false;
         for (Indexes.IndexInfo idx : indexes) {
             if (idx.columns == null || idx.columns.isEmpty()) continue;
-            String first = idx.columns.get(0);
+            String first = idx.columns.getFirst();
             if (first != null && first.equalsIgnoreCase(c)) {
                 return true;
             }

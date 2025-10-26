@@ -8,6 +8,7 @@ import com.github.javaparser.ast.expr.MemberValuePair;
 import com.github.javaparser.ast.expr.NormalAnnotationExpr;
 import com.github.javaparser.ast.expr.SingleMemberAnnotationExpr;
 import com.github.javaparser.ast.expr.StringLiteralExpr;
+import com.github.javaparser.ast.nodeTypes.NodeWithSimpleName;
 import sa.com.cloudsolutions.antikythera.generator.QueryMethodParameter;
 
 import java.util.*;
@@ -60,26 +61,17 @@ public class CodeStandardizer {
         return Optional.empty();
     }
 
+    @SuppressWarnings("java:S127")
     List<Integer> prioritize(QueryOptimizationResult result) {
         // Only handle simple AND-only derived cases: ensure result has conditions with parameters
         List<WhereCondition> conditions = new ArrayList<>(result.getWhereConditions());
 
         // Build mapping from parameter name to desired priority based on associated WhereCondition
         List<Map.Entry<Integer, Integer>> nameToPriority = new ArrayList<>();
-        for (int i = 0 ; i < conditions.size() ; i++) {
+        for (int i = 0, j = 0 ; i < conditions.size() ; i++) {
             WhereCondition wc = conditions.get(i);
-            QueryMethodParameter qp = wc.parameter();
-            if (qp != null) {
-                String pname = null;
-                if (qp.getParameter() != null) {
-                    pname = qp.getParameter().getNameAsString();
-                }
-                if (pname == null || pname.isBlank()) {
-                    pname = qp.getPlaceHolderName();
-                }
-                if (pname != null && !pname.isBlank()) {
-                    nameToPriority.add( new AbstractMap.SimpleImmutableEntry<>(i, priority(wc.cardinality())));
-                }
+            if (!wc.operator().equals("IS NULL")) {
+                nameToPriority.add(new AbstractMap.SimpleImmutableEntry<>(j++, priority(wc.cardinality())));
             }
         }
         nameToPriority.sort(Comparator.comparingInt(Map.Entry::getValue));
@@ -90,6 +82,7 @@ public class CodeStandardizer {
         return newWorldOrder;
     }
 
+    @SuppressWarnings("java:S127")
     private Optional<SignatureUpdate> reorderDerivedMethodParams(String repositoryClassFqn,
                                                                  CallableDeclaration<?> method,
                                                                  QueryOptimizationResult result) {
@@ -101,14 +94,17 @@ public class CodeStandardizer {
 
         // Current parameter names in declaration order
         List<Parameter> current = new ArrayList<>(method.getParameters());
-        List<String> oldNames = current.stream().map(p -> p.getNameAsString()).toList();
+        List<String> oldNames = current.stream().map(NodeWithSimpleName::getNameAsString).toList();
+        List<WhereCondition> wheres = result.getWhereConditions();
 
         // Apply new parameter order
         NodeList<Parameter> parameters = new NodeList<>();
-        for (int i = 0 ; i < current.size() ; i++) {
-            int j = nameToPriority.get(i);
-            Parameter p = current.get(j);
-            parameters.add(p);
+        for (int i = 0, j = 0 ; i < current.size() ; i++) {
+            if (! wheres.get(i).operator().equals("IS NULL")) {
+                int k = nameToPriority.get(j++);
+                Parameter p = current.get(k);
+                parameters.add(p);
+            }
         }
 
         method.setParameters(parameters);
