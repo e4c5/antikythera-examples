@@ -137,17 +137,20 @@ public class GeminiAIService {
         // Escape strings for JSON
         String escapedSystemPrompt = escapeJsonString(systemPrompt);
         String escapedUserData = escapeJsonString(userQueryData);
-        
+
         return String.format("""
             {
+              "system_instruction": {
+                "parts": [
+                  { "text": "%s" }
+                ]
+              },
               "contents": [
                 {
-                  "role": "system",
-                  "content": "%s"
-                },
-                {
                   "role": "user",
-                  "content": "%s"
+                  "parts": [
+                    { "text": "%s" }
+                  ]
                 }
               ]
             }
