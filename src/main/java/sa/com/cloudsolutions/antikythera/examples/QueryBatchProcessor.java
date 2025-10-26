@@ -82,30 +82,27 @@ public class QueryBatchProcessor {
      * to provide comprehensive cardinality information.
      */
     private void analyzeAdditionalColumns(QueryBatch batch, String tableName, QueryOptimizationResult result) {
-        // This is a simple implementation - in a more complete version,
-        // we would parse the query to extract all referenced columns
-        String queryText = result.getQuery().getOriginalQuery();
-        if (queryText != null) {
-            // Extract column names from common patterns in queries
-            extractColumnsFromQuery(batch, tableName, queryText);
-        }
+        // Leverage existing RepositoryQuery infrastructure to extract column information
+        extractColumnsFromQuery(batch, tableName, result);
     }
 
     /**
-     * Simple extraction of column names from query text.
-     * This is a basic implementation that could be enhanced with proper SQL parsing.
+     * Extracts column names from query using existing RepositoryQuery infrastructure.
+     * Leverages the existing query parameter analysis to identify referenced columns.
      */
-    private void extractColumnsFromQuery(QueryBatch batch, String tableName, String queryText) {
-        // Simple regex-based extraction for common column patterns
-        // This is intentionally simple for the basic implementation
-        String[] commonColumns = {"id", "created_date", "updated_date", "status", "active"};
+    private void extractColumnsFromQuery(QueryBatch batch, String tableName, QueryOptimizationResult result) {
+        // Use the existing RepositoryQuery's method parameter analysis
+        // to identify columns that are referenced in the query
+        RepositoryQuery query = result.getQuery();
         
-        for (String column : commonColumns) {
-            if (queryText.toLowerCase().contains(column.toLowerCase())) {
-                CardinalityLevel cardinality = cardinalityAnalyzer.analyzeColumnCardinality(tableName, column);
-                if (cardinality != null && !batch.getColumnCardinalities().containsKey(column)) {
-                    batch.addColumnCardinality(column, cardinality);
-                    logger.debug("Extracted additional column cardinality: {} -> {}", column, cardinality);
+        // Extract columns from method parameters which map to query placeholders
+        for (var parameter : query.getMethodParameters()) {
+            String columnName = parameter.getColumnName();
+            if (columnName != null && !batch.getColumnCardinalities().containsKey(columnName)) {
+                CardinalityLevel cardinality = cardinalityAnalyzer.analyzeColumnCardinality(tableName, columnName);
+                if (cardinality != null) {
+                    batch.addColumnCardinality(columnName, cardinality);
+                    logger.debug("Extracted parameter column cardinality: {} -> {}", columnName, cardinality);
                 }
             }
         }
