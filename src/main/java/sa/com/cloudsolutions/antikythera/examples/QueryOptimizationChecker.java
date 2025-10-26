@@ -264,90 +264,53 @@ public class QueryOptimizationChecker {
      */
     private List<QueryOptimizationResult> analyzeLLMRecommendations(List<OptimizationIssue> llmRecommendations, List<RepositoryQuery> rawQueries) {
         List<QueryOptimizationResult> finalResults = new ArrayList<>();
-        
+
         for (int i = 0; i < llmRecommendations.size() && i < rawQueries.size(); i++) {
             OptimizationIssue llmRecommendation = llmRecommendations.get(i);
             RepositoryQuery rawQuery = rawQueries.get(i);
-            
-            // Create a QueryOptimizationResult based on LLM recommendation
-            QueryOptimizationResult result = createResultFromLLMRecommendation(llmRecommendation, rawQuery);
-            
-            // Analyze the LLM's recommended column order and check for required indexes
-            OptimizationIssue enhancedRecommendation = analyzeRecommendedColumnOrder(llmRecommendation, rawQuery);
-            
-            // Add the enhanced recommendation to the result
-            result.clearOptimizationIssues();
-            result.addOptimizationIssue(enhancedRecommendation);
-            
+
+            QueryOptimizationResult result = createResultWithIndexAnalysis(llmRecommendation, rawQuery);
             finalResults.add(result);
         }
-        
+
         return finalResults;
     }
 
     /**
-     * Creates a QueryOptimizationResult from an LLM recommendation.
+     * Creates a complete QueryOptimizationResult from an LLM recommendation with index analysis.
+     * This merged method combines the functionality of creating the result and analyzing indexes.
+     * Uses the Indexes class to properly determine what indexes are available.
      */
-    private QueryOptimizationResult createResultFromLLMRecommendation(OptimizationIssue llmRecommendation, RepositoryQuery rawQuery) {
-        // Extract WHERE conditions from the LLM's recommended column order
-        List<WhereCondition> whereConditions = extractWhereConditionsFromRecommendation(llmRecommendation, rawQuery);
-        
-        // Create result with proper constructor parameters
-        QueryOptimizationResult result = new QueryOptimizationResult(rawQuery, whereConditions, new ArrayList<>());
-        
-        return result;
-    }
-
-    /**
-     * Extracts WHERE conditions from the LLM recommendation.
-     */
-    private List<WhereCondition> extractWhereConditionsFromRecommendation(OptimizationIssue llmRecommendation, RepositoryQuery rawQuery) {
-        List<WhereCondition> whereConditions = new ArrayList<>();
+    private QueryOptimizationResult createResultWithIndexAnalysis(OptimizationIssue llmRecommendation, RepositoryQuery rawQuery) {
         String tableName = rawQuery.getTable();
-        
-        // Use the LLM's recommended column order to create WHERE conditions
-        for (int i = 0; i < llmRecommendation.recommendedColumnOrder().size(); i++) {
-            String columnName = llmRecommendation.recommendedColumnOrder().get(i);
-            try {
-                CardinalityLevel cardinality = cardinalityAnalyzer.analyzeColumnCardinality(tableName, columnName);
-                if (cardinality != null) {
-                    // Create WhereCondition with all required parameters
-                    whereConditions.add(new WhereCondition(columnName, "=", cardinality, i, null));
-                }
-            } catch (Exception e) {
-                logger.debug("Could not analyze cardinality for column {}.{}: {}", tableName, columnName, e.getMessage());
-            }
-        }
-        
-        return whereConditions;
-    }
-
-    /**
-     * Analyzes the LLM's recommended column order and checks for required indexes.
-     * This is the key method that determines what indexes are needed based on LLM recommendations.
-     */
-    private OptimizationIssue analyzeRecommendedColumnOrder(OptimizationIssue llmRecommendation, RepositoryQuery rawQuery) {
-        List<String> requiredIndexes = new ArrayList<>();
-        String tableName = rawQuery.getTable();
-        
         if (tableName == null || tableName.isEmpty()) {
             tableName = inferTableNameFromQuerySafe(rawQuery.getQuery(), rawQuery.getClassname());
         }
         
-        // Check each column in the LLM's recommended order for existing indexes
-        for (String columnName : llmRecommendation.recommendedColumnOrder()) {
-            if (!cardinalityAnalyzer.hasIndexWithLeadingColumn(tableName, columnName)) {
-                // Index is missing - add to required indexes
+        // Extract WHERE conditions and analyze indexes in a single pass
+        List<WhereCondition> whereConditions = new ArrayList<>();
+        List<String> requiredIndexes = new ArrayList<>();
+        
+        // Process each column in the LLM's recommended order
+        for (int i = 0; i < llmRecommendation.recommendedColumnOrder().size(); i++) {
+            String columnName = llmRecommendation.recommendedColumnOrder().get(i);
+            // Analyze cardinality for WHERE conditions
+            CardinalityLevel cardinality = cardinalityAnalyzer.analyzeColumnCardinality(tableName, columnName);
+            if (cardinality != null) {
+                // Create WhereCondition
+                whereConditions.add(new WhereCondition(columnName, "=", cardinality, i, null));
+            }
+
+            // Use Indexes class to check for existing indexes more comprehensively
+            if (!hasOptimalIndexForColumn(tableName, columnName)) {
+                // Index is missing or not optimal - add to required indexes
                 String indexRecommendation = String.format("%s.%s", tableName, columnName);
                 requiredIndexes.add(indexRecommendation);
-                logger.debug("Index missing for recommended column: {}.{}", tableName, columnName);
-            } else {
-                logger.debug("Index exists for recommended column: {}.{}", tableName, columnName);
             }
         }
         
         // Create enhanced optimization issue with index analysis
-        return new OptimizationIssue(
+        OptimizationIssue enhancedRecommendation = new OptimizationIssue(
             llmRecommendation.query(),
             llmRecommendation.currentColumnOrder(),
             llmRecommendation.recommendedColumnOrder(),
@@ -355,60 +318,60 @@ public class QueryOptimizationChecker {
             llmRecommendation.severity(),
             llmRecommendation.queryText(),
             llmRecommendation.aiExplanation(),
-            requiredIndexes // This is our analysis based on LLM recommendations
+            requiredIndexes // Our analysis based on LLM recommendations and Indexes class
         );
+
+        // Create result with WHERE conditions and the enhanced optimization issue
+        List<OptimizationIssue> issues = new ArrayList<>();
+        issues.add(enhancedRecommendation);
+
+        return new QueryOptimizationResult(rawQuery, whereConditions, issues);
     }
 
     /**
-     * Enhances AI recommendations with index analysis and generates index creation recommendations.
-     * Checks existing indexes for AI-recommended columns and handles JOIN query analysis.
+     * Checks if there's an optimal index for the given column using the Indexes class.
+     * This method provides more comprehensive index analysis than just checking for leading columns.
      * 
-     * @param aiRecommendation the AI-generated optimization issue
-     * @param result the query optimization result containing table and query information
-     * @return enhanced optimization issue with index recommendations
+     * @param tableName the table name
+     * @param columnName the column name
+     * @return true if an optimal index exists, false otherwise
      */
-    private OptimizationIssue enhanceWithIndexAnalysis(OptimizationIssue aiRecommendation, QueryOptimizationResult result) {
-        List<String> additionalIndexes = new ArrayList<>();
-        
-        // Start with AI-provided required indexes
-        additionalIndexes.addAll(aiRecommendation.getRequiredIndexes());
-        
-        // Check AI-recommended columns for existing indexes
-        String tableName = result.getQuery().getTable();
-        if (tableName == null || tableName.isEmpty()) {
-            tableName = inferTableNameFromQuerySafe(result.getQuery().getQuery(), result.getRepositoryClass());
-        }
-        
-        // Check recommended column order for missing indexes
-        if (!aiRecommendation.recommendedColumnOrder().isEmpty()) {
-            for (String columnName : aiRecommendation.recommendedColumnOrder()) {
-                if (!cardinalityAnalyzer.hasIndexWithLeadingColumn(tableName, columnName)) {
-                    String indexRecommendation = String.format("%s.%s", tableName, columnName);
-                    if (!additionalIndexes.contains(indexRecommendation)) {
-                        additionalIndexes.add(indexRecommendation);
-                    }
+    private boolean hasOptimalIndexForColumn(String tableName, String columnName) {
+        try {
+            // First check using the existing cardinality analyzer method
+            if (cardinalityAnalyzer.hasIndexWithLeadingColumn(tableName, columnName)) {
+                return true;
+            }
+            
+            // Get the index map from cardinality analyzer to do more detailed analysis
+            Map<String, List<Indexes.IndexInfo>> indexMap = cardinalityAnalyzer.snapshotIndexMap();
+            List<Indexes.IndexInfo> tableIndexes = indexMap.get(tableName);
+            
+            if (tableIndexes == null || tableIndexes.isEmpty()) {
+                return false;
+            }
+            
+            // Check for any index that includes this column (not just as leading column)
+            for (Indexes.IndexInfo indexInfo : tableIndexes) {
+                if (indexInfo.columns != null && indexInfo.columns.contains(columnName)) {
+                    // Found an index that includes this column
+                    logger.debug("Found index {} that includes column {}.{}", indexInfo.name, tableName, columnName);
+                    return true;
                 }
             }
+            
+            return false;
+            
+        } catch (Exception e) {
+            logger.debug("Error checking optimal index for {}.{}: {}", tableName, columnName, e.getMessage());
+            // Fall back to the basic check
+            return cardinalityAnalyzer.hasIndexWithLeadingColumn(tableName, columnName);
         }
-        
-        // Handle JOIN query analysis for index recommendations on both sides
-        additionalIndexes.addAll(analyzeJoinIndexRequirements(result));
-        
-        // Create enhanced optimization issue with additional index recommendations
-        return new OptimizationIssue(
-            aiRecommendation.query(),
-            aiRecommendation.currentColumnOrder(),
-            aiRecommendation.recommendedColumnOrder(),
-            aiRecommendation.description(),
-            aiRecommendation.severity(),
-            aiRecommendation.queryText(),
-            aiRecommendation.aiExplanation(),
-            additionalIndexes
-        );
     }
 
     /**
      * Analyzes JOIN queries to identify index requirements on both sides of the JOIN.
+     * Uses improved index checking that leverages the Indexes class.
      * 
      * @param result the query optimization result
      * @return list of index recommendations for JOIN columns
@@ -439,13 +402,15 @@ public class QueryOptimizationChecker {
                 mainTable = inferTableNameFromQuerySafe(queryText, result.getRepositoryClass());
             }
             
-            // Check indexes on both sides of the JOIN
-            if (leftColumn != null && !cardinalityAnalyzer.hasIndexWithLeadingColumn(mainTable, leftColumn)) {
+            // Use improved index checking on both sides of the JOIN
+            if (leftColumn != null && !hasOptimalIndexForColumn(mainTable, leftColumn)) {
                 joinIndexes.add(String.format("%s.%s", mainTable, leftColumn));
+                logger.debug("JOIN index recommendation: {}.{} (left side)", mainTable, leftColumn);
             }
             
-            if (rightColumn != null && !cardinalityAnalyzer.hasIndexWithLeadingColumn(joinTable, rightColumn)) {
+            if (rightColumn != null && !hasOptimalIndexForColumn(joinTable, rightColumn)) {
                 joinIndexes.add(String.format("%s.%s", joinTable, rightColumn));
+                logger.debug("JOIN index recommendation: {}.{} (right side)", joinTable, rightColumn);
             }
         }
         
@@ -477,24 +442,6 @@ public class QueryOptimizationChecker {
         return name.trim().replaceAll("[`\"'\\s]", "");
     }
 
-    /**
-     * Analyzes a single repository query using QueryAnalysisEngine.
-     * Enhanced to pass Callable information for better repository class and method name reporting.
-     * @param repositoryQuery the RepositoryQuery object containing parsed query information
-     */
-    protected QueryOptimizationResult analyzeRepositoryQuery(RepositoryQuery repositoryQuery) {
-        // Count every repository method query analyzed
-        totalQueriesAnalyzed++;
-
-        // Use QueryAnalysisEngine to analyze the query with enhanced Callable information
-        QueryOptimizationResult result = analysisEngine.analyzeQueryWithCallable(repositoryQuery);
-
-        // Report optimization issues with enhanced reporting
-        reportOptimizationResults(result);
-        return result;
-
-    }
-    
     /**
      * Reports the optimization analysis results with enhanced formatting and severity-based prioritization.
      * Enhanced to include repository class name and method name from Callable objects,
@@ -785,11 +732,6 @@ public class QueryOptimizationChecker {
                 }
             }
         }
-        
-        // AI-powered insights
-        System.out.println("    🤖 AI-POWERED INSIGHTS:");
-        System.out.println("      • Recommendations above are generated using AI analysis");
-        System.out.println("      • AI considers query patterns, cardinality, and database optimization principles");
     }
 
     // Helpers to tailor output for index recommendations
@@ -878,6 +820,7 @@ public class QueryOptimizationChecker {
         }
         
         // Collect AI-generated index recommendations from OptimizationIssue.requiredIndexes
+        // Use improved index checking logic that leverages the Indexes class
         for (OptimizationIssue issue : issues) {
             if (!issue.getRequiredIndexes().isEmpty()) {
                 for (String indexRecommendation : issue.getRequiredIndexes()) {
@@ -897,10 +840,13 @@ public class QueryOptimizationChecker {
                         column = parts[0];
                     }
                     
-                    // Only add if index doesn't already exist
-                    if (!cardinalityAnalyzer.hasIndexWithLeadingColumn(table, column)) {
+                    // Use improved index checking that leverages the Indexes class
+                    if (!hasOptimalIndexForColumn(table, column)) {
                         String key = (table + "|" + column).toLowerCase();
                         suggestedNewIndexes.add(key);
+                        logger.debug("Added index suggestion from AI recommendation: {}.{}", table, column);
+                    } else {
+                        logger.debug("Skipping AI index recommendation - optimal index already exists: {}.{}", table, column);
                     }
                 }
             }

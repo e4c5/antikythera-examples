@@ -8,7 +8,6 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -19,6 +18,10 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 public class Indexes {
+
+    public static final String UNIQUE_CONSTRAINT = "UNIQUE_CONSTRAINT";
+    public static final String UNIQUE_INDEX = "UNIQUE_INDEX";
+    public static final String PRIMARY_KEY = "PRIMARY_KEY";
 
     /** Simple DTO to expose index information to callers. */
     public static class IndexInfo {
@@ -33,6 +36,14 @@ public class Indexes {
         @Override
         public String toString() {
             return type + ";" + name + ";" + String.join(",", columns);
+        }
+    }
+    /**
+     * @param type PRIMARY_KEY, UNIQUE_CONSTRAINT, UNIQUE_INDEX, INDEX
+     */
+    private record Index(String type, String name, List<String> columns) {
+        String display() {
+            return name + " [" + String.join(",", columns) + "]";
         }
     }
 
@@ -60,7 +71,7 @@ public class Indexes {
         Map<String, Set<String>> map = new LinkedHashMap<>();
         for (Map.Entry<String, List<IndexInfo>> e : load(liquibaseXml).entrySet()) {
             Set<String> cols = e.getValue().stream()
-                    .filter(i -> "PRIMARY_KEY".equals(i.type))
+                    .filter(i -> PRIMARY_KEY.equals(i.type))
                     .flatMap(i -> i.columns.stream())
                     .map(String::toLowerCase)
                     .collect(Collectors.toCollection(LinkedHashSet::new));
@@ -76,8 +87,8 @@ public class Indexes {
         Map<String, Set<String>> map = new LinkedHashMap<>();
         for (Map.Entry<String, List<IndexInfo>> e : load(liquibaseXml).entrySet()) {
             Set<String> cols = e.getValue().stream()
-                    .filter(i -> "UNIQUE_CONSTRAINT".equals(i.type) || "UNIQUE_INDEX".equals(i.type))
-                    .map(i -> i.columns.isEmpty()? null : i.columns.get(0))
+                    .filter(i -> UNIQUE_CONSTRAINT.equals(i.type) || UNIQUE_INDEX.equals(i.type))
+                    .map(i -> i.columns.isEmpty()? null : i.columns.getFirst())
                     .filter(Objects::nonNull)
                     .map(String::toLowerCase)
                     .collect(Collectors.toCollection(LinkedHashSet::new));
@@ -121,10 +132,10 @@ public class Indexes {
                 System.out.println(table);
                 List<Index> indexes = byTable.get(table);
                 // PK
-                indexes.stream().filter(i -> "PRIMARY_KEY".equals(i.type))
+                indexes.stream().filter(i -> PRIMARY_KEY.equals(i.type))
                         .forEach(i -> System.out.println("  PK: " + i.display()));
                 // UNIQUE (constraints or unique indexes)
-                indexes.stream().filter(i -> "UNIQUE_CONSTRAINT".equals(i.type) || "UNIQUE_INDEX".equals(i.type))
+                indexes.stream().filter(i -> UNIQUE_CONSTRAINT.equals(i.type) || UNIQUE_INDEX.equals(i.type))
                         .forEach(i -> System.out.println("  UNIQUE: " + i.display()));
                 // Other indexes
                 indexes.stream().filter(i -> "INDEX".equals(i.type))
@@ -162,7 +173,7 @@ public class Indexes {
             boolean unique = "true".equalsIgnoreCase(el.getAttribute("unique"));
             List<String> cols = extractColumns(el);
             if (!isBlank(table) && !cols.isEmpty()) {
-                add(result, table, new Index(unique ? "UNIQUE_INDEX" : "INDEX", orUnknown(name), cols));
+                add(result, table, new Index(unique ? UNIQUE_INDEX : "INDEX", orUnknown(name), cols));
             }
         }
 
@@ -172,7 +183,7 @@ public class Indexes {
             String table = firstNonEmpty(el.getAttribute("tableName"), el.getAttribute("table"));
             List<String> cols = splitColumns(el.getAttribute("columnNames"));
             if (!isBlank(table) && !cols.isEmpty()) {
-                add(result, table, new Index("UNIQUE_CONSTRAINT", orUnknown(name), cols));
+                add(result, table, new Index(UNIQUE_CONSTRAINT, orUnknown(name), cols));
             }
         }
 
@@ -182,7 +193,7 @@ public class Indexes {
             String table = firstNonEmpty(el.getAttribute("tableName"), el.getAttribute("table"));
             List<String> cols = splitColumns(el.getAttribute("columnNames"));
             if (!isBlank(table) && !cols.isEmpty()) {
-                add(result, table, new Index("PRIMARY_KEY", orUnknown(name), cols));
+                add(result, table, new Index(PRIMARY_KEY, orUnknown(name), cols));
             }
         }
 
@@ -210,13 +221,13 @@ public class Indexes {
                         // unique
                         if ("true".equalsIgnoreCase(c.getAttribute("unique"))) {
                             String uniqueName = c.getAttribute("uniqueConstraintName");
-                            uniquesInline.add(new Index("UNIQUE_CONSTRAINT", orUnknown(uniqueName), List.of(colName)));
+                            uniquesInline.add(new Index(UNIQUE_CONSTRAINT, orUnknown(uniqueName), List.of(colName)));
                         }
                     }
                 }
             }
             if (!pkCols.isEmpty()) {
-                add(result, table, new Index("PRIMARY_KEY", orUnknown(pkName), pkCols));
+                add(result, table, new Index(PRIMARY_KEY, orUnknown(pkName), pkCols));
             }
             for (Index idx : uniquesInline) add(result, table, idx);
         }
@@ -239,7 +250,7 @@ public class Indexes {
                             // Unique per column
                             List<String> cols = new ArrayList<>();
                             cols.add(colName);
-                            add(result, table, new Index("UNIQUE_CONSTRAINT", orUnknown(uniqueName), cols));
+                            add(result, table, new Index(UNIQUE_CONSTRAINT, orUnknown(uniqueName), cols));
                         }
                     }
                 }
@@ -358,7 +369,7 @@ public class Indexes {
         if (isBlank(table) || isBlank(name)) return;
         List<Index> list = map.get(table);
         if (list == null) return;
-        list.removeIf(i -> ("INDEX".equals(i.type) || "UNIQUE_INDEX".equals(i.type)) && name.equals(i.name));
+        list.removeIf(i -> ("INDEX".equals(i.type) || UNIQUE_INDEX.equals(i.type)) && name.equals(i.name));
         if (list.isEmpty()) map.remove(table);
     }
 
@@ -367,7 +378,7 @@ public class Indexes {
         List<Index> list = map.get(table);
         if (list == null) return;
         Set<String> target = new HashSet<>(cols.stream().map(String::toLowerCase).collect(Collectors.toSet()));
-        list.removeIf(i -> ("INDEX".equals(i.type) || "UNIQUE_INDEX".equals(i.type)) && sameColumnsIgnoreCase(i.columns, target));
+        list.removeIf(i -> ("INDEX".equals(i.type) || UNIQUE_INDEX.equals(i.type)) && sameColumnsIgnoreCase(i.columns, target));
         if (list.isEmpty()) map.remove(table);
     }
 
@@ -375,10 +386,10 @@ public class Indexes {
         List<Index> list = map.get(table);
         if (list == null) return;
         if (!isBlank(name)) {
-            list.removeIf(i -> "UNIQUE_CONSTRAINT".equals(i.type) && name.equals(i.name));
+            list.removeIf(i -> UNIQUE_CONSTRAINT.equals(i.type) && name.equals(i.name));
         } else if (cols != null && !cols.isEmpty()) {
             Set<String> target = new HashSet<>(cols.stream().map(String::toLowerCase).collect(Collectors.toSet()));
-            list.removeIf(i -> "UNIQUE_CONSTRAINT".equals(i.type) && sameColumnsIgnoreCase(i.columns, target));
+            list.removeIf(i -> UNIQUE_CONSTRAINT.equals(i.type) && sameColumnsIgnoreCase(i.columns, target));
         }
         if (list.isEmpty()) map.remove(table);
     }
@@ -387,9 +398,9 @@ public class Indexes {
         List<Index> list = map.get(table);
         if (list == null) return;
         if (!isBlank(name)) {
-            list.removeIf(i -> "PRIMARY_KEY".equals(i.type) && name.equals(i.name));
+            list.removeIf(i -> PRIMARY_KEY.equals(i.type) && name.equals(i.name));
         } else {
-            list.removeIf(i -> "PRIMARY_KEY".equals(i.type));
+            list.removeIf(i -> PRIMARY_KEY.equals(i.type));
         }
         if (list.isEmpty()) map.remove(table);
     }
@@ -448,7 +459,7 @@ public class Indexes {
         return Arrays.stream(csv.split(","))
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
-                .collect(Collectors.toList());
+                .toList();
     }
 
     private static String textOfFirstChild(Element parent, String childName) {
@@ -470,23 +481,5 @@ public class Indexes {
 
     private static String orUnknown(String s) {
         return isBlank(s) ? "<unnamed>" : s;
-    }
-
-    private static class Index {
-        final String type; // PRIMARY_KEY, UNIQUE_CONSTRAINT, UNIQUE_INDEX, INDEX
-        final String name;
-        final List<String> columns;
-        Index(String type, String name, List<String> columns) {
-            this.type = type;
-            this.name = name;
-            this.columns = columns;
-        }
-        String display() {
-            return name + " [" + String.join(",", columns) + "]";
-        }
-        @Override
-        public String toString() {
-            return type + ";" + name + ";" + String.join(",", columns);
-        }
     }
 }

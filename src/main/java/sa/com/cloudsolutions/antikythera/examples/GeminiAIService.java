@@ -411,65 +411,45 @@ public class GeminiAIService {
      * If no optimization is needed, returns an issue indicating no action required.
      */
     private OptimizationIssue parseOptimizationRecommendation(JsonNode recommendation, RepositoryQuery originalQuery) {
-        try {
-            String optimizedCodeElement = recommendation.path("optimizedCodeElement").asText();
-            String notes = recommendation.path("notes").asText();
-            
-            // Determine if optimization was applied
-            boolean isOptimized = !notes.contains("N/A") && !notes.contains("unchanged") && !notes.contains("already optimized");
-            
-            if (!isOptimized) {
-                // No optimization needed - create an OptimizationIssue that indicates no action required
-                return createNoActionOptimizationIssue(originalQuery, notes);
-            }
-            
-            // Extract recommended column order from the optimized method signature
-            List<String> recommendedColumnOrder = extractColumnOrderFromMethod(optimizedCodeElement);
-            List<String> currentColumnOrder = extractColumnOrderFromMethod(originalQuery.getMethodName());
-            
-            // Create optimization issue
-            OptimizationIssue.Severity severity = determineSeverity(notes, currentColumnOrder, recommendedColumnOrder);
-            
-            String description = buildOptimizationDescription(notes, currentColumnOrder, recommendedColumnOrder);
-            
-            // Extract any index recommendations from the notes
-            List<String> requiredIndexes = extractIndexRecommendations(notes, recommendedColumnOrder);
-            
-            return new OptimizationIssue(
-                originalQuery,
-                currentColumnOrder,
-                recommendedColumnOrder,
-                description,
-                severity,
-                originalQuery.getQuery(),
-                notes, // AI explanation
-                requiredIndexes
-            );
-            
-        } catch (Exception e) {
-            logger.warn("Error parsing optimization recommendation: {}", e.getMessage());
-            // Return a no-action issue instead of null
-            return createNoActionOptimizationIssue(originalQuery, "Error parsing AI recommendation: " + e.getMessage());
-        }
-    }
+        String optimizedCodeElement = recommendation.path("optimizedCodeElement").asText();
+        String notes = recommendation.path("notes").asText();
 
-    /**
-     * Creates an OptimizationIssue that indicates no action is required.
-     * This is used instead of returning null to maintain consistent return types.
-     */
-    private OptimizationIssue createNoActionOptimizationIssue(RepositoryQuery originalQuery, String notes) {
-        // Extract current column order for completeness
+        // Determine if optimization was applied
+        boolean isOptimized = !notes.contains("N/A") && !notes.contains("unchanged") && !notes.contains("already optimized");
+
+        /*
+         * Extract the recommended column order from the optimized method signature.
+         * If the method was not optimized, we would have the original column order here, so all good.
+         */
+        List<String> recommendedColumnOrder = extractColumnOrderFromMethod(optimizedCodeElement);
+        // Index recommendations will be handled by QueryOptimizationChecker with proper Liquibase checking
+        List<String> requiredIndexes = new ArrayList<>();
         List<String> currentColumnOrder = extractColumnOrderFromMethod(originalQuery.getMethodName());
-        
+
+        if (!isOptimized) {
+            return new OptimizationIssue(
+                    originalQuery,
+                    currentColumnOrder,
+                    recommendedColumnOrder, // Same as current since no optimization needed
+                    "Where clause is already optimized",
+                    OptimizationIssue.Severity.LOW, // Low severity since no action needed
+                    originalQuery.getQuery(),
+                    notes, // AI explanation
+                    requiredIndexes // No index recommendations needed
+            );
+        }
+        OptimizationIssue.Severity severity = determineSeverity(notes, currentColumnOrder, recommendedColumnOrder);
+        String description = buildOptimizationDescription(notes, currentColumnOrder, recommendedColumnOrder);
+
         return new OptimizationIssue(
             originalQuery,
             currentColumnOrder,
-            currentColumnOrder, // Same as current since no optimization needed
-            "NO_ACTION_REQUIRED: Query is already optimized or no optimization possible",
-            OptimizationIssue.Severity.LOW, // Low severity since no action needed
+            recommendedColumnOrder,
+            description,
+            severity,
             originalQuery.getQuery(),
             notes, // AI explanation
-            new ArrayList<>() // No index recommendations needed
+            requiredIndexes
         );
     }
 
@@ -562,19 +542,5 @@ public class GeminiAIService {
                            recommendedOrder.get(0), currentOrder.get(0));
     }
 
-    /**
-     * Extracts index recommendations from the AI notes.
-     */
-    private List<String> extractIndexRecommendations(String notes, List<String> recommendedColumns) {
-        List<String> indexes = new ArrayList<>();
-        
-        // For now, suggest indexes on the recommended first column
-        if (!recommendedColumns.isEmpty()) {
-            // This is a simplified approach - in practice, you'd parse more sophisticated recommendations
-            String firstColumn = recommendedColumns.get(0);
-            indexes.add("table." + firstColumn); // Placeholder format
-        }
-        
-        return indexes;
-    }
+
 }
