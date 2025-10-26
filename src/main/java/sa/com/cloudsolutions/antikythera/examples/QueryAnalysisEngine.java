@@ -24,6 +24,7 @@ import java.util.Optional;
 /**
  * Enhanced engine that analyzes repository queries using RepositoryQuery's parsing capabilities
  * to identify WHERE clause optimization opportunities based on column cardinality.
+ * Updated to support AI-powered query optimization with enhanced analysis capabilities.
  */
 public class QueryAnalysisEngine {
 
@@ -55,11 +56,16 @@ public class QueryAnalysisEngine {
     /**
      * Analyzes a RepositoryQuery with enhanced Callable information for better reporting.
      * Enhanced to include repository class name and method name from Callable objects.
+     * This method maintains compatibility with existing code while supporting AI analysis.
      * 
      * @param repositoryQuery the repository query to analyze
      * @return the analysis results including WHERE conditions and optimization issues
      */
     public QueryOptimizationResult analyzeQueryWithCallable(RepositoryQuery repositoryQuery) {
+        if (repositoryQuery == null) {
+            throw new IllegalArgumentException("RepositoryQuery cannot be null");
+        }
+        
         // Enhanced repository class and method name extraction using Callable information
         String repositoryClass = repositoryQuery.getMethodDeclaration().getCallableDeclaration().getNameAsString();
         String methodName = repositoryQuery.getMethodDeclaration().getNameAsString();
@@ -77,7 +83,7 @@ public class QueryAnalysisEngine {
 
         // Extract table name for cardinality analysis
         String tableName = repositoryQuery.getTable();
-        if (tableName == null) {
+        if (tableName == null || tableName.isEmpty()) {
             logger.debug("Could not extract table name from query: {}", queryText);
             return createEmptyResult(repositoryQuery, queryText);
         }
@@ -85,7 +91,7 @@ public class QueryAnalysisEngine {
         // Extract WHERE clause conditions using RepositoryQuery's parsing capabilities
         List<WhereCondition> whereConditions = extractWhereConditions(repositoryQuery);
 
-        // Analyze condition ordering for optimization opportunities
+        // Analyze condition ordering for optimization opportunities using existing CardinalityAnalyzer
         List<OptimizationIssue> optimizationIssues = analyzeConditionOrdering(
             whereConditions, repositoryQuery, queryText);
 
@@ -100,16 +106,18 @@ public class QueryAnalysisEngine {
         List<WhereCondition> whereConditions = new ArrayList<>();
         List<OptimizationIssue> optimizationIssues = new ArrayList<>();
         
-        if (repositoryQuery.getMethodParameters() != null && !repositoryQuery.getMethodParameters().isEmpty()) {
+        List<QueryMethodParameter> methodParameters = repositoryQuery.getMethodParameters();
+        if (methodParameters != null && !methodParameters.isEmpty()) {
             // Infer table name from repository class
             String tableName = repositoryQuery.getTable();
             
             // Create conditions based on method parameters
-            for (int i = 0; i < repositoryQuery.getMethodParameters().size(); i++) {
-                QueryMethodParameter param = repositoryQuery.getMethodParameters().get(i);
-                if (param.getColumnName() != null) {
-                    CardinalityLevel cardinality = cardinalityAnalyzer.analyzeColumnCardinality(tableName, param.getColumnName());
-                    WhereCondition condition = new WhereCondition(param.getColumnName(), "=", cardinality, i, param);
+            for (int i = 0; i < methodParameters.size(); i++) {
+                QueryMethodParameter param = methodParameters.get(i);
+                String columnName = param.getColumnName();
+                if (columnName != null && !columnName.isEmpty()) {
+                    CardinalityLevel cardinality = cardinalityAnalyzer.analyzeColumnCardinality(tableName, columnName);
+                    WhereCondition condition = new WhereCondition(columnName, "=", cardinality, i, param);
                     whereConditions.add(condition);
                 }
             }
@@ -123,12 +131,14 @@ public class QueryAnalysisEngine {
 
     /**
      * Extracts WHERE clause conditions using RepositoryQuery's expression parsing capabilities.
+     * Enhanced to handle both parsed statements and derived queries from method parameters.
      * 
      * @param repositoryQuery the repository query containing the parsed statement
      * @return list of WHERE conditions found in the query
      */
     private List<WhereCondition> extractWhereConditions(RepositoryQuery repositoryQuery) {
         List<WhereCondition> conditions = new ArrayList<>();
+        
         Statement statement = repositoryQuery.getStatement();
         if (statement instanceof Select select && select.getSelectBody() instanceof PlainSelect plainSelect) {
             Expression whereClause = plainSelect.getWhere();
@@ -136,8 +146,45 @@ public class QueryAnalysisEngine {
             if (whereClause != null) {
                 extractConditionsFromExpression(whereClause, conditions, repositoryQuery, 0);
             }
+        } else {
+            // For queries without parsed statements (e.g., derived queries), 
+            // extract conditions from method parameters
+            logger.debug("No WHERE clause found in parsed statement, checking method parameters");
+            extractConditionsFromMethodParameters(repositoryQuery, conditions);
         }
+        
         return conditions;
+    }
+    
+    /**
+     * Extracts WHERE conditions from method parameters for derived queries.
+     * This handles cases where queries are inferred from method names (findBy*, etc.).
+     * 
+     * @param repositoryQuery the repository query
+     * @param conditions the list to add extracted conditions to
+     */
+    private void extractConditionsFromMethodParameters(RepositoryQuery repositoryQuery, List<WhereCondition> conditions) {
+        List<QueryMethodParameter> methodParameters = repositoryQuery.getMethodParameters();
+        if (methodParameters == null || methodParameters.isEmpty()) {
+            return;
+        }
+        
+        String tableName = repositoryQuery.getTable();
+        if (tableName == null || tableName.isEmpty()) {
+            logger.debug("Cannot extract conditions from method parameters without table name");
+            return;
+        }
+        
+        for (int i = 0; i < methodParameters.size(); i++) {
+            QueryMethodParameter param = methodParameters.get(i);
+            String columnName = param.getColumnName();
+            if (columnName != null && !columnName.isEmpty()) {
+                CardinalityLevel cardinality = cardinalityAnalyzer.analyzeColumnCardinality(tableName, columnName);
+                WhereCondition condition = new WhereCondition(columnName, "=", cardinality, i, param);
+                conditions.add(condition);
+                logger.debug("Extracted condition from method parameter: {}", condition);
+            }
+        }
     }
     
     /**
@@ -162,25 +209,17 @@ public class QueryAnalysisEngine {
             extractConditionsFromExpression(orExpr.getRightExpression(), conditions, repositoryQuery,
                                           position + getConditionCount(orExpr.getLeftExpression()));
         } else if (expression instanceof ComparisonOperator comparison) {
-            WhereCondition condition = createConditionFromComparison(comparison, repositoryQuery, position);
-            if (condition != null) {
-                conditions.add(condition);
-            }
+            createConditionFromComparison(comparison, repositoryQuery, position)
+                .ifPresent(conditions::add);
         } else if (expression instanceof Between between) {
-            WhereCondition condition = createConditionFromBetween(between, repositoryQuery, position);
-            if (condition != null) {
-                conditions.add(condition);
-            }
+            createConditionFromBetween(between, repositoryQuery, position)
+                .ifPresent(conditions::add);
         } else if (expression instanceof InExpression inExpr) {
-            WhereCondition condition = createConditionFromIn(inExpr, repositoryQuery, position);
-            if (condition != null) {
-                conditions.add(condition);
-            }
+            createConditionFromIn(inExpr, repositoryQuery, position)
+                .ifPresent(conditions::add);
         } else if (expression instanceof IsNullExpression isNull) {
-            WhereCondition condition = createConditionFromIsNull(isNull, repositoryQuery, position);
-            if (condition != null) {
-                conditions.add(condition);
-            }
+            createConditionFromIsNull(isNull, repositoryQuery, position)
+                .ifPresent(conditions::add);
         } else {
             // Handle other expression types that might contain column references
             logger.debug("Unhandled expression type in WHERE clause: {}", expression.getClass().getSimpleName());
@@ -191,7 +230,7 @@ public class QueryAnalysisEngine {
      * Creates a WhereCondition from a comparison operator expression.
      * Enhanced to better handle parameter mapping and HQL/SQL differences.
      */
-    private WhereCondition createConditionFromComparison(ComparisonOperator comparison,
+    private Optional<WhereCondition> createConditionFromComparison(ComparisonOperator comparison,
                                                         RepositoryQuery repositoryQuery, int position) {
         Expression leftExpr = comparison.getLeftExpression();
         if (leftExpr instanceof Column column) {
@@ -199,22 +238,23 @@ public class QueryAnalysisEngine {
             String operator = comparison.getStringExpression();
 
             // Enhanced parameter mapping using RepositoryQuery's parameter mapping capabilities
-            QueryMethodParameter parameter = findMatchingParameterEnhanced(repositoryQuery, columnName, comparison.getRightExpression());
+            QueryMethodParameter parameter = findMatchingParameterEnhanced(repositoryQuery, columnName, comparison.getRightExpression())
+                .orElse(null);
 
             CardinalityLevel cardinality = cardinalityAnalyzer.analyzeColumnCardinality(repositoryQuery.getTable(), columnName);
 
-            return new WhereCondition(columnName, operator, cardinality, position, parameter);
+            return Optional.of(new WhereCondition(columnName, operator, cardinality, position, parameter));
         }
-        return null;
+        return Optional.empty();
     }
     
     /**
      * Enhanced parameter matching that uses RepositoryQuery's parameter mapping logic.
      */
-    private QueryMethodParameter findMatchingParameterEnhanced(RepositoryQuery repositoryQuery, String columnName, Expression rightExpression) {
+    private Optional<QueryMethodParameter> findMatchingParameterEnhanced(RepositoryQuery repositoryQuery, String columnName, Expression rightExpression) {
         // First try the existing matching logic
-        QueryMethodParameter parameter = findMatchingParameter(repositoryQuery, columnName);
-        if (parameter != null) {
+        Optional<QueryMethodParameter> parameter = findMatchingParameter(repositoryQuery, columnName);
+        if (parameter.isPresent()) {
             return parameter;
         }
         
@@ -223,98 +263,100 @@ public class QueryAnalysisEngine {
             // Check if the right expression is a parameter placeholder
             if (rightExpression instanceof net.sf.jsqlparser.expression.JdbcParameter jdbcParam) {
                 int paramIndex = jdbcParam.getIndex() - 1; // JDBC parameters are 1-based
+                List<QueryMethodParameter> methodParameters = repositoryQuery.getMethodParameters();
                 
-                if (paramIndex >= 0 && paramIndex < repositoryQuery.getMethodParameters().size()) {
-                    QueryMethodParameter methodParam = repositoryQuery.getMethodParameters().get(paramIndex);
+                if (methodParameters != null && paramIndex >= 0 && paramIndex < methodParameters.size()) {
+                    QueryMethodParameter methodParam = methodParameters.get(paramIndex);
                     // Update the parameter's column mapping if not already set
-                    if (methodParam.getColumnName() == null) {
+                    String existingColumnName = methodParam.getColumnName();
+                    if (existingColumnName == null || existingColumnName.isEmpty()) {
                         methodParam.setColumnName(columnName);
                     }
-                    return methodParam;
+                    return Optional.of(methodParam);
                 }
             } else if (rightExpression instanceof net.sf.jsqlparser.expression.JdbcNamedParameter namedParam) {
                 String paramName = namedParam.getName();
+                List<QueryMethodParameter> methodParameters = repositoryQuery.getMethodParameters();
                 
-                return repositoryQuery.getMethodParameters().stream()
-                    .filter(param -> paramName.equals(param.getPlaceHolderName()))
-                    .findFirst()
-                    .orElse(null);
+                if (methodParameters != null) {
+                    return methodParameters.stream()
+                        .filter(param -> paramName.equals(param.getPlaceHolderName()))
+                        .findFirst();
+                }
             }
         } catch (Exception e) {
             logger.debug("Error in enhanced parameter matching: {}", e.getMessage());
         }
         
-        return null;
+        return Optional.empty();
     }
     
     /**
      * Creates a WhereCondition from a BETWEEN expression.
      * Enhanced to handle parameter mapping for BETWEEN expressions.
      */
-    private WhereCondition createConditionFromBetween(Between between, RepositoryQuery repositoryQuery, int position) {
+    private Optional<WhereCondition> createConditionFromBetween(Between between, RepositoryQuery repositoryQuery, int position) {
         Expression leftExpr = between.getLeftExpression();
-        if (!(leftExpr instanceof Column)) {
-            return null;
+        if (!(leftExpr instanceof Column column)) {
+            return Optional.empty();
         }
         
-        Column column = (Column) leftExpr;
         String columnName = extractColumnName(column);
         
         // For BETWEEN, try to find parameter from start expression
-        QueryMethodParameter parameter = findMatchingParameterEnhanced(repositoryQuery, columnName, between.getBetweenExpressionStart());
-        if (parameter == null) {
-            // Try end expression if start didn't match
-            parameter = findMatchingParameterEnhanced(repositoryQuery, columnName, between.getBetweenExpressionEnd());
-        }
+        QueryMethodParameter parameter = findMatchingParameterEnhanced(repositoryQuery, columnName, between.getBetweenExpressionStart())
+            .or(() -> findMatchingParameterEnhanced(repositoryQuery, columnName, between.getBetweenExpressionEnd()))
+            .orElse(null);
         
         CardinalityLevel cardinality = cardinalityAnalyzer.analyzeColumnCardinality(repositoryQuery.getTable(), columnName);
         
-        return new WhereCondition(columnName, "BETWEEN", cardinality, position, parameter);
+        return Optional.of(new WhereCondition(columnName, "BETWEEN", cardinality, position, parameter));
     }
     
     /**
      * Creates a WhereCondition from an IN expression.
      * Enhanced to handle parameter mapping for IN expressions.
      */
-    private WhereCondition createConditionFromIn(InExpression inExpr, RepositoryQuery repositoryQuery, int position) {
+    private Optional<WhereCondition> createConditionFromIn(InExpression inExpr, RepositoryQuery repositoryQuery, int position) {
         Expression leftExpr = inExpr.getLeftExpression();
-        if (!(leftExpr instanceof Column)) {
-            return null;
+        if (!(leftExpr instanceof Column column)) {
+            return Optional.empty();
         }
         
-        Column column = (Column) leftExpr;
         String columnName = extractColumnName(column);
         
         // For IN expressions, try to find parameter from the right expression
-        QueryMethodParameter parameter = findMatchingParameterEnhanced(repositoryQuery, columnName, inExpr.getRightExpression());
+        QueryMethodParameter parameter = findMatchingParameterEnhanced(repositoryQuery, columnName, inExpr.getRightExpression())
+            .orElse(null);
         
         CardinalityLevel cardinality = cardinalityAnalyzer.analyzeColumnCardinality(repositoryQuery.getTable(), columnName);
         
-        return new WhereCondition(columnName, "IN", cardinality, position, parameter);
+        return Optional.of(new WhereCondition(columnName, "IN", cardinality, position, parameter));
     }
     
     /**
      * Creates a WhereCondition from an IS NULL expression.
      * Enhanced parameter mapping (though IS NULL typically doesn't have parameters).
      */
-    private WhereCondition createConditionFromIsNull(IsNullExpression isNull, RepositoryQuery repositoryQuery, int position) {
+    private Optional<WhereCondition> createConditionFromIsNull(IsNullExpression isNull, RepositoryQuery repositoryQuery, int position) {
         Expression leftExpr = isNull.getLeftExpression();
         if (leftExpr instanceof Column column) {
             String columnName = extractColumnName(column);
 
             // IS NULL expressions typically don't have parameters, but check anyway
-            QueryMethodParameter parameter = findMatchingParameter(repositoryQuery, columnName);
+            QueryMethodParameter parameter = findMatchingParameter(repositoryQuery, columnName).orElse(null);
 
             CardinalityLevel cardinality = cardinalityAnalyzer.analyzeColumnCardinality(repositoryQuery.getTable(), columnName);
 
             String operator = isNull.isNot() ? "IS NOT NULL" : "IS NULL";
-            return new WhereCondition(columnName, operator, cardinality, position, parameter);
+            return Optional.of(new WhereCondition(columnName, operator, cardinality, position, parameter));
         }
-        return null;
+        return Optional.empty();
     }
     
     /**
-     * Analyzes condition ordering to identify optimization opportunities.
+     * Analyzes condition ordering to identify optimization opportunities based on cardinality analysis.
+     * Enhanced to provide comprehensive optimization recommendations using existing CardinalityAnalyzer.
      * 
      * @param conditions the list of WHERE conditions to analyze
      * @param query the repository query
@@ -325,13 +367,19 @@ public class QueryAnalysisEngine {
         List<OptimizationIssue> issues = new ArrayList<>();
         
         if (conditions.isEmpty()) {
+            logger.debug("No WHERE conditions found for analysis");
             return issues;
         }
+        
         WhereCondition firstCondition = conditions.getFirst();
+        String tableName = query.getTable();
+        
+        logger.debug("Analyzing condition ordering for {} conditions, first condition: {}", 
+                    conditions.size(), firstCondition);
 
-        // New rule: If the first condition is MEDIUM cardinality, ensure there is a supporting index
+        // Rule 1: If the first condition is MEDIUM cardinality, ensure there is a supporting index
         if (firstCondition.cardinality() == CardinalityLevel.MEDIUM) {
-            boolean hasLeadingIndex = cardinalityAnalyzer.hasIndexWithLeadingColumn(query.getTable(), firstCondition.columnName());
+            boolean hasLeadingIndex = cardinalityAnalyzer.hasIndexWithLeadingColumn(tableName, firstCondition.columnName());
             if (!hasLeadingIndex) {
                 String description = String.format(
                         "First WHERE condition uses medium cardinality column '%s' but no index starts with this column. " +
@@ -340,10 +388,11 @@ public class QueryAnalysisEngine {
                 OptimizationIssue indexIssue = new OptimizationIssue(query, firstCondition.columnName(),
                         firstCondition.columnName(), description, OptimizationIssue.Severity.HIGH, queryText);
                 issues.add(indexIssue);
+                logger.debug("Added index recommendation issue for medium cardinality column: {}", firstCondition.columnName());
             }
         }
         
-        // Check if first condition is low cardinality while higher-cardinality alternatives exist
+        // Rule 2: Check if first condition is low cardinality while higher-cardinality alternatives exist
         if (firstCondition.isLowCardinality()) {
             // Prefer HIGH over MEDIUM if both exist
             Optional<WhereCondition> highCardinalityAlternative = conditions.stream()
@@ -354,7 +403,7 @@ public class QueryAnalysisEngine {
                 WhereCondition recommended = highCardinalityAlternative.get();
 
                 // Enhanced description with cardinality information
-                String cardinalityDetails = getCardinalityDetails(query.getTable(), firstCondition, recommended);
+                String cardinalityDetails = getCardinalityDetails(tableName, firstCondition, recommended);
                 String description = String.format(
                     "Query starts with %s cardinality column '%s' but %s cardinality column '%s' is available. %s",
                     firstCondition.cardinality().toString().toLowerCase(),
@@ -366,8 +415,9 @@ public class QueryAnalysisEngine {
                 OptimizationIssue issue = new OptimizationIssue(query, firstCondition.columnName(),
                     recommended.columnName(), description, OptimizationIssue.Severity.HIGH, queryText);
                 issues.add(issue);
+                logger.debug("Added high severity issue: low cardinality first with high cardinality alternative");
             } else {
-                // New rule: LOW followed by any MEDIUM should also be flagged
+                // Rule 3: LOW followed by any MEDIUM should also be flagged
                 Optional<WhereCondition> mediumCardinalityAlternative = conditions.stream()
                     .filter(cond -> cond.cardinality() == CardinalityLevel.MEDIUM)
                     .findFirst();
@@ -382,11 +432,12 @@ public class QueryAnalysisEngine {
                     OptimizationIssue issue = new OptimizationIssue(query, firstCondition.columnName(),
                         recommended.columnName(), description, OptimizationIssue.Severity.MEDIUM, queryText);
                     issues.add(issue);
+                    logger.debug("Added medium severity issue: low cardinality first with medium cardinality alternative");
                 }
             }
         }
         
-        // Check for suboptimal ordering of high cardinality columns
+        // Rule 4: Check for suboptimal ordering of high cardinality columns
         List<WhereCondition> highCardinalityConditions = conditions.stream()
             .filter(WhereCondition::isHighCardinality)
             .toList();
@@ -394,14 +445,14 @@ public class QueryAnalysisEngine {
         if (highCardinalityConditions.size() > 1) {
             // Find the most selective high cardinality column (primary keys are most selective)
             Optional<WhereCondition> primaryKeyCondition = highCardinalityConditions.stream()
-                .filter(condition -> cardinalityAnalyzer.isPrimaryKey(query.getTable(), condition.columnName()))
+                .filter(condition -> cardinalityAnalyzer.isPrimaryKey(tableName, condition.columnName()))
                 .findFirst();
                 
             if (primaryKeyCondition.isPresent() && !firstCondition.equals(primaryKeyCondition.get())) {
                 WhereCondition recommended = primaryKeyCondition.get();
                 
                 // Enhanced description with cardinality and selectivity information
-                String selectivityDetails = getSelectivityDetails(query.getTable(), firstCondition, recommended);
+                String selectivityDetails = getSelectivityDetails(tableName, firstCondition, recommended);
                 String description = String.format(
                     "Primary key column '%s' should appear first in WHERE clause for optimal performance. " +
                     "Currently starts with '%s' (%s cardinality). %s",
@@ -413,9 +464,11 @@ public class QueryAnalysisEngine {
                 OptimizationIssue issue = new OptimizationIssue(query, firstCondition.columnName(),
                     recommended.columnName(), description, OptimizationIssue.Severity.MEDIUM, queryText);
                 issues.add(issue);
+                logger.debug("Added primary key ordering issue");
             }
         }
         
+        logger.debug("Analysis complete. Found {} optimization issues", issues.size());
         return issues;
     }
     
@@ -446,34 +499,35 @@ public class QueryAnalysisEngine {
      * Finds a matching QueryMethodParameter for a given column name.
      * Enhanced to handle both direct column name matches and parameter name matches.
      */
-    private QueryMethodParameter findMatchingParameter(RepositoryQuery repositoryQuery, String columnName) {
-        if (repositoryQuery.getMethodParameters() == null) {
-            return null;
+    private Optional<QueryMethodParameter> findMatchingParameter(RepositoryQuery repositoryQuery, String columnName) {
+        List<QueryMethodParameter> methodParameters = repositoryQuery.getMethodParameters();
+        if (methodParameters == null || methodParameters.isEmpty()) {
+            return Optional.empty();
         }
         
         // First try exact column name match
-        QueryMethodParameter exactMatch = repositoryQuery.getMethodParameters().stream()
+        Optional<QueryMethodParameter> exactMatch = methodParameters.stream()
             .filter(param -> columnName.equals(param.getColumnName()))
-            .findFirst()
-            .orElse(null);
+            .findFirst();
             
-        if (exactMatch != null) {
+        if (exactMatch.isPresent()) {
             return exactMatch;
         }
         
         // Try placeholder name match (for named parameters)
-        QueryMethodParameter placeholderMatch = repositoryQuery.getMethodParameters().stream()
-            .filter(param -> param.getPlaceHolderName() != null && 
-                           columnName.equals(param.getPlaceHolderName()))
-            .findFirst()
-            .orElse(null);
+        Optional<QueryMethodParameter> placeholderMatch = methodParameters.stream()
+            .filter(param -> {
+                String placeHolderName = param.getPlaceHolderName();
+                return placeHolderName != null && columnName.equals(placeHolderName);
+            })
+            .findFirst();
             
-        if (placeholderMatch != null) {
+        if (placeholderMatch.isPresent()) {
             return placeholderMatch;
         }
         
         // Try parameter name match (convert camelCase to snake_case)
-        return repositoryQuery.getMethodParameters().stream()
+        return methodParameters.stream()
             .filter(param -> {
                 if (param.getParameter() != null) {
                     String paramName = param.getParameter().getNameAsString();
@@ -482,8 +536,7 @@ public class QueryAnalysisEngine {
                 }
                 return false;
             })
-            .findFirst()
-            .orElse(null);
+            .findFirst();
     }
     
     /**
@@ -491,7 +544,7 @@ public class QueryAnalysisEngine {
      */
     private String convertCamelToSnakeCase(String camelCase) {
         if (camelCase == null || camelCase.isEmpty()) {
-            return camelCase;
+            return "";
         }
         
         return camelCase.replaceAll("([a-z])([A-Z])", "$1_$2").toLowerCase();
@@ -560,8 +613,9 @@ public class QueryAnalysisEngine {
     private String getQueryText(RepositoryQuery repositoryQuery) {
         try {
             // Prefer original query for better readability in reports
-            if (repositoryQuery.getOriginalQuery() != null && !repositoryQuery.getOriginalQuery().isEmpty()) {
-                return repositoryQuery.getOriginalQuery();
+            String originalQuery = repositoryQuery.getOriginalQuery();
+            if (originalQuery != null && !originalQuery.isEmpty()) {
+                return originalQuery;
             }
             
             // Fall back to parsed statement if original is not available
@@ -646,5 +700,24 @@ public class QueryAnalysisEngine {
      */
     private QueryOptimizationResult createEmptyResult(RepositoryQuery query, String queryText) {
         return new QueryOptimizationResult(query, new ArrayList<>(), new ArrayList<>());
+    }
+    
+    /**
+     * Gets the CardinalityAnalyzer instance used by this engine.
+     * Useful for testing and validation purposes.
+     * 
+     * @return the cardinality analyzer
+     */
+    public CardinalityAnalyzer getCardinalityAnalyzer() {
+        return cardinalityAnalyzer;
+    }
+    
+    /**
+     * Validates that the engine is properly configured and ready for analysis.
+     * 
+     * @return true if the engine is ready, false otherwise
+     */
+    public boolean isReady() {
+        return cardinalityAnalyzer != null;
     }
 }

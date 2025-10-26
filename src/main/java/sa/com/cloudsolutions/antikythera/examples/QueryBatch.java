@@ -53,19 +53,34 @@ public class QueryBatch {
 
     /**
      * Adds a query to this batch.
+     * Follows the existing pattern of defensive null checking.
      */
     public void addQuery(RepositoryQuery query) {
         if (query != null) {
             this.queries.add(query);
+            // Extract repository name from query if not already set
+            if (this.repositoryName == null && query.getClassname() != null) {
+                this.repositoryName = query.getClassname();
+            }
         }
     }
 
     /**
      * Adds cardinality information for a column.
+     * Follows existing patterns for map-based data storage.
      */
     public void addColumnCardinality(String columnName, CardinalityLevel cardinality) {
         if (columnName != null && cardinality != null) {
             this.columnCardinalities.put(columnName, cardinality);
+        }
+    }
+
+    /**
+     * Adds multiple queries at once, leveraging existing collection patterns.
+     */
+    public void addQueries(List<RepositoryQuery> queries) {
+        if (queries != null) {
+            queries.forEach(this::addQuery);
         }
     }
 
