@@ -115,19 +115,7 @@ public class QueryOptimizationResult {
     public int getOptimizationIssueCount() {
         return optimizationIssues.size();
     }
-    
-    /**
-     * Gets optimization issues filtered by severity level.
-     * 
-     * @param severity the severity level to filter by
-     * @return a list of issues with the specified severity
-     */
-    public List<OptimizationIssue> getIssuesBySeverity(OptimizationIssue.Severity severity) {
-        return optimizationIssues.stream()
-                .filter(issue -> issue.severity() == severity)
-                .collect(Collectors.toList());
-    }
-    
+
     /**
      * Gets the highest severity level among all issues.
      * 
@@ -236,8 +224,8 @@ public class QueryOptimizationResult {
     
     @Override
     public String toString() {
-        return String.format("QueryOptimizationResult{repositoryClass='%s', methodName='%s', " +
-                           "whereConditions=%d, optimizationIssues=%d, isOptimized=%s}",
+        return String.format("repositoryClass='%s', methodName='%s', " +
+                           "whereConditions=%d, optimizationIssues=%d, isOptimized=%s",
                            getRepositoryClass(), getMethodName(), whereConditions.size(),
                            optimizationIssues.size(), isOptimized);
     }
@@ -261,8 +249,6 @@ public class QueryOptimizationResult {
      * @param issue the optimization issue to add
      */
     public void addOptimizationIssue(OptimizationIssue issue) {
-        if (issue != null) {
-            optimizationIssues.add(issue);
-        }
+        optimizationIssues.add(issue);
     }
 }

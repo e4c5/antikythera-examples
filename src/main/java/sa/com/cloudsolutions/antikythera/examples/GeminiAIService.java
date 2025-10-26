@@ -475,6 +475,7 @@ public class GeminiAIService {
 
     /**
      * Extracts column order from a method signature.
+     * Properly handles Spring Data JPA keywords like In, Between, Like, etc.
      */
     private List<String> extractColumnOrderFromMethod(String methodSignature) {
         List<String> columns = new ArrayList<>();
@@ -495,8 +496,10 @@ public class GeminiAIService {
                 String[] conditionParts = conditions.split("And|Or");
                 for (String part : conditionParts) {
                     if (!part.trim().isEmpty()) {
+                        // Remove JPA keywords from the column name before converting to snake_case
+                        String cleanColumnName = removeJpaKeywords(part.trim());
                         // Convert camelCase to snake_case using RepositoryParser utility
-                        String columnName = RepositoryParser.camelToSnake(part.trim());
+                        String columnName = RepositoryParser.camelToSnake(cleanColumnName);
                         columns.add(columnName);
                     }
                 }
@@ -504,6 +507,32 @@ public class GeminiAIService {
         }
         
         return columns;
+    }
+
+    /**
+     * Removes Spring Data JPA keywords from column names.
+     * For example: "ApprovalIdIn" -> "ApprovalId", "NameLike" -> "Name"
+     */
+    private String removeJpaKeywords(String columnPart) {
+        // List of Spring Data JPA keywords that should be removed from column names
+        String[] jpaKeywords = {
+            "In", "NotIn", "Between", "LessThan", "LessThanEqual", "GreaterThan", "GreaterThanEqual",
+            "After", "Before", "IsNull", "IsNotNull", "Like", "NotLike", "StartingWith", "EndingWith",
+            "Containing", "OrderBy", "Not", "True", "False", "IgnoreCase", "AllIgnoreCase",
+            "First", "Top", "Distinct", "IsEmpty", "IsNotEmpty", "Exists"
+        };
+        
+        String result = columnPart;
+        
+        // Remove JPA keywords from the end of the column name
+        for (String keyword : jpaKeywords) {
+            if (result.endsWith(keyword)) {
+                result = result.substring(0, result.length() - keyword.length());
+                break; // Only remove one keyword to avoid over-processing
+            }
+        }
+        
+        return result;
     }
 
 
