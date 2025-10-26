@@ -113,8 +113,11 @@ public class QueryOptimizationChecker {
     }
 
     /**
-     * Analyzes a repository using RepositoryParser to extract and analyze all queries.
-     * Modified to collect queries first, then batch them for AI analysis.
+     * Analyzes a repository using a new LLM-first approach.
+     * 1. Collect raw methods and send to LLM first (no programmatic analysis)
+     * 2. Get LLM recommendations
+     * 3. Do index analysis based on LLM recommendations  
+     * 4. Generate final output
      * 
      * @param fullyQualifiedName the fully qualified class name of the repository
      * @param typeWrapper the TypeWrapper representing the repository
@@ -129,25 +132,28 @@ public class QueryOptimizationChecker {
         // Build all queries using RepositoryParser
         repositoryParser.buildQueries();
         
-        // Collect queries first using existing analysis engine
-        List<QueryOptimizationResult> repositoryResults = collectQueryResults(fullyQualifiedName, typeWrapper);
+        // Step 1: Collect raw methods for LLM analysis (no programmatic analysis yet)
+        List<RepositoryQuery> rawQueries = collectRawQueries(fullyQualifiedName, typeWrapper);
         
-        // Add results to batch processor for AI analysis
-        for (QueryOptimizationResult result : repositoryResults) {
-            batchProcessor.addQueryResult(result);
+        // Step 2: Send raw methods to LLM first
+        List<OptimizationIssue> llmRecommendations = sendRawQueriesToLLM(fullyQualifiedName, rawQueries);
+        
+        // Step 3: Analyze LLM recommendations and check indexes
+        List<QueryOptimizationResult> finalResults = analyzeLLMRecommendations(llmRecommendations, rawQueries);
+        
+        // Step 4: Report final results
+        for (QueryOptimizationResult result : finalResults) {
             results.add(result);
+            reportOptimizationResults(result);
         }
-        
-        // Send batch to AI for optimization recommendations
-        sendBatchToAI(fullyQualifiedName, repositoryResults);
     }
 
     /**
-     * Collects query results from a repository for batch processing.
-     * Uses existing QueryAnalysisEngine to gather cardinality data.
+     * Collects raw queries from a repository without any programmatic analysis.
+     * These will be sent directly to the LLM for optimization recommendations.
      */
-    private List<QueryOptimizationResult> collectQueryResults(String fullyQualifiedName, TypeWrapper typeWrapper) throws IOException, ReflectiveOperationException {
-        List<QueryOptimizationResult> repositoryResults = new ArrayList<>();
+    private List<RepositoryQuery> collectRawQueries(String fullyQualifiedName, TypeWrapper typeWrapper) throws IOException, ReflectiveOperationException {
+        List<RepositoryQuery> rawQueries = new ArrayList<>();
         
         var declaration = typeWrapper.getType().asClassOrInterfaceDeclaration();
 
@@ -158,54 +164,204 @@ public class QueryOptimizationChecker {
             // Count every repository method query analyzed
             totalQueriesAnalyzed++;
             
-            // Use QueryAnalysisEngine to analyze the query for cardinality data
-            QueryOptimizationResult result = analysisEngine.analyzeQueryWithCallable(repositoryQuery);
-            repositoryResults.add(result);
+            // Just collect the raw query without any analysis
+            rawQueries.add(repositoryQuery);
         }
         
-        return repositoryResults;
+        return rawQueries;
     }
     
     /**
-     * Sends a batch of queries to AI service for optimization recommendations.
-     * Replaces programmatic analysis with AI service calls.
+     * Sends raw queries to LLM for optimization recommendations.
+     * No programmatic analysis is done beforehand - LLM gets the raw methods.
      */
-    private void sendBatchToAI(String repositoryName, List<QueryOptimizationResult> repositoryResults) throws IOException, InterruptedException {
-        // Get the batch for this repository from the batch processor
-        QueryBatch batch = batchProcessor.getBatch(repositoryName);
+    private List<OptimizationIssue> sendRawQueriesToLLM(String repositoryName, List<RepositoryQuery> rawQueries) throws IOException, InterruptedException {
+        // Create a batch with raw queries and basic cardinality information
+        QueryBatch batch = createRawQueryBatch(repositoryName, rawQueries);
         
         // Send batch to AI service for analysis
-        List<OptimizationIssue> aiRecommendations = aiService.analyzeQueryBatch(batch);
-        
-        // Process AI recommendations and integrate with existing reporting
-        processAIRecommendations(aiRecommendations, repositoryResults);
+        List<OptimizationIssue> llmRecommendations = aiService.analyzeQueryBatch(batch);
         
         // Track and report token usage
         TokenUsage tokenUsage = aiService.getLastTokenUsage();
         cumulativeTokenUsage.add(tokenUsage);
         System.out.printf("🤖 AI Analysis for %s: %s%n", repositoryName, tokenUsage.getFormattedReport());
         logger.info("AI analysis completed for {}: {}", repositoryName, tokenUsage.getFormattedReport());
+        
+        return llmRecommendations;
+    }
+
+    /**
+     * Creates a QueryBatch with raw queries and basic cardinality information.
+     * This provides the LLM with the information it needs without doing programmatic analysis.
+     */
+    private QueryBatch createRawQueryBatch(String repositoryName, List<RepositoryQuery> rawQueries) {
+        QueryBatch batch = new QueryBatch(repositoryName);
+        
+        // Add all raw queries to the batch
+        for (RepositoryQuery query : rawQueries) {
+            batch.addQuery(query);
+        }
+        
+        // Add basic cardinality information for the tables involved
+        // This is minimal information needed by the LLM to make decisions
+        for (RepositoryQuery query : rawQueries) {
+            String tableName = query.getTable();
+            if (tableName != null) {
+                addBasicCardinalityInfo(batch, tableName);
+            }
+        }
+        
+        return batch;
+    }
+
+    /**
+     * Adds basic cardinality information for a table to the batch.
+     * This provides the LLM with column cardinality data without doing full query analysis.
+     */
+    private void addBasicCardinalityInfo(QueryBatch batch, String tableName) {
+        // Get basic cardinality information for common columns
+        // This is a simplified approach - we could enhance this to be more comprehensive
+        try {
+            // Add cardinality for common column patterns
+            addCardinalityIfExists(batch, tableName, "id");
+            addCardinalityIfExists(batch, tableName, "uuid");
+            addCardinalityIfExists(batch, tableName, "status");
+            addCardinalityIfExists(batch, tableName, "active");
+            addCardinalityIfExists(batch, tableName, "enabled");
+            addCardinalityIfExists(batch, tableName, "type");
+            addCardinalityIfExists(batch, tableName, "created_date");
+            addCardinalityIfExists(batch, tableName, "updated_date");
+            addCardinalityIfExists(batch, tableName, "name");
+            addCardinalityIfExists(batch, tableName, "code");
+            
+            // Add cardinality for foreign key patterns
+            addCardinalityIfExists(batch, tableName, "user_id");
+            addCardinalityIfExists(batch, tableName, "customer_id");
+            addCardinalityIfExists(batch, tableName, "group_id");
+            addCardinalityIfExists(batch, tableName, "hospital_id");
+            addCardinalityIfExists(batch, tableName, "hospital_group_id");
+            
+        } catch (Exception e) {
+            logger.debug("Could not add cardinality info for table {}: {}", tableName, e.getMessage());
+        }
+    }
+
+    /**
+     * Adds cardinality information for a column if it exists in the table.
+     */
+    private void addCardinalityIfExists(QueryBatch batch, String tableName, String columnName) {
+        try {
+            CardinalityLevel cardinality = cardinalityAnalyzer.analyzeColumnCardinality(tableName, columnName);
+            if (cardinality != null) {
+                batch.addColumnCardinality(columnName, cardinality);
+                logger.debug("Added cardinality info: {}.{} -> {}", tableName, columnName, cardinality);
+            }
+        } catch (Exception e) {
+            // Column doesn't exist or can't be analyzed - that's fine
+            logger.trace("Column {}.{} not found or can't be analyzed", tableName, columnName);
+        }
     }
     
     /**
-     * Processes AI recommendations and integrates them with existing reporting system.
-     * Enhanced to handle AI-generated index recommendations and check existing indexes.
+     * Analyzes LLM recommendations and checks for required indexes.
+     * This is where we do our programmatic analysis AFTER getting LLM recommendations.
      */
-    private void processAIRecommendations(List<OptimizationIssue> aiRecommendations, List<QueryOptimizationResult> repositoryResults) {
-        // Match AI recommendations with repository results and update them
-        for (int i = 0; i < repositoryResults.size() && i < aiRecommendations.size(); i++) {
-            QueryOptimizationResult result = repositoryResults.get(i);
-            OptimizationIssue aiRecommendation = aiRecommendations.get(i);
+    private List<QueryOptimizationResult> analyzeLLMRecommendations(List<OptimizationIssue> llmRecommendations, List<RepositoryQuery> rawQueries) {
+        List<QueryOptimizationResult> finalResults = new ArrayList<>();
+        
+        for (int i = 0; i < llmRecommendations.size() && i < rawQueries.size(); i++) {
+            OptimizationIssue llmRecommendation = llmRecommendations.get(i);
+            RepositoryQuery rawQuery = rawQueries.get(i);
             
-            // Enhance AI recommendation with index analysis
-            OptimizationIssue enhancedRecommendation = enhanceWithIndexAnalysis(aiRecommendation, result);
+            // Create a QueryOptimizationResult based on LLM recommendation
+            QueryOptimizationResult result = createResultFromLLMRecommendation(llmRecommendation, rawQuery);
             
-            // Replace existing optimization issues with AI-enhanced ones
+            // Analyze the LLM's recommended column order and check for required indexes
+            OptimizationIssue enhancedRecommendation = analyzeRecommendedColumnOrder(llmRecommendation, rawQuery);
+            
+            // Add the enhanced recommendation to the result
             result.clearOptimizationIssues();
             result.addOptimizationIssue(enhancedRecommendation);
             
-            reportOptimizationResults(result);
+            finalResults.add(result);
         }
+        
+        return finalResults;
+    }
+
+    /**
+     * Creates a QueryOptimizationResult from an LLM recommendation.
+     */
+    private QueryOptimizationResult createResultFromLLMRecommendation(OptimizationIssue llmRecommendation, RepositoryQuery rawQuery) {
+        // Extract WHERE conditions from the LLM's recommended column order
+        List<WhereCondition> whereConditions = extractWhereConditionsFromRecommendation(llmRecommendation, rawQuery);
+        
+        // Create result with proper constructor parameters
+        QueryOptimizationResult result = new QueryOptimizationResult(rawQuery, whereConditions, new ArrayList<>());
+        
+        return result;
+    }
+
+    /**
+     * Extracts WHERE conditions from the LLM recommendation.
+     */
+    private List<WhereCondition> extractWhereConditionsFromRecommendation(OptimizationIssue llmRecommendation, RepositoryQuery rawQuery) {
+        List<WhereCondition> whereConditions = new ArrayList<>();
+        String tableName = rawQuery.getTable();
+        
+        // Use the LLM's recommended column order to create WHERE conditions
+        for (int i = 0; i < llmRecommendation.recommendedColumnOrder().size(); i++) {
+            String columnName = llmRecommendation.recommendedColumnOrder().get(i);
+            try {
+                CardinalityLevel cardinality = cardinalityAnalyzer.analyzeColumnCardinality(tableName, columnName);
+                if (cardinality != null) {
+                    // Create WhereCondition with all required parameters
+                    whereConditions.add(new WhereCondition(columnName, "=", cardinality, i, null));
+                }
+            } catch (Exception e) {
+                logger.debug("Could not analyze cardinality for column {}.{}: {}", tableName, columnName, e.getMessage());
+            }
+        }
+        
+        return whereConditions;
+    }
+
+    /**
+     * Analyzes the LLM's recommended column order and checks for required indexes.
+     * This is the key method that determines what indexes are needed based on LLM recommendations.
+     */
+    private OptimizationIssue analyzeRecommendedColumnOrder(OptimizationIssue llmRecommendation, RepositoryQuery rawQuery) {
+        List<String> requiredIndexes = new ArrayList<>();
+        String tableName = rawQuery.getTable();
+        
+        if (tableName == null || tableName.isEmpty()) {
+            tableName = inferTableNameFromQuerySafe(rawQuery.getQuery(), rawQuery.getClassname());
+        }
+        
+        // Check each column in the LLM's recommended order for existing indexes
+        for (String columnName : llmRecommendation.recommendedColumnOrder()) {
+            if (!cardinalityAnalyzer.hasIndexWithLeadingColumn(tableName, columnName)) {
+                // Index is missing - add to required indexes
+                String indexRecommendation = String.format("%s.%s", tableName, columnName);
+                requiredIndexes.add(indexRecommendation);
+                logger.debug("Index missing for recommended column: {}.{}", tableName, columnName);
+            } else {
+                logger.debug("Index exists for recommended column: {}.{}", tableName, columnName);
+            }
+        }
+        
+        // Create enhanced optimization issue with index analysis
+        return new OptimizationIssue(
+            llmRecommendation.query(),
+            llmRecommendation.currentColumnOrder(),
+            llmRecommendation.recommendedColumnOrder(),
+            llmRecommendation.description(),
+            llmRecommendation.severity(),
+            llmRecommendation.queryText(),
+            llmRecommendation.aiExplanation(),
+            requiredIndexes // This is our analysis based on LLM recommendations
+        );
     }
 
     /**
