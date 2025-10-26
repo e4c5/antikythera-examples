@@ -128,7 +128,8 @@ public class GeminiAIService {
         String userPrompt = "Please analyze the following queries:\n" + queriesJson.toString();
 
         // Build Gemini API request format
-        String requestJson = String.format("""
+
+        return String.format("""
             {
               "contents": [{
                 "parts": [{
@@ -140,11 +141,9 @@ public class GeminiAIService {
                 "maxOutputTokens": 4000
               }
             }
-            """, 
+            """,
             systemPrompt.replace("\"", "\\\"").replace("\n", "\\n"),
             userPrompt.replace("\"", "\\\"").replace("\n", "\\n"));
-
-        return requestJson;
     }
 
     /**
@@ -165,15 +164,11 @@ public class GeminiAIService {
      */
     private String getQueryText(RepositoryQuery query) {
         String queryType = determineQueryType(query);
-        switch (queryType) {
-            case "DERIVED":
-                return query.getMethodName();
-            case "HQL":
-            case "NATIVE_SQL":
-                return query.getOriginalQuery() != null ? query.getOriginalQuery() : query.getQuery();
-            default:
-                return query.getMethodName();
-        }
+        return switch (queryType) {
+            case "DERIVED" -> query.getMethodName();
+            case "HQL", "NATIVE_SQL" -> query.getOriginalQuery() != null ? query.getOriginalQuery() : query.getQuery();
+            default -> query.getMethodName();
+        };
     }
 
     /**
@@ -219,7 +214,7 @@ public class GeminiAIService {
      * Sends the API request to Gemini AI service.
      */
     private String sendApiRequest(String payload) throws IOException, InterruptedException {
-        String url = config.getApiEndpoint() + "?key=" + config.getApiKey();
+        String url = config.getResolvedApiEndpoint() + "?key=" + config.getApiKey();
         
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(url))
@@ -271,12 +266,12 @@ public class GeminiAIService {
         JsonNode root = objectMapper.readTree(responseBody);
         JsonNode candidates = root.path("candidates");
         
-        if (candidates.isArray() && candidates.size() > 0) {
+        if (candidates.isArray() && !candidates.isEmpty()) {
             JsonNode firstCandidate = candidates.get(0);
             JsonNode content = firstCandidate.path("content");
             JsonNode parts = content.path("parts");
             
-            if (parts.isArray() && parts.size() > 0) {
+            if (parts.isArray() && !parts.isEmpty()) {
                 String textResponse = parts.get(0).path("text").asText();
                 return parseRecommendations(textResponse, batch);
             }

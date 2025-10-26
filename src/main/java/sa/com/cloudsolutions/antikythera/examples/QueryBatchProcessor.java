@@ -45,17 +45,22 @@ public class QueryBatchProcessor {
         // Add the query to the batch
         batch.addQuery(result.getQuery());
         
-        // Extract and add cardinality information for WHERE clause columns
-        extractCardinalityInformation(batch, result);
+        // Extract cardinality information and add it to the batch
+        Map<String, CardinalityLevel> cardinalityData = extractCardinalityInformation(result);
+        for (Map.Entry<String, CardinalityLevel> entry : cardinalityData.entrySet()) {
+            batch.addColumnCardinality(entry.getKey(), entry.getValue());
+        }
         
-        logger.debug("Added query {} to batch for repository {}", 
-                result.getMethodName(), repositoryName);
+        logger.debug("Added query {} to batch for repository {} with {} cardinality entries", 
+                result.getMethodName(), repositoryName, cardinalityData.size());
     }
 
     /**
-     * Extracts cardinality information from the query result and adds it to the batch.
+     * Extracts cardinality information from the query result.
+     * Returns a map of column names to their cardinality levels.
      */
-    private void extractCardinalityInformation(QueryBatch batch, QueryOptimizationResult result) {
+    private Map<String, CardinalityLevel> extractCardinalityInformation(QueryOptimizationResult result) {
+        Map<String, CardinalityLevel> cardinalityData = new HashMap<>();
         String tableName = result.getQuery().getTable();
         
         // Extract cardinality for WHERE clause columns
@@ -64,8 +69,8 @@ public class QueryBatchProcessor {
             CardinalityLevel cardinality = condition.cardinality();
             
             if (columnName != null && cardinality != null) {
-                batch.addColumnCardinality(columnName, cardinality);
-                logger.debug("Added cardinality info: {} -> {} for table {}", 
+                cardinalityData.put(columnName, cardinality);
+                logger.debug("Extracted cardinality info: {} -> {} for table {}", 
                         columnName, cardinality, tableName);
             }
         }
@@ -73,24 +78,31 @@ public class QueryBatchProcessor {
         // Also analyze any additional columns that might be referenced in the query
         // but not captured in WHERE conditions
         if (tableName != null) {
-            analyzeAdditionalColumns(batch, tableName, result);
+            Map<String, CardinalityLevel> additionalCardinalities = analyzeAdditionalColumns(tableName, result);
+            cardinalityData.putAll(additionalCardinalities);
         }
+        
+        return cardinalityData;
     }
 
     /**
      * Analyzes additional columns that might be referenced in the query
      * to provide comprehensive cardinality information.
+     * Returns a map of column names to their cardinality levels.
      */
-    private void analyzeAdditionalColumns(QueryBatch batch, String tableName, QueryOptimizationResult result) {
+    private Map<String, CardinalityLevel> analyzeAdditionalColumns(String tableName, QueryOptimizationResult result) {
         // Leverage existing RepositoryQuery infrastructure to extract column information
-        extractColumnsFromQuery(batch, tableName, result);
+        return extractColumnsFromQuery(tableName, result);
     }
 
     /**
      * Extracts column names from query using existing RepositoryQuery infrastructure.
      * Leverages the existing query parameter analysis to identify referenced columns.
+     * Returns a map of column names to their cardinality levels.
      */
-    private void extractColumnsFromQuery(QueryBatch batch, String tableName, QueryOptimizationResult result) {
+    private Map<String, CardinalityLevel> extractColumnsFromQuery(String tableName, QueryOptimizationResult result) {
+        Map<String, CardinalityLevel> cardinalityData = new HashMap<>();
+        
         // Use the existing RepositoryQuery's method parameter analysis
         // to identify columns that are referenced in the query
         RepositoryQuery query = result.getQuery();
@@ -98,14 +110,16 @@ public class QueryBatchProcessor {
         // Extract columns from method parameters which map to query placeholders
         for (var parameter : query.getMethodParameters()) {
             String columnName = parameter.getColumnName();
-            if (columnName != null && !batch.getColumnCardinalities().containsKey(columnName)) {
+            if (columnName != null) {
                 CardinalityLevel cardinality = cardinalityAnalyzer.analyzeColumnCardinality(tableName, columnName);
                 if (cardinality != null) {
-                    batch.addColumnCardinality(columnName, cardinality);
+                    cardinalityData.put(columnName, cardinality);
                     logger.debug("Extracted parameter column cardinality: {} -> {}", columnName, cardinality);
                 }
             }
         }
+        
+        return cardinalityData;
     }
 
     /**
