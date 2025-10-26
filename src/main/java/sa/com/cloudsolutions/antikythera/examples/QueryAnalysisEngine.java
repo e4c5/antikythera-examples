@@ -72,7 +72,7 @@ public class QueryAnalysisEngine {
         // Extract table name for cardinality analysis
         String tableName = repositoryQuery.getTable();
         if (tableName == null || tableName.isEmpty()) {
-            return createEmptyResult(repositoryQuery, queryText);
+            return createEmptyResult(repositoryQuery);
         }
 
         // Extract WHERE clause conditions using RepositoryQuery's parsing capabilities
@@ -685,7 +685,7 @@ public class QueryAnalysisEngine {
     /**
      * Creates an empty result for cases where analysis cannot be performed.
      */
-    private QueryOptimizationResult createEmptyResult(RepositoryQuery query, String queryText) {
+    private QueryOptimizationResult createEmptyResult(RepositoryQuery query) {
         return new QueryOptimizationResult(query, new ArrayList<>(), new ArrayList<>());
     }
     
