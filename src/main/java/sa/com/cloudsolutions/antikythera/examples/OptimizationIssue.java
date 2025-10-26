@@ -10,8 +10,7 @@ import java.util.Collections;
  */
 public record OptimizationIssue(RepositoryQuery query, List<String> currentColumnOrder,
                                 List<String> recommendedColumnOrder, String description,
-                                sa.com.cloudsolutions.antikythera.examples.OptimizationIssue.Severity severity,
-                                String queryText, String aiExplanation, List<String> requiredIndexes) {
+                                Severity severity, String queryText, String aiExplanation, List<String> requiredIndexes) {
 
     /**
      * Convenience constructor for backward compatibility without AI fields.

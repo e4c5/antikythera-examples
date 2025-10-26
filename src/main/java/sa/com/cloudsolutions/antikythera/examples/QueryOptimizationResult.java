@@ -17,7 +17,7 @@ public class QueryOptimizationResult {
     private final RepositoryQuery query;
     private final List<WhereCondition> whereConditions;
     private final List<OptimizationIssue> optimizationIssues;
-    private final boolean isOptimized;
+    private final boolean isAlreadyOptimized;
     
     /**
      * Creates a new QueryOptimizationResult instance.
@@ -31,7 +31,7 @@ public class QueryOptimizationResult {
         this.query = query;
         this.whereConditions = new ArrayList<>(whereConditions != null ? whereConditions : Collections.emptyList());
         this.optimizationIssues = new ArrayList<>(optimizationIssues != null ? optimizationIssues : Collections.emptyList());
-        this.isOptimized = this.optimizationIssues.isEmpty();
+        this.isAlreadyOptimized = this.optimizationIssues.isEmpty();
     }
     
     /**
@@ -85,8 +85,8 @@ public class QueryOptimizationResult {
      * 
      * @return true if no optimization issues were found, false otherwise
      */
-    public boolean isOptimized() {
-        return isOptimized;
+    public boolean isAlreadyOptimized() {
+        return isAlreadyOptimized;
     }
     
     /**
@@ -184,7 +184,7 @@ public class QueryOptimizationResult {
         report.append(String.format("Query: %s%n", query));
         report.append(String.format("WHERE Conditions: %d%n", getWhereConditionCount()));
         report.append(String.format("Optimization Issues: %d%n", getOptimizationIssueCount()));
-        report.append(String.format("Is Optimized: %s%n", isOptimized ? "Yes" : "No"));
+        report.append(String.format("Is Optimized: %s%n", isAlreadyOptimized ? "Yes" : "No"));
         
         if (hasOptimizationIssues()) {
             report.append(String.format("Highest Severity: %s%n", getHighestSeverity()));
@@ -227,7 +227,7 @@ public class QueryOptimizationResult {
         return String.format("repositoryClass='%s', methodName='%s', " +
                            "whereConditions=%d, optimizationIssues=%d, isOptimized=%s",
                            getRepositoryClass(), getMethodName(), whereConditions.size(),
-                           optimizationIssues.size(), isOptimized);
+                           optimizationIssues.size(), isAlreadyOptimized);
     }
 
     public Callable getMethod() {

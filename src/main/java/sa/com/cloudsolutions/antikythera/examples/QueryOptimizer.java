@@ -43,7 +43,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         List<QueryOptimizationResult> updates = new ArrayList<>();
 
         for (QueryOptimizationResult result : results) {
-            if (!result.isOptimized()) {
+            if (!result.isAlreadyOptimized()) {
                 updates.add(result);
             }
         }
