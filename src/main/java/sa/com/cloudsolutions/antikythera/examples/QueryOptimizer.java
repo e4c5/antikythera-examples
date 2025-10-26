@@ -38,7 +38,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
     }
 
     @Override
-    protected void analyzeRepository(String fullyQualifiedName, TypeWrapper typeWrapper) throws IOException, ReflectiveOperationException {
+    protected void analyzeRepository(String fullyQualifiedName, TypeWrapper typeWrapper) throws IOException, ReflectiveOperationException, InterruptedException {
         super.analyzeRepository(fullyQualifiedName, typeWrapper);
         CodeStandardizer standardizer = new CodeStandardizer();
         List<CodeStandardizer.SignatureUpdate> updates = new ArrayList<>();

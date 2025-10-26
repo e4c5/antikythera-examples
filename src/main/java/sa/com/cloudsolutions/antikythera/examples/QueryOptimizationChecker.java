@@ -31,6 +31,8 @@ public class QueryOptimizationChecker {
     protected final CardinalityAnalyzer cardinalityAnalyzer;
     protected final QueryAnalysisEngine analysisEngine;
     protected final File liquibaseXmlPath;
+    protected final GeminiAIService aiService;
+    protected final QueryBatchProcessor batchProcessor;
 
     // Aggregated counters for summary and exit code logic
     protected int totalQueriesAnalyzed = 0;
@@ -61,13 +63,21 @@ public class QueryOptimizationChecker {
         this.cardinalityAnalyzer = new CardinalityAnalyzer(indexMap);
         this.analysisEngine = new QueryAnalysisEngine(cardinalityAnalyzer);
         this.repositoryParser = new RepositoryParser();
+        
+        // Initialize AI service components
+        this.aiService = new GeminiAIService();
+        AIServiceConfig config = AIServiceConfigLoader.loadConfig();
+        this.aiService.configure(config);
+        
+        // Initialize batch processor for repository-level query collection
+        this.batchProcessor = new QueryBatchProcessor(cardinalityAnalyzer);
     }
 
     /**
      * Analyzes all JPA repositories using RepositoryParser to extract and analyze queries.
      * 
      */
-    public void analyze() throws IOException, ReflectiveOperationException {
+    public void analyze() throws IOException, ReflectiveOperationException, InterruptedException {
         Map<String, TypeWrapper> resolvedTypes = AntikytheraRunTime.getResolvedTypes();
 
         for (Map.Entry<String, TypeWrapper> entry : resolvedTypes.entrySet()) {
@@ -100,11 +110,12 @@ public class QueryOptimizationChecker {
 
     /**
      * Analyzes a repository using RepositoryParser to extract and analyze all queries.
+     * Modified to collect queries first, then batch them for AI analysis.
      * 
      * @param fullyQualifiedName the fully qualified class name of the repository
      * @param typeWrapper the TypeWrapper representing the repository
      */
-    protected void analyzeRepository(String fullyQualifiedName, TypeWrapper typeWrapper) throws IOException, ReflectiveOperationException {
+    protected void analyzeRepository(String fullyQualifiedName, TypeWrapper typeWrapper) throws IOException, ReflectiveOperationException, InterruptedException {
         logger.debug("Analyzing repository: {}", fullyQualifiedName);
 
         // Use RepositoryParser to process the repository type
@@ -113,19 +124,71 @@ public class QueryOptimizationChecker {
 
         // Build all queries using RepositoryParser
         repositoryParser.buildQueries();
-        results.clear();
-        // Analyze each method in the repository to get its queries
-        if (typeWrapper.getType() != null) {
-            var declaration = typeWrapper.getType().asClassOrInterfaceDeclaration();
+        
+        // Collect queries first using existing analysis engine
+        List<QueryOptimizationResult> repositoryResults = collectQueryResults(fullyQualifiedName, typeWrapper);
+        
+        // Add results to batch processor for AI analysis
+        for (QueryOptimizationResult result : repositoryResults) {
+            batchProcessor.addQueryResult(result);
+            results.add(result);
+        }
+        
+        // Send batch to AI for optimization recommendations
+        sendBatchToAI(fullyQualifiedName, repositoryResults);
+    }
 
-            for (var method : declaration.getMethods()) {
-                Callable callable = new Callable(method, null);
-                RepositoryQuery repositoryQuery = repositoryParser.getQueryFromRepositoryMethod(callable);
+    /**
+     * Collects query results from a repository for batch processing.
+     * Uses existing QueryAnalysisEngine to gather cardinality data.
+     */
+    private List<QueryOptimizationResult> collectQueryResults(String fullyQualifiedName, TypeWrapper typeWrapper) throws IOException, ReflectiveOperationException {
+        List<QueryOptimizationResult> repositoryResults = new ArrayList<>();
+        
+        var declaration = typeWrapper.getType().asClassOrInterfaceDeclaration();
 
-                if (repositoryQuery != null) {
-                    results.add(analyzeRepositoryQuery(repositoryQuery));
-                }
-            }
+        for (var method : declaration.getMethods()) {
+            Callable callable = new Callable(method, null);
+            RepositoryQuery repositoryQuery = repositoryParser.getQueryFromRepositoryMethod(callable);
+
+            // Count every repository method query analyzed
+            totalQueriesAnalyzed++;
+            
+            // Use QueryAnalysisEngine to analyze the query for cardinality data
+            QueryOptimizationResult result = analysisEngine.analyzeQueryWithCallable(repositoryQuery);
+            repositoryResults.add(result);
+        }
+        
+        return repositoryResults;
+    }
+    
+    /**
+     * Sends a batch of queries to AI service for optimization recommendations.
+     * Replaces programmatic analysis with AI service calls.
+     */
+    private void sendBatchToAI(String repositoryName, List<QueryOptimizationResult> repositoryResults) throws IOException, InterruptedException {
+        // Get the batch for this repository from the batch processor
+        QueryBatch batch = batchProcessor.getBatch(repositoryName);
+        
+        // Send batch to AI service for analysis
+        List<OptimizationIssue> aiRecommendations = aiService.analyzeQueryBatch(batch);
+        
+        // Process AI recommendations and integrate with existing reporting
+        processAIRecommendations(aiRecommendations, repositoryResults);
+        
+        // Report token usage
+        TokenUsage tokenUsage = aiService.getLastTokenUsage();
+        logger.info("AI analysis completed for {}: {}", repositoryName, tokenUsage.getFormattedReport());
+    }
+    
+    /**
+     * Processes AI recommendations and integrates them with existing reporting system.
+     */
+    private void processAIRecommendations(List<OptimizationIssue> aiRecommendations, List<QueryOptimizationResult> repositoryResults) {
+        // For now, fall back to existing programmatic analysis reporting
+        // This will be enhanced in future tasks to handle AI-generated recommendations
+        for (QueryOptimizationResult result : repositoryResults) {
+            reportOptimizationResults(result);
         }
     }
 
