@@ -132,7 +132,7 @@ public class QueryOptimizationChecker {
         repositoryParser.buildQueries();
         
         // Step 1: Collect raw methods for LLM analysis (no programmatic analysis yet)
-        List<RepositoryQuery> rawQueries = collectRawQueries(fullyQualifiedName, typeWrapper);
+        List<RepositoryQuery> rawQueries = collectRawQueries(typeWrapper);
         
         // Step 2: Send raw methods to LLM first
         List<OptimizationIssue> llmRecommendations = sendRawQueriesToLLM(fullyQualifiedName, rawQueries);
@@ -151,7 +151,7 @@ public class QueryOptimizationChecker {
      * Collects raw queries from a repository without any programmatic analysis.
      * These will be sent directly to the LLM for optimization recommendations.
      */
-    private List<RepositoryQuery> collectRawQueries(String fullyQualifiedName, TypeWrapper typeWrapper) throws IOException, ReflectiveOperationException {
+    private List<RepositoryQuery> collectRawQueries(TypeWrapper typeWrapper) {
         List<RepositoryQuery> rawQueries = new ArrayList<>();
         
         var declaration = typeWrapper.getType().asClassOrInterfaceDeclaration();
@@ -159,11 +159,7 @@ public class QueryOptimizationChecker {
         for (var method : declaration.getMethods()) {
             Callable callable = new Callable(method, null);
             RepositoryQuery repositoryQuery = repositoryParser.getQueryFromRepositoryMethod(callable);
-
-            // Count every repository method query analyzed
             totalQueriesAnalyzed++;
-            
-            // Just collect the raw query without any analysis
             rawQueries.add(repositoryQuery);
         }
         

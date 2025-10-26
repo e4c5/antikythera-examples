@@ -54,7 +54,7 @@ class QueryOrderingTest {
         QueryOptimizationResult result = engine.analyzeQuery(repoQuery);
 
         assertNotNull(result);
-        assertFalse(result.isOptimized(), "Query should not be marked optimized when LOW precedes MEDIUM");
+        assertFalse(result.isAlreadyOptimized(), "Query should not be marked optimized when LOW precedes MEDIUM");
         assertTrue(result.hasOptimizationIssues(), "An optimization issue should be reported");
         assertEquals(1, result.getOptimizationIssueCount());
 
