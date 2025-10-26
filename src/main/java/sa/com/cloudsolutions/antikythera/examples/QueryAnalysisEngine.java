@@ -62,29 +62,16 @@ public class QueryAnalysisEngine {
      * @return the analysis results including WHERE conditions and optimization issues
      */
     public QueryOptimizationResult analyzeQueryWithCallable(RepositoryQuery repositoryQuery) {
-        if (repositoryQuery == null) {
-            throw new IllegalArgumentException("RepositoryQuery cannot be null");
-        }
-        
-        // Enhanced repository class and method name extraction using Callable information
-        String repositoryClass = repositoryQuery.getMethodDeclaration().getCallableDeclaration().getNameAsString();
-        String methodName = repositoryQuery.getMethodDeclaration().getNameAsString();
         String queryText = getQueryText(repositoryQuery);
-        
-        // Check if this is a native query or HQL
-        boolean isNativeQuery = repositoryQuery.isNative();
-        logger.debug("Analyzing {} query for {}.{}", isNativeQuery ? "native SQL" : "HQL", repositoryClass, methodName);
 
         Statement statement = repositoryQuery.getStatement();
         if (statement == null) {
-            logger.debug("No parsed statement available for {}.{}", repositoryClass, methodName);
             return handleDerivedQuery(repositoryQuery, queryText);
         }
 
         // Extract table name for cardinality analysis
         String tableName = repositoryQuery.getTable();
         if (tableName == null || tableName.isEmpty()) {
-            logger.debug("Could not extract table name from query: {}", queryText);
             return createEmptyResult(repositoryQuery, queryText);
         }
 
