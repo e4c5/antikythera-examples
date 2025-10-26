@@ -213,84 +213,30 @@ public class QueryOptimizationChecker {
      * Extracts columns from WHERE clauses and method parameters to get real query column usage.
      */
     private void addWhereClauseColumnCardinality(QueryBatch batch, RepositoryQuery query) {
-        // Use QueryAnalysisEngine to extract WHERE conditions from the actual query
-        List<WhereCondition> whereConditions = extractWhereConditionsFromQuery(query);
-
-        // Add cardinality information for each WHERE clause column
-        for (WhereCondition condition : whereConditions) {
-            String columnName = condition.columnName();
-            CardinalityLevel cardinality = condition.cardinality();
-
-            if (columnName != null && cardinality != null) {
-                batch.addColumnCardinality(columnName, cardinality);
-            }
-        }
-
-        // Also extract columns from method parameters for derived queries
-        addMethodParameterCardinality(batch, query);
-    }
-
-    /**
-     * Extracts WHERE conditions from a query using the same logic as QueryAnalysisEngine.
-     * This reuses the existing WHERE clause parsing functionality.
-     */
-    private List<WhereCondition> extractWhereConditionsFromQuery(RepositoryQuery query) {
-        List<WhereCondition> conditions = new ArrayList<>();
-        
-        // Extract columns from method parameters (works for both derived and explicit queries)
-        List<QueryMethodParameter> methodParameters = query.getMethodParameters();
-        if (methodParameters != null && !methodParameters.isEmpty()) {
-            String tableName = query.getTable();
-            if (tableName != null) {
-                for (int i = 0; i < methodParameters.size(); i++) {
-                    QueryMethodParameter param = methodParameters.get(i);
-                    String columnName = param.getColumnName();
-                    if (columnName != null && !columnName.isEmpty()) {
-                        CardinalityLevel cardinality = cardinalityAnalyzer.analyzeColumnCardinality(tableName, columnName);
-                        WhereCondition condition = new WhereCondition(columnName, "=", cardinality, i, param);
-                        conditions.add(condition);
-                    }
-                }
-            }
-        }
-        
-        return conditions;
-    }
-
-    /**
-     * Adds cardinality information for method parameters that represent WHERE clause columns.
-     * This handles derived queries (findBy*, etc.) where columns are inferred from method names.
-     */
-    private void addMethodParameterCardinality(QueryBatch batch, RepositoryQuery query) {
         try {
-            List<QueryMethodParameter> methodParameters = query.getMethodParameters();
-            if (methodParameters == null || methodParameters.isEmpty()) {
-                return;
-            }
+            // Use existing QueryAnalysisEngine to extract WHERE conditions from the actual query
+            QueryOptimizationResult tempResult = analysisEngine.analyzeQueryWithCallable(query);
+            List<WhereCondition> whereConditions = tempResult.getWhereConditions();
             
-            String tableName = query.getTable();
-            if (tableName == null || tableName.isEmpty()) {
-                return;
-            }
-            
-            // Extract cardinality for each method parameter column
-            for (QueryMethodParameter param : methodParameters) {
-                String columnName = param.getColumnName();
-                if (columnName != null && !columnName.isEmpty()) {
-                    CardinalityLevel cardinality = cardinalityAnalyzer.analyzeColumnCardinality(tableName, columnName);
-                    if (cardinality != null) {
-                        batch.addColumnCardinality(columnName, cardinality);
-                        logger.debug("Added method parameter cardinality info: {} -> {} for query {}", 
-                                columnName, cardinality, query.getMethodName());
-                    }
+            // Add cardinality information for each WHERE clause column
+            for (WhereCondition condition : whereConditions) {
+                String columnName = condition.columnName();
+                CardinalityLevel cardinality = condition.cardinality();
+                
+                if (columnName != null && cardinality != null) {
+                    batch.addColumnCardinality(columnName, cardinality);
+                    logger.debug("Added WHERE clause cardinality info: {} -> {} for query {}", 
+                            columnName, cardinality, query.getMethodName());
                 }
             }
             
         } catch (Exception e) {
-            logger.debug("Could not extract method parameter cardinality for query {}: {}", 
+            logger.debug("Could not extract WHERE clause cardinality for query {}: {}", 
                     query.getMethodName(), e.getMessage());
         }
     }
+
+
     
     /**
      * Analyzes LLM recommendations and checks for required indexes.
@@ -757,9 +703,9 @@ public class QueryOptimizationChecker {
                             String column = parts[1];
                             boolean hasExistingIndex = cardinalityAnalyzer.hasIndexWithLeadingColumn(table, column);
                             String status = hasExistingIndex ? "✓ EXISTS" : "💡 CONSIDER CREATING";
-                            System.out.println(String.format("          • %s.%s [%s]", table, column, status));
+                            System.out.printf("          • %s.%s [%s]%n", table, column, status);
                         } else {
-                            System.out.println(String.format("          • %s", indexRecommendation));
+                            System.out.printf("          • %s%n", indexRecommendation);
                         }
                     }
                 }
