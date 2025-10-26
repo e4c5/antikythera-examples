@@ -10,6 +10,10 @@ import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -35,9 +39,6 @@ public class QueryOptimizer extends QueryOptimizationChecker{
 
     @Override
     protected void analyzeRepository(String fullyQualifiedName, TypeWrapper typeWrapper) throws IOException, ReflectiveOperationException {
-        if (!fullyQualifiedName.endsWith("HospitalNursingClinicRepository")) {
-            return;
-        }
         super.analyzeRepository(fullyQualifiedName, typeWrapper);
         CodeStandardizer standardizer = new CodeStandardizer();
         List<CodeStandardizer.SignatureUpdate> updates = new ArrayList<>();
@@ -82,15 +83,31 @@ public class QueryOptimizer extends QueryOptimizationChecker{
                 // No parsed CompilationUnit available, skip writing to avoid truncating the file
                 return;
             }
-            // Ensure lexical preservation is initialized so original whitespace/comments are preserved
+            String original;
             try {
-                LexicalPreservingPrinter.setup(cu);
-            } catch (IllegalStateException ignored) {
-                // Already set up; safe to ignore
+                original = Files.readString(Path.of(fullPath), StandardCharsets.UTF_8);
+            } catch (IOException e) {
+                original = null; // If reading fails, proceed to write to be safe
             }
-            PrintWriter writer = new PrintWriter(f);
-            writer.print(LexicalPreservingPrinter.print(cu));
-            writer.close();
+            String content;
+            // Try to preserve original formatting/comments; fall back to plain printing if ranges are missing
+            try {
+                content = LexicalPreservingPrinter.print(cu);
+            } catch (RuntimeException ex) {
+                // Lexical preservation can fail if some nodes don't have ranges; fall back to standard pretty print
+                content = cu.toString();
+            }
+            // If resulting content is identical to original, skip writing to avoid incidental whitespace changes
+            if (original != null && original.equals(content)) {
+                return;
+            }
+            try (PrintWriter writer = new PrintWriter(f, StandardCharsets.UTF_8)) {
+                writer.print(content);
+            } catch (IOException ioe) {
+                try (PrintWriter writer = new PrintWriter(f)) {
+                    writer.print(content);
+                }
+            }
         }
     }
 
