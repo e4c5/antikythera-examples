@@ -6,6 +6,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
 import sa.com.cloudsolutions.antikythera.parser.RepositoryParser;
+import com.github.javaparser.ast.body.Parameter;
+import com.github.javaparser.ast.body.MethodDeclaration;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -110,22 +112,20 @@ public class GeminiAIService {
             // Build table schema and cardinality string
             String tableSchemaAndCardinality = buildTableSchemaString(batch, query);
             
-            // Escape JSON strings properly
-            String methodName = escapeJsonString(query.getMethodName());
+            // Build full method signature and escape JSON strings properly
+            String fullMethodSignature = escapeJsonString(query.getMethodDeclaration().getCallableDeclaration().toString());
             String queryText = escapeJsonString(getQueryText(query));
             
             queriesJson.append(String.format("""
                 {
-                  "methodName": "%s",
+                  "method": "%s",
                   "queryType": "%s",
                   "queryText": "%s",
                   "tableSchemaAndCardinality": "%s"
-                }""", methodName, queryType, queryText, tableSchemaAndCardinality));
+                }""", fullMethodSignature, queryType, queryText, tableSchemaAndCardinality));
         }
         
         queriesJson.append("]");
-        
-        // Build properly structured Gemini API request with separate system and user content
         return buildGeminiApiRequest(queriesJson.toString());
     }
 
@@ -159,15 +159,44 @@ public class GeminiAIService {
 
     /**
      * Determines the query type based on the RepositoryQuery.
+     * Now properly checks for @Query annotation presence instead of blindly relying on isNative flag.
      */
     private String determineQueryType(RepositoryQuery query) {
-        if (query.isNative()) {
-            return "NATIVE_SQL";
-        } else if (query.getOriginalQuery() != null && !query.getOriginalQuery().isEmpty()) {
-            return "HQL";
+        // Check if the method has @Query annotation by examining the method declaration
+        if (hasQueryAnnotation(query)) {
+            // If @Query annotation is present, check if it's native
+            if (isNativeQuery(query)) {
+                return "NATIVE_SQL";
+            } else {
+                return "HQL";
+            }
         } else {
+            // No @Query annotation means it's a derived query
             return "DERIVED";
         }
+    }
+
+    /**
+     * Checks if the method has a @Query annotation.
+     */
+    private boolean hasQueryAnnotation(RepositoryQuery query) {
+        if (query.getMethodDeclaration() == null) {
+            return false;
+        }
+        
+        // Check for @Query annotation on the method
+        if (query.getMethodDeclaration().isMethodDeclaration()) {
+            MethodDeclaration methodDecl = query.getMethodDeclaration().asMethodDeclaration();
+            return methodDecl.isAnnotationPresent("Query");
+        }
+        return false;
+    }
+
+    /**
+     * Checks if the query is native by examining the @Query annotation's nativeQuery parameter.
+     */
+    private boolean isNativeQuery(RepositoryQuery query) {
+        return hasQueryAnnotation(query) && query.isNative();
     }
 
     /**
@@ -324,9 +353,7 @@ public class GeminiAIService {
                 RepositoryQuery originalQuery = queries.get(i);
                 
                 OptimizationIssue issue = parseOptimizationRecommendation(recommendation, originalQuery);
-                if (issue != null) {
-                    issues.add(issue);
-                }
+                issues.add(issue);
             }
             
         } catch (Exception e) {
@@ -380,10 +407,11 @@ public class GeminiAIService {
 
     /**
      * Parses a single optimization recommendation from the AI response.
+     * Always returns an OptimizationIssue - never returns null.
+     * If no optimization is needed, returns an issue indicating no action required.
      */
     private OptimizationIssue parseOptimizationRecommendation(JsonNode recommendation, RepositoryQuery originalQuery) {
         try {
-            String originalMethodName = recommendation.path("originalMethodName").asText();
             String optimizedCodeElement = recommendation.path("optimizedCodeElement").asText();
             String notes = recommendation.path("notes").asText();
             
@@ -391,8 +419,8 @@ public class GeminiAIService {
             boolean isOptimized = !notes.contains("N/A") && !notes.contains("unchanged") && !notes.contains("already optimized");
             
             if (!isOptimized) {
-                // No optimization needed
-                return null;
+                // No optimization needed - create an OptimizationIssue that indicates no action required
+                return createNoActionOptimizationIssue(originalQuery, notes);
             }
             
             // Extract recommended column order from the optimized method signature
@@ -420,8 +448,29 @@ public class GeminiAIService {
             
         } catch (Exception e) {
             logger.warn("Error parsing optimization recommendation: {}", e.getMessage());
-            return null;
+            // Return a no-action issue instead of null
+            return createNoActionOptimizationIssue(originalQuery, "Error parsing AI recommendation: " + e.getMessage());
         }
+    }
+
+    /**
+     * Creates an OptimizationIssue that indicates no action is required.
+     * This is used instead of returning null to maintain consistent return types.
+     */
+    private OptimizationIssue createNoActionOptimizationIssue(RepositoryQuery originalQuery, String notes) {
+        // Extract current column order for completeness
+        List<String> currentColumnOrder = extractColumnOrderFromMethod(originalQuery.getMethodName());
+        
+        return new OptimizationIssue(
+            originalQuery,
+            currentColumnOrder,
+            currentColumnOrder, // Same as current since no optimization needed
+            "NO_ACTION_REQUIRED: Query is already optimized or no optimization possible",
+            OptimizationIssue.Severity.LOW, // Low severity since no action needed
+            originalQuery.getQuery(),
+            notes, // AI explanation
+            new ArrayList<>() // No index recommendations needed
+        );
     }
 
     /**
