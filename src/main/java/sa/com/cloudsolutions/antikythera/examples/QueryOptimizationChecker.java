@@ -89,6 +89,7 @@ public class QueryOptimizationChecker {
 
             if (isJpaRepository(typeWrapper)) {
                 analyzeRepository(fullyQualifiedName, typeWrapper);
+                System.exit(0);
             }
         }
     }
@@ -188,6 +189,7 @@ public class QueryOptimizationChecker {
     
     /**
      * Processes AI recommendations and integrates them with existing reporting system.
+     * Enhanced to handle AI-generated index recommendations and check existing indexes.
      */
     private void processAIRecommendations(List<OptimizationIssue> aiRecommendations, List<QueryOptimizationResult> repositoryResults) {
         // Match AI recommendations with repository results and update them
@@ -195,12 +197,133 @@ public class QueryOptimizationChecker {
             QueryOptimizationResult result = repositoryResults.get(i);
             OptimizationIssue aiRecommendation = aiRecommendations.get(i);
             
+            // Enhance AI recommendation with index analysis
+            OptimizationIssue enhancedRecommendation = enhanceWithIndexAnalysis(aiRecommendation, result);
+            
             // Replace existing optimization issues with AI-enhanced ones
             result.clearOptimizationIssues();
-            result.addOptimizationIssue(aiRecommendation);
+            result.addOptimizationIssue(enhancedRecommendation);
             
             reportOptimizationResults(result);
         }
+    }
+
+    /**
+     * Enhances AI recommendations with index analysis and generates index creation recommendations.
+     * Checks existing indexes for AI-recommended columns and handles JOIN query analysis.
+     * 
+     * @param aiRecommendation the AI-generated optimization issue
+     * @param result the query optimization result containing table and query information
+     * @return enhanced optimization issue with index recommendations
+     */
+    private OptimizationIssue enhanceWithIndexAnalysis(OptimizationIssue aiRecommendation, QueryOptimizationResult result) {
+        List<String> additionalIndexes = new ArrayList<>();
+        
+        // Start with AI-provided required indexes
+        additionalIndexes.addAll(aiRecommendation.getRequiredIndexes());
+        
+        // Check AI-recommended columns for existing indexes
+        String tableName = result.getQuery().getTable();
+        if (tableName == null || tableName.isEmpty()) {
+            tableName = inferTableNameFromQuerySafe(result.getQuery().getQuery(), result.getRepositoryClass());
+        }
+        
+        // Check recommended column order for missing indexes
+        if (!aiRecommendation.recommendedColumnOrder().isEmpty()) {
+            for (String columnName : aiRecommendation.recommendedColumnOrder()) {
+                if (!cardinalityAnalyzer.hasIndexWithLeadingColumn(tableName, columnName)) {
+                    String indexRecommendation = String.format("%s.%s", tableName, columnName);
+                    if (!additionalIndexes.contains(indexRecommendation)) {
+                        additionalIndexes.add(indexRecommendation);
+                    }
+                }
+            }
+        }
+        
+        // Handle JOIN query analysis for index recommendations on both sides
+        additionalIndexes.addAll(analyzeJoinIndexRequirements(result));
+        
+        // Create enhanced optimization issue with additional index recommendations
+        return new OptimizationIssue(
+            aiRecommendation.query(),
+            aiRecommendation.currentColumnOrder(),
+            aiRecommendation.recommendedColumnOrder(),
+            aiRecommendation.description(),
+            aiRecommendation.severity(),
+            aiRecommendation.queryText(),
+            aiRecommendation.aiExplanation(),
+            additionalIndexes
+        );
+    }
+
+    /**
+     * Analyzes JOIN queries to identify index requirements on both sides of the JOIN.
+     * 
+     * @param result the query optimization result
+     * @return list of index recommendations for JOIN columns
+     */
+    private List<String> analyzeJoinIndexRequirements(QueryOptimizationResult result) {
+        List<String> joinIndexes = new ArrayList<>();
+        String queryText = result.getQuery().getQuery();
+        
+        if (queryText == null || !queryText.toLowerCase().contains("join")) {
+            return joinIndexes;
+        }
+        
+        // Extract JOIN conditions using regex pattern
+        java.util.regex.Pattern joinPattern = java.util.regex.Pattern.compile(
+            "(?i)\\bjoin\\s+([\\w\\.`\"']+)\\s+(?:\\w+\\s+)?on\\s+([\\w\\.`\"']+)\\s*=\\s*([\\w\\.`\"']+)",
+            java.util.regex.Pattern.CASE_INSENSITIVE
+        );
+        
+        java.util.regex.Matcher matcher = joinPattern.matcher(queryText);
+        while (matcher.find()) {
+            String joinTable = cleanTableOrColumnName(matcher.group(1));
+            String leftColumn = extractColumnFromQualified(matcher.group(2));
+            String rightColumn = extractColumnFromQualified(matcher.group(3));
+            
+            // Get the main table name
+            String mainTable = result.getQuery().getTable();
+            if (mainTable == null || mainTable.isEmpty()) {
+                mainTable = inferTableNameFromQuerySafe(queryText, result.getRepositoryClass());
+            }
+            
+            // Check indexes on both sides of the JOIN
+            if (leftColumn != null && !cardinalityAnalyzer.hasIndexWithLeadingColumn(mainTable, leftColumn)) {
+                joinIndexes.add(String.format("%s.%s", mainTable, leftColumn));
+            }
+            
+            if (rightColumn != null && !cardinalityAnalyzer.hasIndexWithLeadingColumn(joinTable, rightColumn)) {
+                joinIndexes.add(String.format("%s.%s", joinTable, rightColumn));
+            }
+        }
+        
+        return joinIndexes;
+    }
+
+    /**
+     * Extracts column name from a qualified column reference (e.g., "table.column" -> "column").
+     * 
+     * @param qualifiedColumn the qualified column reference
+     * @return the column name without table prefix
+     */
+    private String extractColumnFromQualified(String qualifiedColumn) {
+        if (qualifiedColumn == null) return null;
+        
+        String cleaned = cleanTableOrColumnName(qualifiedColumn);
+        int dotIndex = cleaned.lastIndexOf('.');
+        return dotIndex >= 0 ? cleaned.substring(dotIndex + 1) : cleaned;
+    }
+
+    /**
+     * Cleans table or column names by removing quotes and extra whitespace.
+     * 
+     * @param name the table or column name to clean
+     * @return cleaned name
+     */
+    private String cleanTableOrColumnName(String name) {
+        if (name == null) return null;
+        return name.trim().replaceAll("[`\"'\\s]", "");
     }
 
     /**
@@ -358,10 +481,21 @@ public class QueryOptimizationChecker {
             formatted.append(String.format("\n    🤖 AI Explanation: %s", issue.aiExplanation()));
         }
         
-        // Required indexes if specified
+        // Required indexes if specified with enhanced formatting
         if (!issue.getRequiredIndexes().isEmpty()) {
-            formatted.append(String.format("\n    📋 Required Indexes: %s", 
-                                          String.join(", ", issue.getRequiredIndexes())));
+            formatted.append("\n    📋 Required Indexes:");
+            for (String indexRecommendation : issue.getRequiredIndexes()) {
+                String[] parts = indexRecommendation.split("\\.", 2);
+                if (parts.length == 2) {
+                    String table = parts[0];
+                    String column = parts[1];
+                    boolean hasExistingIndex = cardinalityAnalyzer.hasIndexWithLeadingColumn(table, column);
+                    String status = hasExistingIndex ? "✓ EXISTS" : "⚠ MISSING";
+                    formatted.append(String.format("\n      • %s.%s [%s]", table, column, status));
+                } else {
+                    formatted.append(String.format("\n      • %s", indexRecommendation));
+                }
+            }
         }
         
         return formatted.toString();
@@ -442,7 +576,7 @@ public class QueryOptimizationChecker {
             System.out.println("    🔴 HIGH PRIORITY:");
             for (OptimizationIssue issue : highPriorityIssues) {
                 // Skip reordering recommendation when the recommended column is already first
-                if (issue.recommendedFirstColumn() != null && issue.recommendedFirstColumn().equals(issue.currentFirstColumn())) {
+                if (issue.recommendedFirstColumn().equals(issue.currentFirstColumn())) {
                     continue;
                 }
                 System.out.println(String.format("      • Move '%s' condition to the beginning of WHERE clause", 
@@ -452,10 +586,21 @@ public class QueryOptimizationChecker {
                 System.out.println(String.format("        With:    WHERE %s = ? AND %s = ?", 
                                                 issue.recommendedFirstColumn(), issue.currentFirstColumn()));
                 
-                // Add required indexes if specified by AI
+                // Add required indexes if specified by AI with status check
                 if (!issue.getRequiredIndexes().isEmpty()) {
-                    System.out.println(String.format("        Required indexes: %s", 
-                                                    String.join(", ", issue.getRequiredIndexes())));
+                    System.out.println("        Required indexes:");
+                    for (String indexRecommendation : issue.getRequiredIndexes()) {
+                        String[] parts = indexRecommendation.split("\\.", 2);
+                        if (parts.length == 2) {
+                            String table = parts[0];
+                            String column = parts[1];
+                            boolean hasExistingIndex = cardinalityAnalyzer.hasIndexWithLeadingColumn(table, column);
+                            String status = hasExistingIndex ? "✓ EXISTS" : "⚠ CREATE NEEDED";
+                            System.out.println(String.format("          • %s.%s [%s]", table, column, status));
+                        } else {
+                            System.out.println(String.format("          • %s", indexRecommendation));
+                        }
+                    }
                 }
             }
         }
@@ -465,16 +610,27 @@ public class QueryOptimizationChecker {
             System.out.println("    🟡 MEDIUM PRIORITY:");
             for (OptimizationIssue issue : mediumPriorityIssues) {
                 // Skip reordering recommendation when the recommended column is already first
-                if (issue.recommendedFirstColumn() != null && issue.recommendedFirstColumn().equals(issue.currentFirstColumn())) {
+                if (issue.recommendedFirstColumn().equals(issue.currentFirstColumn())) {
                     continue;
                 }
                 System.out.println(String.format("      • Consider reordering: place '%s' before '%s' in WHERE clause", 
                                                 issue.recommendedFirstColumn(), issue.currentFirstColumn()));
                 
-                // Add required indexes if specified by AI
+                // Add required indexes if specified by AI with status check
                 if (!issue.getRequiredIndexes().isEmpty()) {
-                    System.out.println(String.format("        Suggested indexes: %s", 
-                                                    String.join(", ", issue.getRequiredIndexes())));
+                    System.out.println("        Suggested indexes:");
+                    for (String indexRecommendation : issue.getRequiredIndexes()) {
+                        String[] parts = indexRecommendation.split("\\.", 2);
+                        if (parts.length == 2) {
+                            String table = parts[0];
+                            String column = parts[1];
+                            boolean hasExistingIndex = cardinalityAnalyzer.hasIndexWithLeadingColumn(table, column);
+                            String status = hasExistingIndex ? "✓ EXISTS" : "💡 CONSIDER CREATING";
+                            System.out.println(String.format("          • %s.%s [%s]", table, column, status));
+                        } else {
+                            System.out.println(String.format("          • %s", indexRecommendation));
+                        }
+                    }
                 }
             }
         }
@@ -487,8 +643,8 @@ public class QueryOptimizationChecker {
 
     // Helpers to tailor output for index recommendations
     private boolean isIndexCreationForLeadingMedium(OptimizationIssue issue) {
-        boolean same = issue.recommendedFirstColumn() != null && issue.recommendedFirstColumn().equals(issue.currentFirstColumn());
-        boolean mentionsCreate = issue.description() != null && issue.description().toLowerCase().contains("create an index");
+        boolean same = issue.recommendedFirstColumn().equals(issue.currentFirstColumn());
+        boolean mentionsCreate = issue.description().toLowerCase().contains("create an index");
         return issue.isHighSeverity() && same && mentionsCreate;
     }
 
@@ -499,6 +655,9 @@ public class QueryOptimizationChecker {
     }
 
     private String inferTableNameFromQuery(String queryText) {
+        if (queryText == null) {
+            return null;
+        }
         java.util.regex.Pattern p = java.util.regex.Pattern.compile("(?i)\\bfrom\\s+([\\\"`'\\w\\.]+)");
         java.util.regex.Matcher m = p.matcher(queryText);
         if (m.find()) {
@@ -557,33 +716,71 @@ public class QueryOptimizationChecker {
 
     private void collectIndexSuggestions(QueryOptimizationResult result, List<OptimizationIssue> issues) {
         if (issues.isEmpty()) return;
+        
+        // Collect traditional index suggestions based on cardinality analysis
         List<OptimizationIssue> idxIssues = issues.stream().filter(this::isIndexCreationForLeadingMedium).toList();
-        if (idxIssues.isEmpty()) return;
         for (OptimizationIssue idxIssue : idxIssues) {
             String table = result.getQuery().getTable();
-            String col = idxIssue.recommendedFirstColumn() != null ? idxIssue.recommendedFirstColumn() : idxIssue.currentFirstColumn();
+            String col = !idxIssue.recommendedFirstColumn().isEmpty() ? idxIssue.recommendedFirstColumn() : idxIssue.currentFirstColumn();
             String key = (table + "|" + col).toLowerCase();
             suggestedNewIndexes.add(key);
+        }
+        
+        // Collect AI-generated index recommendations from OptimizationIssue.requiredIndexes
+        for (OptimizationIssue issue : issues) {
+            if (!issue.getRequiredIndexes().isEmpty()) {
+                for (String indexRecommendation : issue.getRequiredIndexes()) {
+                    // Parse index recommendation format: "table.column" or just "column"
+                    String[] parts = indexRecommendation.split("\\.", 2);
+                    String table, column;
+                    
+                    if (parts.length == 2) {
+                        table = parts[0];
+                        column = parts[1];
+                    } else {
+                        // If no table specified, use the query's table
+                        table = result.getQuery().getTable();
+                        if (table == null || table.isEmpty()) {
+                            table = inferTableNameFromQuerySafe(result.getQuery().getQuery(), result.getRepositoryClass());
+                        }
+                        column = parts[0];
+                    }
+                    
+                    // Only add if index doesn't already exist
+                    if (!cardinalityAnalyzer.hasIndexWithLeadingColumn(table, column)) {
+                        String key = (table + "|" + column).toLowerCase();
+                        suggestedNewIndexes.add(key);
+                    }
+                }
+            }
         }
     }
 
     public void printConsolidatedIndexActions() {
-        // Print consolidated suggested new indexes as raw changeSets only
+        // Print consolidated suggested new indexes using existing buildLiquibaseNonLockingIndexChangeSet logic
         if (!suggestedNewIndexes.isEmpty()) {
-            System.out.println("\n📦 SUGGESTED NEW INDEXES (consolidated):");
+            System.out.println("\n📦 SUGGESTED NEW INDEXES (AI-Enhanced + Cardinality Analysis):");
             int count = 0;
             for (String key : suggestedNewIndexes) {
                 String[] parts = key.split("\\|", 2);
                 String table = parts.length > 0 ? parts[0] : TABLE_NAME_TAG;
                 String column = parts.length > 1 ? parts[1] : "<COLUMN_NAME>";
+                
+                // Use existing buildLiquibaseNonLockingIndexChangeSet logic
                 String snippet = buildLiquibaseNonLockingIndexChangeSet(table, column);
-                // print only the changeSet block, no leading names or bullets
-                System.out.println("\n" + indent(snippet, 0));
+                
+                // Add context about the recommendation source
+                System.out.println(String.format("\n  Index for %s.%s:", table, column));
+                System.out.println(indent(snippet, 2));
                 count++;
             }
             totalIndexCreateRecommendations = count;
+            
+            System.out.println(String.format("\n  💡 Total index creation recommendations: %d", count));
+            System.out.println("  🤖 Recommendations include AI-generated suggestions and cardinality analysis");
         } else {
             totalIndexCreateRecommendations = 0;
+            System.out.println("\n📦 No new index recommendations found.");
         }
 
         // Analyze existing indexes to suggest drops for low-cardinality leading columns
@@ -610,17 +807,22 @@ public class QueryOptimizationChecker {
             int dcount = 0;
             for (String idxName : dropCandidates) {
                 String snippet = buildLiquibaseDropIndexChangeSet(idxName);
-                // print only the changeSet block, no leading names or bullets
-                System.out.println("\n" + indent(snippet, 0));
+                System.out.println(String.format("\n  Drop index %s:", idxName));
+                System.out.println(indent(snippet, 2));
                 dcount++;
             }
             totalIndexDropRecommendations = dcount;
+            
+            System.out.println(String.format("\n  💡 Total index drop recommendations: %d", dcount));
         } else {
             totalIndexDropRecommendations = 0;
         }
     }
 
     private String sanitize(String s) {
+        if (s == null) {
+            return "";
+        }
         return s.replaceAll("[^A-Za-z0-9_]+", "_");
     }
 
@@ -642,22 +844,80 @@ public class QueryOptimizationChecker {
 
     /**
      * Generates a Liquibase changes file from consolidated suggestions and includes it in the master file.
+     * Enhanced to integrate AI-generated index recommendations with existing Liquibase changeset generation.
      */
     public void generateLiquibaseChangesFile() {
         try {
-            if (suggestedNewIndexes.isEmpty()) return;
+            if (suggestedNewIndexes.isEmpty()) {
+                logger.info("No index recommendations to generate Liquibase changes for");
+                return;
+            }
+            
             StringBuilder sb = new StringBuilder();
+            sb.append("<!-- AI-Enhanced Query Optimization Index Recommendations -->\n");
+            sb.append("<!-- Generated by QueryOptimizationChecker with AI integration -->\n");
+            
+            int aiGeneratedCount = 0;
+            int cardinalityBasedCount = 0;
+            
             for (String key : suggestedNewIndexes) {
                 String[] parts = key.split("\\|", 2);
                 String table = parts.length > 0 ? parts[0] : TABLE_NAME_TAG;
                 String column = parts.length > 1 ? parts[1] : "<COLUMN_NAME>";
-                sb.append("\n").append(buildLiquibaseNonLockingIndexChangeSet(table, column)).append("\n");
+                
+                // Use existing buildLiquibaseNonLockingIndexChangeSet logic
+                String changeSet = buildLiquibaseNonLockingIndexChangeSet(table, column);
+                
+                // Add comment indicating source of recommendation
+                sb.append("\n<!-- Index recommendation for ").append(table).append(".").append(column).append(" -->\n");
+                sb.append(changeSet).append("\n");
+                
+                // Track recommendation sources for logging
+                if (isAIGeneratedRecommendation(table, column)) {
+                    aiGeneratedCount++;
+                } else {
+                    cardinalityBasedCount++;
+                }
             }
-            // For simplicity, only include create index changes here
+            
+            // Add summary comment
+            sb.append("\n<!-- Summary: ").append(suggestedNewIndexes.size()).append(" total recommendations ");
+            sb.append("(").append(aiGeneratedCount).append(" AI-generated, ");
+            sb.append(cardinalityBasedCount).append(" cardinality-based) -->\n");
+            
+            // Write to Liquibase changes file
             LiquibaseChangesWriter writer = new LiquibaseChangesWriter();
             writer.write(liquibaseXmlPath, sb.toString());
+            
+            logger.info("Generated Liquibase changes file with {} index recommendations ({} AI-generated, {} cardinality-based)", 
+                       suggestedNewIndexes.size(), aiGeneratedCount, cardinalityBasedCount);
+            
         } catch (Exception e) {
             logger.warn("Failed to generate Liquibase changes file: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Determines if an index recommendation was generated by AI analysis.
+     * This is a simplified heuristic - in a more sophisticated implementation,
+     * we would track the source of each recommendation explicitly.
+     * 
+     * @param table the table name
+     * @param column the column name
+     * @return true if likely AI-generated, false if likely cardinality-based
+     */
+    private boolean isAIGeneratedRecommendation(String table, String column) {
+        // This is a simplified heuristic. In practice, we would track recommendation sources
+        // For now, assume recommendations that don't follow the traditional cardinality pattern
+        // are more likely to be AI-generated
+        try {
+            CardinalityLevel cardinality = cardinalityAnalyzer.analyzeColumnCardinality(table, column);
+            // Traditional cardinality-based recommendations focus on MEDIUM cardinality columns
+            // AI might recommend indexes for other cardinality levels based on query patterns
+            return cardinality != CardinalityLevel.MEDIUM;
+        } catch (Exception e) {
+            // If we can't determine cardinality, assume it's AI-generated
+            return true;
         }
     }
 
