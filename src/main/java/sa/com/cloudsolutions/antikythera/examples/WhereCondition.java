@@ -29,7 +29,7 @@ public record WhereCondition(String columnName, String operator, CardinalityLeve
 
     @Override
     public String toString() {
-        return String.format("WhereCondition{columnName='%s', operator='%s', cardinality=%s, position=%d}",
+        return String.format("columnName='%s', operator='%s', cardinality=%s, position=%d",
                 columnName, operator, cardinality, position);
     }
 }

@@ -148,7 +148,7 @@ public class QueryOptimizationResult {
     public List<WhereCondition> getConditionsByCardinality(CardinalityLevel cardinality) {
         return whereConditions.stream()
                 .filter(condition -> condition.cardinality() == cardinality)
-                .collect(Collectors.toList());
+                .toList();
     }
     
     /**
@@ -164,7 +164,7 @@ public class QueryOptimizationResult {
     }
     
     /**
-     * Checks if the first WHERE condition uses a high cardinality column.
+     * Checks if the first WHERE condition uses a high-cardinality column.
      * 
      * @return true if the first condition is high cardinality, false otherwise
      */

@@ -9,7 +9,6 @@ import com.github.javaparser.ast.expr.NormalAnnotationExpr;
 import com.github.javaparser.ast.expr.SingleMemberAnnotationExpr;
 import com.github.javaparser.ast.expr.StringLiteralExpr;
 import com.github.javaparser.ast.nodeTypes.NodeWithSimpleName;
-import sa.com.cloudsolutions.antikythera.generator.QueryMethodParameter;
 
 import java.util.*;
 

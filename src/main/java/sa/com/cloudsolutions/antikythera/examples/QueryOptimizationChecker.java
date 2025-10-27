@@ -213,7 +213,7 @@ public class QueryOptimizationChecker {
      */
     private void addWhereClauseColumnCardinality(QueryBatch batch, RepositoryQuery query) {
         // Use existing QueryAnalysisEngine to extract WHERE conditions from the actual query
-        QueryOptimizationResult tempResult = analysisEngine.analyzeQueryWithCallable(query);
+        QueryOptimizationResult tempResult = analysisEngine.analyzeQuery(query);
         List<WhereCondition> whereConditions = tempResult.getWhereConditions();
 
         // Add cardinality information for each WHERE clause column

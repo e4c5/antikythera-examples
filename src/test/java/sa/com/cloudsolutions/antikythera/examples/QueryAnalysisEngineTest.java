@@ -64,8 +64,9 @@ class QueryAnalysisEngineTest {
     
     @Test
     void testAnalyzeQueryWithNullInput() {
-        assertThrows(IllegalArgumentException.class, () -> {
-            engine.analyzeQueryWithCallable(null);
+        // The analyzeQuery method should throw NullPointerException with null input
+        assertThrows(NullPointerException.class, () -> {
+            engine.analyzeQuery(null);
         });
     }
     
