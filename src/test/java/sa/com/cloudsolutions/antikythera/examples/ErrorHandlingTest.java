@@ -27,8 +27,7 @@ import static org.mockito.Mockito.*;
 class ErrorHandlingTest {
     
     private QueryAnalysisEngine engine;
-    private CardinalityAnalyzer cardinalityAnalyzer;
-    
+
     @Mock
     private RepositoryQuery mockRepositoryQuery;
     
@@ -39,7 +38,7 @@ class ErrorHandlingTest {
     void setUp() {
         MockitoAnnotations.openMocks(this);
         setupCardinalityAnalyzer();
-        engine = new QueryAnalysisEngine(cardinalityAnalyzer);
+        engine = new QueryAnalysisEngine();
 
         // Default stubbing to avoid NPEs in QueryAnalysisEngine when method metadata is accessed
         if (mockRepositoryQuery != null) {

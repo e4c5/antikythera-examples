@@ -19,19 +19,15 @@ import java.util.List;
 public class QueryAnalysisEngine {
 
     private static final Logger logger = LoggerFactory.getLogger(QueryAnalysisEngine.class);
-    public static final String UNKNOWN = "Unknown";
 
-    private final CardinalityAnalyzer cardinalityAnalyzer;
     private final QueryOptimizationExtractor optimizationExtractor;
     
     /**
      * Creates a new QueryAnalysisEngine with the provided cardinality analyzer.
      * 
-     * @param cardinalityAnalyzer the analyzer for determining column cardinality
      */
-    public QueryAnalysisEngine(CardinalityAnalyzer cardinalityAnalyzer) {
-        this.cardinalityAnalyzer = cardinalityAnalyzer;
-        this.optimizationExtractor = new QueryOptimizationExtractor(cardinalityAnalyzer);
+    public QueryAnalysisEngine() {
+        this.optimizationExtractor = new QueryOptimizationExtractor();
     }
     
     /**
@@ -84,7 +80,7 @@ public class QueryAnalysisEngine {
                 QueryMethodParameter param = methodParameters.get(i);
                 String columnName = param.getColumnName();
                 if (columnName != null && !columnName.isEmpty()) {
-                    CardinalityLevel cardinality = cardinalityAnalyzer.analyzeColumnCardinality(tableName, columnName);
+                    CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(tableName, columnName);
                     WhereCondition condition = new WhereCondition(columnName, "=", cardinality, i, param);
                     whereConditions.add(condition);
                 }
@@ -122,7 +118,7 @@ public class QueryAnalysisEngine {
 
         // Rule 1: If the first condition is MEDIUM cardinality, ensure there is a supporting index
         if (firstCondition.cardinality() == CardinalityLevel.MEDIUM) {
-            boolean hasLeadingIndex = cardinalityAnalyzer.hasIndexWithLeadingColumn(tableName, firstCondition.columnName());
+            boolean hasLeadingIndex = CardinalityAnalyzer.hasIndexWithLeadingColumn(tableName, firstCondition.columnName());
             if (!hasLeadingIndex) {
                 String description = String.format(
                         "First WHERE condition uses medium cardinality column '%s' but no index starts with this column. " +
@@ -188,7 +184,7 @@ public class QueryAnalysisEngine {
         if (highCardinalityConditions.size() > 1) {
             // Find the most selective high cardinality column (primary keys are most selective)
             Optional<WhereCondition> primaryKeyCondition = highCardinalityConditions.stream()
-                .filter(condition -> cardinalityAnalyzer.isPrimaryKey(tableName, condition.columnName()))
+                .filter(condition -> CardinalityAnalyzer.isPrimaryKey(tableName, condition.columnName()))
                 .findFirst();
                 
             if (primaryKeyCondition.isPresent() && !firstCondition.equals(primaryKeyCondition.get())) {
@@ -257,7 +253,7 @@ public class QueryAnalysisEngine {
         
         // Explain why the current condition is problematic
         if (currentCondition.isLowCardinality()) {
-            if (cardinalityAnalyzer.isBooleanColumn(tableName, currentCondition.columnName())) {
+            if (CardinalityAnalyzer.isBooleanColumn(currentCondition.columnName())) {
                 details.append("Boolean columns filter roughly 50% of rows. ");
             } else {
                 details.append("Low cardinality columns filter fewer rows, requiring more processing. ");
@@ -266,9 +262,9 @@ public class QueryAnalysisEngine {
         
         // Explain why the recommended condition is better
         if (recommendedCondition.isHighCardinality()) {
-            if (cardinalityAnalyzer.isPrimaryKey(tableName, recommendedCondition.columnName())) {
+            if (CardinalityAnalyzer.isPrimaryKey(tableName, recommendedCondition.columnName())) {
                 details.append("Primary keys provide unique row identification for optimal filtering.");
-            } else if (cardinalityAnalyzer.hasUniqueConstraint(tableName, recommendedCondition.columnName())) {
+            } else if (CardinalityAnalyzer.hasUniqueConstraint(tableName, recommendedCondition.columnName())) {
                 details.append("Unique columns provide highly selective filtering.");
             } else {
                 details.append("High cardinality columns filter more rows earlier in query execution.");
@@ -289,9 +285,9 @@ public class QueryAnalysisEngine {
     private String getSelectivityDetails(String tableName, WhereCondition currentCondition, WhereCondition recommendedCondition) {
         StringBuilder details = new StringBuilder();
         
-        if (cardinalityAnalyzer.isPrimaryKey(tableName, recommendedCondition.columnName())) {
+        if (CardinalityAnalyzer.isPrimaryKey(tableName, recommendedCondition.columnName())) {
             details.append("Primary keys provide maximum selectivity (1 row per value). ");
-        } else if (cardinalityAnalyzer.hasUniqueConstraint(tableName, recommendedCondition.columnName())) {
+        } else if (CardinalityAnalyzer.hasUniqueConstraint(tableName, recommendedCondition.columnName())) {
             details.append("Unique constraints provide high selectivity. ");
         }
         
@@ -310,23 +306,13 @@ public class QueryAnalysisEngine {
     private QueryOptimizationResult createEmptyResult(RepositoryQuery query) {
         return new QueryOptimizationResult(query, new ArrayList<>(), new ArrayList<>());
     }
-    
-    /**
-     * Gets the CardinalityAnalyzer instance used by this engine.
-     * Useful for testing and validation purposes.
-     * 
-     * @return the cardinality analyzer
-     */
-    public CardinalityAnalyzer getCardinalityAnalyzer() {
-        return cardinalityAnalyzer;
-    }
-    
+
     /**
      * Validates that the engine is properly configured and ready for analysis.
      * 
      * @return true if the engine is ready, false otherwise
      */
     public boolean isReady() {
-        return cardinalityAnalyzer != null;
+        return CardinalityAnalyzer.getIndexMap() != null;
     }
 }

@@ -2,6 +2,7 @@ package sa.com.cloudsolutions.antikythera.examples;
 
 import sa.com.cloudsolutions.liquibase.Indexes;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Collections;
@@ -13,13 +14,17 @@ import java.util.Set;
  */
 public class CardinalityAnalyzer {
     
-    private final Map<String, List<Indexes.IndexInfo>> indexMap;
+    private static Map<String, List<Indexes.IndexInfo>> indexMap;
     // Optional map of table -> (column -> data type) for accurate low-cardinality detection
-    private final Map<String, Map<String, ColumnDataType>> columnTypeMap;
+    private static final Map<String, Map<String, ColumnDataType>> columnTypeMap = new HashMap<>();
 
     // User-provided overrides for column cardinality (lower-cased column names)
     private static Set<String> userDefinedLow = Collections.emptySet();
     private static Set<String> userDefinedHigh = Collections.emptySet();
+
+    public static Map<String, List<Indexes.IndexInfo>> getIndexMap() {
+        return indexMap;
+    }
 
     /**
      * Column data type categories for cardinality purposes.
@@ -30,6 +35,9 @@ public class CardinalityAnalyzer {
         OTHER
     }
 
+    public static void setIndexMap(Map<String, List<Indexes.IndexInfo>> indexMap) {
+        CardinalityAnalyzer.indexMap = indexMap;
+    }
     /**
      * Configure user-defined low/high cardinality columns.
      * Provided column names should be lower-cased; this method does not modify case.
@@ -38,29 +46,7 @@ public class CardinalityAnalyzer {
         userDefinedLow = low != null ? low : Collections.emptySet();
         userDefinedHigh = high != null ? high : Collections.emptySet();
     }
-    
-    /**
-     * Creates a new CardinalityAnalyzer with the provided index information.
-     * 
-     * @param indexMap Map of table names to their index information
-     */
-    public CardinalityAnalyzer(Map<String, List<Indexes.IndexInfo>> indexMap) {
-        this(indexMap, null);
-    }
 
-    /**
-     * Creates a new CardinalityAnalyzer with index information and optional column type information.
-     * Table and column names should be lower-cased in the map for consistent matching.
-     *
-     * @param indexMap Map of table names to their index information
-     * @param columnTypeMap Optional map of table -> (column -> ColumnDataType)
-     */
-    public CardinalityAnalyzer(Map<String, List<Indexes.IndexInfo>> indexMap,
-                               Map<String, Map<String, ColumnDataType>> columnTypeMap) {
-        this.indexMap = indexMap;
-        this.columnTypeMap = columnTypeMap;
-    }
-    
     /**
      * Analyzes the cardinality level of a specific column in a table.
      * 
@@ -68,7 +54,7 @@ public class CardinalityAnalyzer {
      * @param columnName the name of the column to analyze
      * @return the cardinality level of the column
      */
-    public CardinalityLevel analyzeColumnCardinality(String tableName, String columnName) {
+    public static CardinalityLevel analyzeColumnCardinality(String tableName, String columnName) {
         if (tableName == null || columnName == null) {
             return CardinalityLevel.MEDIUM;
         }
@@ -101,7 +87,7 @@ public class CardinalityAnalyzer {
 
         // Fallback heuristic only if no type metadata is available
         if (!hasTypeMetadata(normalizedTableName, normalizedColumnName) &&
-            isBooleanColumn(normalizedTableName, normalizedColumnName)) {
+            isBooleanColumn(normalizedColumnName)) {
             return CardinalityLevel.LOW;
         }
         
@@ -109,19 +95,16 @@ public class CardinalityAnalyzer {
         return CardinalityLevel.MEDIUM;
     }
     
-    private boolean hasTypeMetadata(String tableName, String columnName) {
-        if (columnTypeMap == null) return false;
+    private static boolean hasTypeMetadata(String tableName, String columnName) {
         Map<String, ColumnDataType> cols = columnTypeMap.get(tableName);
-        if (cols == null) return false;
-        return cols.containsKey(columnName);
+        return cols != null && cols.containsKey(columnName);
     }
 
     /**
      * Determines if the column type (from entity metadata) implies low cardinality.
      * Returns true for BOOLEAN or ENUM types.
      */
-    public boolean isBooleanOrEnumByType(String tableName, String columnName) {
-        if (columnTypeMap == null) return false;
+    public static boolean isBooleanOrEnumByType(String tableName, String columnName) {
         Map<String, ColumnDataType> cols = columnTypeMap.get(tableName);
         if (cols == null) return false;
         ColumnDataType type = cols.get(columnName);
@@ -136,12 +119,12 @@ public class CardinalityAnalyzer {
      * @param columnName the name of the column (should be normalized to lowercase)
      * @return true if the column is a primary key, false otherwise
      */
-    public boolean isPrimaryKey(String tableName, String columnName) {
+    public static boolean isPrimaryKey(String tableName, String columnName) {
         List<Indexes.IndexInfo> indexes = indexMap.get(tableName);
         if (indexes == null) {
             return false;
         }
-        
+
         return indexes.stream()
                 .filter(index -> "PRIMARY_KEY".equals(index.type))
                 .flatMap(index -> index.columns.stream())
@@ -153,11 +136,10 @@ public class CardinalityAnalyzer {
      * This method uses heuristics to identify boolean columns since type information
      * may not be available in the index metadata.
      * 
-     * @param tableName the name of the table (should be normalized to lowercase)
      * @param columnName the name of the column (should be normalized to lowercase)
      * @return true if the column appears to be boolean type, false otherwise
      */
-    public boolean isBooleanColumn(String tableName, String columnName) {
+    public static boolean isBooleanColumn(String columnName) {
         // Common boolean column naming patterns
         return columnName.startsWith("is_") || 
                columnName.startsWith("has_") || 
@@ -179,7 +161,7 @@ public class CardinalityAnalyzer {
      * @param columnName the name of the column (should be normalized to lowercase)
      * @return true if the column has a unique constraint, false otherwise
      */
-    public boolean hasUniqueConstraint(String tableName, String columnName) {
+    public static boolean hasUniqueConstraint(String tableName, String columnName) {
         List<Indexes.IndexInfo> indexes = indexMap.get(tableName);
         if (indexes == null) {
             return false;
@@ -199,10 +181,7 @@ public class CardinalityAnalyzer {
      * @param columnName the column name (any case)
      * @return true if there is an index whose first column matches the given column
      */
-    public boolean hasIndexWithLeadingColumn(String tableName, String columnName) {
-        if (tableName == null || columnName == null) {
-            return false;
-        }
+    public static boolean hasIndexWithLeadingColumn(String tableName, String columnName) {
         String t = tableName.toLowerCase();
         String c = columnName.toLowerCase();
         List<Indexes.IndexInfo> indexes = indexMap.get(t);
@@ -217,11 +196,4 @@ public class CardinalityAnalyzer {
         return false;
     }
 
-    /**
-     * Provides a read-only snapshot of the indexes parsed from Liquibase.
-     * Key: table name (as parsed), Value: list of IndexInfo for that table.
-     */
-    public Map<String, List<Indexes.IndexInfo>> snapshotIndexMap() {
-        return java.util.Collections.unmodifiableMap(indexMap);
-    }
 }

@@ -16,12 +16,9 @@ import java.util.Map;
  */
 public class QueryBatchProcessor {
     private static final Logger logger = LoggerFactory.getLogger(QueryBatchProcessor.class);
-    
-    private final CardinalityAnalyzer cardinalityAnalyzer;
     private final Map<String, QueryBatch> repositoryBatches;
 
-    public QueryBatchProcessor(CardinalityAnalyzer cardinalityAnalyzer) {
-        this.cardinalityAnalyzer = cardinalityAnalyzer;
+    public QueryBatchProcessor() {
         this.repositoryBatches = new HashMap<>();
     }
 
@@ -111,7 +108,7 @@ public class QueryBatchProcessor {
         for (var parameter : query.getMethodParameters()) {
             String columnName = parameter.getColumnName();
             if (columnName != null) {
-                CardinalityLevel cardinality = cardinalityAnalyzer.analyzeColumnCardinality(tableName, columnName);
+                CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(tableName, columnName);
                 if (cardinality != null) {
                     cardinalityData.put(columnName, cardinality);
                     logger.debug("Extracted parameter column cardinality: {} -> {}", columnName, cardinality);

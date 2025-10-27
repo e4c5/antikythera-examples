@@ -5,8 +5,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
-import sa.com.cloudsolutions.antikythera.parser.RepositoryParser;
-import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.body.MethodDeclaration;
 
 import java.io.IOException;
@@ -416,13 +414,13 @@ public class GeminiAIService {
         boolean isOptimized = !notes.contains("N/A") && !notes.contains("unchanged") && !notes.contains("already optimized");
 
         /*
-         * Extract the recommended column order from the optimized method signature.
-         * If the method was not optimized, we would have the original column order here, so all good.
+         * Extract the current column order from the original RepositoryQuery.
+         * For recommended order, we need to create a new RepositoryQuery from the optimized code element.
          */
-        List<String> recommendedColumnOrder = extractColumnOrderFromMethod(optimizedCodeElement);
+        List<String> currentColumnOrder = extractColumnOrderFromRepositoryQuery(originalQuery);
+        List<String> recommendedColumnOrder = extractRecommendedColumnOrder(optimizedCodeElement, originalQuery);
         // Index recommendations will be handled by QueryOptimizationChecker with proper Liquibase checking
         List<String> requiredIndexes = new ArrayList<>();
-        List<String> currentColumnOrder = extractColumnOrderFromMethod(originalQuery.getMethodName());
 
         if (!isOptimized) {
             return new OptimizationIssue(
@@ -452,68 +450,51 @@ public class GeminiAIService {
     }
 
     /**
-     * Extracts column order from a method signature.
-     * Properly handles Spring Data JPA keywords like In, Between, Like, etc.
+     * Extracts column order from a RepositoryQuery using QueryOptimizationExtractor.
+     * This replaces the manual method signature parsing with proper WHERE clause analysis.
      */
-    private List<String> extractColumnOrderFromMethod(String methodSignature) {
+    private List<String> extractColumnOrderFromRepositoryQuery(RepositoryQuery repositoryQuery) {
         List<String> columns = new ArrayList<>();
-
-        if (methodSignature == null) {
+        
+        if (repositoryQuery == null) {
             return columns;
         }
+        // Use QueryOptimizationExtractor to properly analyze WHERE conditions
+        QueryOptimizationExtractor extractor = new QueryOptimizationExtractor();
+        List<WhereCondition> whereConditions = extractor.extractWhereConditions(repositoryQuery);
 
-        // Extract method name part (before parentheses)
-        String methodName = methodSignature.split("\\(")[0];
-
-        // Handle derived query method names like findByColumnAAndColumnB
-        if (methodName.contains("By")) {
-            String[] parts = methodName.split("By", 2);
-            if (parts.length > 1) {
-                String conditions = parts[1];
-                // Split by And/Or but keep the logic simple for now
-                String[] conditionParts = conditions.split("And|Or");
-                for (String part : conditionParts) {
-                    if (!part.trim().isEmpty()) {
-                        // Remove JPA keywords from the column name before converting to snake_case
-                        String cleanColumnName = removeJpaKeywords(part.trim());
-                        // Convert camelCase to snake_case using RepositoryParser utility
-                        String columnName = RepositoryParser.camelToSnake(cleanColumnName);
-                        columns.add(columnName);
-                    }
-                }
+        // Extract column names in the order they appear in WHERE clause
+        for (WhereCondition condition : whereConditions) {
+            String columnName = condition.columnName();
+            if (columnName != null && !columnName.trim().isEmpty()) {
+                columns.add(columnName);
             }
         }
+
+        logger.debug("Extracted {} columns from RepositoryQuery: {}", columns.size(), columns);
 
         return columns;
     }
 
     /**
-     * Removes Spring Data JPA keywords from column names.
-     * For example: "ApprovalIdIn" -> "ApprovalId", "NameLike" -> "Name"
+     * Extracts recommended column order from the optimized code element.
+     * This method attempts to create a new RepositoryQuery from the optimized method signature
+     * and then uses QueryOptimizationExtractor to analyze it.
      */
-    private String removeJpaKeywords(String columnPart) {
-        // List of Spring Data JPA keywords that should be removed from column names
-        String[] jpaKeywords = {
-            "In", "NotIn", "Between", "LessThan", "LessThanEqual", "GreaterThan", "GreaterThanEqual",
-            "After", "Before", "IsNull", "IsNotNull", "Like", "NotLike", "StartingWith", "EndingWith",
-            "Containing", "OrderBy", "Not", "True", "False", "IgnoreCase", "AllIgnoreCase",
-            "First", "Top", "Distinct", "IsEmpty", "IsNotEmpty", "Exists"
-        };
-        
-        String result = columnPart;
-        
-        // Remove JPA keywords from the end of the column name
-        for (String keyword : jpaKeywords) {
-            if (result.endsWith(keyword)) {
-                result = result.substring(0, result.length() - keyword.length());
-                break; // Only remove one keyword to avoid over-processing
-            }
+    private List<String> extractRecommendedColumnOrder(String optimizedCodeElement, RepositoryQuery originalQuery) {
+        if (optimizedCodeElement == null || optimizedCodeElement.trim().isEmpty()) {
+            // If no optimized code element, return current order
+            return extractColumnOrderFromRepositoryQuery(originalQuery);
         }
-        
-        return result;
+
+        // Try to create a new RepositoryQuery from the optimized code element
+        RepositoryQuery optimizedQuery = createRepositoryQueryFromOptimizedCode(optimizedCodeElement, originalQuery);
+
+        if (optimizedQuery != null) {
+            return extractColumnOrderFromRepositoryQuery(optimizedQuery);
+        }
+        return List.of();
     }
-
-
 
     /**
      * Determines the severity of the optimization issue.
