@@ -164,12 +164,12 @@ public class QueryBatchProcessor {
      */
     public String getSummary() {
         StringBuilder summary = new StringBuilder();
-        summary.append(String.format("QueryBatchProcessor Summary: %d repositories, %d total queries\n", 
+        summary.append(String.format("QueryBatchProcessor Summary: %d repositories, %d total queries%n",
                 getBatchCount(), getTotalQueryCount()));
         
         for (Map.Entry<String, QueryBatch> entry : repositoryBatches.entrySet()) {
             QueryBatch batch = entry.getValue();
-            summary.append(String.format("  - %s: %d queries, %d cardinality entries\n", 
+            summary.append(String.format("  - %s: %d queries, %d cardinality entries%n",
                     entry.getKey(), batch.size(), batch.getColumnCardinalities().size()));
         }
         
