@@ -5,6 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
+import sa.com.cloudsolutions.antikythera.generator.QueryMethodParameter;
+import sa.com.cloudsolutions.antikythera.parser.Callable;
+import com.github.javaparser.ast.body.CallableDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 
 import java.io.IOException;
@@ -470,31 +473,73 @@ public class GeminiAIService {
                 columns.add(columnName);
             }
         }
-
-        logger.debug("Extracted {} columns from RepositoryQuery: {}", columns.size(), columns);
-
         return columns;
     }
 
     /**
      * Extracts recommended column order from the optimized code element.
-     * This method attempts to create a new RepositoryQuery from the optimized method signature
-     * and then uses QueryOptimizationExtractor to analyze it.
+     * Creates a new RepositoryQuery that clones the original method but with the optimized method signature,
+     * then passes it through to extractColumnOrderFromRepositoryQuery.
      */
     private List<String> extractRecommendedColumnOrder(String optimizedCodeElement, RepositoryQuery originalQuery) {
         if (optimizedCodeElement == null || optimizedCodeElement.trim().isEmpty()) {
-            // If no optimized code element, return current order
             return extractColumnOrderFromRepositoryQuery(originalQuery);
         }
 
-        // Try to create a new RepositoryQuery from the optimized code element
-        RepositoryQuery optimizedQuery = createRepositoryQueryFromOptimizedCode(optimizedCodeElement, originalQuery);
-
-        if (optimizedQuery != null) {
+        try {
+            // Extract method name from optimized code element
+            String optimizedMethodName = extractMethodNameFromOptimizedCode(optimizedCodeElement);
+            
+            // Create a minimal RepositoryQuery with the optimized method name
+            RepositoryQuery optimizedQuery = new RepositoryQuery();
+            optimizedQuery.setEntityType(originalQuery.getEntityType());
+            optimizedQuery.setTable(originalQuery.getTable());
+            
+            // Create a simple Callable with the optimized method name
+            Callable optimizedCallable = new Callable() {
+                @Override
+                public String getNameAsString() {
+                    return optimizedMethodName;
+                }
+            };
+            optimizedQuery.setMethodDeclaration(optimizedCallable);
+            
             return extractColumnOrderFromRepositoryQuery(optimizedQuery);
+            
+        } catch (Exception e) {
+            logger.warn("Failed to extract recommended column order: {}", e.getMessage());
+            return extractColumnOrderFromRepositoryQuery(originalQuery);
         }
-        return List.of();
     }
+
+
+
+    /**
+     * Extracts the method name from the optimized code element.
+     */
+    private String extractMethodNameFromOptimizedCode(String optimizedCodeElement) {
+        if (optimizedCodeElement == null) {
+            return "";
+        }
+        
+        String methodName = optimizedCodeElement.trim();
+        
+        // Remove everything after the first parenthesis
+        if (methodName.contains("(")) {
+            methodName = methodName.substring(0, methodName.indexOf("("));
+        }
+        
+        // Split by whitespace and take the last part (should be method name)
+        String[] parts = methodName.split("\\s+");
+        methodName = parts[parts.length - 1];
+        
+        // Remove any remaining special characters
+        methodName = methodName.replaceAll("[^a-zA-Z0-9]", "");
+        
+        return methodName;
+    }
+
+
 
     /**
      * Determines the severity of the optimization issue.
