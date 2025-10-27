@@ -2,6 +2,8 @@ package sa.com.cloudsolutions.antikythera.examples;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.javaparser.JavaParser;
+import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.AnnotationDeclaration;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
@@ -36,12 +38,12 @@ import java.util.Optional;
  */
 public class GeminiAIService {
     private static final Logger logger = LoggerFactory.getLogger(GeminiAIService.class);
-    
+
     private AIServiceConfig config;
     private HttpClient httpClient;
-    private ObjectMapper objectMapper;
+    private final ObjectMapper objectMapper;
     private TokenUsage lastTokenUsage;
-    private String systemPrompt;
+    private final String systemPrompt;
 
     public GeminiAIService() throws IOException {
         this.objectMapper = new ObjectMapper();
@@ -55,11 +57,11 @@ public class GeminiAIService {
     public void configure(AIServiceConfig config) {
         this.config = config;
         config.validate();
-        
+
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(config.getTimeoutSeconds()))
                 .build();
-        
+
         logger.debug("GeminiAIService configured: {}", config);
     }
 
@@ -70,7 +72,7 @@ public class GeminiAIService {
         if (config == null) {
             throw new IllegalStateException("AI service not configured. Call configure() first.");
         }
-        
+
         if (batch == null || batch.isEmpty()) {
             logger.debug("Empty batch provided, returning empty results");
             return new ArrayList<>();
@@ -108,32 +110,32 @@ public class GeminiAIService {
         // Build the JSON array of queries as expected by the new prompt
         StringBuilder queriesJson = new StringBuilder();
         queriesJson.append("[");
-        
+
         for (int i = 0; i < batch.getQueries().size(); i++) {
             RepositoryQuery query = batch.getQueries().get(i);
             if (i > 0) {
                 queriesJson.append(",");
             }
-            
+
             // Determine query type
             String queryType = determineQueryType(query);
-            
+
             // Build table schema and cardinality string
             String tableSchemaAndCardinality = buildTableSchemaString(batch, query);
-            
+
             // Build full method signature and escape JSON strings properly
             String fullMethodSignature = escapeJsonString(query.getMethodDeclaration().getCallableDeclaration().toString());
             String queryText = escapeJsonString(getQueryText(query));
-            
+
             queriesJson.append(String.format("""
-                {
-                  "method": "%s",
-                  "queryType": "%s",
-                  "queryText": "%s",
-                  "tableSchemaAndCardinality": "%s"
-                }""", fullMethodSignature, queryType, queryText, tableSchemaAndCardinality));
+                    {
+                      "method": "%s",
+                      "queryType": "%s",
+                      "queryText": "%s",
+                      "tableSchemaAndCardinality": "%s"
+                    }""", fullMethodSignature, queryType, queryText, tableSchemaAndCardinality));
         }
-        
+
         queriesJson.append("]");
         return buildGeminiApiRequest(queriesJson.toString());
     }
@@ -148,22 +150,22 @@ public class GeminiAIService {
         String escapedUserData = escapeJsonString(userQueryData);
 
         return String.format("""
-            {
-              "system_instruction": {
-                "parts": [
-                  { "text": "%s" }
-                ]
-              },
-              "contents": [
                 {
-                  "role": "user",
-                  "parts": [
-                    { "text": "%s" }
+                  "system_instruction": {
+                    "parts": [
+                      { "text": "%s" }
+                    ]
+                  },
+                  "contents": [
+                    {
+                      "role": "user",
+                      "parts": [
+                        { "text": "%s" }
+                      ]
+                    }
                   ]
                 }
-              ]
-            }
-            """, escapedSystemPrompt, escapedUserData);
+                """, escapedSystemPrompt, escapedUserData);
     }
 
     /**
@@ -192,7 +194,7 @@ public class GeminiAIService {
         if (query.getMethodDeclaration() == null) {
             return false;
         }
-        
+
         // Check for @Query annotation on the method
         if (query.getMethodDeclaration().isMethodDeclaration()) {
             MethodDeclaration methodDecl = query.getMethodDeclaration().asMethodDeclaration();
@@ -229,9 +231,9 @@ public class GeminiAIService {
         if (tableName == null || tableName.isEmpty()) {
             tableName = "UnknownTable";
         }
-        
+
         schema.append(tableName).append(" (");
-        
+
         boolean first = true;
         for (var entry : batch.getColumnCardinalities().entrySet()) {
             if (!first) {
@@ -240,7 +242,7 @@ public class GeminiAIService {
             schema.append(entry.getKey()).append(":").append(entry.getValue());
             first = false;
         }
-        
+
         schema.append(")");
         return schema.toString();
     }
@@ -253,10 +255,10 @@ public class GeminiAIService {
             return "";
         }
         return str.replace("\\", "\\\\")
-                  .replace("\"", "\\\"")
-                  .replace("\n", "\\n")
-                  .replace("\r", "\\r")
-                  .replace("\t", "\\t");
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t");
     }
 
     /**
@@ -264,7 +266,7 @@ public class GeminiAIService {
      */
     private String sendApiRequest(String payload) throws IOException, InterruptedException {
         String url = config.getResolvedApiEndpoint() + "?key=" + config.getApiKey();
-        
+
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .header("Content-Type", "application/json")
@@ -273,14 +275,14 @@ public class GeminiAIService {
                 .build();
 
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        
+
         if (response.statusCode() != 200) {
             throw new IOException("API request failed with status: " + response.statusCode() + ", body: " + response.body());
         }
 
         // Extract token usage if available
         extractTokenUsage(response.body());
-        
+
         return response.body();
     }
 
@@ -290,16 +292,16 @@ public class GeminiAIService {
     private void extractTokenUsage(String responseBody) throws IOException {
         JsonNode root = objectMapper.readTree(responseBody);
         JsonNode usageMetadata = root.path("usageMetadata");
-        
+
         if (!usageMetadata.isMissingNode()) {
             int inputTokens = usageMetadata.path("promptTokenCount").asInt(0);
             int outputTokens = usageMetadata.path("candidatesTokenCount").asInt(0);
             int totalTokens = usageMetadata.path("totalTokenCount").asInt(inputTokens + outputTokens);
-            
+
             double estimatedCost = (totalTokens / 1000.0) * config.getCostPer1kTokens();
-            
+
             lastTokenUsage = new TokenUsage(inputTokens, outputTokens, totalTokens, estimatedCost);
-            
+
             if (config.isTrackUsage()) {
                 logger.info("Token usage: {}", lastTokenUsage.getFormattedReport());
             }
@@ -314,18 +316,18 @@ public class GeminiAIService {
     private List<OptimizationIssue> parseResponse(String responseBody, QueryBatch batch) throws IOException {
         JsonNode root = objectMapper.readTree(responseBody);
         JsonNode candidates = root.path("candidates");
-        
+
         if (candidates.isArray() && !candidates.isEmpty()) {
             JsonNode firstCandidate = candidates.get(0);
             JsonNode content = firstCandidate.path("content");
             JsonNode parts = content.path("parts");
-            
+
             if (parts.isArray() && !parts.isEmpty()) {
                 String textResponse = parts.get(0).path("text").asText();
                 return parseRecommendations(textResponse, batch);
             }
         }
-        
+
         return new ArrayList<>();
     }
 
@@ -335,39 +337,39 @@ public class GeminiAIService {
      */
     private List<OptimizationIssue> parseRecommendations(String textResponse, QueryBatch batch) {
         List<OptimizationIssue> issues = new ArrayList<>();
-        
+
         try {
             // Extract JSON from the response (it might be wrapped in markdown code blocks)
             String jsonResponse = extractJsonFromResponse(textResponse);
-            
+
             if (jsonResponse == null || jsonResponse.trim().isEmpty()) {
                 logger.warn("No valid JSON found in AI response");
                 return issues;
             }
-            
+
             // Parse the JSON array
             JsonNode responseArray = objectMapper.readTree(jsonResponse);
-            
+
             if (!responseArray.isArray()) {
                 logger.warn("AI response is not a JSON array as expected");
                 return issues;
             }
-            
+
             // Process each optimization recommendation
             List<RepositoryQuery> queries = batch.getQueries();
             for (int i = 0; i < responseArray.size() && i < queries.size(); i++) {
                 JsonNode recommendation = responseArray.get(i);
                 RepositoryQuery originalQuery = queries.get(i);
-                
+
                 OptimizationIssue issue = parseOptimizationRecommendation(recommendation, originalQuery);
                 issues.add(issue);
             }
-            
+
         } catch (Exception e) {
             logger.error("Error parsing AI response: {}", e.getMessage(), e);
             // Return empty list on parsing errors to avoid breaking the flow
         }
-        
+
         return issues;
     }
 
@@ -378,27 +380,27 @@ public class GeminiAIService {
         if (response == null) {
             return null;
         }
-        
+
         // Look for JSON array patterns
         int jsonStart = response.indexOf('[');
         int jsonEnd = response.lastIndexOf(']');
-        
+
         if (jsonStart >= 0 && jsonEnd > jsonStart) {
             return response.substring(jsonStart, jsonEnd + 1);
         }
-        
+
         // If no array found, try to find JSON in code blocks
         String[] lines = response.split("\n");
         StringBuilder jsonBuilder = new StringBuilder();
         boolean inCodeBlock = false;
         boolean foundJson = false;
-        
+
         for (String line : lines) {
             if (line.trim().startsWith("```")) {
                 inCodeBlock = !inCodeBlock;
                 continue;
             }
-            
+
             if (inCodeBlock || line.trim().startsWith("[") || foundJson) {
                 jsonBuilder.append(line).append("\n");
                 foundJson = true;
@@ -407,7 +409,7 @@ public class GeminiAIService {
                 }
             }
         }
-        
+
         String result = jsonBuilder.toString().trim();
         return result.isEmpty() ? null : result;
     }
@@ -451,14 +453,14 @@ public class GeminiAIService {
         String description = buildOptimizationDescription(notes, currentColumnOrder, recommendedColumnOrder);
 
         return new OptimizationIssue(
-            originalQuery,
-            currentColumnOrder,
-            recommendedColumnOrder,
-            description,
-            severity,
-            originalQuery.getQuery(),
-            notes, // AI explanation
-            requiredIndexes
+                originalQuery,
+                currentColumnOrder,
+                recommendedColumnOrder,
+                description,
+                severity,
+                originalQuery.getQuery(),
+                notes, // AI explanation
+                requiredIndexes
         );
     }
 
@@ -468,7 +470,7 @@ public class GeminiAIService {
      */
     private List<String> extractColumnOrderFromRepositoryQuery(RepositoryQuery repositoryQuery) {
         List<String> columns = new ArrayList<>();
-        
+
         if (repositoryQuery == null) {
             return columns;
         }
@@ -491,46 +493,33 @@ public class GeminiAIService {
      * Creates a new RepositoryQuery that clones the original method but with the optimized method signature,
      * then passes it through to extractColumnOrderFromRepositoryQuery.
      */
-        private List<String> extractRecommendedColumnOrder(String optimizedCodeElement, RepositoryQuery originalQuery) throws IOException {
-            CompilationUnit cu = new CompilationUnit();
-            MethodDeclaration old = originalQuery.getMethodDeclaration().asMethodDeclaration();
-    
-            // Copy imports to handle annotation parsing correctly, especially in fallback.
-            old.findCompilationUnit().ifPresent(oldCu -> oldCu.getImports().forEach(cu::addImport));
-    
-            ClassOrInterfaceDeclaration cdecl = old.findAncestor(ClassOrInterfaceDeclaration.class).orElseThrow().clone();
-            cu.addType(cdecl);
-            Optional<AnnotationExpr> ann = old.getAnnotationByName("Query");
-            MethodDeclaration newMethod = cdecl.getMethods().stream()
-                    .filter(method -> method.getSignature().equals(old.getSignature()))
-                    .findFirst().orElseThrow();
-    
-            if (ann.isPresent()) {
-                // Find the method declaration that matches the old method
-                AnnotationExpr targetAnn = newMethod.getAnnotationByName("Query").orElseThrow();
-                AnnotationExpr sourceAnn = ann.get();
+    private List<String> extractRecommendedColumnOrder(String optimizedCodeElement, RepositoryQuery originalQuery) throws IOException {
+        CompilationUnit cu = originalQuery.getMethodDeclaration().getCallableDeclaration().findCompilationUnit().orElseThrow();
 
-                if (sourceAnn.isNormalAnnotationExpr() && targetAnn.isNormalAnnotationExpr()) {
-                    NormalAnnotationExpr targetNormal = targetAnn.asNormalAnnotationExpr();
-                    NormalAnnotationExpr sourceNormal = sourceAnn.asNormalAnnotationExpr();
-                    targetNormal.getPairs().clear();
-                    for (MemberValuePair pair : sourceNormal.getPairs()) {
-                        targetNormal.addPair(pair.getNameAsString(), pair.getValue().clone());
-                    }
-                } else if (sourceAnn.isSingleMemberAnnotationExpr() && targetAnn.isSingleMemberAnnotationExpr()) {
-                    targetAnn.asSingleMemberAnnotationExpr().setMemberValue(sourceAnn.asSingleMemberAnnotationExpr().getMemberValue().clone());
-                } else {
-                    // Fallback for mismatched annotation types.
-                    newMethod.remove(targetAnn);
-                    newMethod.addAnnotation(optimizedCodeElement);
-                }
-            }
-            BaseRepositoryParser parser = BaseRepositoryParser.create(cu);
-            RepositoryQuery rq = parser.getQueryFromRepositoryMethod(new Callable(newMethod, null));
-            return extractColumnOrderFromRepositoryQuery(rq);
-        }
+        MethodDeclaration old = originalQuery.getMethodDeclaration().asMethodDeclaration();
 
+        // Copy imports to handle annotation parsing correctly, especially in fallback.
+        old.findCompilationUnit().ifPresent(oldCu -> oldCu.getImports().forEach(cu::addImport));
 
+        ClassOrInterfaceDeclaration cdecl = cu.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
+
+        CompilationUnit tmp = StaticJavaParser.parse(String.format("class Dummy{ %s }", optimizedCodeElement));
+        MethodDeclaration newMethod = tmp.findFirst(MethodDeclaration.class).orElseThrow();
+
+        // Remove the old method that matches the signature of the old MethodDeclaration
+        cdecl.getMethodsBySignature(old.getName().asString(), old.getParameters().stream()
+                        .map(param -> param.getType().asString())
+                        .toArray(String[]::new))
+                .forEach(cdecl::remove);
+
+        // Replace it with the newly created method instance
+        cdecl.addMember(newMethod);
+
+        BaseRepositoryParser parser = BaseRepositoryParser.create(cu);
+        parser.processTypes();
+        RepositoryQuery rq = parser.getQueryFromRepositoryMethod(new Callable(newMethod, null));
+        return extractColumnOrderFromRepositoryQuery(rq);
+    }
 
 
     /**
@@ -553,9 +542,9 @@ public class GeminiAIService {
         if (currentOrder.isEmpty() || recommendedOrder.isEmpty()) {
             return "Query optimization recommended: " + notes;
         }
-        
-        return String.format("Reorder WHERE conditions: move '%s' before '%s' for better performance", 
-                           recommendedOrder.get(0), currentOrder.get(0));
+
+        return String.format("Reorder WHERE conditions: move '%s' before '%s' for better performance",
+                recommendedOrder.get(0), currentOrder.get(0));
     }
 
 
