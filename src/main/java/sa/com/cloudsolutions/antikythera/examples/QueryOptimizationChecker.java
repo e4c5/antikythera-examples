@@ -30,7 +30,6 @@ public class QueryOptimizationChecker {
     public static final String COLUMN_NAME_TAG = "<COLUMN_NAME>";
 
     protected final RepositoryParser repositoryParser;
-    protected final CardinalityAnalyzer cardinalityAnalyzer;
     protected final QueryAnalysisEngine analysisEngine;
     protected final File liquibaseXmlPath;
     protected final GeminiAIService aiService;
@@ -64,8 +63,8 @@ public class QueryOptimizationChecker {
         Map<String, List<Indexes.IndexInfo>> indexMap = Indexes.load(liquibaseXmlPath);
         
         // Initialize components
-        this.cardinalityAnalyzer = new CardinalityAnalyzer(indexMap);
-        this.analysisEngine = new QueryAnalysisEngine(cardinalityAnalyzer);
+        CardinalityAnalyzer.setIndexMap(indexMap);
+        this.analysisEngine = new QueryAnalysisEngine();
         this.repositoryParser = new RepositoryParser();
         
         // Initialize AI service components
@@ -74,7 +73,7 @@ public class QueryOptimizationChecker {
         this.aiService.configure(config);
         
         // Initialize batch processor for repository-level query collection
-        this.batchProcessor = new QueryBatchProcessor(cardinalityAnalyzer);
+        this.batchProcessor = new QueryBatchProcessor();
     }
 
     /**
@@ -266,7 +265,7 @@ public class QueryOptimizationChecker {
         for (int i = 0; i < llmRecommendation.recommendedColumnOrder().size(); i++) {
             String columnName = llmRecommendation.recommendedColumnOrder().get(i);
             // Analyze cardinality for WHERE conditions
-            CardinalityLevel cardinality = cardinalityAnalyzer.analyzeColumnCardinality(tableName, columnName);
+            CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(tableName, columnName);
             if (cardinality != null) {
                 // Create WhereCondition
                 whereConditions.add(new WhereCondition(columnName, "=", cardinality, i, null));
@@ -310,12 +309,12 @@ public class QueryOptimizationChecker {
     private boolean hasOptimalIndexForColumn(String tableName, String columnName) {
         try {
             // First check using the existing cardinality analyzer method
-            if (cardinalityAnalyzer.hasIndexWithLeadingColumn(tableName, columnName)) {
+            if (CardinalityAnalyzer.hasIndexWithLeadingColumn(tableName, columnName)) {
                 return true;
             }
             
             // Get the index map from cardinality analyzer to do more detailed analysis
-            Map<String, List<Indexes.IndexInfo>> indexMap = cardinalityAnalyzer.snapshotIndexMap();
+            Map<String, List<Indexes.IndexInfo>> indexMap = CardinalityAnalyzer.getIndexMap();
             List<Indexes.IndexInfo> tableIndexes = indexMap.get(tableName);
             
             if (tableIndexes == null || tableIndexes.isEmpty()) {
@@ -336,7 +335,7 @@ public class QueryOptimizationChecker {
         } catch (Exception e) {
             logger.debug("Error checking optimal index for {}.{}: {}", tableName, columnName, e.getMessage());
             // Fall back to the basic check
-            return cardinalityAnalyzer.hasIndexWithLeadingColumn(tableName, columnName);
+            return CardinalityAnalyzer.hasIndexWithLeadingColumn(tableName, columnName);
         }
     }
 
@@ -558,7 +557,7 @@ public class QueryOptimizationChecker {
                 if (parts.length == 2) {
                     String table = parts[0];
                     String column = parts[1];
-                    boolean hasExistingIndex = cardinalityAnalyzer.hasIndexWithLeadingColumn(table, column);
+                    boolean hasExistingIndex = CardinalityAnalyzer.hasIndexWithLeadingColumn(table, column);
                     String status = hasExistingIndex ? "✓ EXISTS" : "⚠ MISSING";
                     formatted.append(String.format("\n      • %s.%s [%s]", table, column, status));
                 } else {
@@ -661,7 +660,7 @@ public class QueryOptimizationChecker {
                         if (parts.length == 2) {
                             String table = parts[0];
                             String column = parts[1];
-                            boolean hasExistingIndex = cardinalityAnalyzer.hasIndexWithLeadingColumn(table, column);
+                            boolean hasExistingIndex = CardinalityAnalyzer.hasIndexWithLeadingColumn(table, column);
                             String status = hasExistingIndex ? "✓ EXISTS" : "⚠ CREATE NEEDED";
                             System.out.printf("          • %s.%s [%s]%n", table, column, status);
                         } else {
@@ -691,7 +690,7 @@ public class QueryOptimizationChecker {
                         if (parts.length == 2) {
                             String table = parts[0];
                             String column = parts[1];
-                            boolean hasExistingIndex = cardinalityAnalyzer.hasIndexWithLeadingColumn(table, column);
+                            boolean hasExistingIndex = CardinalityAnalyzer.hasIndexWithLeadingColumn(table, column);
                             String status = hasExistingIndex ? "✓ EXISTS" : "💡 CONSIDER CREATING";
                             System.out.printf("          • %s.%s [%s]%n", table, column, status);
                         } else {
@@ -851,13 +850,13 @@ public class QueryOptimizationChecker {
 
         // Analyze existing indexes to suggest drops for low-cardinality leading columns
         java.util.LinkedHashSet<String> dropCandidates = new java.util.LinkedHashSet<>();
-        java.util.Map<String, java.util.List<sa.com.cloudsolutions.liquibase.Indexes.IndexInfo>> map = cardinalityAnalyzer.snapshotIndexMap();
+        java.util.Map<String, java.util.List<sa.com.cloudsolutions.liquibase.Indexes.IndexInfo>> map = CardinalityAnalyzer.getIndexMap();
         for (var entry : map.entrySet()) {
             String table = entry.getKey();
             for (var idx : entry.getValue()) {
                 if ("INDEX".equals(idx.type) && idx.columns != null && !idx.columns.isEmpty()) {
                     String first = idx.columns.getFirst();
-                    CardinalityLevel card = cardinalityAnalyzer.analyzeColumnCardinality(table, first);
+                    CardinalityLevel card = CardinalityAnalyzer.analyzeColumnCardinality(table, first);
                     if (card == CardinalityLevel.LOW && !idx.name.isEmpty()) {
                         dropCandidates.add(idx.name);
                     }
@@ -974,7 +973,7 @@ public class QueryOptimizationChecker {
         // For now, assume recommendations that don't follow the traditional cardinality pattern
         // are more likely to be AI-generated
         try {
-            CardinalityLevel cardinality = cardinalityAnalyzer.analyzeColumnCardinality(table, column);
+            CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(table, column);
             // Traditional cardinality-based recommendations focus on MEDIUM cardinality columns
             // AI might recommend indexes for other cardinality levels based on query patterns
             return cardinality != CardinalityLevel.MEDIUM;

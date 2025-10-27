@@ -165,26 +165,26 @@ class CardinalityAnalyzerTest {
     
     @Test
     void testIsBooleanColumn_BooleanNamingPatterns_ReturnsTrue() {
-        assertTrue(analyzer.isBooleanColumn("users", "is_active"));
-        assertTrue(analyzer.isBooleanColumn("users", "has_permission"));
-        assertTrue(analyzer.isBooleanColumn("users", "can_edit"));
-        assertTrue(analyzer.isBooleanColumn("users", "should_notify"));
-        assertTrue(analyzer.isBooleanColumn("users", "admin_flag"));
-        assertTrue(analyzer.isBooleanColumn("users", "email_enabled"));
-        assertTrue(analyzer.isBooleanColumn("users", "is_active"));
-        assertTrue(analyzer.isBooleanColumn("users", "active"));
-        assertTrue(analyzer.isBooleanColumn("users", "enabled"));
-        assertTrue(analyzer.isBooleanColumn("users", "deleted"));
-        assertTrue(analyzer.isBooleanColumn("users", "visible"));
+        assertTrue(analyzer.isBooleanColumn("is_active"));
+        assertTrue(analyzer.isBooleanColumn("has_permission"));
+        assertTrue(analyzer.isBooleanColumn("can_edit"));
+        assertTrue(analyzer.isBooleanColumn("should_notify"));
+        assertTrue(analyzer.isBooleanColumn("admin_flag"));
+        assertTrue(analyzer.isBooleanColumn("email_enabled"));
+        assertTrue(analyzer.isBooleanColumn("is_active"));
+        assertTrue(analyzer.isBooleanColumn("active"));
+        assertTrue(analyzer.isBooleanColumn("enabled"));
+        assertTrue(analyzer.isBooleanColumn("deleted"));
+        assertTrue(analyzer.isBooleanColumn("visible"));
     }
     
     @Test
     void testIsBooleanColumn_NonBooleanColumns_ReturnsFalse() {
-        assertFalse(analyzer.isBooleanColumn("users", "user_id"));
-        assertFalse(analyzer.isBooleanColumn("users", "email"));
-        assertFalse(analyzer.isBooleanColumn("users", "name"));
-        assertFalse(analyzer.isBooleanColumn("users", "created_date"));
-        assertFalse(analyzer.isBooleanColumn("users", "description"));
+        assertFalse(analyzer.isBooleanColumn("user_id"));
+        assertFalse(analyzer.isBooleanColumn("email"));
+        assertFalse(analyzer.isBooleanColumn("name"));
+        assertFalse(analyzer.isBooleanColumn("created_date"));
+        assertFalse(analyzer.isBooleanColumn("description"));
     }
     
     @Test
@@ -244,7 +244,7 @@ class CardinalityAnalyzerTest {
         // Boolean naming should take priority over index (low cardinality)
         CardinalityLevel result = analyzer.analyzeColumnCardinality("users", "is_active");
         assertEquals(CardinalityLevel.LOW, result);
-        assertTrue(analyzer.isBooleanColumn("users", "is_active"));
+        assertTrue(analyzer.isBooleanColumn("is_active"));
     }
     
     @Test
@@ -258,7 +258,7 @@ class CardinalityAnalyzerTest {
         assertFalse(emptyAnalyzer.hasUniqueConstraint("users", "email"));
         
         // Boolean detection should still work (doesn't depend on indexes)
-        assertTrue(emptyAnalyzer.isBooleanColumn("users", "is_active"));
+        assertTrue(emptyAnalyzer.isBooleanColumn("is_active"));
     }
     
     @Test

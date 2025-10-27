@@ -34,17 +34,13 @@ import java.util.Optional;
 public class OptimizationAnalysisVisitor {
     
     private static final Logger logger = LoggerFactory.getLogger(OptimizationAnalysisVisitor.class);
-    
-    private final CardinalityAnalyzer cardinalityAnalyzer;
+
     private final List<WhereCondition> conditions;
     private final RepositoryQuery repositoryQuery;
     private final SqlConversionContext context;
     private int positionCounter;
     
-    public OptimizationAnalysisVisitor(CardinalityAnalyzer cardinalityAnalyzer, 
-                                     RepositoryQuery repositoryQuery,
-                                     SqlConversionContext context) {
-        this.cardinalityAnalyzer = cardinalityAnalyzer;
+    public OptimizationAnalysisVisitor(RepositoryQuery repositoryQuery, SqlConversionContext context) {
         this.repositoryQuery = repositoryQuery;
         this.context = context;
         this.conditions = new ArrayList<>();
@@ -111,7 +107,7 @@ public class OptimizationAnalysisVisitor {
             QueryMethodParameter parameter = findMatchingParameter(columnName, comparison.getRightExpression());
             
             // Use existing cardinality analysis
-            CardinalityLevel cardinality = cardinalityAnalyzer.analyzeColumnCardinality(
+            CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(
                 repositoryQuery.getTable(), columnName);
             
             WhereCondition condition = new WhereCondition(columnName, operator, cardinality, 
@@ -136,7 +132,7 @@ public class OptimizationAnalysisVisitor {
                 parameter = findMatchingParameter(columnName, between.getBetweenExpressionEnd());
             }
             
-            CardinalityLevel cardinality = cardinalityAnalyzer.analyzeColumnCardinality(
+            CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(
                 repositoryQuery.getTable(), columnName);
             
             WhereCondition condition = new WhereCondition(columnName, "BETWEEN", cardinality, 
@@ -157,7 +153,7 @@ public class OptimizationAnalysisVisitor {
             
             QueryMethodParameter parameter = findMatchingParameter(columnName, inExpr.getRightExpression());
             
-            CardinalityLevel cardinality = cardinalityAnalyzer.analyzeColumnCardinality(
+            CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(
                 repositoryQuery.getTable(), columnName);
             
             WhereCondition condition = new WhereCondition(columnName, "IN", cardinality, 
@@ -179,7 +175,7 @@ public class OptimizationAnalysisVisitor {
             // IS NULL expressions typically don't have parameters
             QueryMethodParameter parameter = findMatchingParameter(columnName, null);
             
-            CardinalityLevel cardinality = cardinalityAnalyzer.analyzeColumnCardinality(
+            CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(
                 repositoryQuery.getTable(), columnName);
             
             String operator = isNull.isNot() ? "IS NOT NULL" : "IS NULL";

@@ -22,14 +22,10 @@ import java.util.List;
  * well-tested parser package capabilities.
  */
 public class QueryOptimizationExtractor {
-    
     private static final Logger logger = LoggerFactory.getLogger(QueryOptimizationExtractor.class);
-    
-    private final CardinalityAnalyzer cardinalityAnalyzer;
     private final EntityMappingResolver entityMappingResolver;
     
-    public QueryOptimizationExtractor(CardinalityAnalyzer cardinalityAnalyzer) {
-        this.cardinalityAnalyzer = cardinalityAnalyzer;
+    public QueryOptimizationExtractor() {
         this.entityMappingResolver = new EntityMappingResolver();
     }
     
@@ -67,14 +63,10 @@ public class QueryOptimizationExtractor {
         SqlConversionContext context = new SqlConversionContext(entityMetadata, DatabaseDialect.POSTGRESQL);
         
         // Use the optimization analysis visitor
-        OptimizationAnalysisVisitor visitor = new OptimizationAnalysisVisitor(
-            cardinalityAnalyzer, repositoryQuery, context);
+        OptimizationAnalysisVisitor visitor = new OptimizationAnalysisVisitor(repositoryQuery, context);
         
         List<WhereCondition> conditions = visitor.extractConditions(whereExpression);
-        
-        logger.debug("Extracted {} conditions from WHERE expression using parser infrastructure", 
-                    conditions.size());
-        
+
         return conditions;
     }
     
@@ -102,8 +94,7 @@ public class QueryOptimizationExtractor {
             
             if (columnName != null && !columnName.isEmpty()) {
                 // Use existing cardinality analysis infrastructure
-                CardinalityLevel cardinality = 
-                    cardinalityAnalyzer.analyzeColumnCardinality(tableName, columnName);
+                CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(tableName, columnName);
                 
                 WhereCondition condition = new WhereCondition(columnName, "=", cardinality, i, param);
                 conditions.add(condition);
@@ -157,12 +148,5 @@ public class QueryOptimizationExtractor {
             logger.debug("Could not resolve entity class: {}", e.getMessage());
             return null;
         }
-    }
-    
-    /**
-     * Gets the cardinality analyzer used by this extractor.
-     */
-    public CardinalityAnalyzer getCardinalityAnalyzer() {
-        return cardinalityAnalyzer;
     }
 }
