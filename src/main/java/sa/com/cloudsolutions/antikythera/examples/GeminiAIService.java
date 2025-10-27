@@ -328,8 +328,6 @@ public class GeminiAIService {
         List<OptimizationIssue> issues = new ArrayList<>();
         
         try {
-            logger.debug("AI Response received: {}", textResponse);
-            
             // Extract JSON from the response (it might be wrapped in markdown code blocks)
             String jsonResponse = extractJsonFromResponse(textResponse);
             
@@ -459,14 +457,14 @@ public class GeminiAIService {
      */
     private List<String> extractColumnOrderFromMethod(String methodSignature) {
         List<String> columns = new ArrayList<>();
-        
+
         if (methodSignature == null) {
             return columns;
         }
-        
+
         // Extract method name part (before parentheses)
         String methodName = methodSignature.split("\\(")[0];
-        
+
         // Handle derived query method names like findByColumnAAndColumnB
         if (methodName.contains("By")) {
             String[] parts = methodName.split("By", 2);
@@ -485,7 +483,7 @@ public class GeminiAIService {
                 }
             }
         }
-        
+
         return columns;
     }
 
