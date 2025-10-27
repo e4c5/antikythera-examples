@@ -836,13 +836,13 @@ public class QueryOptimizationChecker {
                 String snippet = buildLiquibaseNonLockingIndexChangeSet(table, column);
                 
                 // Add context about the recommendation source
-                System.out.println(String.format("\n  Index for %s.%s:", table, column));
+                System.out.printf("\n  Index for %s.%s:%n", table, column);
                 System.out.println(indent(snippet, 2));
                 count++;
             }
             totalIndexCreateRecommendations = count;
             
-            System.out.println(String.format("\n  💡 Total index creation recommendations: %d", count));
+            System.out.printf("\n  \uD83D\uDCA1 Total index creation recommendations: %d%n", count);
             System.out.println("  🤖 Recommendations include AI-generated suggestions and cardinality analysis");
         } else {
             totalIndexCreateRecommendations = 0;
@@ -851,23 +851,20 @@ public class QueryOptimizationChecker {
 
         // Analyze existing indexes to suggest drops for low-cardinality leading columns
         java.util.LinkedHashSet<String> dropCandidates = new java.util.LinkedHashSet<>();
-        try {
-            java.util.Map<String, java.util.List<sa.com.cloudsolutions.liquibase.Indexes.IndexInfo>> map = cardinalityAnalyzer.snapshotIndexMap();
-            for (var entry : map.entrySet()) {
-                String table = entry.getKey();
-                for (var idx : entry.getValue()) {
-                    if (!"INDEX".equals(idx.type)) continue; // avoid PKs and unique constraints
-                    if (idx.columns == null || idx.columns.isEmpty()) continue;
-                    String first = idx.columns.get(0);
+        java.util.Map<String, java.util.List<sa.com.cloudsolutions.liquibase.Indexes.IndexInfo>> map = cardinalityAnalyzer.snapshotIndexMap();
+        for (var entry : map.entrySet()) {
+            String table = entry.getKey();
+            for (var idx : entry.getValue()) {
+                if ("INDEX".equals(idx.type) && idx.columns != null && !idx.columns.isEmpty()) {
+                    String first = idx.columns.getFirst();
                     CardinalityLevel card = cardinalityAnalyzer.analyzeColumnCardinality(table, first);
                     if (card == CardinalityLevel.LOW && !idx.name.isEmpty()) {
                         dropCandidates.add(idx.name);
                     }
                 }
             }
-        } catch (Exception ignore) {
-            // snapshotIndexMap does not throw, this is just a safety net
         }
+
         if (!dropCandidates.isEmpty()) {
             System.out.println("\n🗑 SUGGESTED INDEX DROPS (leading low-cardinality columns):");
             int dcount = 0;

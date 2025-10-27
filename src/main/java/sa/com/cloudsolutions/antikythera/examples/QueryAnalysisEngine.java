@@ -214,63 +214,7 @@ public class QueryAnalysisEngine {
         logger.debug("Analysis complete. Found {} optimization issues", issues.size());
         return issues;
     }
-    
-    /**
-     * Converts a table name to a likely repository class name.
-     */
-    private String convertTableNameToRepositoryClass(String tableName) {
-        if (tableName == null || tableName.isEmpty()) {
-            return UNKNOWN;
-        }
-        
-        // Convert snake_case to PascalCase and add Repository suffix
-        String[] parts = tableName.toLowerCase().split("_");
-        StringBuilder className = new StringBuilder();
-        for (String part : parts) {
-            if (!part.isEmpty()) {
-                className.append(Character.toUpperCase(part.charAt(0)));
-                if (part.length() > 1) {
-                    className.append(part.substring(1));
-                }
-            }
-        }
-        className.append("Repository");
-        return className.toString();
-    }
-    
-    /**
-     * Infers method name from query parameters.
-     */
-    private String inferMethodNameFromParameters(List<QueryMethodParameter> parameters) {
-        if (parameters.isEmpty()) {
-            return "findAll";
-        }
-        
-        // Build method name based on parameter column names
-        StringBuilder methodName = new StringBuilder("findBy");
-        for (int i = 0; i < parameters.size() && i < 3; i++) { // Limit to first 3 parameters
-            QueryMethodParameter param = parameters.get(i);
-            if (param.getColumnName() != null) {
-                String columnName = param.getColumnName();
-                // Convert snake_case to PascalCase
-                String[] parts = columnName.split("_");
-                for (String part : parts) {
-                    if (!part.isEmpty()) {
-                        methodName.append(Character.toUpperCase(part.charAt(0)));
-                        if (part.length() > 1) {
-                            methodName.append(part.substring(1));
-                        }
-                    }
-                }
-                if (i < parameters.size() - 1) {
-                    methodName.append("And");
-                }
-            }
-        }
-        
-        return methodName.toString();
-    }
-    
+
     /**
      * Gets the query text from the RepositoryQuery.
      * Enhanced to handle both HQL and native SQL queries properly.
