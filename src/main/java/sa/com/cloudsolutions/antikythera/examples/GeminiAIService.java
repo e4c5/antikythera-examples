@@ -2,10 +2,17 @@ package sa.com.cloudsolutions.antikythera.examples;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.body.AnnotationDeclaration;
+import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.expr.AnnotationExpr;
+import com.github.javaparser.ast.expr.MemberValuePair;
+import com.github.javaparser.ast.expr.NormalAnnotationExpr;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
 import sa.com.cloudsolutions.antikythera.generator.QueryMethodParameter;
+import sa.com.cloudsolutions.antikythera.parser.BaseRepositoryParser;
 import sa.com.cloudsolutions.antikythera.parser.Callable;
 import com.github.javaparser.ast.body.CallableDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
@@ -20,6 +27,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Handles all interactions with the Gemini AI service including request formatting,
@@ -409,23 +417,25 @@ public class GeminiAIService {
      * Always returns an OptimizationIssue - never returns null.
      * If no optimization is needed, returns an issue indicating no action required.
      */
-    private OptimizationIssue parseOptimizationRecommendation(JsonNode recommendation, RepositoryQuery originalQuery) {
+    private OptimizationIssue parseOptimizationRecommendation(JsonNode recommendation, RepositoryQuery originalQuery) throws IOException {
         String optimizedCodeElement = recommendation.path("optimizedCodeElement").asText();
         String notes = recommendation.path("notes").asText();
 
         // Determine if optimization was applied
-        boolean isOptimized = !notes.contains("N/A") && !notes.contains("unchanged") && !notes.contains("already optimized");
+        boolean optimizationNeeded = !notes.contains("N/A") && !notes.contains("unchanged") && !notes.contains("already optimized");
 
         /*
          * Extract the current column order from the original RepositoryQuery.
          * For recommended order, we need to create a new RepositoryQuery from the optimized code element.
          */
         List<String> currentColumnOrder = extractColumnOrderFromRepositoryQuery(originalQuery);
-        List<String> recommendedColumnOrder = extractRecommendedColumnOrder(optimizedCodeElement, originalQuery);
+        List<String> recommendedColumnOrder = (optimizationNeeded)
+                ? extractRecommendedColumnOrder(optimizedCodeElement, originalQuery)
+                : currentColumnOrder;
         // Index recommendations will be handled by QueryOptimizationChecker with proper Liquibase checking
         List<String> requiredIndexes = new ArrayList<>();
 
-        if (!isOptimized) {
+        if (!optimizationNeeded) {
             return new OptimizationIssue(
                     originalQuery,
                     currentColumnOrder,
@@ -481,63 +491,45 @@ public class GeminiAIService {
      * Creates a new RepositoryQuery that clones the original method but with the optimized method signature,
      * then passes it through to extractColumnOrderFromRepositoryQuery.
      */
-    private List<String> extractRecommendedColumnOrder(String optimizedCodeElement, RepositoryQuery originalQuery) {
-        if (optimizedCodeElement == null || optimizedCodeElement.trim().isEmpty()) {
-            return extractColumnOrderFromRepositoryQuery(originalQuery);
-        }
+        private List<String> extractRecommendedColumnOrder(String optimizedCodeElement, RepositoryQuery originalQuery) throws IOException {
+            CompilationUnit cu = new CompilationUnit();
+            MethodDeclaration old = originalQuery.getMethodDeclaration().asMethodDeclaration();
+    
+            // Copy imports to handle annotation parsing correctly, especially in fallback.
+            old.findCompilationUnit().ifPresent(oldCu -> oldCu.getImports().forEach(cu::addImport));
+    
+            ClassOrInterfaceDeclaration cdecl = old.findAncestor(ClassOrInterfaceDeclaration.class).orElseThrow().clone();
+            cu.addType(cdecl);
+            Optional<AnnotationExpr> ann = old.getAnnotationByName("Query");
+            MethodDeclaration newMethod = cdecl.getMethods().stream()
+                    .filter(method -> method.getSignature().equals(old.getSignature()))
+                    .findFirst().orElseThrow();
+    
+            if (ann.isPresent()) {
+                // Find the method declaration that matches the old method
+                AnnotationExpr targetAnn = newMethod.getAnnotationByName("Query").orElseThrow();
+                AnnotationExpr sourceAnn = ann.get();
 
-        try {
-            // Extract method name from optimized code element
-            String optimizedMethodName = extractMethodNameFromOptimizedCode(optimizedCodeElement);
-            
-            // Create a minimal RepositoryQuery with the optimized method name
-            RepositoryQuery optimizedQuery = new RepositoryQuery();
-            optimizedQuery.setEntityType(originalQuery.getEntityType());
-            optimizedQuery.setTable(originalQuery.getTable());
-            
-            // Create a simple Callable with the optimized method name
-            Callable optimizedCallable = new Callable() {
-                @Override
-                public String getNameAsString() {
-                    return optimizedMethodName;
+                if (sourceAnn.isNormalAnnotationExpr() && targetAnn.isNormalAnnotationExpr()) {
+                    NormalAnnotationExpr targetNormal = targetAnn.asNormalAnnotationExpr();
+                    NormalAnnotationExpr sourceNormal = sourceAnn.asNormalAnnotationExpr();
+                    targetNormal.getPairs().clear();
+                    for (MemberValuePair pair : sourceNormal.getPairs()) {
+                        targetNormal.addPair(pair.getNameAsString(), pair.getValue().clone());
+                    }
+                } else if (sourceAnn.isSingleMemberAnnotationExpr() && targetAnn.isSingleMemberAnnotationExpr()) {
+                    targetAnn.asSingleMemberAnnotationExpr().setMemberValue(sourceAnn.asSingleMemberAnnotationExpr().getMemberValue().clone());
+                } else {
+                    // Fallback for mismatched annotation types.
+                    newMethod.remove(targetAnn);
+                    newMethod.addAnnotation(optimizedCodeElement);
                 }
-            };
-            optimizedQuery.setMethodDeclaration(optimizedCallable);
-            
-            return extractColumnOrderFromRepositoryQuery(optimizedQuery);
-            
-        } catch (Exception e) {
-            logger.warn("Failed to extract recommended column order: {}", e.getMessage());
-            return extractColumnOrderFromRepositoryQuery(originalQuery);
+            }
+            BaseRepositoryParser parser = BaseRepositoryParser.create(cu);
+            RepositoryQuery rq = parser.getQueryFromRepositoryMethod(new Callable(newMethod, null));
+            return extractColumnOrderFromRepositoryQuery(rq);
         }
-    }
 
-
-
-    /**
-     * Extracts the method name from the optimized code element.
-     */
-    private String extractMethodNameFromOptimizedCode(String optimizedCodeElement) {
-        if (optimizedCodeElement == null) {
-            return "";
-        }
-        
-        String methodName = optimizedCodeElement.trim();
-        
-        // Remove everything after the first parenthesis
-        if (methodName.contains("(")) {
-            methodName = methodName.substring(0, methodName.indexOf("("));
-        }
-        
-        // Split by whitespace and take the last part (should be method name)
-        String[] parts = methodName.split("\\s+");
-        methodName = parts[parts.length - 1];
-        
-        // Remove any remaining special characters
-        methodName = methodName.replaceAll("[^a-zA-Z0-9]", "");
-        
-        return methodName;
-    }
 
 
 
