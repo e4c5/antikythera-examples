@@ -340,54 +340,6 @@ public class QueryOptimizationChecker {
     }
 
     /**
-     * Analyzes JOIN queries to identify index requirements on both sides of the JOIN.
-     * Uses improved index checking that leverages the Indexes class.
-     * 
-     * @param result the query optimization result
-     * @return list of index recommendations for JOIN columns
-     */
-    private List<String> analyzeJoinIndexRequirements(QueryOptimizationResult result) {
-        List<String> joinIndexes = new ArrayList<>();
-        String queryText = result.getQuery().getQuery();
-        
-        if (queryText == null || !queryText.toLowerCase().contains("join")) {
-            return joinIndexes;
-        }
-        
-        // Extract JOIN conditions using regex pattern
-        java.util.regex.Pattern joinPattern = java.util.regex.Pattern.compile(
-            "(?i)\\bjoin\\s+([\\w\\.`\"']+)\\s+(?:\\w+\\s+)?on\\s+([\\w\\.`\"']+)\\s*=\\s*([\\w\\.`\"']+)",
-            java.util.regex.Pattern.CASE_INSENSITIVE
-        );
-        
-        java.util.regex.Matcher matcher = joinPattern.matcher(queryText);
-        while (matcher.find()) {
-            String joinTable = cleanTableOrColumnName(matcher.group(1));
-            String leftColumn = extractColumnFromQualified(matcher.group(2));
-            String rightColumn = extractColumnFromQualified(matcher.group(3));
-            
-            // Get the main table name
-            String mainTable = result.getQuery().getTable();
-            if (mainTable == null || mainTable.isEmpty()) {
-                mainTable = inferTableNameFromQuerySafe(queryText, result.getRepositoryClass());
-            }
-            
-            // Use improved index checking on both sides of the JOIN
-            if (leftColumn != null && !hasOptimalIndexForColumn(mainTable, leftColumn)) {
-                joinIndexes.add(String.format("%s.%s", mainTable, leftColumn));
-                logger.debug("JOIN index recommendation: {}.{} (left side)", mainTable, leftColumn);
-            }
-            
-            if (rightColumn != null && !hasOptimalIndexForColumn(joinTable, rightColumn)) {
-                joinIndexes.add(String.format("%s.%s", joinTable, rightColumn));
-                logger.debug("JOIN index recommendation: {}.{} (right side)", joinTable, rightColumn);
-            }
-        }
-        
-        return joinIndexes;
-    }
-
-    /**
      * Extracts column name from a qualified column reference (e.g., "table.column" -> "column").
      * 
      * @param qualifiedColumn the qualified column reference
