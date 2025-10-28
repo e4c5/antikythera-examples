@@ -16,6 +16,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -154,13 +155,15 @@ public class QueryOptimizationChecker {
     private List<RepositoryQuery> collectRawQueries(TypeWrapper typeWrapper) {
         List<RepositoryQuery> rawQueries = new ArrayList<>();
         
-        var declaration = typeWrapper.getType().asClassOrInterfaceDeclaration();
-
-        for (var method : declaration.getMethods()) {
-            Callable callable = new Callable(method, null);
-            RepositoryQuery repositoryQuery = repositoryParser.getQueryFromRepositoryMethod(callable);
-            totalQueriesAnalyzed++;
-            rawQueries.add(repositoryQuery);
+        // Use the queries that were already built by the RepositoryParser
+        // instead of creating new Callable objects
+        Collection<RepositoryQuery> allQueries = repositoryParser.getAllQueries();
+        
+        for (RepositoryQuery query : allQueries) {
+            if (query != null) {
+                totalQueriesAnalyzed++;
+                rawQueries.add(query);
+            }
         }
         
         return rawQueries;
