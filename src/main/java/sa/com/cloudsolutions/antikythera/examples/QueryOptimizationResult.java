@@ -40,6 +40,12 @@ public class QueryOptimizationResult {
      * @return the fully qualified repository class name
      */
     public String getRepositoryClass() {
+        // First try to get from stored repository class name (avoids AST traversal issues)
+        if (query.getRepositoryClassName() != null) {
+            return query.getRepositoryClassName();
+        }
+        
+        // Fallback to AST traversal (original approach)
         return query.getMethodDeclaration().getCallableDeclaration()
                 .findAncestor(ClassOrInterfaceDeclaration.class).orElseThrow().getFullyQualifiedName().orElseThrow();
     }
