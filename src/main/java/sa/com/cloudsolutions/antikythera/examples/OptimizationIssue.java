@@ -10,7 +10,8 @@ import java.util.Collections;
  */
 public record OptimizationIssue(RepositoryQuery query, List<String> currentColumnOrder,
                                 List<String> recommendedColumnOrder, String description,
-                                Severity severity, String queryText, String aiExplanation, List<String> requiredIndexes) {
+                                Severity severity, String queryText, String aiExplanation, List<String> requiredIndexes,
+                                RepositoryQuery optimizedQuery) {
 
     /**
      * Legacy constructor for backward compatibility with single column approach.
@@ -21,7 +22,7 @@ public record OptimizationIssue(RepositoryQuery query, List<String> currentColum
         this(query, 
              currentFirstColumn != null && !currentFirstColumn.isEmpty() ? List.of(currentFirstColumn) : Collections.emptyList(),
              recommendedFirstColumn != null && !recommendedFirstColumn.isEmpty() ? List.of(recommendedFirstColumn) : Collections.emptyList(),
-             description, severity, queryText, "", Collections.emptyList());
+             description, severity, queryText, "", Collections.emptyList(), null);
     }
 
     /**
