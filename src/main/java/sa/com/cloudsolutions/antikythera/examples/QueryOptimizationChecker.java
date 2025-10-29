@@ -580,9 +580,6 @@ public class QueryOptimizationChecker {
         if (issues.isEmpty()) {
             return;
         }
-        
-        System.out.println("  📋 RECOMMENDED ACTIONS:");
-        
         // Group recommendations by priority
         List<OptimizationIssue> highPriorityIssues = issues.stream()
             .filter(OptimizationIssue::isHighSeverity)
@@ -591,66 +588,73 @@ public class QueryOptimizationChecker {
         List<OptimizationIssue> mediumPriorityIssues = issues.stream()
             .filter(OptimizationIssue::isMediumSeverity)
             .toList();
-        
+
+        StringBuilder recommendations = new StringBuilder();
+
         // High priority recommendations
         if (!highPriorityIssues.isEmpty()) {
-            System.out.println("    🔴 HIGH PRIORITY:");
-            for (OptimizationIssue issue : highPriorityIssues) {
-                // Skip reordering recommendation when the recommended column is already first
-                if (issue.recommendedFirstColumn().equals(issue.currentFirstColumn())) {
-                    continue;
-                }
-                System.out.printf("      • Move '%s' condition to the beginning of WHERE clause%n",
-                                                issue.recommendedFirstColumn());
-                System.out.printf("        Replace: WHERE %s = ? AND %s = ?%n",
-                                                issue.currentFirstColumn(), issue.recommendedFirstColumn());
-                System.out.printf("        With:    WHERE %s = ? AND %s = ?%n",
-                                                issue.recommendedFirstColumn(), issue.currentFirstColumn());
-                
-                // Add required indexes if specified by AI with status check
-                if (!issue.getRequiredIndexes().isEmpty()) {
-                    System.out.println("        Required indexes:");
-                    for (String indexRecommendation : issue.getRequiredIndexes()) {
-                        String[] parts = indexRecommendation.split("\\.", 2);
-                        if (parts.length == 2) {
-                            String table = parts[0];
-                            String column = parts[1];
-                            boolean hasExistingIndex = CardinalityAnalyzer.hasIndexWithLeadingColumn(table, column);
-                            String status = hasExistingIndex ? "✓ EXISTS" : "⚠ CREATE NEEDED";
-                            System.out.printf("          • %s.%s [%s]%n", table, column, status);
-                        } else {
-                            System.out.printf("          • %s%n", indexRecommendation);
-                        }
-                    }
-                }
-            }
+            addPriorityRecommendations(recommendations, highPriorityIssues, "🔴 HIGH PRIORITY:", 
+                "Move '%s' condition to the beginning of WHERE clause", 
+                "⚠ CREATE NEEDED", "Required indexes:");
         }
         
         // Medium priority recommendations
         if (!mediumPriorityIssues.isEmpty()) {
-            System.out.println("    🟡 MEDIUM PRIORITY:");
-            for (OptimizationIssue issue : mediumPriorityIssues) {
-                // Skip reordering recommendation when the recommended column is already first
-                if (issue.recommendedFirstColumn().equals(issue.currentFirstColumn())) {
-                    continue;
-                }
-                System.out.printf("      • Consider reordering: place '%s' before '%s' in WHERE clause%n",
-                                                issue.recommendedFirstColumn(), issue.currentFirstColumn());
-                
-                // Add required indexes if specified by AI with status check
-                if (!issue.getRequiredIndexes().isEmpty()) {
-                    System.out.println("        Suggested indexes:");
-                    for (String indexRecommendation : issue.getRequiredIndexes()) {
-                        String[] parts = indexRecommendation.split("\\.", 2);
-                        if (parts.length == 2) {
-                            String table = parts[0];
-                            String column = parts[1];
-                            boolean hasExistingIndex = CardinalityAnalyzer.hasIndexWithLeadingColumn(table, column);
-                            String status = hasExistingIndex ? "✓ EXISTS" : "💡 CONSIDER CREATING";
-                            System.out.printf("          • %s.%s [%s]%n", table, column, status);
-                        } else {
-                            System.out.printf("          • %s%n", indexRecommendation);
-                        }
+            addPriorityRecommendations(recommendations, mediumPriorityIssues, "🟡 MEDIUM PRIORITY:", 
+                "Consider reordering: place '%s' before '%s' in WHERE clause", 
+                "💡 CONSIDER CREATING", "Suggested indexes:");
+        }
+
+        // Only print if we have recommendations
+        if (!recommendations.isEmpty()) {
+            System.out.println("  📋 RECOMMENDED ACTIONS:");
+            System.out.print(recommendations.toString());
+        }
+    }
+
+    /**
+     * Helper method to add priority-specific recommendations to the StringBuilder.
+     * Eliminates code duplication between high and medium priority processing.
+     */
+    private void addPriorityRecommendations(StringBuilder recommendations, List<OptimizationIssue> issues, 
+                                          String priorityHeader, String reorderingTemplate, 
+                                          String indexCreateStatus, String indexHeader) {
+        recommendations.append("    ").append(priorityHeader).append("\n");
+        
+        for (OptimizationIssue issue : issues) {
+            // Skip reordering recommendation when the recommended column is already first
+            if (issue.recommendedFirstColumn().equals(issue.currentFirstColumn())) {
+                continue;
+            }
+            
+            // Add reordering recommendation
+            if (reorderingTemplate.contains("%s") && reorderingTemplate.contains("before")) {
+                // Medium priority template with two parameters
+                recommendations.append(String.format("      • " + reorderingTemplate + "%n",
+                    issue.recommendedFirstColumn(), issue.currentFirstColumn()));
+            } else {
+                // High priority template with one parameter
+                recommendations.append(String.format("      • " + reorderingTemplate + "%n",
+                    issue.recommendedFirstColumn()));
+                recommendations.append(String.format("        Replace: WHERE %s = ? AND %s = ?%n",
+                    issue.currentFirstColumn(), issue.recommendedFirstColumn()));
+                recommendations.append(String.format("        With:    WHERE %s = ? AND %s = ?%n",
+                    issue.recommendedFirstColumn(), issue.currentFirstColumn()));
+            }
+            
+            // Add required indexes if specified by AI with status check
+            if (!issue.getRequiredIndexes().isEmpty()) {
+                recommendations.append("        ").append(indexHeader).append("\n");
+                for (String indexRecommendation : issue.getRequiredIndexes()) {
+                    String[] parts = indexRecommendation.split("\\.", 2);
+                    if (parts.length == 2) {
+                        String table = parts[0];
+                        String column = parts[1];
+                        boolean hasExistingIndex = CardinalityAnalyzer.hasIndexWithLeadingColumn(table, column);
+                        String status = hasExistingIndex ? "✓ EXISTS" : indexCreateStatus;
+                        recommendations.append(String.format("          • %s.%s [%s]%n", table, column, status));
+                    } else {
+                        recommendations.append(String.format("          • %s%n", indexRecommendation));
                     }
                 }
             }

@@ -13,15 +13,6 @@ public record OptimizationIssue(RepositoryQuery query, List<String> currentColum
                                 Severity severity, String queryText, String aiExplanation, List<String> requiredIndexes) {
 
     /**
-     * Convenience constructor for backward compatibility without AI fields.
-     */
-    public OptimizationIssue(RepositoryQuery query, List<String> currentColumnOrder,
-                            List<String> recommendedColumnOrder, String description,
-                            Severity severity, String queryText) {
-        this(query, currentColumnOrder, recommendedColumnOrder, description, severity, queryText, "", Collections.emptyList());
-    }
-
-    /**
      * Legacy constructor for backward compatibility with single column approach.
      */
     public OptimizationIssue(RepositoryQuery query, String currentFirstColumn,
