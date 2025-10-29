@@ -187,7 +187,10 @@ public class QueryOptimizationResult {
     public String getSummaryReport() {
         StringBuilder report = new StringBuilder();
         report.append(String.format("Query Analysis Results for %s.%s%n", getRepositoryClass(), getMethodName()));
-        report.append(String.format("Query: %s%n", query));
+        
+        // Include full WHERE clause information
+        String fullQuery = query.getOriginalQuery();
+        report.append(String.format("Full Query: %s%n", fullQuery));
         report.append(String.format("WHERE Conditions: %d%n", getWhereConditionCount()));
         report.append(String.format("Optimization Issues: %d%n", getOptimizationIssueCount()));
         report.append(String.format("Is Optimized: %s%n", isAlreadyOptimized ? "Yes" : "No"));
@@ -211,7 +214,7 @@ public class QueryOptimizationResult {
         if (!whereConditions.isEmpty()) {
             report.append("\nWHERE Conditions:\n");
             for (WhereCondition condition : whereConditions) {
-                report.append(String.format("  %d. %s %s (Cardinality: %s)%n", 
+                report.append(String.format("  %d. %s %s ? (Cardinality: %s)%n", 
                             condition.position() + 1, condition.columnName(),
                             condition.operator(), condition.cardinality()));
             }
@@ -256,5 +259,40 @@ public class QueryOptimizationResult {
      */
     public void addOptimizationIssue(OptimizationIssue issue) {
         optimizationIssues.add(issue);
+    }
+    
+    /**
+     * Gets the full WHERE clause text from the parsed WHERE conditions.
+     * Uses the existing parsed WHERE condition data instead of re-parsing the query text.
+     * 
+     * @return the full WHERE clause text reconstructed from parsed conditions, or empty string if not available
+     */
+    public String getFullWhereClause() {
+        if (whereConditions.isEmpty()) {
+            return "";
+        }
+        
+        // Build WHERE clause from parsed conditions
+        StringBuilder whereClause = new StringBuilder("WHERE ");
+        
+        // Sort conditions by position to maintain proper order
+        List<WhereCondition> sortedConditions = whereConditions.stream()
+                .sorted((c1, c2) -> Integer.compare(c1.position(), c2.position()))
+                .toList();
+        
+        for (int i = 0; i < sortedConditions.size(); i++) {
+            WhereCondition condition = sortedConditions.get(i);
+            
+            if (i > 0) {
+                whereClause.append(" AND ");
+            }
+            
+            whereClause.append(condition.columnName())
+                      .append(" ")
+                      .append(condition.operator())
+                      .append(" ?");
+        }
+        
+        return whereClause.toString();
     }
 }

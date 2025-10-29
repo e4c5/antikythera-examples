@@ -424,9 +424,13 @@ public class GeminiAIService {
          * For recommended order, we need to create a new RepositoryQuery from the optimized code element.
          */
         List<String> currentColumnOrder = extractColumnOrderFromRepositoryQuery(originalQuery);
-        List<String> recommendedColumnOrder = (optimizationNeeded)
+        OptimizedQueryResult optimizedResult = (optimizationNeeded)
                 ? extractRecommendedColumnOrder(optimizedCodeElement, originalQuery)
-                : currentColumnOrder;
+                : new OptimizedQueryResult(null, currentColumnOrder);
+        
+        List<String> recommendedColumnOrder = optimizedResult.columnOrder();
+        RepositoryQuery optimizedQuery = optimizedResult.optimizedQuery();
+        
         // Index recommendations will be handled by QueryOptimizationChecker with proper Liquibase checking
         List<String> requiredIndexes = new ArrayList<>();
 
@@ -439,7 +443,8 @@ public class GeminiAIService {
                     OptimizationIssue.Severity.LOW, // Low severity since no action needed
                     originalQuery.getQuery(),
                     notes, // AI explanation
-                    requiredIndexes // No index recommendations needed
+                    requiredIndexes, // No index recommendations needed
+                    null // No optimized query since no optimization needed
             );
         }
         OptimizationIssue.Severity severity = determineSeverity(notes, currentColumnOrder, recommendedColumnOrder);
@@ -453,7 +458,8 @@ public class GeminiAIService {
                 severity,
                 originalQuery.getQuery(),
                 notes, // AI explanation
-                requiredIndexes
+                requiredIndexes,
+                optimizedQuery
         );
     }
 
@@ -486,7 +492,12 @@ public class GeminiAIService {
      * Creates a new RepositoryQuery that clones the original method but with the optimized method signature,
      * then passes it through to extractColumnOrderFromRepositoryQuery.
      */
-    private List<String> extractRecommendedColumnOrder(String optimizedCodeElement, RepositoryQuery originalQuery) throws IOException {
+    /**
+     * Record to hold both the optimized query and its column order.
+     */
+    private record OptimizedQueryResult(RepositoryQuery optimizedQuery, List<String> columnOrder) {}
+    
+    private OptimizedQueryResult extractRecommendedColumnOrder(String optimizedCodeElement, RepositoryQuery originalQuery) throws IOException {
         CompilationUnit cu = originalQuery.getMethodDeclaration().getCallableDeclaration().findCompilationUnit().orElseThrow();
 
         MethodDeclaration old = originalQuery.getMethodDeclaration().asMethodDeclaration();
@@ -511,7 +522,7 @@ public class GeminiAIService {
         BaseRepositoryParser parser = BaseRepositoryParser.create(cu);
         parser.processTypes();
         RepositoryQuery rq = parser.getQueryFromRepositoryMethod(new Callable(newMethod, null));
-        return extractColumnOrderFromRepositoryQuery(rq);
+        return new OptimizedQueryResult(rq, extractColumnOrderFromRepositoryQuery(rq));
     }
 
 

@@ -8,7 +8,6 @@ import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
 import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
-import sa.com.cloudsolutions.antikythera.parser.Callable;
 import sa.com.cloudsolutions.antikythera.parser.RepositoryParser;
 import sa.com.cloudsolutions.liquibase.Indexes;
 
@@ -90,13 +89,14 @@ public class QueryOptimizationChecker {
 
             if (isJpaRepository(typeWrapper)) {
                 analyzeRepository(fullyQualifiedName, typeWrapper);
+                System.exit(0);
             }
         }
     }
 
     /**
      * Checks if a TypeWrapper represents a JPA repository interface.
-     * 
+     *
      * @param typeWrapper the type to check
      * @return true if it's a JPA repository, false otherwise
      */
@@ -116,9 +116,9 @@ public class QueryOptimizationChecker {
      * Analyzes a repository using a new LLM-first approach.
      * 1. Collect raw methods and send to LLM first (no programmatic analysis)
      * 2. Get LLM recommendations
-     * 3. Do index analysis based on LLM recommendations  
+     * 3. Do index analysis based on LLM recommendations
      * 4. Generate final output
-     * 
+     *
      * @param fullyQualifiedName the fully qualified class name of the repository
      * @param typeWrapper the TypeWrapper representing the repository
      */
@@ -131,16 +131,16 @@ public class QueryOptimizationChecker {
 
         // Build all queries using RepositoryParser
         repositoryParser.buildQueries();
-        
+
         // Step 1: Collect raw methods for LLM analysis (no programmatic analysis yet)
         List<RepositoryQuery> rawQueries = collectRawQueries(typeWrapper);
-        
+
         // Step 2: Send raw methods to LLM first
         List<OptimizationIssue> llmRecommendations = sendRawQueriesToLLM(fullyQualifiedName, rawQueries);
-        
+
         // Step 3: Analyze LLM recommendations and check indexes
         List<QueryOptimizationResult> finalResults = analyzeLLMRecommendations(llmRecommendations, rawQueries);
-        
+
         // Step 4: Report final results
         for (QueryOptimizationResult result : finalResults) {
             results.add(result);
@@ -154,21 +154,21 @@ public class QueryOptimizationChecker {
      */
     private List<RepositoryQuery> collectRawQueries(TypeWrapper typeWrapper) {
         List<RepositoryQuery> rawQueries = new ArrayList<>();
-        
+
         // Use the queries that were already built by the RepositoryParser
         // instead of creating new Callable objects
         Collection<RepositoryQuery> allQueries = repositoryParser.getAllQueries();
-        
+
         for (RepositoryQuery query : allQueries) {
             if (query != null) {
                 totalQueriesAnalyzed++;
                 rawQueries.add(query);
             }
         }
-        
+
         return rawQueries;
     }
-    
+
     /**
      * Sends raw queries to LLM for optimization recommendations.
      * No programmatic analysis is done beforehand - LLM gets the raw methods.
@@ -176,15 +176,15 @@ public class QueryOptimizationChecker {
     private List<OptimizationIssue> sendRawQueriesToLLM(String repositoryName, List<RepositoryQuery> rawQueries) throws IOException, InterruptedException {
         // Create a batch with raw queries and basic cardinality information
         QueryBatch batch = createRawQueryBatch(repositoryName, rawQueries);
-        
+
         // Send batch to AI service for analysis
         List<OptimizationIssue> llmRecommendations = aiService.analyzeQueryBatch(batch);
-        
+
         // Track and report token usage
         TokenUsage tokenUsage = aiService.getLastTokenUsage();
         cumulativeTokenUsage.add(tokenUsage);
         System.out.printf("🤖 AI Analysis for %s: %s%n", repositoryName, tokenUsage.getFormattedReport());
-        
+
         return llmRecommendations;
     }
 
@@ -194,18 +194,18 @@ public class QueryOptimizationChecker {
      */
     private QueryBatch createRawQueryBatch(String repositoryName, List<RepositoryQuery> rawQueries) {
         QueryBatch batch = new QueryBatch(repositoryName);
-        
+
         // Add all raw queries to the batch
         for (RepositoryQuery query : rawQueries) {
             batch.addQuery(query);
         }
-        
+
         // Extract actual WHERE clause columns and their cardinality information
         // Use QueryAnalysisEngine to get real columns from the actual queries
         for (RepositoryQuery query : rawQueries) {
             addWhereClauseColumnCardinality(batch, query);
         }
-        
+
         return batch;
     }
 
@@ -259,11 +259,11 @@ public class QueryOptimizationChecker {
         if (tableName == null || tableName.isEmpty()) {
             tableName = inferTableNameFromQuerySafe(rawQuery.getQuery(), rawQuery.getClassname());
         }
-        
+
         // Extract WHERE conditions and analyze indexes in a single pass
         List<WhereCondition> whereConditions = new ArrayList<>();
         List<String> requiredIndexes = new ArrayList<>();
-        
+
         // Process each column in the LLM's recommended order
         for (int i = 0; i < llmRecommendation.recommendedColumnOrder().size(); i++) {
             String columnName = llmRecommendation.recommendedColumnOrder().get(i);
@@ -281,7 +281,7 @@ public class QueryOptimizationChecker {
                 requiredIndexes.add(indexRecommendation);
             }
         }
-        
+
         // Create enhanced optimization issue with index analysis
         OptimizationIssue enhancedRecommendation = new OptimizationIssue(
             llmRecommendation.query(),
@@ -291,7 +291,8 @@ public class QueryOptimizationChecker {
             llmRecommendation.severity(),
             llmRecommendation.queryText(),
             llmRecommendation.aiExplanation(),
-            requiredIndexes // Our analysis based on LLM recommendations and Indexes class
+            requiredIndexes, // Our analysis based on LLM recommendations and Indexes class
+            llmRecommendation.optimizedQuery()
         );
 
         // Create result with WHERE conditions and the enhanced optimization issue
@@ -304,7 +305,7 @@ public class QueryOptimizationChecker {
     /**
      * Checks if there's an optimal index for the given column using the Indexes class.
      * This method provides more comprehensive index analysis than just checking for leading columns.
-     * 
+     *
      * @param tableName the table name
      * @param columnName the column name
      * @return true if an optimal index exists, false otherwise
@@ -315,15 +316,15 @@ public class QueryOptimizationChecker {
             if (CardinalityAnalyzer.hasIndexWithLeadingColumn(tableName, columnName)) {
                 return true;
             }
-            
+
             // Get the index map from cardinality analyzer to do more detailed analysis
             Map<String, List<Indexes.IndexInfo>> indexMap = CardinalityAnalyzer.getIndexMap();
             List<Indexes.IndexInfo> tableIndexes = indexMap.get(tableName);
-            
+
             if (tableIndexes == null || tableIndexes.isEmpty()) {
                 return false;
             }
-            
+
             // Check for any index that includes this column (not just as leading column)
             for (Indexes.IndexInfo indexInfo : tableIndexes) {
                 if (indexInfo.columns != null && indexInfo.columns.contains(columnName)) {
@@ -332,28 +333,14 @@ public class QueryOptimizationChecker {
                     return true;
                 }
             }
-            
+
             return false;
-            
+
         } catch (Exception e) {
             logger.debug("Error checking optimal index for {}.{}: {}", tableName, columnName, e.getMessage());
             // Fall back to the basic check
             return CardinalityAnalyzer.hasIndexWithLeadingColumn(tableName, columnName);
         }
-    }
-
-    /**
-     * Extracts column name from a qualified column reference (e.g., "table.column" -> "column").
-     * 
-     * @param qualifiedColumn the qualified column reference
-     * @return the column name without table prefix
-     */
-    private String extractColumnFromQualified(String qualifiedColumn) {
-        if (qualifiedColumn == null) return null;
-        
-        String cleaned = cleanTableOrColumnName(qualifiedColumn);
-        int dotIndex = cleaned.lastIndexOf('.');
-        return dotIndex >= 0 ? cleaned.substring(dotIndex + 1) : cleaned;
     }
 
     /**
@@ -404,6 +391,9 @@ public class QueryOptimizationChecker {
                                             result.getMethodName(),
                                             cardinalityInfo);
             
+            // Print the full WHERE clause and query information
+            printQueryDetails(result);
+            
             if (logger.isDebugEnabled()) {
                 logger.debug("Query details: {}", result.getQuery());
             }
@@ -439,6 +429,9 @@ public class QueryOptimizationChecker {
                                         result.getMethodName(),
                                         issues.size(),
                                         issues.size() == 1 ? "" : "s");
+        
+        // Print the full WHERE clause and query information
+        printQueryDetails(result);
         
         // Report each issue with enhanced formatting
         for (int i = 0; i < sortedIssues.size(); i++) {
@@ -489,6 +482,18 @@ public class QueryOptimizationChecker {
                                       severityIcon, issueNumber, 
                                       issue.severity().toString(),
                                       issue.description()));
+        
+        // Show WHERE clause conditions if available
+        if (!result.getWhereConditions().isEmpty()) {
+            formatted.append("\n    🔍 WHERE Clause Conditions:");
+            for (WhereCondition condition : result.getWhereConditions()) {
+                formatted.append(String.format("\n      • %s %s ? (%s cardinality, position %d)", 
+                    condition.columnName(), 
+                    condition.operator(), 
+                    condition.cardinality().toString().toLowerCase(),
+                    condition.position() + 1));
+            }
+        }
         
         // Current vs recommended with cardinality information
         WhereCondition currentCondition = findConditionByColumn(result, issue.currentFirstColumn());
@@ -566,6 +571,34 @@ public class QueryOptimizationChecker {
                                condition.cardinality().toString().toLowerCase());
         } else {
             return columnName + " (cardinality unknown)";
+        }
+    }
+    
+    /**
+     * Prints the WHERE clause details for a query optimization result.
+     * Shows the original WHERE clause and optimized WHERE clause when available.
+     * This method eliminates code duplication between reportOptimizedQuery and reportOptimizationIssues.
+     * 
+     * @param result the query optimization result to print details for
+     */
+    private void printQueryDetails(QueryOptimizationResult result) {
+        // Print the original WHERE clause
+        String originalWhereClause = result.getFullWhereClause();
+        if (!originalWhereClause.isEmpty()) {
+            System.out.printf("  🔍 Original WHERE: %s%n", originalWhereClause);
+        }
+        
+        // Print optimized WHERE clause if optimization issues exist
+        if (result.hasOptimizationIssues()) {
+            OptimizationIssue firstIssue = result.getOptimizationIssues().get(0);
+            if (firstIssue.optimizedQuery() != null) {
+                // Use the existing QueryAnalysisEngine to analyze the optimized query
+                QueryOptimizationResult optimizedResult = analysisEngine.analyzeQuery(firstIssue.optimizedQuery());
+                String optimizedWhereClause = optimizedResult.getFullWhereClause();
+                if (!optimizedWhereClause.isEmpty() && !optimizedWhereClause.equals(originalWhereClause)) {
+                    System.out.printf("  ✨ Optimized WHERE: %s%n", optimizedWhereClause);
+                }
+            }
         }
     }
 
