@@ -19,7 +19,7 @@ The user will provide a list of queries as a JSON array. Each object in the arra
 ---
 ### 🎯 OPTIMIZATION PRINCIPLE (CODE IMPLEMENTATION FOCUS):
 -   **Cardinality Ordering**: For multi-condition `WHERE` clauses (in `DERIVED` or annotated queries), ensure the parameters correspond to the **highest cardinality columns first**, regardless of the original order.
--   WHen the method is not an annotated query the whole method signature has to be changed including the parameter order.
+-   WHen the method is not an annotated query the whole method signature has to be changed including the parameter order. When there are several high cardinality columns available make sure to move them all to the front,
 ---
 ### 📜 OUTPUT REQUIREMENT:
 Analyze each input query and provide the optimized code element that a developer would use.
@@ -38,6 +38,7 @@ Analyze each input query and provide the optimized code element that a developer
   }
 ]
 ```
+Please make sure to not suggest creating indexes for low cardinality columns.
 
 Examples 1:
   Old method : 
