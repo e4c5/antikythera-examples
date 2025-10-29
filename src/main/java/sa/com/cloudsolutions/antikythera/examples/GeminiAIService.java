@@ -84,6 +84,17 @@ public class GeminiAIService {
     }
 
     /**
+     * Gets cache efficiency as a percentage of cached tokens vs total tokens.
+     * Returns 0.0 if no tokens were used or no caching occurred.
+     */
+    public double getCacheEfficiency() {
+        if (lastTokenUsage.getTotalTokens() == 0) {
+            return 0.0;
+        }
+        return (double) lastTokenUsage.getCachedContentTokenCount() / lastTokenUsage.getTotalTokens() * 100.0;
+    }
+
+    /**
      * Loads the system prompt from the resource file.
      */
     private String loadSystemPrompt() throws IOException {
@@ -290,13 +301,17 @@ public class GeminiAIService {
             int inputTokens = usageMetadata.path("promptTokenCount").asInt(0);
             int outputTokens = usageMetadata.path("candidatesTokenCount").asInt(0);
             int totalTokens = usageMetadata.path("totalTokenCount").asInt(inputTokens + outputTokens);
+            int cachedContentTokenCount = usageMetadata.path("cachedContentTokenCount").asInt(0);
 
             double estimatedCost = (totalTokens / 1000.0) * config.getCostPer1kTokens();
 
-            lastTokenUsage = new TokenUsage(inputTokens, outputTokens, totalTokens, estimatedCost);
+            lastTokenUsage = new TokenUsage(inputTokens, outputTokens, totalTokens, estimatedCost, cachedContentTokenCount);
 
             if (config.isTrackUsage()) {
                 logger.info("Token usage: {}", lastTokenUsage.getFormattedReport());
+                if (cachedContentTokenCount > 0) {
+                    logger.info("🚀 Cache hit! {} tokens served from cache, saving API costs", cachedContentTokenCount);
+                }
             }
         } else {
             lastTokenUsage = new TokenUsage();
