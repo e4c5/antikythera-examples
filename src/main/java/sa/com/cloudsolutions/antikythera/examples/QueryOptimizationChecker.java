@@ -89,6 +89,7 @@ public class QueryOptimizationChecker {
 
             if (isJpaRepository(typeWrapper)) {
                 analyzeRepository(fullyQualifiedName, typeWrapper);
+                break;
             }
         }
     }
@@ -356,7 +357,7 @@ public class QueryOptimizationChecker {
                              firstCondition.columnName()) : "";
             
             System.out.printf("✓ OPTIMIZED: %s.%s - Query is already optimized%s%n",
-                                            result.getRepositoryClass(),
+                                            result.getQuery().getClassname(),
                                             result.getMethodName(),
                                             cardinalityInfo);
             
@@ -394,7 +395,7 @@ public class QueryOptimizationChecker {
         
         // Report header with summary
         System.out.printf("\n⚠ OPTIMIZATION NEEDED: %s.%s (%d issue%s found)%n",
-                                        result.getRepositoryClass(),
+                                        result.getQuery().getClassname(),
                                         result.getMethodName(),
                                         issues.size(),
                                         issues.size() == 1 ? "" : "s");
@@ -764,7 +765,7 @@ public class QueryOptimizationChecker {
                         // If no table specified, use the query's table
                         table = result.getQuery().getTable();
                         if (table == null || table.isEmpty()) {
-                            table = inferTableNameFromQuerySafe(result.getQuery().getQuery(), result.getRepositoryClass());
+                            table = inferTableNameFromQuerySafe(result.getQuery().getQuery(), result.getQuery().getClassname());
                         }
                         column = parts[0];
                     }

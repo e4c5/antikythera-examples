@@ -517,9 +517,6 @@ public class GeminiAIService {
 
         MethodDeclaration old = originalQuery.getMethodDeclaration().asMethodDeclaration();
 
-        // Copy imports to handle annotation parsing correctly, especially in fallback.
-        old.findCompilationUnit().ifPresent(oldCu -> oldCu.getImports().forEach(cu::addImport));
-
         ClassOrInterfaceDeclaration cdecl = cu.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
 
         CompilationUnit tmp = StaticJavaParser.parse(String.format("class Dummy{ %s }", optimizedCodeElement));
