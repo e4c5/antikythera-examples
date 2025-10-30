@@ -50,14 +50,14 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         if (!updates.isEmpty()) {
             writeFile(fullyQualifiedName);
         }
-        //        applySignatureUpdatesToUsages(updates, fullyQualifiedName);
+        applySignatureUpdatesToUsages(updates, fullyQualifiedName);
     }
 
     /**
      * Apply recorded signature updates to usage sites in classes that @Autowired the given repository.
      * This reorders call arguments to match the new parameter order. Only same-arity calls are modified.
      */
-    public void applySignatureUpdatesToUsages(List<CodeStandardizer.SignatureUpdate> updates, String fullyQualifiedName) throws FileNotFoundException {
+    public void applySignatureUpdatesToUsages(List<QueryOptimizationResult> updates, String fullyQualifiedName) throws FileNotFoundException {
         Map<String, String> fields = Fields.getFieldDependencies(fullyQualifiedName);
         for (Map.Entry<String, String> entry : fields.entrySet()) {
             String className = entry.getKey();
@@ -109,7 +109,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         }
     }
 
-    static class NameChangeVisitor extends ModifierVisitor<List<CodeStandardizer.SignatureUpdate>> {
+    static class NameChangeVisitor extends ModifierVisitor<List<QueryOptimizationResult>> {
         String fielName;
         boolean modified;
         NameChangeVisitor(String fieldName) {
@@ -117,13 +117,15 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         }
 
         @Override
-        public MethodCallExpr visit(MethodCallExpr mce, List<CodeStandardizer.SignatureUpdate> updates) {
+        public MethodCallExpr visit(MethodCallExpr mce, List<QueryOptimizationResult> updates) {
             super.visit(mce, updates);
             Optional<Expression> scope = mce.getScope();
-            if (scope.isPresent() && scope.get() instanceof NameExpr fe && fe.getNameAsString().equals(fielName)) {
-                for (CodeStandardizer.SignatureUpdate update : updates) {
-                    if (update.methodName.equals(mce.getNameAsString())) {
-                        mce.setName(update.newMethodName);
+            if (scope.isPresent() && scope.get() instanceof NameExpr fe && fe.getNameAsString().equals(fielName) && !updates.isEmpty()) {
+                QueryOptimizationResult update = updates.getFirst();
+                if (update.getMethodName().equals(mce.getNameAsString()) && !update.getOptimizationIssues().isEmpty()) {
+                    OptimizationIssue issue = update.getOptimizationIssues().getFirst();
+                    if (issue.optimizedQuery() != null) {
+                        mce.setName(issue.optimizedQuery().getMethodName());
                         modified = true;
                     }
                 }

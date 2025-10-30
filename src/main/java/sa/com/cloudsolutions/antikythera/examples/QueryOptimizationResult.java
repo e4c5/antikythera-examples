@@ -35,22 +35,6 @@ public class QueryOptimizationResult {
     }
     
     /**
-     * Gets the repository class name that was analyzed.
-     * 
-     * @return the fully qualified repository class name
-     */
-    public String getRepositoryClass() {
-        // First try to get from stored repository class name (avoids AST traversal issues)
-        if (query.getRepositoryClassName() != null) {
-            return query.getRepositoryClassName();
-        }
-        
-        // Fallback to AST traversal (original approach)
-        return query.getMethodDeclaration().getCallableDeclaration()
-                .findAncestor(ClassOrInterfaceDeclaration.class).orElseThrow().getFullyQualifiedName().orElseThrow();
-    }
-    
-    /**
      * Gets the method name that was analyzed.
      * 
      * @return the method name
@@ -186,7 +170,7 @@ public class QueryOptimizationResult {
      */
     public String getSummaryReport() {
         StringBuilder report = new StringBuilder();
-        report.append(String.format("Query Analysis Results for %s.%s%n", getRepositoryClass(), getMethodName()));
+        report.append(String.format("Query Analysis Results for %s.%s%n", query.getClassname(), getMethodName()));
         
         // Include full WHERE clause information
         String fullQuery = query.getOriginalQuery();
@@ -235,7 +219,7 @@ public class QueryOptimizationResult {
     public String toString() {
         return String.format("repositoryClass='%s', methodName='%s', " +
                            "whereConditions=%d, optimizationIssues=%d, isOptimized=%s",
-                           getRepositoryClass(), getMethodName(), whereConditions.size(),
+                           query.getClassname(), getMethodName(), whereConditions.size(),
                            optimizationIssues.size(), isAlreadyOptimized);
     }
 

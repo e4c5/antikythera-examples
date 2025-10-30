@@ -23,36 +23,6 @@ public class QueryBatchProcessor {
     }
 
     /**
-     * Adds a query result to the appropriate repository batch.
-     * Extracts cardinality information for columns involved in the query.
-     */
-    public void addQueryResult(QueryOptimizationResult result) {
-        if (result == null || result.getQuery() == null) {
-            return;
-        }
-
-        String repositoryName = result.getRepositoryClass();
-        if (repositoryName == null) {
-            repositoryName = "UnknownRepository";
-        }
-
-        // Get or create batch for this repository
-        QueryBatch batch = repositoryBatches.computeIfAbsent(repositoryName, QueryBatch::new);
-        
-        // Add the query to the batch
-        batch.addQuery(result.getQuery());
-        
-        // Extract cardinality information and add it to the batch
-        Map<String, CardinalityLevel> cardinalityData = extractCardinalityInformation(result);
-        for (Map.Entry<String, CardinalityLevel> entry : cardinalityData.entrySet()) {
-            batch.addColumnCardinality(entry.getKey(), entry.getValue());
-        }
-        
-        logger.debug("Added query {} to batch for repository {} with {} cardinality entries", 
-                result.getMethodName(), repositoryName, cardinalityData.size());
-    }
-
-    /**
      * Extracts cardinality information from the query result.
      * Returns a map of column names to their cardinality levels.
      */
