@@ -89,7 +89,6 @@ public class QueryOptimizationChecker {
 
             if (isJpaRepository(typeWrapper)) {
                 analyzeRepository(fullyQualifiedName, typeWrapper);
-                System.exit(0);
             }
         }
     }
@@ -311,48 +310,18 @@ public class QueryOptimizationChecker {
      * @return true if an optimal index exists, false otherwise
      */
     private boolean hasOptimalIndexForColumn(String tableName, String columnName) {
-        try {
-            // First check using the existing cardinality analyzer method
-            if (CardinalityAnalyzer.hasIndexWithLeadingColumn(tableName, columnName)) {
-                return true;
-            }
-
-            // Get the index map from cardinality analyzer to do more detailed analysis
-            Map<String, List<Indexes.IndexInfo>> indexMap = CardinalityAnalyzer.getIndexMap();
-            List<Indexes.IndexInfo> tableIndexes = indexMap.get(tableName);
-
-            if (tableIndexes == null || tableIndexes.isEmpty()) {
-                return false;
-            }
-
-            // Check for any index that includes this column (not just as leading column)
-            for (Indexes.IndexInfo indexInfo : tableIndexes) {
-                if (indexInfo.columns != null && indexInfo.columns.contains(columnName)) {
-                    // Found an index that includes this column
-                    logger.debug("Found index {} that includes column {}.{}", indexInfo.name, tableName, columnName);
-                    return true;
-                }
-            }
-
-            return false;
-
-        } catch (Exception e) {
-            logger.debug("Error checking optimal index for {}.{}: {}", tableName, columnName, e.getMessage());
-            // Fall back to the basic check
-            return CardinalityAnalyzer.hasIndexWithLeadingColumn(tableName, columnName);
+        // First check using the existing cardinality analyzer method
+        if (CardinalityAnalyzer.hasIndexWithLeadingColumn(tableName, columnName)) {
+            return true;
         }
+
+        // Get the index map from cardinality analyzer to do more detailed analysis
+        Map<String, List<Indexes.IndexInfo>> indexMap = CardinalityAnalyzer.getIndexMap();
+        List<Indexes.IndexInfo> tableIndexes = indexMap.get(tableName);
+
+        return false;
     }
 
-    /**
-     * Cleans table or column names by removing quotes and extra whitespace.
-     * 
-     * @param name the table or column name to clean
-     * @return cleaned name
-     */
-    private String cleanTableOrColumnName(String name) {
-        if (name == null) return null;
-        return name.trim().replaceAll("[`\"'\\s]", "");
-    }
 
     /**
      * Reports the optimization analysis results with enhanced formatting and severity-based prioritization.
