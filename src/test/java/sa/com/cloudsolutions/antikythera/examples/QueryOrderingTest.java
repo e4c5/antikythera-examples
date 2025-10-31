@@ -28,9 +28,8 @@ class QueryOrderingTest {
         List<Indexes.IndexInfo> userIndexes = new ArrayList<>();
         userIndexes.add(new Indexes.IndexInfo("PRIMARY_KEY", "pk_users", Arrays.asList("user_id")));
         indexMap.put("users", userIndexes);
-
-        CardinalityAnalyzer analyzer = new CardinalityAnalyzer(indexMap);
-        engine = new QueryAnalysisEngine(analyzer);
+        CardinalityAnalyzer.setIndexMap(indexMap);
+        engine = new QueryAnalysisEngine();
     }
 
     @Test
@@ -44,7 +43,7 @@ class QueryOrderingTest {
         when(callable.getCallableDeclaration().getNameAsString()).thenReturn("UserRepository");
         when(callable.getNameAsString()).thenReturn("findByNameAndIsActive");
         when(repoQuery.getMethodDeclaration()).thenReturn(callable);
-        when(repoQuery.getTable()).thenReturn("users");
+        when(repoQuery.getPrimaryTable()).thenReturn("users");
 
         when(repoQuery.getStatement()).thenReturn(stmt);
         when(repoQuery.getOriginalQuery()).thenReturn(sql);
