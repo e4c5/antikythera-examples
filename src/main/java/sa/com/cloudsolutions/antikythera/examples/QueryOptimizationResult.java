@@ -18,7 +18,7 @@ public class QueryOptimizationResult {
     private final List<WhereCondition> whereConditions;
     private final List<OptimizationIssue> optimizationIssues;
     private final boolean isAlreadyOptimized;
-    
+    private final List<String> indexSuggestions;
     /**
      * Creates a new QueryOptimizationResult instance.
      * 
@@ -26,12 +26,13 @@ public class QueryOptimizationResult {
      * @param whereConditions the list of WHERE clause conditions found in the query
      * @param optimizationIssues the list of optimization issues identified
      */
-    public QueryOptimizationResult(RepositoryQuery query,
-                                   List<WhereCondition> whereConditions, List<OptimizationIssue> optimizationIssues) {
+    public QueryOptimizationResult(RepositoryQuery query,List<WhereCondition> whereConditions,
+                                   List<OptimizationIssue> optimizationIssues, List<String> indexSuggestions) {
         this.query = query;
         this.whereConditions = new ArrayList<>(whereConditions != null ? whereConditions : Collections.emptyList());
         this.optimizationIssues = new ArrayList<>(optimizationIssues != null ? optimizationIssues : Collections.emptyList());
         this.isAlreadyOptimized = this.optimizationIssues.isEmpty();
+        this.indexSuggestions = indexSuggestions;
     }
     
     /**
@@ -185,36 +186,11 @@ public class QueryOptimizationResult {
         
         return report.toString();
     }
-    
-    /**
-     * Gets a detailed report including all conditions and issues.
-     * 
-     * @return formatted detailed report
-     */
-    public String getDetailedReport() {
-        StringBuilder report = new StringBuilder();
-        report.append(getSummaryReport());
-        
-        if (!whereConditions.isEmpty()) {
-            report.append("\nWHERE Conditions:\n");
-            for (WhereCondition condition : whereConditions) {
-                report.append(String.format("  %d. %s %s ? (Cardinality: %s)%n", 
-                            condition.position() + 1, condition.columnName(),
-                            condition.operator(), condition.cardinality()));
-            }
-        }
-        
-        if (!optimizationIssues.isEmpty()) {
-            report.append("\nOptimization Issues:\n");
-            for (OptimizationIssue issue : optimizationIssues) {
-                report.append(issue.getFormattedReport());
-                report.append("\n");
-            }
-        }
-        
-        return report.toString();
+
+    public List<String> getIndexSuggestions() {
+        return indexSuggestions;
     }
-    
+
     @Override
     public String toString() {
         return String.format("repositoryClass='%s', methodName='%s', " +

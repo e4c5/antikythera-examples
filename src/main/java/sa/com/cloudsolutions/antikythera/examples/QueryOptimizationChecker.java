@@ -291,7 +291,6 @@ public class QueryOptimizationChecker {
             llmRecommendation.severity(),
             llmRecommendation.queryText(),
             llmRecommendation.aiExplanation(),
-            requiredIndexes, // Our analysis based on LLM recommendations and Indexes class
             llmRecommendation.optimizedQuery()
         );
 
@@ -299,7 +298,7 @@ public class QueryOptimizationChecker {
         List<OptimizationIssue> issues = new ArrayList<>();
         issues.add(enhancedRecommendation);
 
-        return new QueryOptimizationResult(rawQuery, whereConditions, issues);
+        return new QueryOptimizationResult(rawQuery, whereConditions, issues, requiredIndexes);
     }
 
     /**
@@ -408,7 +407,22 @@ public class QueryOptimizationChecker {
             OptimizationIssue issue = sortedIssues.get(i);
             System.out.println(formatOptimizationIssueEnhanced(issue, i + 1, result));
         }
-        
+
+        if (!result.getIndexSuggestions().isEmpty()) {
+            System.out.println("\n    📋 Required Indexes:");
+            for (String indexRecommendation : result.getIndexSuggestions()) {
+                String[] parts = indexRecommendation.split("\\.", 2);
+                if (parts.length == 2) {
+                    String table = parts[0];
+                    String column = parts[1];
+                    boolean hasExistingIndex = CardinalityAnalyzer.hasIndexWithLeadingColumn(table, column);
+                    String status = hasExistingIndex ? "✓ EXISTS" : "⚠ MISSING";
+                    System.out.printf("\n      • %s.%s [%s]", table, column, status);
+                }
+            }
+        }
+
+
         // Add specific recommendations for column reordering
         addColumnReorderingRecommendations(sortedIssues);
 
@@ -477,23 +491,6 @@ public class QueryOptimizationChecker {
         // AI explanation
         if (issue.hasAIRecommendation()) {
             formatted.append(String.format("\n    🤖 AI Explanation: %s", issue.aiExplanation()));
-        }
-        
-        // Required indexes if specified with enhanced formatting
-        if (!issue.getRequiredIndexes().isEmpty()) {
-            formatted.append("\n    📋 Required Indexes:");
-            for (String indexRecommendation : issue.getRequiredIndexes()) {
-                String[] parts = indexRecommendation.split("\\.", 2);
-                if (parts.length == 2) {
-                    String table = parts[0];
-                    String column = parts[1];
-                    boolean hasExistingIndex = CardinalityAnalyzer.hasIndexWithLeadingColumn(table, column);
-                    String status = hasExistingIndex ? "✓ EXISTS" : "⚠ MISSING";
-                    formatted.append(String.format("\n      • %s.%s [%s]", table, column, status));
-                } else {
-                    formatted.append(String.format("\n      • %s", indexRecommendation));
-                }
-            }
         }
         
         return formatted.toString();
@@ -644,23 +641,6 @@ public class QueryOptimizationChecker {
                 recommendations.append(String.format("        With:    WHERE %s = ? AND %s = ?%n",
                     issue.recommendedFirstColumn(), issue.currentFirstColumn()));
             }
-            
-            // Add required indexes if specified by AI with status check
-            if (!issue.getRequiredIndexes().isEmpty()) {
-                recommendations.append("        ").append(indexHeader).append("\n");
-                for (String indexRecommendation : issue.getRequiredIndexes()) {
-                    String[] parts = indexRecommendation.split("\\.", 2);
-                    if (parts.length == 2) {
-                        String table = parts[0];
-                        String column = parts[1];
-                        boolean hasExistingIndex = CardinalityAnalyzer.hasIndexWithLeadingColumn(table, column);
-                        String status = hasExistingIndex ? "✓ EXISTS" : indexCreateStatus;
-                        recommendations.append(String.format("          • %s.%s [%s]%n", table, column, status));
-                    } else {
-                        recommendations.append(String.format("          • %s%n", indexRecommendation));
-                    }
-                }
-            }
         }
     }
 
@@ -747,39 +727,6 @@ public class QueryOptimizationChecker {
             String col = !idxIssue.recommendedFirstColumn().isEmpty() ? idxIssue.recommendedFirstColumn() : idxIssue.currentFirstColumn();
             String key = (table + "|" + col).toLowerCase();
             suggestedNewIndexes.add(key);
-        }
-        
-        // Collect AI-generated index recommendations from OptimizationIssue.requiredIndexes
-        // Use improved index checking logic that leverages the Indexes class
-        for (OptimizationIssue issue : issues) {
-            if (!issue.getRequiredIndexes().isEmpty()) {
-                for (String indexRecommendation : issue.getRequiredIndexes()) {
-                    // Parse index recommendation format: "table.column" or just "column"
-                    String[] parts = indexRecommendation.split("\\.", 2);
-                    String table, column;
-                    
-                    if (parts.length == 2) {
-                        table = parts[0];
-                        column = parts[1];
-                    } else {
-                        // If no table specified, use the query's table
-                        table = result.getQuery().getTable();
-                        if (table == null || table.isEmpty()) {
-                            table = inferTableNameFromQuerySafe(result.getQuery().getQuery(), result.getQuery().getClassname());
-                        }
-                        column = parts[0];
-                    }
-                    
-                    // Use improved index checking that leverages the Indexes class
-                    if (!hasOptimalIndexForColumn(table, column)) {
-                        String key = (table + "|" + column).toLowerCase();
-                        suggestedNewIndexes.add(key);
-                        logger.debug("Added index suggestion from AI recommendation: {}.{}", table, column);
-                    } else {
-                        logger.debug("Skipping AI index recommendation - optimal index already exists: {}.{}", table, column);
-                    }
-                }
-            }
         }
     }
 

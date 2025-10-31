@@ -352,7 +352,7 @@ public class GeminiAIService {
             // Extract JSON from the response (it might be wrapped in markdown code blocks)
             String jsonResponse = extractJsonFromResponse(textResponse);
 
-            if (jsonResponse == null || jsonResponse.trim().isEmpty()) {
+            if (jsonResponse.trim().isEmpty()) {
                 logger.warn("No valid JSON found in AI response");
                 return issues;
             }
@@ -420,8 +420,7 @@ public class GeminiAIService {
             }
         }
 
-        String result = jsonBuilder.toString().trim();
-        return result.isEmpty() ? null : result;
+        return jsonBuilder.toString().trim();
     }
 
     /**
@@ -447,9 +446,6 @@ public class GeminiAIService {
         
         List<String> recommendedColumnOrder = optimizedResult.columnOrder();
         RepositoryQuery optimizedQuery = optimizedResult.optimizedQuery();
-        
-        // Index recommendations will be handled by QueryOptimizationChecker with proper Liquibase checking
-        List<String> requiredIndexes = new ArrayList<>();
 
         if (!optimizationNeeded) {
             return new OptimizationIssue(
@@ -459,9 +455,8 @@ public class GeminiAIService {
                     "Where clause is already optimized",
                     OptimizationIssue.Severity.LOW, // Low severity since no action needed
                     originalQuery.getQuery(),
-                    notes, // AI explanation
-                    requiredIndexes, // No index recommendations needed
-                    null // No optimized query since no optimization needed
+                    notes,
+                    null
             );
         }
         OptimizationIssue.Severity severity = determineSeverity(notes, currentColumnOrder, recommendedColumnOrder);
@@ -473,8 +468,7 @@ public class GeminiAIService {
                 notes,
                 severity,
                 originalQuery.getQuery(),
-                notes, // AI explanation
-                requiredIndexes,
+                notes,
                 optimizedQuery
         );
     }
