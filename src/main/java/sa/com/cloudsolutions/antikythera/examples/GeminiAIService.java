@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.Node;
+import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 
 import org.slf4j.Logger;
@@ -463,13 +465,12 @@ public class GeminiAIService {
             );
         }
         OptimizationIssue.Severity severity = determineSeverity(notes, currentColumnOrder, recommendedColumnOrder);
-        String description = buildOptimizationDescription(notes, currentColumnOrder, recommendedColumnOrder);
 
         return new OptimizationIssue(
                 originalQuery,
                 currentColumnOrder,
                 recommendedColumnOrder,
-                description,
+                notes,
                 severity,
                 originalQuery.getQuery(),
                 notes, // AI explanation
@@ -503,21 +504,22 @@ public class GeminiAIService {
     }
 
     /**
+     * Record to hold both the optimized query and its column order.
+     */
+    private record OptimizedQueryResult(RepositoryQuery optimizedQuery, List<String> columnOrder) {}
+
+
+    /**
      * Extracts recommended column order from the optimized code element.
      * Creates a new RepositoryQuery that clones the original method but with the optimized method signature,
      * then passes it through to extractColumnOrderFromRepositoryQuery.
      */
-    /**
-     * Record to hold both the optimized query and its column order.
-     */
-    private record OptimizedQueryResult(RepositoryQuery optimizedQuery, List<String> columnOrder) {}
-    
     private OptimizedQueryResult extractRecommendedColumnOrder(String optimizedCodeElement, RepositoryQuery originalQuery) throws IOException {
         CompilationUnit cu = originalQuery.getMethodDeclaration().getCallableDeclaration().findCompilationUnit().orElseThrow();
 
         MethodDeclaration old = originalQuery.getMethodDeclaration().asMethodDeclaration();
 
-        ClassOrInterfaceDeclaration cdecl = cu.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
+        ClassOrInterfaceDeclaration cdecl = cloneClassSignature(cu.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow());
 
         CompilationUnit tmp = StaticJavaParser.parse(String.format("class Dummy{ %s }", optimizedCodeElement));
         MethodDeclaration newMethod = tmp.findFirst(MethodDeclaration.class).orElseThrow();
@@ -537,6 +539,69 @@ public class GeminiAIService {
         return new OptimizedQueryResult(rq, extractColumnOrderFromRepositoryQuery(rq));
     }
 
+    /**
+     * Efficiently creates a new ClassOrInterfaceDeclaration with the exact same
+     * signature as the original, but with an empty body (no members).
+     *
+     * @param original The original class declaration to copy the signature from.
+     * @return A new declaration containing only the signature.
+     */
+    public ClassOrInterfaceDeclaration cloneClassSignature(ClassOrInterfaceDeclaration original) {
+        if (original == null) {
+            return null;
+        }
+
+        // 1. Create a new, completely empty declaration
+        ClassOrInterfaceDeclaration signatureClone = new ClassOrInterfaceDeclaration();
+
+        // 2. Set the signature properties by cloning them.
+
+        // Copy Modifiers (e.g., public, abstract)
+        signatureClone.setModifiers(cloneNodeList(original.getModifiers()));
+
+        // Copy Annotations (e.g., @Deprecated)
+        signatureClone.setAnnotations(cloneNodeList(original.getAnnotations()));
+
+        // Copy 'interface' or 'class' flag
+        signatureClone.setInterface(original.isInterface());
+
+        // Copy Name
+        signatureClone.setName(original.getName().clone());
+
+        // Copy Type Parameters (e.g., <T, E>)
+        signatureClone.setTypeParameters(cloneNodeList(original.getTypeParameters()));
+
+        // Copy 'extends' clause
+        signatureClone.setExtendedTypes(cloneNodeList(original.getExtendedTypes()));
+
+        // Copy 'implements' clause
+        signatureClone.setImplementedTypes(cloneNodeList(original.getImplementedTypes()));
+
+        // We deliberately do not copy the members.
+
+        return signatureClone;
+    }
+
+    /**
+     * A helper method to correctly "clone" a NodeList.
+     * It creates a new NodeList and fills it with deep clones of each
+     * node from the original list.
+     *
+     * @param list The original list of nodes to clone.
+     * @param <T>  The type of Node in the list.
+     * @return A new NodeList containing cloned nodes.
+     */
+    private <T extends Node> NodeList<T> cloneNodeList(NodeList<T> list) {
+        if (list == null || list.isEmpty()) {
+            return new NodeList<>();
+        }
+
+        NodeList<T> clonedList = new NodeList<>();
+        for (T node : list) {
+            clonedList.add((T) node.clone());
+        }
+        return clonedList;
+    }
 
     /**
      * Determines the severity of the optimization issue.
@@ -550,18 +615,4 @@ public class GeminiAIService {
             return OptimizationIssue.Severity.LOW;
         }
     }
-
-    /**
-     * Builds a description for the optimization issue.
-     */
-    private String buildOptimizationDescription(String notes, List<String> currentOrder, List<String> recommendedOrder) {
-        if (currentOrder.isEmpty() || recommendedOrder.isEmpty()) {
-            return "Query optimization recommended: " + notes;
-        }
-
-        return String.format("Reorder WHERE conditions: move '%s' before '%s' for better performance",
-                recommendedOrder.get(0), currentOrder.get(0));
-    }
-
-
 }

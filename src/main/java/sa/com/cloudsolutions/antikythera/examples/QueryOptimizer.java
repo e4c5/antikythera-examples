@@ -1,8 +1,13 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
+import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.expr.AnnotationExpr;
 import com.github.javaparser.ast.expr.Expression;
+import com.github.javaparser.ast.expr.MemberValuePair;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.NameExpr;
+import com.github.javaparser.ast.expr.NormalAnnotationExpr;
+import com.github.javaparser.ast.expr.StringLiteralExpr;
 import com.github.javaparser.ast.visitor.ModifierVisitor;
 import com.github.javaparser.printer.lexicalpreservation.LexicalPreservingPrinter;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
@@ -41,9 +46,20 @@ public class QueryOptimizer extends QueryOptimizationChecker{
     protected void analyzeRepository(String fullyQualifiedName, TypeWrapper typeWrapper) throws IOException, ReflectiveOperationException, InterruptedException {
         super.analyzeRepository(fullyQualifiedName, typeWrapper);
         List<QueryOptimizationResult> updates = new ArrayList<>();
-
+        try {
+            LexicalPreservingPrinter.setup(AntikytheraRunTime.getCompilationUnit(fullyQualifiedName));
+        } catch (Exception e) {
+            // pass this
+        }
         for (QueryOptimizationResult result : results) {
             if (!result.isAlreadyOptimized()) {
+                if(!result.getOptimizationIssues().isEmpty()) {
+                    OptimizationIssue issue = result.getOptimizationIssues().getFirst();
+                    if (issue.optimizedQuery() != null) {
+                        updateAnnotationValue(issue.query().getMethodDeclaration().asMethodDeclaration(),
+                                "Query", issue.optimizedQuery().getStatement(). toString());
+                    }
+                }
                 updates.add(result);
             }
         }
@@ -51,6 +67,67 @@ public class QueryOptimizer extends QueryOptimizationChecker{
             writeFile(fullyQualifiedName);
         }
         applySignatureUpdatesToUsages(updates, fullyQualifiedName);
+    }
+
+    /**
+     * Updates the "value" of a JavaParser AnnotationExpr on a method,
+     * preserving the original annotation's indentation and formatting.
+     * <p>
+     * This handles both single-member (@Query("...")) and normal
+     * (@Query(value = "...")) annotation styles.
+     *
+     * @param method          The method node containing the annotation.
+     * @param annotationName  The name of the annotation to find (e.g., "Query").
+     * @param newStringValue  The new string to set as the annotation's value.
+     * @return true if the annotation was found and successfully replaced,
+     * false otherwise.
+     */
+    public void updateAnnotationValue(MethodDeclaration method,
+                                         String annotationName,
+                                         String newStringValue) {
+
+        // 1. Find the annotation on the method
+        Optional<AnnotationExpr> oldAnnotationOpt = method.getAnnotationByName(annotationName);
+        if (oldAnnotationOpt.isPresent()) {
+
+
+            AnnotationExpr oldAnnotation = oldAnnotationOpt.get();
+
+            // 2. Create the new value expression
+            StringLiteralExpr newValueExpr = new StringLiteralExpr(newStringValue);
+
+            // 3. Clone the old annotation to preserve its formatting
+            AnnotationExpr newAnnotation = oldAnnotation.clone();
+
+            // 4. Modify the clone's value based on its type
+            boolean updateSucceeded = false;
+            if (newAnnotation.isSingleMemberAnnotationExpr()) {
+
+                // --- Case 1: @Query("...") ---
+                newAnnotation.asSingleMemberAnnotationExpr().setMemberValue(newValueExpr);
+                updateSucceeded = true;
+
+            } else if (newAnnotation.isNormalAnnotationExpr()) {
+
+                // --- Case 2: @Query(value = "...") ---
+                NormalAnnotationExpr normal = newAnnotation.asNormalAnnotationExpr();
+
+                // Find the pair named "value" and update it
+                Optional<MemberValuePair> valuePair = normal.getPairs().stream()
+                        .filter(p -> p.getName().asString().equals("value"))
+                        .findFirst();
+
+                if (valuePair.isPresent()) {
+                    valuePair.get().setValue(newValueExpr);
+                    updateSucceeded = true;
+                }
+            }
+
+            // 5. If we successfully modified the clone, replace the original
+            if (updateSucceeded) {
+                oldAnnotation.replace(newAnnotation);
+            }
+        }
     }
 
     /**
@@ -87,14 +164,8 @@ public class QueryOptimizer extends QueryOptimizationChecker{
             } catch (IOException e) {
                 original = null; // If reading fails, proceed to write to be safe
             }
-            String content;
-            // Try to preserve original formatting/comments; fall back to plain printing if ranges are missing
-            try {
-                content = LexicalPreservingPrinter.print(cu);
-            } catch (RuntimeException ex) {
-                // Lexical preservation can fail if some nodes don't have ranges; fall back to standard pretty print
-                content = cu.toString();
-            }
+            String content = cu.toString();
+
             // If resulting content is identical to original, skip writing to avoid incidental whitespace changes
             if (original != null && original.equals(content)) {
                 return;
