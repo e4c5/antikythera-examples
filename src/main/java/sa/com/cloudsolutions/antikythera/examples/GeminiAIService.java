@@ -10,6 +10,7 @@ import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import sa.com.cloudsolutions.antikythera.generator.QueryMethodParameter;
 import sa.com.cloudsolutions.antikythera.generator.QueryType;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
 import sa.com.cloudsolutions.antikythera.parser.BaseRepositoryParser;
@@ -474,8 +475,8 @@ public class GeminiAIService {
     }
 
     /**
-     * Extracts column order from a RepositoryQuery using QueryOptimizationExtractor.
-     * This replaces the manual method signature parsing with proper WHERE clause analysis.
+     * Extracts column order from a RepositoryQuery using existing BaseRepositoryQuery infrastructure.
+     * This replaces QueryOptimizationExtractor with existing BaseRepositoryQuery methods.
      */
     private List<String> extractColumnOrderFromRepositoryQuery(RepositoryQuery repositoryQuery) {
         List<String> columns = new ArrayList<>();
@@ -483,17 +484,18 @@ public class GeminiAIService {
         if (repositoryQuery == null) {
             return columns;
         }
-        // Use QueryOptimizationExtractor to properly analyze WHERE conditions
-        QueryOptimizationExtractor extractor = new QueryOptimizationExtractor();
-        List<WhereCondition> whereConditions = extractor.extractWhereConditions(repositoryQuery);
-
-        // Extract column names in the order they appear in WHERE clause
-        for (WhereCondition condition : whereConditions) {
-            String columnName = condition.columnName();
-            if (columnName != null && !columnName.trim().isEmpty()) {
-                columns.add(columnName);
+        
+        // Extract columns from method parameters (for derived queries)
+        List<QueryMethodParameter> methodParameters = repositoryQuery.getMethodParameters();
+        if (methodParameters != null && !methodParameters.isEmpty()) {
+            for (QueryMethodParameter param : methodParameters) {
+                String columnName = param.getColumnName();
+                if (columnName != null && !columnName.isEmpty()) {
+                    columns.add(columnName);
+                }
             }
         }
+        
         return columns;
     }
 

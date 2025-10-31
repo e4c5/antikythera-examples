@@ -20,14 +20,12 @@ public class QueryAnalysisEngine {
 
     private static final Logger logger = LoggerFactory.getLogger(QueryAnalysisEngine.class);
 
-    private final QueryOptimizationExtractor optimizationExtractor;
-    
     /**
-     * Creates a new QueryAnalysisEngine with the provided cardinality analyzer.
-     * 
+     * Creates a new QueryAnalysisEngine.
+     * Updated to use BaseRepositoryQuery methods instead of QueryOptimizationExtractor.
      */
     public QueryAnalysisEngine() {
-        this.optimizationExtractor = new QueryOptimizationExtractor();
+        // No longer need QueryOptimizationExtractor - using BaseRepositoryQuery methods directly
     }
     
     /**
@@ -52,8 +50,8 @@ public class QueryAnalysisEngine {
             return createEmptyResult(repositoryQuery);
         }
 
-        // Extract WHERE clause conditions using the parser infrastructure
-        List<WhereCondition> whereConditions = optimizationExtractor.extractWhereConditions(repositoryQuery);
+        // Extract WHERE clause conditions using BaseRepositoryQuery infrastructure
+        List<WhereCondition> whereConditions = extractWhereConditionsFromRepositoryQuery(repositoryQuery);
 
         // Analyze condition ordering for optimization opportunities using existing CardinalityAnalyzer
         List<OptimizationIssue> optimizationIssues = analyzeConditionOrdering(
@@ -305,6 +303,38 @@ public class QueryAnalysisEngine {
      */
     private QueryOptimizationResult createEmptyResult(RepositoryQuery query) {
         return new QueryOptimizationResult(query, List.of(), List.of(), List.of());
+    }
+
+    /**
+     * Extracts WHERE conditions from RepositoryQuery using existing BaseRepositoryQuery infrastructure.
+     * This replaces QueryOptimizationExtractor.extractWhereConditions functionality.
+     * 
+     * @param repositoryQuery the repository query to extract conditions from
+     * @return list of WhereCondition objects for optimization analysis
+     */
+    private List<WhereCondition> extractWhereConditionsFromRepositoryQuery(RepositoryQuery repositoryQuery) {
+        List<WhereCondition> conditions = new ArrayList<>();
+        
+        String tableName = repositoryQuery.getPrimaryTable();
+        
+        // Extract conditions from method parameters (for derived queries)
+        List<QueryMethodParameter> methodParameters = repositoryQuery.getMethodParameters();
+        if (methodParameters != null && !methodParameters.isEmpty()) {
+            for (int i = 0; i < methodParameters.size(); i++) {
+                QueryMethodParameter param = methodParameters.get(i);
+                String columnName = param.getColumnName();
+                
+                if (columnName != null && !columnName.isEmpty()) {
+                    // Use existing CardinalityAnalyzer to get cardinality information
+                    CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(tableName, columnName);
+                    
+                    WhereCondition condition = new WhereCondition(columnName, "=", cardinality, i, param);
+                    conditions.add(condition);
+                }
+            }
+        }
+        
+        return conditions;
     }
 
     /**
