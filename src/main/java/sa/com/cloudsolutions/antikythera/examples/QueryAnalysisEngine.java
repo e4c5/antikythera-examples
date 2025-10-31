@@ -47,7 +47,7 @@ public class QueryAnalysisEngine {
         }
 
         // Extract table name for cardinality analysis
-        String tableName = repositoryQuery.getTable();
+        String tableName = repositoryQuery.getPrimaryTable();
         if (tableName == null || tableName.isEmpty()) {
             return createEmptyResult(repositoryQuery);
         }
@@ -73,7 +73,7 @@ public class QueryAnalysisEngine {
         List<QueryMethodParameter> methodParameters = repositoryQuery.getMethodParameters();
         if (methodParameters != null && !methodParameters.isEmpty()) {
             // Infer table name from repository class
-            String tableName = repositoryQuery.getTable();
+            String tableName = repositoryQuery.getPrimaryTable();
             
             // Create conditions based on method parameters
             for (int i = 0; i < methodParameters.size(); i++) {
@@ -111,7 +111,7 @@ public class QueryAnalysisEngine {
         }
         
         WhereCondition firstCondition = conditions.getFirst();
-        String tableName = query.getTable();
+        String tableName = query.getPrimaryTable();
         
         logger.debug("Analyzing condition ordering for {} conditions, first condition: {}", 
                     conditions.size(), firstCondition);

@@ -82,7 +82,7 @@ public class QueryOptimizationExtractor {
             return conditions;
         }
         
-        String tableName = repositoryQuery.getTable();
+        String tableName = repositoryQuery.getPrimaryTable();
         if (tableName == null || tableName.isEmpty()) {
             logger.debug("Cannot extract conditions from method parameters without table name");
             return conditions;

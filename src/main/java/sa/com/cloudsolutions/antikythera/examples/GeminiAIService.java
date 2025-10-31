@@ -10,6 +10,7 @@ import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import sa.com.cloudsolutions.antikythera.generator.QueryType;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
 import sa.com.cloudsolutions.antikythera.parser.BaseRepositoryParser;
 import sa.com.cloudsolutions.antikythera.parser.Callable;
@@ -124,7 +125,7 @@ public class GeminiAIService {
             }
 
             // Determine query type
-            String queryType = determineQueryType(query);
+            QueryType queryType = determineQueryType(query);
 
             // Build table schema and cardinality string
             String tableSchemaAndCardinality = buildTableSchemaString(batch, query);
@@ -139,7 +140,7 @@ public class GeminiAIService {
                       "queryType": "%s",
                       "queryText": "%s",
                       "tableSchemaAndCardinality": "%s"
-                    }""", fullMethodSignature, queryType, queryText, tableSchemaAndCardinality));
+                    }""", fullMethodSignature, queryType.name(), queryText, tableSchemaAndCardinality));
         }
 
         queriesJson.append("]");
@@ -178,18 +179,18 @@ public class GeminiAIService {
      * Determines the query type based on the RepositoryQuery.
      * Now properly checks for @Query annotation presence instead of blindly relying on isNative flag.
      */
-    private String determineQueryType(RepositoryQuery query) {
+    private QueryType determineQueryType(RepositoryQuery query) {
         // Check if the method has @Query annotation by examining the method declaration
         if (hasQueryAnnotation(query)) {
             // If @Query annotation is present, check if it's native
             if (isNativeQuery(query)) {
-                return "NATIVE_SQL";
+                return QueryType.NATIVE_SQL;
             } else {
-                return "HQL";
+                return QueryType.HQL;
             }
         } else {
             // No @Query annotation means it's a derived query
-            return "DERIVED";
+            return QueryType.DERIVED;
         }
     }
 
@@ -220,11 +221,10 @@ public class GeminiAIService {
      * Gets the appropriate query text based on the query type.
      */
     private String getQueryText(RepositoryQuery query) {
-        String queryType = determineQueryType(query);
+        QueryType queryType = determineQueryType(query);
         return switch (queryType) {
-            case "DERIVED" -> query.getMethodName();
-            case "HQL", "NATIVE_SQL" -> query.getOriginalQuery() != null ? query.getOriginalQuery() : query.getQuery();
-            default -> query.getMethodName();
+            case DERIVED -> query.getMethodName();
+            case HQL, NATIVE_SQL -> query.getOriginalQuery() != null ? query.getOriginalQuery() : query.getQuery();
         };
     }
 
@@ -233,7 +233,7 @@ public class GeminiAIService {
      */
     private String buildTableSchemaString(QueryBatch batch, RepositoryQuery query) {
         StringBuilder schema = new StringBuilder();
-        String tableName = query.getTable();
+        String tableName = query.getPrimaryTable();
         if (tableName == null || tableName.isEmpty()) {
             tableName = "UnknownTable";
         }

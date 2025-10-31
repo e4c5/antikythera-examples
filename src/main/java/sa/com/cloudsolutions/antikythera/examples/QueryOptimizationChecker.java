@@ -255,7 +255,7 @@ public class QueryOptimizationChecker {
      * Uses the Indexes class to properly determine what indexes are available.
      */
     private QueryOptimizationResult createResultWithIndexAnalysis(OptimizationIssue llmRecommendation, RepositoryQuery rawQuery) {
-        String tableName = rawQuery.getTable();
+        String tableName = rawQuery.getPrimaryTable();
         if (tableName == null || tableName.isEmpty()) {
             tableName = inferTableNameFromQuerySafe(rawQuery.getQuery(), rawQuery.getClassname());
         }
@@ -722,7 +722,7 @@ public class QueryOptimizationChecker {
         // Collect traditional index suggestions based on cardinality analysis
         List<OptimizationIssue> idxIssues = issues.stream().filter(this::isIndexCreationForLeadingMedium).toList();
         for (OptimizationIssue idxIssue : idxIssues) {
-            String table = result.getQuery().getTable();
+            String table = result.getQuery().getPrimaryTable();
             String col = !idxIssue.recommendedFirstColumn().isEmpty() ? idxIssue.recommendedFirstColumn() : idxIssue.currentFirstColumn();
             String key = (table + "|" + col).toLowerCase();
             suggestedNewIndexes.add(key);
