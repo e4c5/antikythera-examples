@@ -64,56 +64,6 @@ public class Indexes {
         return out;
     }
 
-    /**
-     * Convenience: return the set of all PK columns per table.
-     */
-    public static Map<String, Set<String>> primaryKeyColumns(File liquibaseXml) throws Exception {
-        Map<String, Set<String>> map = new LinkedHashMap<>();
-        for (Map.Entry<String, List<IndexInfo>> e : load(liquibaseXml).entrySet()) {
-            Set<String> cols = e.getValue().stream()
-                    .filter(i -> PRIMARY_KEY.equals(i.type))
-                    .flatMap(i -> i.columns.stream())
-                    .map(String::toLowerCase)
-                    .collect(Collectors.toCollection(LinkedHashSet::new));
-            map.put(e.getKey(), cols);
-        }
-        return map;
-    }
-
-    /**
-     * Convenience: return the set of first columns of UNIQUE constraints/indexes per table.
-     */
-    public static Map<String, Set<String>> uniqueFirstColumns(File liquibaseXml) throws Exception {
-        Map<String, Set<String>> map = new LinkedHashMap<>();
-        for (Map.Entry<String, List<IndexInfo>> e : load(liquibaseXml).entrySet()) {
-            Set<String> cols = e.getValue().stream()
-                    .filter(i -> UNIQUE_CONSTRAINT.equals(i.type) || UNIQUE_INDEX.equals(i.type))
-                    .map(i -> i.columns.isEmpty()? null : i.columns.getFirst())
-                    .filter(Objects::nonNull)
-                    .map(String::toLowerCase)
-                    .collect(Collectors.toCollection(LinkedHashSet::new));
-            map.put(e.getKey(), cols);
-        }
-        return map;
-    }
-
-    /**
-     * Convenience: return the set of first columns of non-unique indexes per table.
-     */
-    public static Map<String, Set<String>> indexFirstColumns(File liquibaseXml) throws Exception {
-        Map<String, Set<String>> map = new LinkedHashMap<>();
-        for (Map.Entry<String, List<IndexInfo>> e : load(liquibaseXml).entrySet()) {
-            Set<String> cols = e.getValue().stream()
-                    .filter(i -> "INDEX".equals(i.type))
-                    .map(i -> i.columns.isEmpty()? null : i.columns.get(0))
-                    .filter(Objects::nonNull)
-                    .map(String::toLowerCase)
-                    .collect(Collectors.toCollection(LinkedHashSet::new));
-            map.put(e.getKey(), cols);
-        }
-        return map;
-    }
-
     public static void main(String[] args) {
         if (args == null || args.length != 1) {
             System.err.println("Usage: java sa.com.cloudsolutions.liquibase.Indexes <path-to-liquibase-xml>");
