@@ -10,7 +10,7 @@ import java.util.Collections;
  */
 public record OptimizationIssue(RepositoryQuery query, List<String> currentColumnOrder,
                                 List<String> recommendedColumnOrder, String description,
-                                Severity severity, String queryText, String aiExplanation, List<String> requiredIndexes,
+                                Severity severity, String queryText, String aiExplanation,
                                 RepositoryQuery optimizedQuery) {
 
     /**
@@ -22,7 +22,7 @@ public record OptimizationIssue(RepositoryQuery query, List<String> currentColum
         this(query, 
              currentFirstColumn != null && !currentFirstColumn.isEmpty() ? List.of(currentFirstColumn) : Collections.emptyList(),
              recommendedFirstColumn != null && !recommendedFirstColumn.isEmpty() ? List.of(recommendedFirstColumn) : Collections.emptyList(),
-             description, severity, queryText, "", Collections.emptyList(), null);
+             description, severity, queryText, "", null);
     }
 
     /**
@@ -55,15 +55,6 @@ public record OptimizationIssue(RepositoryQuery query, List<String> currentColum
      */
     public boolean hasAIRecommendation() {
         return aiExplanation != null && !aiExplanation.trim().isEmpty();
-    }
-
-    /**
-     * Gets the list of required indexes for this optimization.
-     *
-     * @return unmodifiable list of required indexes, empty if none
-     */
-    public List<String> getRequiredIndexes() {
-        return requiredIndexes != null ? Collections.unmodifiableList(requiredIndexes) : Collections.emptyList();
     }
 
     /**
@@ -110,10 +101,6 @@ public record OptimizationIssue(RepositoryQuery query, List<String> currentColum
 
         if (hasAIRecommendation()) {
             report.append(String.format("  AI Explanation: %s%n", aiExplanation));
-        }
-
-        if (!getRequiredIndexes().isEmpty()) {
-            report.append(String.format("  Required Indexes: %s%n", String.join(", ", getRequiredIndexes())));
         }
 
         return report.toString();

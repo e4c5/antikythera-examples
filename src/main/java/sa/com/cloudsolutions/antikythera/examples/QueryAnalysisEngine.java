@@ -59,7 +59,7 @@ public class QueryAnalysisEngine {
         List<OptimizationIssue> optimizationIssues = analyzeConditionOrdering(
             whereConditions, repositoryQuery, queryText);
 
-        return new QueryOptimizationResult(repositoryQuery, whereConditions, optimizationIssues);
+        return new QueryOptimizationResult(repositoryQuery, whereConditions, optimizationIssues, List.of());
     }
 
     /**
@@ -90,7 +90,7 @@ public class QueryAnalysisEngine {
             optimizationIssues = analyzeConditionOrdering(whereConditions, repositoryQuery, queryText);
         }
         
-        return new QueryOptimizationResult(repositoryQuery, whereConditions, optimizationIssues);
+        return new QueryOptimizationResult(repositoryQuery, whereConditions, optimizationIssues, List.of());
     }
     
     /**
@@ -304,7 +304,7 @@ public class QueryAnalysisEngine {
      * Creates an empty result for cases where analysis cannot be performed.
      */
     private QueryOptimizationResult createEmptyResult(RepositoryQuery query) {
-        return new QueryOptimizationResult(query, new ArrayList<>(), new ArrayList<>());
+        return new QueryOptimizationResult(query, List.of(), List.of(), List.of());
     }
 
     /**
