@@ -222,7 +222,7 @@ public class OptimizationAnalysisVisitor {
         for (TableMapping tableMapping : metadata.getAllTableMappings()) {
             ColumnMapping columnMapping = tableMapping.getColumnMapping(propertyName);
             if (columnMapping != null) {
-                return columnMapping.getColumnName();
+                return columnMapping.columnName();
             }
         }
         

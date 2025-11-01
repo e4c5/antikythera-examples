@@ -19,14 +19,6 @@ public class TokenUsage {
         this.cachedContentTokenCount = 0;
     }
 
-    public TokenUsage(int inputTokens, int outputTokens, int totalTokens, double estimatedCost) {
-        this.inputTokens = inputTokens;
-        this.outputTokens = outputTokens;
-        this.totalTokens = totalTokens;
-        this.estimatedCost = estimatedCost;
-        this.cachedContentTokenCount = 0;
-    }
-
     public TokenUsage(int inputTokens, int outputTokens, int totalTokens, double estimatedCost, int cachedContentTokenCount) {
         this.inputTokens = inputTokens;
         this.outputTokens = outputTokens;

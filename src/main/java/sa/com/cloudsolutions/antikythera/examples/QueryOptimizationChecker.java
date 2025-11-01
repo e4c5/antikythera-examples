@@ -133,7 +133,7 @@ public class QueryOptimizationChecker {
         repositoryParser.buildQueries();
 
         // Step 1: Collect raw methods for LLM analysis (no programmatic analysis yet)
-        List<RepositoryQuery> rawQueries = collectRawQueries(typeWrapper);
+        List<RepositoryQuery> rawQueries = collectRawQueries();
 
         // Step 2: Send raw methods to LLM first
         List<OptimizationIssue> llmRecommendations = sendRawQueriesToLLM(fullyQualifiedName, rawQueries);
@@ -152,7 +152,7 @@ public class QueryOptimizationChecker {
      * Collects raw queries from a repository without any programmatic analysis.
      * These will be sent directly to the LLM for optimization recommendations.
      */
-    private List<RepositoryQuery> collectRawQueries(TypeWrapper typeWrapper) {
+    private List<RepositoryQuery> collectRawQueries() {
         List<RepositoryQuery> rawQueries = new ArrayList<>();
 
         // Use the queries that were already built by the RepositoryParser
@@ -311,15 +311,7 @@ public class QueryOptimizationChecker {
      */
     private boolean hasOptimalIndexForColumn(String tableName, String columnName) {
         // First check using the existing cardinality analyzer method
-        if (CardinalityAnalyzer.hasIndexWithLeadingColumn(tableName, columnName)) {
-            return true;
-        }
-
-        // Get the index map from cardinality analyzer to do more detailed analysis
-        Map<String, List<Indexes.IndexInfo>> indexMap = CardinalityAnalyzer.getIndexMap();
-        List<Indexes.IndexInfo> tableIndexes = indexMap.get(tableName);
-
-        return false;
+        return CardinalityAnalyzer.hasIndexWithLeadingColumn(tableName, columnName);
     }
 
 
