@@ -44,7 +44,7 @@ class QueryOrderingTest {
         when(callable.getCallableDeclaration().getNameAsString()).thenReturn("UserRepository");
         when(callable.getNameAsString()).thenReturn("findByNameAndIsActive");
         when(repoQuery.getMethodDeclaration()).thenReturn(callable);
-        when(repoQuery.getTable()).thenReturn("users");
+        when(repoQuery.getPrimaryTable()).thenReturn("users");
 
         when(repoQuery.getStatement()).thenReturn(stmt);
         when(repoQuery.getOriginalQuery()).thenReturn(sql);

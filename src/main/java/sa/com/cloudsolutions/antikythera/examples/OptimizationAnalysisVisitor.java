@@ -108,7 +108,7 @@ public class OptimizationAnalysisVisitor {
             
             // Use existing cardinality analysis
             CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(
-                repositoryQuery.getTable(), columnName);
+                repositoryQuery.getPrimaryTable(), columnName);
             
             WhereCondition condition = new WhereCondition(columnName, operator, cardinality, 
                                                         positionCounter++, parameter);
@@ -133,7 +133,7 @@ public class OptimizationAnalysisVisitor {
             }
             
             CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(
-                repositoryQuery.getTable(), columnName);
+                repositoryQuery.getPrimaryTable(), columnName);
             
             WhereCondition condition = new WhereCondition(columnName, "BETWEEN", cardinality, 
                                                         positionCounter++, parameter);
@@ -154,7 +154,7 @@ public class OptimizationAnalysisVisitor {
             QueryMethodParameter parameter = findMatchingParameter(columnName, inExpr.getRightExpression());
             
             CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(
-                repositoryQuery.getTable(), columnName);
+                repositoryQuery.getPrimaryTable(), columnName);
             
             WhereCondition condition = new WhereCondition(columnName, "IN", cardinality, 
                                                         positionCounter++, parameter);
@@ -176,7 +176,7 @@ public class OptimizationAnalysisVisitor {
             QueryMethodParameter parameter = findMatchingParameter(columnName, null);
             
             CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(
-                repositoryQuery.getTable(), columnName);
+                repositoryQuery.getPrimaryTable(), columnName);
             
             String operator = isNull.isNot() ? "IS NOT NULL" : "IS NULL";
             WhereCondition condition = new WhereCondition(columnName, operator, cardinality, 

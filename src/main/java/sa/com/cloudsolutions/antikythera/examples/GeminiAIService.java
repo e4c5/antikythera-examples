@@ -233,7 +233,7 @@ public class GeminiAIService {
      */
     private String buildTableSchemaString(QueryBatch batch, RepositoryQuery query) {
         StringBuilder schema = new StringBuilder();
-        String tableName = query.getTable();
+        String tableName = query.getPrimaryTable();
         if (tableName == null || tableName.isEmpty()) {
             tableName = "UnknownTable";
         }

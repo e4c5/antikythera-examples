@@ -64,7 +64,7 @@ class ErrorHandlingTest {
         when(callable.getCallableDeclaration().getNameAsString()).thenReturn(className);
         when(callable.getNameAsString()).thenReturn(methodName);
         when(query.getMethodDeclaration()).thenReturn(callable);
-        when(query.getTable()).thenReturn("users");
+        when(Query.getPrimaryTable()).thenReturn("users");
     }
 
     
