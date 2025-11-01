@@ -34,7 +34,7 @@ class QueryAnalysisEngineRefactoringTest {
         // Setup basic mocks
         when(cardinalityAnalyzer.analyzeColumnCardinality(anyString(), anyString()))
             .thenReturn(CardinalityLevel.MEDIUM);
-        when(repositoryQuery.getTable()).thenReturn("test_table");
+        when(repositoryQuery.getPrimaryTable()).thenReturn("test_table");
     }
 
     @Test
@@ -61,7 +61,7 @@ class QueryAnalysisEngineRefactoringTest {
     @Test
     void testAnalyzeQueryWithEmptyTable() {
         // Test that the engine handles queries with empty table names
-        when(repositoryQuery.getTable()).thenReturn("");
+        when(repositoryQuery.getPrimaryTable()).thenReturn("");
         when(repositoryQuery.getStatement()).thenReturn(null);
         
         QueryOptimizationResult result = queryAnalysisEngine.analyzeQuery(repositoryQuery);

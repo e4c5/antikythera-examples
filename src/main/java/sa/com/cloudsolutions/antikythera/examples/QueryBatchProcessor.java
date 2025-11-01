@@ -28,7 +28,7 @@ public class QueryBatchProcessor {
      */
     private Map<String, CardinalityLevel> extractCardinalityInformation(QueryOptimizationResult result) {
         Map<String, CardinalityLevel> cardinalityData = new HashMap<>();
-        String tableName = result.getQuery().getTable();
+        String tableName = result.getQuery().getPrimaryTable();
         
         // Extract cardinality for WHERE clause columns
         for (WhereCondition condition : result.getWhereConditions()) {
