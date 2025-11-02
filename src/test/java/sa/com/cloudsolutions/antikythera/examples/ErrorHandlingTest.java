@@ -11,8 +11,6 @@ import org.mockito.Answers;
 import sa.com.cloudsolutions.antikythera.generator.QueryMethodParameter;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
 import sa.com.cloudsolutions.antikythera.parser.Callable;
-import com.github.javaparser.ast.body.CallableDeclaration;
-import com.github.javaparser.ast.body.MethodDeclaration;
 import sa.com.cloudsolutions.liquibase.Indexes;
 
 import java.util.*;
@@ -55,7 +53,7 @@ class ErrorHandlingTest {
         userIndexes.add(primaryKey);
         
         indexMap.put("users", userIndexes);
-        cardinalityAnalyzer = new CardinalityAnalyzer(indexMap);
+        CardinalityAnalyzer.setIndexMap(indexMap);
     }
 
     // Helper to stub minimal method metadata required by QueryAnalysisEngine
@@ -64,7 +62,7 @@ class ErrorHandlingTest {
         when(callable.getCallableDeclaration().getNameAsString()).thenReturn(className);
         when(callable.getNameAsString()).thenReturn(methodName);
         when(query.getMethodDeclaration()).thenReturn(callable);
-        when(Query.getPrimaryTable()).thenReturn("users");
+        when(query.getPrimaryTable()).thenReturn("users");
     }
 
     
@@ -112,9 +110,9 @@ class ErrorHandlingTest {
 
     @Test
     void testNullInputsToCardinalityAnalyzer() {
-        CardinalityLevel nullTable = cardinalityAnalyzer.analyzeColumnCardinality(null, "column");
-        CardinalityLevel nullColumn = cardinalityAnalyzer.analyzeColumnCardinality("table", null);
-        CardinalityLevel bothNull = cardinalityAnalyzer.analyzeColumnCardinality(null, null);
+        CardinalityLevel nullTable = CardinalityAnalyzer.analyzeColumnCardinality(null, "column");
+        CardinalityLevel nullColumn = CardinalityAnalyzer.analyzeColumnCardinality("table", null);
+        CardinalityLevel bothNull = CardinalityAnalyzer.analyzeColumnCardinality(null, null);
         
         assertEquals(CardinalityLevel.MEDIUM, nullTable);
         assertEquals(CardinalityLevel.MEDIUM, nullColumn);
@@ -123,9 +121,9 @@ class ErrorHandlingTest {
     
     @Test
     void testEmptyStringInputsToCardinalityAnalyzer() {
-        CardinalityLevel emptyTable = cardinalityAnalyzer.analyzeColumnCardinality("", "column");
-        CardinalityLevel emptyColumn = cardinalityAnalyzer.analyzeColumnCardinality("table", "");
-        CardinalityLevel bothEmpty = cardinalityAnalyzer.analyzeColumnCardinality("", "");
+        CardinalityLevel emptyTable = CardinalityAnalyzer.analyzeColumnCardinality("", "column");
+        CardinalityLevel emptyColumn = CardinalityAnalyzer.analyzeColumnCardinality("table", "");
+        CardinalityLevel bothEmpty = CardinalityAnalyzer.analyzeColumnCardinality("", "");
         
         assertEquals(CardinalityLevel.MEDIUM, emptyTable);
         assertEquals(CardinalityLevel.MEDIUM, emptyColumn);
