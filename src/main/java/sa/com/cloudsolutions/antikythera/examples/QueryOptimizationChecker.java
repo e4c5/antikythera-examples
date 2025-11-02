@@ -52,6 +52,9 @@ public class QueryOptimizationChecker {
     
     // Token usage tracking for AI service
     protected final TokenUsage cumulativeTokenUsage = new TokenUsage();
+    
+    // Quiet mode flag - suppresses detailed output, shows only changes
+    protected static boolean quietMode = false;
 
     /**
      * Creates a new QueryOptimizationChecker that uses RepositoryParser for comprehensive query analysis.
@@ -188,7 +191,9 @@ public class QueryOptimizationChecker {
         // Track and report token usage
         TokenUsage tokenUsage = aiService.getLastTokenUsage();
         cumulativeTokenUsage.add(tokenUsage);
-        System.out.printf("🤖 AI Analysis for %s: %s%n", repositoryName, tokenUsage.getFormattedReport());
+        if (!quietMode) {
+            System.out.printf("🤖 AI Analysis for %s: %s%n", repositoryName, tokenUsage.getFormattedReport());
+        }
 
         return llmRecommendations;
     }
@@ -339,10 +344,16 @@ public class QueryOptimizationChecker {
         
         if (issues.isEmpty()) {
             // Enhanced confirmation reporting for already optimized queries
-            reportOptimizedQuery(result);
+            if (!quietMode) {
+                reportOptimizedQuery(result);
+            }
         } else {
             // Report optimization issues with severity-based prioritization
-            reportOptimizationIssues(result, issues);
+            if (quietMode) {
+                reportOptimizationIssuesQuiet(result, issues);
+            } else {
+                reportOptimizationIssues(result, issues);
+            }
         }
     }
     
@@ -512,6 +523,64 @@ public class QueryOptimizationChecker {
             case LOW -> "🟢";
             default -> "⚪";
         };
+    }
+    
+    /**
+     * Reports optimization issues in quiet mode - only shows method signatures and queries changed.
+     * 
+     * @param result the analysis results
+     * @param issues the list of optimization issues to report
+     */
+    private void reportOptimizationIssuesQuiet(QueryOptimizationResult result, List<OptimizationIssue> issues) {
+        // Update global recommendation counters
+        int highCount = (int) issues.stream().filter(OptimizationIssue::isHighSeverity).count();
+        int mediumCount = (int) issues.stream().filter(OptimizationIssue::isMediumSeverity).count();
+        this.totalHighPriorityRecommendations += highCount;
+        this.totalMediumPriorityRecommendations += mediumCount;
+        
+        // Collect any index creation suggestions for consolidation at the end
+        collectIndexSuggestions(result, issues);
+        
+        // Only print if there's an actual optimization (changed query)
+        for (OptimizationIssue issue : issues) {
+            if (issue.optimizedQuery() != null) {
+                System.out.println("\n" + "=".repeat(80));
+                System.out.printf("Repository: %s%n", result.getQuery().getClassname());
+                System.out.printf("Method:     %s → %s%n", 
+                    issue.query().getMethodName(),
+                    issue.optimizedQuery().getMethodName());
+                System.out.println("\nOriginal Query:");
+                System.out.println("  " + issue.query().getStatement().toString());
+                System.out.println("\nOptimized Query:");
+                System.out.println("  " + issue.optimizedQuery().getStatement().toString());
+                
+                // Show parameter order change if applicable
+                if (issue.currentColumnOrder() != null && issue.recommendedColumnOrder() != null &&
+                    !issue.currentColumnOrder().equals(issue.recommendedColumnOrder())) {
+                    System.out.printf("\nParameter Order Change:%n");
+                    System.out.printf("  Before: %s%n", String.join(", ", issue.currentColumnOrder()));
+                    System.out.printf("  After:  %s%n", String.join(", ", issue.recommendedColumnOrder()));
+                }
+                System.out.println("=".repeat(80));
+                break; // Only show first optimization per method
+            }
+        }
+    }
+    
+    /**
+     * Enables or disables quiet mode.
+     * @param enabled true to enable quiet mode, false for normal output
+     */
+    public static void setQuietMode(boolean enabled) {
+        quietMode = enabled;
+    }
+    
+    /**
+     * Checks if quiet mode is enabled.
+     * @return true if quiet mode is enabled
+     */
+    public static boolean isQuietMode() {
+        return quietMode;
     }
     
     /**

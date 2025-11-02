@@ -485,11 +485,34 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         }
     }
 
+    /**
+     * Checks if a command-line flag is present.
+     * @param args command-line arguments
+     * @param flag the flag to check for
+     * @return true if the flag is present
+     */
+    private static boolean hasFlag(String[] args, String flag) {
+        for (String arg : args) {
+            if (arg.equals(flag)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
     public static void main(String[] args) throws Exception {
         long s = System.currentTimeMillis();
         Settings.loadConfigMap();
         AbstractCompiler.preProcess();
-        System.out.println("Time to preprocess   " + (System.currentTimeMillis() - s) + "ms");
+        
+        // Parse command-line flags
+        boolean quietMode = hasFlag(args, "--quiet") || hasFlag(args, "-q");
+        QueryOptimizationChecker.setQuietMode(quietMode);
+        
+        if (!quietMode) {
+            System.out.println("Time to preprocess   " + (System.currentTimeMillis() - s) + "ms");
+        }
+        
         // Parse optional CLI parameters for cardinality overrides
         Set<String> lowOverride = parseListArg(args, "--low-cardinality=");
         Set<String> highOverride = parseListArg(args, "--high-cardinality=");
@@ -497,11 +520,15 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         CardinalityAnalyzer.configureUserDefinedCardinality(lowOverride, highOverride);
 
         QueryOptimizer checker = new QueryOptimizer(getLiquibasePath());
-        System.out.println("Time to build field map   " + (System.currentTimeMillis() - s) + "ms");
+        if (!quietMode) {
+            System.out.println("Time to build field map   " + (System.currentTimeMillis() - s) + "ms");
+        }
         checker.analyze();
 
-        // Print consolidated index actions at end of analysis
-        checker.printConsolidatedIndexActions();
+        // Print consolidated index actions at end of analysis (skip in quiet mode)
+        if (!quietMode) {
+            checker.printConsolidatedIndexActions();
+        }
         // Generate Liquibase file with suggested changes and include in master
         checker.generateLiquibaseChangesFile();
 
@@ -538,7 +565,9 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         System.out.printf("Liquibase indexes generated: %d%n", createCount);
         System.out.println("=".repeat(80));
 
-        System.out.println("Time taken " + (System.currentTimeMillis() - s) + " ms.");
+        if (!quietMode) {
+            System.out.println("\nTime taken " + (System.currentTimeMillis() - s) + " ms.");
+        }
         System.out.println("📊 Detailed statistics logged to: query-optimization-stats.csv");
         
         // Exit with non-zero if at least 1 high and at least 10 medium priority recommendations
