@@ -119,6 +119,9 @@ class QueryOptimizationCheckerTest {
                 dropXml.contains("DROP INDEX CONCURRENTLY IF EXISTS idx_users_email")
                         || dropXml.contains("DROP INDEX idx_users_email")
         );
+        // Verify rollback section was added
+        assertTrue(dropXml.toLowerCase().contains("rollback"));
+        assertTrue(dropXml.contains("manual recreation required"));
     }
 
     @Test
