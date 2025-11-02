@@ -1,5 +1,7 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
+import com.github.javaparser.JavaParser;
+import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.AnnotationExpr;
 import com.github.javaparser.ast.expr.Expression;
@@ -20,6 +22,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -61,11 +64,9 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         stats.setQueriesAnalyzed(currentRepositoryQueries);
         
         List<QueryOptimizationResult> updates = new ArrayList<>();
-        try {
-            LexicalPreservingPrinter.setup(AntikytheraRunTime.getCompilationUnit(fullyQualifiedName));
-        } catch (Exception e) {
-            // pass this
-        }
+        
+        // Setup LexicalPreservingPrinter by re-parsing the file to preserve whitespace
+        setupLexicalPreservation(fullyQualifiedName);
 
         // Track changes made to repository methods - only process results from this repository
         List<QueryOptimizationResult> currentRepositoryResults = results.subList(previousResultsCount, results.size());
@@ -284,6 +285,13 @@ public class QueryOptimizer extends QueryOptimizationChecker{
                 TypeWrapper typeWrapper = AntikytheraRunTime.getResolvedTypes().get(className);
                 
                 if (typeWrapper != null) {
+                    // Setup lexical preservation for dependent class before modifying
+                    try {
+                        setupLexicalPreservation(className);
+                    } catch (IOException e) {
+                        System.err.println("Warning: Failed to setup lexical preservation for dependent class " + className + ": " + e.getMessage());
+                    }
+                    
                     NameChangeVisitor visitor = new NameChangeVisitor(fieldName);
                     typeWrapper.getType().accept(visitor, updates);
                     
@@ -299,6 +307,37 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         return stats;
     }
 
+    /**
+     * Sets up lexical preservation for a compilation unit by re-parsing the file.
+     * This must be done before any modifications to preserve original whitespace.
+     * 
+     * Note: We parse without symbol resolution since we only need the AST structure
+     * for whitespace preservation. The original compilation unit already has type
+     * resolution, so we just need to preserve formatting when writing.
+     */
+    private void setupLexicalPreservation(String fullyQualifiedName) throws IOException {
+        String fullPath = Settings.getBasePath() + "src/main/java/" + AbstractCompiler.classToPath(fullyQualifiedName);
+        File f = new File(fullPath);
+        
+        if (f.exists()) {
+            try (FileInputStream fis = new FileInputStream(f)) {
+                // Parse without symbol resolver - we only need the AST for whitespace preservation
+                JavaParser parser = new JavaParser();
+                
+                var parseResult = parser.parse(fis);
+                if (parseResult.isSuccessful() && parseResult.getResult().isPresent()) {
+                    CompilationUnit cu = parseResult.getResult().get();
+                    LexicalPreservingPrinter.setup(cu);
+                    // Replace the compilation unit in the runtime with the lexically-preserved version
+                    AntikytheraRunTime.addCompilationUnit(fullyQualifiedName, cu);
+                }
+            } catch (Exception e) {
+                // If lexical preservation setup fails, continue with the original CU
+                System.err.println("Warning: Failed to setup lexical preservation for " + fullyQualifiedName + ": " + e.getMessage());
+            }
+        }
+    }
+    
     private static void writeFile(String fullyQualifiedName) throws FileNotFoundException {
         String fullPath = Settings.getBasePath() + "src/main/java/" + AbstractCompiler.classToPath(fullyQualifiedName);
         File f = new File(fullPath);
@@ -315,7 +354,15 @@ public class QueryOptimizer extends QueryOptimizationChecker{
             } catch (IOException e) {
                 original = null; // If reading fails, proceed to write to be safe
             }
-            String content = cu.toString();
+            
+            // Use LexicalPreservingPrinter to preserve whitespace if available
+            String content;
+            try {
+                content = LexicalPreservingPrinter.print(cu);
+            } catch (UnsupportedOperationException e) {
+                // Fallback to toString() if LexicalPreservingPrinter wasn't set up
+                content = cu.toString();
+            }
 
             // If resulting content is identical to original, skip writing to avoid incidental whitespace changes
             if (original != null && original.equals(content)) {
