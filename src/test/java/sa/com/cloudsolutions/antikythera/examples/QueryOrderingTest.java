@@ -28,9 +28,8 @@ class QueryOrderingTest {
         List<Indexes.IndexInfo> userIndexes = new ArrayList<>();
         userIndexes.add(new Indexes.IndexInfo("PRIMARY_KEY", "pk_users", Arrays.asList("user_id")));
         indexMap.put("users", userIndexes);
-
-        CardinalityAnalyzer analyzer = new CardinalityAnalyzer(indexMap);
-        engine = new QueryAnalysisEngine(analyzer);
+        CardinalityAnalyzer.setIndexMap(indexMap);
+        engine = new QueryAnalysisEngine();
     }
 
     @Test

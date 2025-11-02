@@ -15,15 +15,14 @@ import static org.junit.jupiter.api.Assertions.*;
 class QueryAnalysisEngineTest {
     
     private QueryAnalysisEngine engine;
-    private CardinalityAnalyzer cardinalityAnalyzer;
-    
+
     @BeforeEach
     void setUp() {
         // Create a real CardinalityAnalyzer with test data
         Map<String, List<Indexes.IndexInfo>> indexMap = new HashMap<>();
         setupTestIndexes(indexMap);
-        cardinalityAnalyzer = new CardinalityAnalyzer(indexMap);
-        engine = new QueryAnalysisEngine(cardinalityAnalyzer);
+        CardinalityAnalyzer.setIndexMap(indexMap);
+        engine = new QueryAnalysisEngine();
     }
     
     /**
@@ -47,21 +46,7 @@ class QueryAnalysisEngineTest {
         
         indexMap.put("users", userIndexes);
     }
-    
-    @Test
-    void testEngineInitialization() {
-        assertNotNull(engine);
-        assertTrue(engine.isReady());
-        assertEquals(cardinalityAnalyzer, engine.getCardinalityAnalyzer());
-    }
-    
-    @Test
-    void testEngineWithNullCardinalityAnalyzer() {
-        QueryAnalysisEngine nullEngine = new QueryAnalysisEngine(null);
-        assertFalse(nullEngine.isReady());
-        assertNull(nullEngine.getCardinalityAnalyzer());
-    }
-    
+
     @Test
     void testAnalyzeQueryWithNullInput() {
         // The analyzeQuery method should throw NullPointerException with null input
@@ -73,13 +58,13 @@ class QueryAnalysisEngineTest {
     @Test
     void testCardinalityAnalyzerIntegration() {
         // Test that the engine properly uses the CardinalityAnalyzer
-        CardinalityLevel userIdCardinality = cardinalityAnalyzer.analyzeColumnCardinality("users", "user_id");
+        CardinalityLevel userIdCardinality = CardinalityAnalyzer.analyzeColumnCardinality("users", "user_id");
         assertEquals(CardinalityLevel.HIGH, userIdCardinality);
         
-        CardinalityLevel emailCardinality = cardinalityAnalyzer.analyzeColumnCardinality("users", "email");
+        CardinalityLevel emailCardinality = CardinalityAnalyzer.analyzeColumnCardinality("users", "email");
         assertEquals(CardinalityLevel.HIGH, emailCardinality);
         
-        CardinalityLevel nameCardinality = cardinalityAnalyzer.analyzeColumnCardinality("users", "name");
+        CardinalityLevel nameCardinality = CardinalityAnalyzer.analyzeColumnCardinality("users", "name");
         assertEquals(CardinalityLevel.MEDIUM, nameCardinality);
     }
     
@@ -88,8 +73,8 @@ class QueryAnalysisEngineTest {
         // Test that engine reports readiness correctly
         assertTrue(engine.isReady());
         
-        // Test with null analyzer
-        QueryAnalysisEngine emptyEngine = new QueryAnalysisEngine(null);
-        assertFalse(emptyEngine.isReady());
+        // Once indexMap is set via setUp(), it remains set (static field)
+        QueryAnalysisEngine anotherEngine = new QueryAnalysisEngine();
+        assertTrue(anotherEngine.isReady());
     }
 }
