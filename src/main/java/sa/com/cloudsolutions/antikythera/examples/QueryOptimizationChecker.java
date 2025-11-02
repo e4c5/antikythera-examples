@@ -646,7 +646,8 @@ public class QueryOptimizationChecker {
     // Helpers to tailor output for index recommendations
     private boolean isIndexCreationForLeadingMedium(OptimizationIssue issue) {
         boolean same = issue.recommendedFirstColumn().equals(issue.currentFirstColumn());
-        boolean mentionsCreate = issue.description().toLowerCase().contains("create an index");
+        String description = issue.description();
+        boolean mentionsCreate = description != null && description.toLowerCase().contains("create an index");
         return issue.isHighSeverity() && same && mentionsCreate;
     }
 
@@ -720,15 +721,50 @@ public class QueryOptimizationChecker {
     }
 
     private void collectIndexSuggestions(QueryOptimizationResult result, List<OptimizationIssue> issues) {
-        if (issues.isEmpty()) return;
+        if (issues.isEmpty() && result.getIndexSuggestions().isEmpty()) return;
         
-        // Collect traditional index suggestions based on cardinality analysis
+        // Collect AI-recommended indexes from the result (primary source)
+        for (String indexRecommendation : result.getIndexSuggestions()) {
+            // indexRecommendation format is "table.column"
+            String[] parts = indexRecommendation.split("\\.", 2);
+            if (parts.length == 2) {
+                String table = parts[0];
+                String column = parts[1];
+                String key = (table + "|" + column).toLowerCase();
+                suggestedNewIndexes.add(key);
+            }
+        }
+        
+        // Also collect traditional index suggestions based on cardinality analysis (fallback)
         List<OptimizationIssue> idxIssues = issues.stream().filter(this::isIndexCreationForLeadingMedium).toList();
         for (OptimizationIssue idxIssue : idxIssues) {
             String table = result.getQuery().getPrimaryTable();
             String col = !idxIssue.recommendedFirstColumn().isEmpty() ? idxIssue.recommendedFirstColumn() : idxIssue.currentFirstColumn();
             String key = (table + "|" + col).toLowerCase();
             suggestedNewIndexes.add(key);
+        }
+        
+        // Collect indexes from AI recommendations that suggest reordering
+        for (OptimizationIssue issue : issues) {
+            if (issue.severity() == OptimizationIssue.Severity.HIGH || issue.severity() == OptimizationIssue.Severity.MEDIUM) {
+                String table = result.getQuery().getPrimaryTable();
+                if (table == null || table.isEmpty()) {
+                    table = inferTableNameFromQuerySafe(result.getQuery().getQuery(), result.getQuery().getClassname());
+                }
+                
+                // Add index for the recommended first column if it's different from current
+                String recommendedCol = issue.recommendedFirstColumn();
+                if (recommendedCol != null && !recommendedCol.isEmpty() && 
+                    !recommendedCol.equals(issue.currentFirstColumn())) {
+                    
+                    // Check if this column needs an index
+                    CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(table, recommendedCol);
+                    if (cardinality != CardinalityLevel.LOW && !CardinalityAnalyzer.hasIndexWithLeadingColumn(table, recommendedCol)) {
+                        String key = (table + "|" + recommendedCol).toLowerCase();
+                        suggestedNewIndexes.add(key);
+                    }
+                }
+            }
         }
     }
 
