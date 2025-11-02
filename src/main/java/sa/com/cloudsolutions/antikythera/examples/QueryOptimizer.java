@@ -2,7 +2,9 @@ package sa.com.cloudsolutions.antikythera.examples;
 
 import com.github.javaparser.JavaParser;
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.expr.AnnotationExpr;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.MemberValuePair;
@@ -37,6 +39,14 @@ public class QueryOptimizer extends QueryOptimizationChecker{
     
     // Track previous index count to calculate delta per repository
     private int previousIndexCount = 0;
+    
+    // Aggregate statistics across all repositories
+    private int totalRepositoriesProcessed = 0;
+    private int totalQueryAnnotationsChanged = 0;
+    private int totalMethodSignaturesChanged = 0;
+    private int totalMethodCallsUpdated = 0;
+    private int totalDependentClassesModified = 0;
+    private int totalFilesModified = 0;
     
     /**
      * Creates a new QueryOptimizationChecker that uses RepositoryParser for comprehensive query analysis.
@@ -121,6 +131,19 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         int indexesGeneratedForThisRepository = currentIndexCount - previousIndexCount;
         stats.setLiquibaseIndexesGenerated(indexesGeneratedForThisRepository);
         previousIndexCount = currentIndexCount;
+        
+        // Accumulate aggregate statistics
+        totalRepositoriesProcessed++;
+        totalQueryAnnotationsChanged += stats.getQueryAnnotationsChanged();
+        totalMethodSignaturesChanged += stats.getMethodSignaturesChanged();
+        totalMethodCallsUpdated += stats.getMethodCallsUpdated();
+        totalDependentClassesModified += stats.getDependentClassesModified();
+        
+        // Track files modified (repository file + dependent classes)
+        if (stats.getQueryAnnotationsChanged() > 0 || stats.getMethodSignaturesChanged() > 0) {
+            totalFilesModified++; // Repository file was modified
+        }
+        totalFilesModified += stats.getDependentClassesModified();
         
         // Log statistics to CSV file
         try {
@@ -226,7 +249,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         try {
             // Get current parameters
             var currentParams = new ArrayList<>(method.getParameters());
-            var reorderedParams = new ArrayList<com.github.javaparser.ast.body.Parameter>();
+            var reorderedParams = new ArrayList<Parameter>();
             
             // Reorder parameters based on column order mapping
             for (String recommendedColumn : recommendedColumnOrder) {
@@ -240,6 +263,10 @@ public class QueryOptimizer extends QueryOptimizationChecker{
             if (reorderedParams.size() == currentParams.size()) {
                 method.getParameters().clear();
                 method.getParameters().addAll(reorderedParams);
+                
+                // Note: Proper indentation will be applied by DefaultPrettyPrinter if
+                // LexicalPreservingPrinter fails due to parameter reordering
+                
                 return true;
             }
         } catch (Exception e) {
@@ -249,6 +276,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         
         return false;
     }
+    
 
     /**
      * Statistics for method call updates across dependent classes.
@@ -359,8 +387,10 @@ public class QueryOptimizer extends QueryOptimizationChecker{
             String content;
             try {
                 content = LexicalPreservingPrinter.print(cu);
-            } catch (UnsupportedOperationException e) {
-                // Fallback to toString() if LexicalPreservingPrinter wasn't set up
+            } catch (UnsupportedOperationException | IllegalStateException e) {
+                // Fallback to toString() if LexicalPreservingPrinter fails
+                // This can happen when nodes are cleared and re-added (e.g., parameter reordering)
+                // JavaParser's default toString() uses 4-space indentation
                 content = cu.toString();
             }
 
@@ -494,6 +524,19 @@ public class QueryOptimizer extends QueryOptimizationChecker{
                 dropCount,
                 dropCount == 1 ? "" : "s"
         );
+        
+        // Print overall code modification statistics
+        System.out.println("\n" + "=".repeat(80));
+        System.out.println("📝 CODE MODIFICATION SUMMARY");
+        System.out.println("=".repeat(80));
+        System.out.printf("Repositories processed:      %d%n", checker.totalRepositoriesProcessed);
+        System.out.printf("Files modified:              %d%n", checker.totalFilesModified);
+        System.out.printf("@Query annotations changed:  %d%n", checker.totalQueryAnnotationsChanged);
+        System.out.printf("Method signatures changed:   %d%n", checker.totalMethodSignaturesChanged);
+        System.out.printf("Method calls updated:        %d%n", checker.totalMethodCallsUpdated);
+        System.out.printf("Dependent classes modified:  %d%n", checker.totalDependentClassesModified);
+        System.out.printf("Liquibase indexes generated: %d%n", createCount);
+        System.out.println("=".repeat(80));
 
         System.out.println("Time taken " + (System.currentTimeMillis() - s) + " ms.");
         System.out.println("📊 Detailed statistics logged to: query-optimization-stats.csv");
