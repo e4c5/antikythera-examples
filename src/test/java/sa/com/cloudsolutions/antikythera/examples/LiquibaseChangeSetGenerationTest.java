@@ -10,6 +10,7 @@ import java.io.File;
 import java.io.FileWriter;
 import java.lang.reflect.Method;
 import java.nio.file.Path;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -154,5 +155,70 @@ class LiquibaseChangeSetGenerationTest {
         int start = changeSet.indexOf("id=\"") + 4;
         int end = changeSet.indexOf("\"", start);
         return changeSet.substring(start, end);
+    }
+
+    @Test
+    void testBuildLiquibaseMultiColumnIndexChangeSet() throws Exception {
+        Method method = checkerClass.getDeclaredMethod("buildLiquibaseMultiColumnIndexChangeSet", String.class, List.class);
+        method.setAccessible(true);
+        
+        List<String> columns = List.of("status", "created_at", "user_id");
+        String result = (String) method.invoke(checker, "orders", columns);
+        
+        // Verify basic structure
+        assertTrue(result.contains("<changeSet"));
+        assertTrue(result.contains("author=\"antikythera\""));
+        assertTrue(result.contains("<preConditions onFail=\"MARK_RAN\">"));
+        assertTrue(result.contains("<indexExists tableName=\"orders\" indexName=\"idx_orders_status_created_at_user_id\"/>"));
+        
+        // Verify PostgreSQL and Oracle SQL with multi-column syntax
+        assertTrue(result.contains("CREATE INDEX CONCURRENTLY idx_orders_status_created_at_user_id ON orders (status, created_at, user_id)"));
+        assertTrue(result.contains("CREATE INDEX idx_orders_status_created_at_user_id ON orders (status, created_at, user_id) ONLINE"));
+        
+        // Verify rollback section
+        assertTrue(result.contains("<rollback>"));
+        assertTrue(result.contains("DROP INDEX CONCURRENTLY IF EXISTS idx_orders_status_created_at_user_id"));
+        assertTrue(result.contains("DROP INDEX idx_orders_status_created_at_user_id"));
+        assertTrue(result.contains("</rollback>"));
+        
+        // Verify proper closing
+        assertTrue(result.contains("</changeSet>"));
+    }
+
+    @Test
+    void testMultiColumnIndexWithTwoColumns() throws Exception {
+        Method method = checkerClass.getDeclaredMethod("buildLiquibaseMultiColumnIndexChangeSet", String.class, List.class);
+        method.setAccessible(true);
+        
+        List<String> columns = List.of("email", "status");
+        String result = (String) method.invoke(checker, "users", columns);
+        
+        // Verify the index name contains both columns
+        assertTrue(result.contains("idx_users_email_status"));
+        assertTrue(result.contains("ON users (email, status)"));
+    }
+
+    @Test
+    void testMultiColumnIndexWithEmptyColumns() throws Exception {
+        Method method = checkerClass.getDeclaredMethod("buildLiquibaseMultiColumnIndexChangeSet", String.class, List.class);
+        method.setAccessible(true);
+        
+        List<String> columns = List.of();
+        String result = (String) method.invoke(checker, "users", columns);
+        
+        // Should return empty string for empty columns
+        assertEquals("", result);
+    }
+
+    @Test
+    void testMultiColumnIndexWithEmptyTableName() throws Exception {
+        Method method = checkerClass.getDeclaredMethod("buildLiquibaseMultiColumnIndexChangeSet", String.class, List.class);
+        method.setAccessible(true);
+        
+        List<String> columns = List.of("col1", "col2");
+        String result = (String) method.invoke(checker, "", columns);
+        
+        // Should use placeholder for empty table name
+        assertTrue(result.contains("<TABLE_NAME>"));
     }
 }

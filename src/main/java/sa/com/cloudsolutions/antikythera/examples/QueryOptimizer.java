@@ -82,8 +82,22 @@ public class QueryOptimizer extends QueryOptimizationChecker{
                         // Track @Query annotation changes (only count when we actually change it)
                         stats.incrementQueryAnnotationsChanged();
                         
-                        // Track method signature changes (if method name changed)
-                        if (!issue.query().getMethodName().equals(issue.optimizedQuery().getMethodName())) {
+                        // Check if method name changed (indicating signature should change)
+                        boolean methodNameChanged = !issue.query().getMethodName().equals(issue.optimizedQuery().getMethodName());
+                        
+                        // Only reorder parameters if the method name has changed
+                        // (If name hasn't changed, we just swap placeholders in the query, keeping same parameter order)
+                        boolean parametersReordered = false;
+                        if (methodNameChanged) {
+                            parametersReordered = reorderMethodParameters(
+                                issue.query().getMethodDeclaration().asMethodDeclaration(),
+                                issue.currentColumnOrder(),
+                                issue.recommendedColumnOrder()
+                            );
+                        }
+                        
+                        // Track method signature changes
+                        if (methodNameChanged || parametersReordered) {
                             stats.incrementMethodSignaturesChanged();
                         }
                     }
@@ -174,6 +188,65 @@ public class QueryOptimizer extends QueryOptimizationChecker{
                 oldAnnotation.replace(newAnnotation);
             }
         }
+    }
+
+    /**
+     * Reorders method parameters to match the recommended column order.
+     * This ensures the method signature matches the optimized WHERE clause column order.
+     * 
+     * @param method the method declaration to modify
+     * @param currentColumnOrder the current column order
+     * @param recommendedColumnOrder the recommended column order
+     * @return true if parameters were reordered, false otherwise
+     */
+    private boolean reorderMethodParameters(MethodDeclaration method, 
+                                           List<String> currentColumnOrder, 
+                                           List<String> recommendedColumnOrder) {
+        // Validate inputs
+        if (method == null || currentColumnOrder == null || recommendedColumnOrder == null) {
+            return false;
+        }
+        
+        // Only reorder if orders are different
+        if (currentColumnOrder.equals(recommendedColumnOrder)) {
+            return false;
+        }
+        
+        // Only reorder if parameter count matches column count
+        if (method.getParameters().size() != currentColumnOrder.size()) {
+            return false;
+        }
+        
+        // Check if sizes match
+        if (currentColumnOrder.size() != recommendedColumnOrder.size()) {
+            return false;
+        }
+        
+        try {
+            // Get current parameters
+            var currentParams = new ArrayList<>(method.getParameters());
+            var reorderedParams = new ArrayList<com.github.javaparser.ast.body.Parameter>();
+            
+            // Reorder parameters based on column order mapping
+            for (String recommendedColumn : recommendedColumnOrder) {
+                int currentIndex = currentColumnOrder.indexOf(recommendedColumn);
+                if (currentIndex >= 0 && currentIndex < currentParams.size()) {
+                    reorderedParams.add(currentParams.get(currentIndex).clone());
+                }
+            }
+            
+            // Only apply if we successfully mapped all parameters
+            if (reorderedParams.size() == currentParams.size()) {
+                method.getParameters().clear();
+                method.getParameters().addAll(reorderedParams);
+                return true;
+            }
+        } catch (Exception e) {
+            // If reordering fails, log and continue without modification
+            QueryOptimizationChecker.logger.warn("Failed to reorder method parameters for {}: {}", method.getNameAsString(), e.getMessage());
+        }
+        
+        return false;
     }
 
     /**
@@ -272,18 +345,22 @@ public class QueryOptimizer extends QueryOptimizationChecker{
             super.visit(mce, updates);
             Optional<Expression> scope = mce.getScope();
             if (scope.isPresent() && scope.get() instanceof NameExpr fe && fe.getNameAsString().equals(fielName) && !updates.isEmpty()) {
-                QueryOptimizationResult update = updates.getFirst();
-                if (update.getMethodName().equals(mce.getNameAsString()) && !update.getOptimizationIssues().isEmpty()) {
-                    OptimizationIssue issue = update.getOptimizationIssues().getFirst();
-                    if (issue.optimizedQuery() != null) {
-                        // Update method name
-                        mce.setName(issue.optimizedQuery().getMethodName());
-                        
-                        // Reorder arguments based on column order changes
-                        reorderMethodArguments(mce, issue);
-                        
-                        modified = true;
-                        methodCallsUpdated++;
+                // Loop through ALL updates to find matching method
+                for (QueryOptimizationResult update : updates) {
+                    // Check if this call matches the current update's method name
+                    if (update.getMethodName().equals(mce.getNameAsString()) && !update.getOptimizationIssues().isEmpty()) {
+                        OptimizationIssue issue = update.getOptimizationIssues().getFirst();
+                        if (issue.optimizedQuery() != null) {
+                            // Update method name
+                            mce.setName(issue.optimizedQuery().getMethodName());
+                            
+                            // Reorder arguments based on column order changes
+                            reorderMethodArguments(mce, issue);
+                            
+                            modified = true;
+                            methodCallsUpdated++;
+                            break; // Found the match, no need to check other updates
+                        }
                     }
                 }
             }
