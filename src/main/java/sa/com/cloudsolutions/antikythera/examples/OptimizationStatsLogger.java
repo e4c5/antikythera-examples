@@ -95,9 +95,11 @@ public class OptimizationStatsLogger {
             writer.write(row);
         }
         
-        // Also log to console for immediate feedback
-        System.out.printf("📊 OPTIMIZATION STATS: %s%n", stats);
-        System.out.printf("📝 Stats logged to: %s%n", csvPath.toAbsolutePath());
+        // Also log to console for immediate feedback (skip if quiet mode enabled)
+        if (!QueryOptimizationChecker.isQuietMode()) {
+            System.out.printf("📊 OPTIMIZATION STATS: %s%n", stats);
+            System.out.printf("📝 Stats logged to: %s%n", csvPath.toAbsolutePath());
+        }
     }
     
     /**
