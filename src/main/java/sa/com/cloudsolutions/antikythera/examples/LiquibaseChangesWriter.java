@@ -30,13 +30,15 @@ public class LiquibaseChangesWriter {
         Path master = masterXml.toPath();
         Path dir = master.getParent();
         String timestamp = new SimpleDateFormat("yyyyMMddHHmmss", Locale.ROOT).format(new Date());
-        String name = "antikythera-indexes-" + timestamp + ".xml";
+        long nanos = System.nanoTime() % 1000000; // Get microsecond precision
+        String name = "antikythera-indexes-" + timestamp + "-" + nanos + ".xml";
         Path out = dir.resolve(name);
 
         String content = """
+                <?xml version="1.0" encoding="UTF-8"?>
                 <databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
                                    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-                                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+                                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.0.xsd">
                 %s
                 </databaseChangeLog>
                 """.formatted(changeSetsXml);
@@ -44,14 +46,17 @@ public class LiquibaseChangesWriter {
 
         // Append include to master file
         String masterText = Files.readString(master, StandardCharsets.UTF_8);
-        String includeTag = String.format("<include file=\"%s\"/>", name);
-        if (!masterText.contains(includeTag)) {
+        String includeTag = String.format("    <include file=\"%s\"/>", name);
+        
+        // Check if this specific file is already included (more precise than just checking the tag)
+        if (!masterText.contains("file=\"" + name + "\"")) {
             // insert before closing tag if present, otherwise just append
             int idx = masterText.lastIndexOf("</databaseChangeLog>");
             if (idx >= 0) {
-                String updated = masterText.substring(0, idx) + "  " + includeTag + "\n" + masterText.substring(idx);
+                String updated = masterText.substring(0, idx) + includeTag + "\n" + masterText.substring(idx);
                 Files.writeString(master, updated, StandardCharsets.UTF_8);
             } else {
+                // Fallback: append to end if no closing tag found
                 Files.writeString(master, masterText + "\n" + includeTag + "\n", StandardCharsets.UTF_8);
             }
         }
