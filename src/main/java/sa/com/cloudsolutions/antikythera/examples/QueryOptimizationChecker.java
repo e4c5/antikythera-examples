@@ -96,24 +96,14 @@ public class QueryOptimizationChecker {
             if (isJpaRepository(typeWrapper)) {
                 results.clear(); // Clear results for each repository
                 
-                try {
-                    System.out.println("\n" + "=".repeat(80));
-                    System.out.printf("Analyzing Repository: %s%n", fullyQualifiedName);
-                    System.out.println("=".repeat(80));
+                System.out.println("\n" + "=".repeat(80));
+                System.out.printf("Analyzing Repository: %s%n", fullyQualifiedName);
+                System.out.println("=".repeat(80));
                     
-                    analyzeRepository(fullyQualifiedName, typeWrapper);
-                    repositoriesProcessed++;
-                    
-                } catch (Exception e) {
-                    logger.error("Failed to analyze repository {}: {}", fullyQualifiedName, e.getMessage(), e);
-                    System.err.printf("⚠️  ERROR analyzing %s: %s%n", fullyQualifiedName, e.getMessage());
-                    // Continue with next repository instead of stopping
-                }
-                
-                i++;
-                if (i == 5) {
-                    break;
-                }
+                analyzeRepository(fullyQualifiedName, typeWrapper);
+                repositoriesProcessed++;
+
+                break;
             }
         }
         
@@ -560,7 +550,6 @@ public class QueryOptimizationChecker {
         // Only print if there's an actual optimization (changed query)
         for (OptimizationIssue issue : issues) {
             if (issue.optimizedQuery() != null) {
-                System.out.println("\n" + "=".repeat(80));
                 System.out.printf("Repository: %s%n", result.getQuery().getClassname());
                 System.out.printf("Method:     %s → %s%n", 
                     issue.query().getMethodName(),
