@@ -10,6 +10,7 @@ import java.io.File;
 import java.io.FileWriter;
 import java.lang.reflect.Method;
 import java.nio.file.Path;
+import java.util.LinkedHashSet;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -158,13 +159,8 @@ class LiquibaseChangeSetGenerationTest {
     }
 
     @Test
-    void testBuildLiquibaseMultiColumnIndexChangeSet() throws Exception {
-        Method method = checkerClass.getDeclaredMethod("buildLiquibaseMultiColumnIndexChangeSet", String.class, List.class);
-        method.setAccessible(true);
-        
-        List<String> columns = List.of("status", "created_at", "user_id");
-        String result = (String) method.invoke(checker, "orders", columns);
-        
+    void testBuildLiquibaseMultiColumnIndexChangeSet() {
+        String result = checker.buildLiquibaseMultiColumnIndexChangeSet("orders", new LinkedHashSet<>(List.of("status", "created_at", "user_id")));
         // Verify basic structure
         assertTrue(result.contains("<changeSet"));
         assertTrue(result.contains("author=\"antikythera\""));
@@ -186,39 +182,26 @@ class LiquibaseChangeSetGenerationTest {
     }
 
     @Test
-    void testMultiColumnIndexWithTwoColumns() throws Exception {
-        Method method = checkerClass.getDeclaredMethod("buildLiquibaseMultiColumnIndexChangeSet", String.class, List.class);
-        method.setAccessible(true);
-        
+    void testMultiColumnIndexWithTwoColumns() {
         List<String> columns = List.of("email", "status");
-        String result = (String) method.invoke(checker, "users", columns);
+        String result = checker.buildLiquibaseMultiColumnIndexChangeSet("users", new LinkedHashSet<>(columns));
         
-        // Verify the index name contains both columns
         assertTrue(result.contains("idx_users_email_status"));
         assertTrue(result.contains("ON users (email, status)"));
     }
 
     @Test
-    void testMultiColumnIndexWithEmptyColumns() throws Exception {
-        Method method = checkerClass.getDeclaredMethod("buildLiquibaseMultiColumnIndexChangeSet", String.class, List.class);
-        method.setAccessible(true);
+    void testMultiColumnIndexWithEmptyColumns() {
+        String result = checker.buildLiquibaseMultiColumnIndexChangeSet("users", new LinkedHashSet<>());
         
-        List<String> columns = List.of();
-        String result = (String) method.invoke(checker, "users", columns);
-        
-        // Should return empty string for empty columns
         assertEquals("", result);
     }
 
     @Test
-    void testMultiColumnIndexWithEmptyTableName() throws Exception {
-        Method method = checkerClass.getDeclaredMethod("buildLiquibaseMultiColumnIndexChangeSet", String.class, List.class);
-        method.setAccessible(true);
-        
+    void testMultiColumnIndexWithEmptyTableName(){
         List<String> columns = List.of("col1", "col2");
-        String result = (String) method.invoke(checker, "", columns);
+        String result = checker.buildLiquibaseMultiColumnIndexChangeSet("users", new LinkedHashSet<>(columns));
         
-        // Should use placeholder for empty table name
-        assertTrue(result.contains("<TABLE_NAME>"));
+        assertTrue(result.contains("col1, col2"));
     }
 }

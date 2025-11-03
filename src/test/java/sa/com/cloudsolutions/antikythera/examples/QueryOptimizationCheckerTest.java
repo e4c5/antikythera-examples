@@ -159,7 +159,7 @@ class QueryOptimizationCheckerTest {
             System.setOut(originalOut);
         }
         String out = baos.toString();
-        assertTrue(out.contains("SUGGESTED NEW INDEXES"));
+        assertTrue(out.contains("SUGGESTED SINGLE-COLUMN INDEXES"));
         assertTrue(checker.getTotalIndexCreateRecommendations() >= 2);
         assertTrue(checker.getTotalIndexDropRecommendations() >= 0);
     }
