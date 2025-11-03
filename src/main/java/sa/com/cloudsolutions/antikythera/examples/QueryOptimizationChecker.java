@@ -88,18 +88,36 @@ public class QueryOptimizationChecker {
     public void analyze() throws IOException, ReflectiveOperationException, InterruptedException {
         Map<String, TypeWrapper> resolvedTypes = AntikytheraRunTime.getResolvedTypes();
         int i = 0;
+        int repositoriesProcessed = 0;
         for (Map.Entry<String, TypeWrapper> entry : resolvedTypes.entrySet()) {
             String fullyQualifiedName = entry.getKey();
             TypeWrapper typeWrapper = entry.getValue();
 
             if (isJpaRepository(typeWrapper)) {
-                analyzeRepository(fullyQualifiedName, typeWrapper);
+                results.clear(); // Clear results for each repository
+                
+                try {
+                    System.out.println("\n" + "=".repeat(80));
+                    System.out.printf("Analyzing Repository: %s%n", fullyQualifiedName);
+                    System.out.println("=".repeat(80));
+                    
+                    analyzeRepository(fullyQualifiedName, typeWrapper);
+                    repositoriesProcessed++;
+                    
+                } catch (Exception e) {
+                    logger.error("Failed to analyze repository {}: {}", fullyQualifiedName, e.getMessage(), e);
+                    System.err.printf("⚠️  ERROR analyzing %s: %s%n", fullyQualifiedName, e.getMessage());
+                    // Continue with next repository instead of stopping
+                }
+                
                 i++;
                 if (i == 5) {
                     break;
                 }
             }
         }
+        
+        System.out.printf("\n✅ Successfully analyzed %d out of %d repositories%n", repositoriesProcessed, i);
     }
 
     /**
@@ -132,7 +150,7 @@ public class QueryOptimizationChecker {
      */
     protected void analyzeRepository(String fullyQualifiedName, TypeWrapper typeWrapper) throws IOException, ReflectiveOperationException, InterruptedException {
         logger.debug("Analyzing repository: {}", fullyQualifiedName);
-
+        
         // Use RepositoryParser to process the repository type
         repositoryParser.compile(AbstractCompiler.classToPath(fullyQualifiedName));
         repositoryParser.processTypes();
@@ -262,33 +280,31 @@ public class QueryOptimizationChecker {
     /**
      * Creates a complete QueryOptimizationResult from an LLM recommendation with index analysis.
      * This merged method combines the functionality of creating the result and analyzing indexes.
-     * Uses the Indexes class to properly determine what indexes are available.
+     * Uses QueryAnalysisEngine to extract WHERE conditions and the Indexes class to determine missing indexes.
      */
     private QueryOptimizationResult createResultWithIndexAnalysis(OptimizationIssue llmRecommendation, RepositoryQuery rawQuery) {
-        String tableName = rawQuery.getPrimaryTable();
-        if (tableName == null || tableName.isEmpty()) {
-            tableName = inferTableNameFromQuerySafe(rawQuery.getQuery(), rawQuery.getClassname());
-        }
+        // Use QueryAnalysisEngine to extract WHERE conditions from the actual query
+        // This is independent of LLM recommendations
+        QueryOptimizationResult engineResult = analysisEngine.analyzeQuery(rawQuery);
+        List<WhereCondition> whereConditions = engineResult.getWhereConditions();
 
-        // Extract WHERE conditions and analyze indexes in a single pass
-        List<WhereCondition> whereConditions = new ArrayList<>();
+        // Analyze indexes based on actual WHERE conditions, not LLM recommendations
+        // Each condition now includes its own table name, which is critical for JOIN queries
         List<String> requiredIndexes = new ArrayList<>();
-
-        // Process each column in the LLM's recommended order
-        for (int i = 0; i < llmRecommendation.recommendedColumnOrder().size(); i++) {
-            String columnName = llmRecommendation.recommendedColumnOrder().get(i);
-            // Analyze cardinality for WHERE conditions
-            CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(tableName, columnName);
-            if (cardinality != null) {
-                // Create WhereCondition
-                whereConditions.add(new WhereCondition(columnName, "=", cardinality, i, null));
-            }
-
-            // Use Indexes class to check for existing indexes more comprehensively
-            if (!hasOptimalIndexForColumn(tableName, columnName) && !cardinality.equals(CardinalityLevel.LOW)) {
-                // Index is missing or not optimal - add to required indexes
-                String indexRecommendation = String.format("%s.%s", tableName, columnName);
-                requiredIndexes.add(indexRecommendation);
+        
+        for (WhereCondition condition : whereConditions) {
+            String tableName = condition.tableName(); // Use table from condition (supports JOINs)
+            String columnName = condition.columnName();
+            CardinalityLevel cardinality = condition.cardinality();
+            
+            // Check if index is needed for this column
+            if (cardinality != null && cardinality != CardinalityLevel.LOW) {
+                if (!hasOptimalIndexForColumn(tableName, columnName)) {
+                    // Index is missing or not optimal - add to required indexes
+                    String indexRecommendation = String.format("%s.%s", tableName, columnName);
+                    requiredIndexes.add(indexRecommendation);
+                    logger.debug("Index needed for {}.{} (cardinality: {})", tableName, columnName, cardinality);
+                }
             }
         }
 
@@ -808,12 +824,16 @@ public class QueryOptimizationChecker {
     }
 
     private void collectIndexSuggestions(QueryOptimizationResult result, List<OptimizationIssue> issues) {
-        if (issues.isEmpty() && result.getIndexSuggestions().isEmpty()) return;
+        if (issues.isEmpty() && result.getIndexSuggestions().isEmpty()) {
+            logger.debug("Skipping index collection - no issues and no index suggestions for query: {}", result.getMethodName());
+            return;
+        }
         
         String table = result.getQuery().getPrimaryTable();
         if (table == null || table.isEmpty()) {
             table = inferTableNameFromQuerySafe(result.getQuery().getQuery(), result.getQuery().getClassname());
         }
+        logger.debug("Collecting index suggestions for table: {}, method: {}", table, result.getMethodName());
         
         // Strategy: Check if query uses multiple columns in WHERE clause
         // If yes, create a multi-column index. If no, create single-column index.
@@ -825,18 +845,25 @@ public class QueryOptimizationChecker {
                 if (issue.recommendedColumnOrder() != null && !issue.recommendedColumnOrder().isEmpty()) {
                     // Use the full recommended column order for multi-column index
                     columnsForIndex = new ArrayList<>(issue.recommendedColumnOrder());
+                    logger.debug("Found {} HIGH/MEDIUM severity columns for index: {}", columnsForIndex.size(), columnsForIndex);
                     break; // Use the first high/medium severity issue's recommendation
+                } else {
+                    logger.debug("Issue severity={}, but recommendedColumnOrder is null or empty", issue.severity());
                 }
             }
         }
         
         // If no columns from issues, try to extract from WHERE conditions
         if (columnsForIndex.isEmpty() && !result.getWhereConditions().isEmpty()) {
+            logger.debug("No columns from issues, extracting from WHERE conditions. Found {} conditions", result.getWhereConditions().size());
             for (WhereCondition condition : result.getWhereConditions()) {
                 if (condition.cardinality() != CardinalityLevel.LOW) {
                     columnsForIndex.add(condition.columnName());
+                    logger.debug("Added column {} from WHERE condition (cardinality: {})", condition.columnName(), condition.cardinality());
                 }
             }
+        } else if (columnsForIndex.isEmpty()) {
+            logger.debug("No columns to index - issues empty and no WHERE conditions");
         }
         
         // Filter out columns that already have indexes and low-cardinality columns
@@ -849,21 +876,26 @@ public class QueryOptimizationChecker {
         }
         
         // Decide: multi-column index or single-column index?
+        logger.debug("After filtering, {} columns remain for indexing on table {}: {}", filteredColumns.size(), table, filteredColumns);
+        
         if (filteredColumns.size() > 1) {
             // Create multi-column index
             String key = (table + "|" + String.join(",", filteredColumns)).toLowerCase();
-            suggestedMultiColumnIndexes.add(key);
-            
-            // Do NOT create separate index for first column (it's covered by the composite index)
-            logger.debug("Suggesting multi-column index for {}: {}", table, filteredColumns);
+            boolean added = suggestedMultiColumnIndexes.add(key);
+            logger.info("Multi-column index suggestion for {}: {} - {}", table, filteredColumns, added ? "ADDED" : "DUPLICATE");
         } else if (filteredColumns.size() == 1) {
             // Only one column needs indexing - create single-column index
             String column = filteredColumns.get(0);
-            if (!CardinalityAnalyzer.hasIndexWithLeadingColumn(table, column)) {
+            boolean hasExisting = CardinalityAnalyzer.hasIndexWithLeadingColumn(table, column);
+            if (!hasExisting) {
                 String key = (table + "|" + column).toLowerCase();
-                suggestedNewIndexes.add(key);
-                logger.debug("Suggesting single-column index for {}.{}", table, column);
+                boolean added = suggestedNewIndexes.add(key);
+                logger.info("Single-column index suggestion for {}.{} - {}", table, column, added ? "ADDED" : "DUPLICATE");
+            } else {
+                logger.debug("Skipping {}.{} - already has index with leading column", table, column);
             }
+        } else {
+            logger.debug("No columns passed filtering for table {}", table);
         }
         
         // Also collect AI-recommended indexes from the result (for backward compatibility)
@@ -883,8 +915,23 @@ public class QueryOptimizationChecker {
     }
 
     public void printConsolidatedIndexActions() {
-        int multiColumnCount = 0;
+        // Calculate actual index counts (excluding covered ones) - do this first
+        int multiColumnCount = suggestedMultiColumnIndexes.size();
         int singleColumnCount = 0;
+        
+        // Count single-column indexes that aren't covered by composites
+        for (String key : suggestedNewIndexes) {
+            String[] parts = key.split("\\|", 2);
+            String table = parts.length > 0 ? parts[0] : "";
+            String column = parts.length > 1 ? parts[1] : "";
+            
+            if (!isCoveredByComposite(table, column)) {
+                singleColumnCount++;
+            }
+        }
+        
+        // Set the total count that will be used in summary
+        totalIndexCreateRecommendations = multiColumnCount + singleColumnCount;
         
         // Print multi-column indexes first (these are preferred)
         if (!suggestedMultiColumnIndexes.isEmpty()) {
@@ -902,7 +949,6 @@ public class QueryOptimizationChecker {
                 System.out.printf("\n  Multi-column index for %s (%s):%n", table, String.join(", ", columns));
                 System.out.println("    Note: First column is covered by this composite index - no separate index needed");
                 System.out.println(indent(snippet, 2));
-                multiColumnCount++;
             }
         }
         
@@ -928,17 +974,14 @@ public class QueryOptimizationChecker {
                 // Add context about the recommendation source
                 System.out.printf("\n  Index for %s.%s:%n", table, column);
                 System.out.println(indent(snippet, 2));
-                singleColumnCount++;
             }
         }
         
-        int totalCount = multiColumnCount + singleColumnCount;
-        if (totalCount == 0) {
+        if (totalIndexCreateRecommendations == 0) {
             System.out.println("\n📦 No new index recommendations found.");
         } else {
-            totalIndexCreateRecommendations = totalCount;
             System.out.printf("\n  💡 Total index creation recommendations: %d (%d multi-column, %d single-column)%n", 
-                             totalCount, multiColumnCount, singleColumnCount);
+                             totalIndexCreateRecommendations, multiColumnCount, singleColumnCount);
         }
 
         // Analyze existing indexes to suggest drops for low-cardinality leading columns

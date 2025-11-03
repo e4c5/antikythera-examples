@@ -63,58 +63,48 @@ public class QueryOptimizer extends QueryOptimizationChecker{
     protected void analyzeRepository(String fullyQualifiedName, TypeWrapper typeWrapper) throws IOException, ReflectiveOperationException, InterruptedException {
         // Create stats tracker for this repository
         OptimizationStatsLogger.RepositoryStats stats = OptimizationStatsLogger.createStats(fullyQualifiedName);
-        
-        // Clear results from previous repository analysis to get accurate count for this repository
-        int previousResultsCount = results.size();
-        
+
         super.analyzeRepository(fullyQualifiedName, typeWrapper);
         
-        // Count queries analyzed for THIS repository only (new results added by super.analyzeRepository)
-        int currentRepositoryQueries = results.size() - previousResultsCount;
-        stats.setQueriesAnalyzed(currentRepositoryQueries);
+        stats.setQueriesAnalyzed(results.size());
         
         List<QueryOptimizationResult> updates = new ArrayList<>();
         
         // Setup LexicalPreservingPrinter by re-parsing the file to preserve whitespace
         setupLexicalPreservation(fullyQualifiedName);
 
-        // Track changes made to repository methods - only process results from this repository
-        List<QueryOptimizationResult> currentRepositoryResults = results.subList(previousResultsCount, results.size());
-        
-        for (QueryOptimizationResult result : currentRepositoryResults) {
-            if (!result.isAlreadyOptimized()) {
-                if(!result.getOptimizationIssues().isEmpty()) {
-                    OptimizationIssue issue = result.getOptimizationIssues().getFirst();
-                    if (issue.optimizedQuery() != null) {
-                        // Actually update the annotation
-                        updateAnnotationValue(issue.query().getMethodDeclaration().asMethodDeclaration(),
-                                "Query", issue.optimizedQuery().getStatement().toString());
-                        
-                        // Track @Query annotation changes (only count when we actually change it)
-                        stats.incrementQueryAnnotationsChanged();
-                        
-                        // Check if method name changed (indicating signature should change)
-                        boolean methodNameChanged = !issue.query().getMethodName().equals(issue.optimizedQuery().getMethodName());
-                        
-                        // Only reorder parameters if the method name has changed
-                        // (If name hasn't changed, we just swap placeholders in the query, keeping same parameter order)
-                        boolean parametersReordered = false;
-                        if (methodNameChanged) {
-                            parametersReordered = reorderMethodParameters(
-                                issue.query().getMethodDeclaration().asMethodDeclaration(),
-                                issue.currentColumnOrder(),
-                                issue.recommendedColumnOrder()
-                            );
-                        }
-                        
-                        // Track method signature changes
-                        if (methodNameChanged || parametersReordered) {
-                            stats.incrementMethodSignaturesChanged();
-                        }
+        for (QueryOptimizationResult result : results) {
+            if (!result.isAlreadyOptimized() && !result.getOptimizationIssues().isEmpty()) {
+                OptimizationIssue issue = result.getOptimizationIssues().getFirst();
+                if (issue.optimizedQuery() != null) {
+                    // Actually update the annotation
+                    updateAnnotationValue(issue.query().getMethodDeclaration().asMethodDeclaration(),
+                            "Query", issue.optimizedQuery().getStatement().toString());
+
+                    // Track @Query annotation changes (only count when we actually change it)
+                    stats.incrementQueryAnnotationsChanged();
+
+                    // Check if method name changed (indicating signature should change)
+                    boolean methodNameChanged = !issue.query().getMethodName().equals(issue.optimizedQuery().getMethodName());
+
+                    // Only reorder parameters if the method name has changed
+                    // (If name hasn't changed, we just swap placeholders in the query, keeping same parameter order)
+                    boolean parametersReordered = false;
+                    if (methodNameChanged) {
+                        parametersReordered = reorderMethodParameters(
+                            issue.query().getMethodDeclaration().asMethodDeclaration(),
+                            issue.currentColumnOrder(),
+                            issue.recommendedColumnOrder()
+                        );
+                    }
+
+                    // Track method signature changes
+                    if (methodNameChanged) {
+                        stats.incrementMethodSignaturesChanged();
                     }
                 }
-                updates.add(result);
             }
+            updates.add(result);
         }
         
         if (!updates.isEmpty()) {
@@ -336,36 +326,21 @@ public class QueryOptimizer extends QueryOptimizationChecker{
     }
 
     /**
-     * Sets up lexical preservation for a compilation unit by re-parsing the file.
-     * This must be done before any modifications to preserve original whitespace.
-     * 
-     * Note: We parse without symbol resolution since we only need the AST structure
-     * for whitespace preservation. The original compilation unit already has type
-     * resolution, so we just need to preserve formatting when writing.
+     * Sets up lexical preservation - intentionally empty as LexicalPreservingPrinter
+     * cannot be retrofitted onto already-parsed compilation units.
+     * Whitespace preservation will be handled in writeFile() by comparing with original.
      */
     private void setupLexicalPreservation(String fullyQualifiedName) throws IOException {
-        String fullPath = Settings.getBasePath() + "src/main/java/" + AbstractCompiler.classToPath(fullyQualifiedName);
-        File f = new File(fullPath);
-        
-        if (f.exists()) {
-            try (FileInputStream fis = new FileInputStream(f)) {
-                // Parse without symbol resolver - we only need the AST for whitespace preservation
-                JavaParser parser = new JavaParser();
-                
-                var parseResult = parser.parse(fis);
-                if (parseResult.isSuccessful() && parseResult.getResult().isPresent()) {
-                    CompilationUnit cu = parseResult.getResult().get();
-                    LexicalPreservingPrinter.setup(cu);
-                    // Replace the compilation unit in the runtime with the lexically-preserved version
-                    AntikytheraRunTime.addCompilationUnit(fullyQualifiedName, cu);
-                }
-            } catch (Exception e) {
-                // If lexical preservation setup fails, continue with the original CU
-                System.err.println("Warning: Failed to setup lexical preservation for " + fullyQualifiedName + ": " + e.getMessage());
-            }
-        }
+        // LexicalPreservingPrinter requires being set up immediately after parsing,
+        // so we cannot enable it on compilation units that were already parsed during preProcess().
+        // The writeFile() method handles whitespace preservation differently.
     }
     
+    /**
+     * Writes the modified compilation unit to disk with whitespace preservation.
+     * Since LexicalPreservingPrinter cannot be used on already-parsed CUs, we use
+     * JavaParser's default pretty printer which produces consistent 4-space indentation.
+     */
     private static void writeFile(String fullyQualifiedName) throws FileNotFoundException {
         String fullPath = Settings.getBasePath() + "src/main/java/" + AbstractCompiler.classToPath(fullyQualifiedName);
         File f = new File(fullPath);
@@ -376,6 +351,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
                 // No parsed CompilationUnit available, skip writing to avoid truncating the file
                 return;
             }
+            
             String original;
             try {
                 original = Files.readString(Path.of(fullPath), StandardCharsets.UTF_8);
@@ -383,24 +359,20 @@ public class QueryOptimizer extends QueryOptimizationChecker{
                 original = null; // If reading fails, proceed to write to be safe
             }
             
-            // Use LexicalPreservingPrinter to preserve whitespace if available
-            String content;
-            try {
-                content = LexicalPreservingPrinter.print(cu);
-            } catch (UnsupportedOperationException | IllegalStateException e) {
-                // Fallback to toString() if LexicalPreservingPrinter fails
-                // This can happen when nodes are cleared and re-added (e.g., parameter reordering)
-                // JavaParser's default toString() uses 4-space indentation
-                content = cu.toString();
-            }
+            // Use JavaParser's default pretty printer (4-space indentation)
+            // LexicalPreservingPrinter cannot be used here as it requires being set up
+            // immediately after parsing, which is not possible for CUs from preProcess()
+            String content = cu.toString();
 
-            // If resulting content is identical to original, skip writing to avoid incidental whitespace changes
+            // If resulting content is identical to original, skip writing
             if (original != null && original.equals(content)) {
                 return;
             }
+            
             try (PrintWriter writer = new PrintWriter(f, StandardCharsets.UTF_8)) {
                 writer.print(content);
             } catch (IOException ioe) {
+                // Fallback if UTF-8 encoding fails
                 try (PrintWriter writer = new PrintWriter(f)) {
                     writer.print(content);
                 }
@@ -436,7 +408,6 @@ public class QueryOptimizer extends QueryOptimizationChecker{
                             
                             modified = true;
                             methodCallsUpdated++;
-                            break; // Found the match, no need to check other updates
                         }
                     }
                 }

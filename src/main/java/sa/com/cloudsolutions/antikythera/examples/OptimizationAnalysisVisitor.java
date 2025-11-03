@@ -11,6 +11,7 @@ import net.sf.jsqlparser.expression.operators.relational.ComparisonOperator;
 import net.sf.jsqlparser.expression.operators.relational.InExpression;
 import net.sf.jsqlparser.expression.operators.relational.IsNullExpression;
 import net.sf.jsqlparser.schema.Column;
+import net.sf.jsqlparser.schema.Table;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.generator.QueryMethodParameter;
@@ -93,28 +94,51 @@ public class OptimizationAnalysisVisitor {
         }
     }
     
+    
+    /**
+     * Extracts a WhereCondition from an IN expression.
+     */
+    private void extractConditionFromIn(InExpression inExpr) {
+        Expression leftExpr = inExpr.getLeftExpression();
+        if (leftExpr instanceof Column column) {
+            String tableName = extractTableName(column);
+            String columnName = extractColumnName(column);
+            
+            QueryMethodParameter parameter = findMatchingParameter(columnName, inExpr.getRightExpression());
+            
+            CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(tableName, columnName);
+            
+            WhereCondition condition = new WhereCondition(tableName, columnName, "IN", cardinality, 
+                                                        positionCounter++, parameter);
+            conditions.add(condition);
+            
+            logger.debug("Extracted IN condition: {} from table {}", condition, tableName);
+        }
+    }
+    
     /**
      * Extracts a WhereCondition from a comparison operator expression.
      * Uses the existing column mapping infrastructure from the parser package.
+     * Enhanced to extract table name from column reference for JOIN support.
      */
     private void extractConditionFromComparison(ComparisonOperator comparison) {
         Expression leftExpr = comparison.getLeftExpression();
         if (leftExpr instanceof Column column) {
+            String tableName = extractTableName(column);
             String columnName = extractColumnName(column);
             String operator = comparison.getStringExpression();
             
             // Use existing parameter mapping logic
             QueryMethodParameter parameter = findMatchingParameter(columnName, comparison.getRightExpression());
             
-            // Use existing cardinality analysis
-            CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(
-                repositoryQuery.getPrimaryTable(), columnName);
+            // Use existing cardinality analysis with the correct table
+            CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(tableName, columnName);
             
-            WhereCondition condition = new WhereCondition(columnName, operator, cardinality, 
+            WhereCondition condition = new WhereCondition(tableName, columnName, operator, cardinality, 
                                                         positionCounter++, parameter);
             conditions.add(condition);
             
-            logger.debug("Extracted comparison condition: {}", condition);
+            logger.debug("Extracted comparison condition: {} from table {}", condition, tableName);
         }
     }
     
@@ -124,6 +148,7 @@ public class OptimizationAnalysisVisitor {
     private void extractConditionFromBetween(Between between) {
         Expression leftExpr = between.getLeftExpression();
         if (leftExpr instanceof Column column) {
+            String tableName = extractTableName(column);
             String columnName = extractColumnName(column);
             
             // For BETWEEN, try to find parameter from start or end expression
@@ -132,35 +157,13 @@ public class OptimizationAnalysisVisitor {
                 parameter = findMatchingParameter(columnName, between.getBetweenExpressionEnd());
             }
             
-            CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(
-                repositoryQuery.getPrimaryTable(), columnName);
+            CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(tableName, columnName);
             
-            WhereCondition condition = new WhereCondition(columnName, "BETWEEN", cardinality, 
+            WhereCondition condition = new WhereCondition(tableName, columnName, "BETWEEN", cardinality, 
                                                         positionCounter++, parameter);
             conditions.add(condition);
             
-            logger.debug("Extracted BETWEEN condition: {}", condition);
-        }
-    }
-    
-    /**
-     * Extracts a WhereCondition from an IN expression.
-     */
-    private void extractConditionFromIn(InExpression inExpr) {
-        Expression leftExpr = inExpr.getLeftExpression();
-        if (leftExpr instanceof Column column) {
-            String columnName = extractColumnName(column);
-            
-            QueryMethodParameter parameter = findMatchingParameter(columnName, inExpr.getRightExpression());
-            
-            CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(
-                repositoryQuery.getPrimaryTable(), columnName);
-            
-            WhereCondition condition = new WhereCondition(columnName, "IN", cardinality, 
-                                                        positionCounter++, parameter);
-            conditions.add(condition);
-            
-            logger.debug("Extracted IN condition: {}", condition);
+            logger.debug("Extracted BETWEEN condition: {} from table {}", condition, tableName);
         }
     }
     
@@ -170,21 +173,65 @@ public class OptimizationAnalysisVisitor {
     private void extractConditionFromIsNull(IsNullExpression isNull) {
         Expression leftExpr = isNull.getLeftExpression();
         if (leftExpr instanceof Column column) {
+            String tableName = extractTableName(column);
             String columnName = extractColumnName(column);
             
             // IS NULL expressions typically don't have parameters
             QueryMethodParameter parameter = findMatchingParameter(columnName, null);
             
-            CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(
-                repositoryQuery.getPrimaryTable(), columnName);
+            CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(tableName, columnName);
             
             String operator = isNull.isNot() ? "IS NOT NULL" : "IS NULL";
-            WhereCondition condition = new WhereCondition(columnName, operator, cardinality, 
+            WhereCondition condition = new WhereCondition(tableName, columnName, operator, cardinality, 
                                                         positionCounter++, parameter);
             conditions.add(condition);
             
-            logger.debug("Extracted IS NULL condition: {}", condition);
+            logger.debug("Extracted IS NULL condition: {} from table {}", condition, tableName);
         }
+    }
+    
+    /**
+     * Extracts table name from column reference.
+     * For columns with table qualifiers (e.g., "t.column" or "table.column"),
+     * returns the table/alias name. Otherwise returns the primary table.
+     * This is critical for supporting JOIN queries where columns come from different tables.
+     */
+    private String extractTableName(Column column) {
+        Table table = column.getTable();
+        
+        if (table != null && table.getName() != null) {
+            // Column has explicit table reference (e.g., "a.admission_id")
+            String tableRef = table.getName();
+            
+            // TODO: Map alias to actual table name using FROM/JOIN clauses
+            // For now, we'll try to resolve it or use primary table as fallback
+            String resolved = resolveTableFromAlias(tableRef);
+            if (resolved != null) {
+                return resolved;
+            }
+            
+            // If it's not an alias, it might be the actual table name
+            return tableRef;
+        }
+        
+        // No explicit table reference - use primary table
+        return repositoryQuery.getPrimaryTable();
+    }
+    
+    /**
+     * Resolves a table alias to the actual table name.
+     * For now, returns null to indicate alias resolution is not yet implemented.
+     * TODO: Parse FROM and JOIN clauses to build alias-to-table mapping.
+     */
+    private String resolveTableFromAlias(String aliasOrTable) {
+        // If it matches the primary table or looks like a table name (snake_case), use it
+        if (aliasOrTable.equals(repositoryQuery.getPrimaryTable()) || aliasOrTable.contains("_")) {
+            return aliasOrTable;
+        }
+        
+        // Otherwise, it's likely an alias - use primary table for now
+        // This is a simplification that works for many cases
+        return repositoryQuery.getPrimaryTable();
     }
     
     /**
