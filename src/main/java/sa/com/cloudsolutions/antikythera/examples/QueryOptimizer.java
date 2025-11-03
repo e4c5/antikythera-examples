@@ -327,19 +327,18 @@ public class QueryOptimizer extends QueryOptimizationChecker{
 
     /**
      * Sets up lexical preservation - intentionally empty as LexicalPreservingPrinter
-     * cannot be retrofitted onto already-parsed compilation units.
-     * Whitespace preservation will be handled in writeFile() by comparing with original.
+     * is now enabled globally before preProcess() in main().
+     * All files parsed during preProcess() automatically get lexical preservation.
      */
     private void setupLexicalPreservation(String fullyQualifiedName) throws IOException {
-        // LexicalPreservingPrinter requires being set up immediately after parsing,
-        // so we cannot enable it on compilation units that were already parsed during preProcess().
-        // The writeFile() method handles whitespace preservation differently.
+        // No-op: Lexical preservation is enabled globally via AbstractCompiler.setEnableLexicalPreservation(true)
+        // in main() before preProcess() is called, so all parsed files already have it.
     }
     
     /**
      * Writes the modified compilation unit to disk with whitespace preservation.
-     * Since LexicalPreservingPrinter cannot be used on already-parsed CUs, we use
-     * JavaParser's default pretty printer which produces consistent 4-space indentation.
+     * Uses LexicalPreservingPrinter to maintain original formatting (enabled in main() before preProcess).
+     * Falls back to default pretty printer if lexical preservation fails on complex AST modifications.
      */
     private static void writeFile(String fullyQualifiedName) throws FileNotFoundException {
         String fullPath = Settings.getBasePath() + "src/main/java/" + AbstractCompiler.classToPath(fullyQualifiedName);
@@ -359,10 +358,17 @@ public class QueryOptimizer extends QueryOptimizationChecker{
                 original = null; // If reading fails, proceed to write to be safe
             }
             
-            // Use JavaParser's default pretty printer (4-space indentation)
-            // LexicalPreservingPrinter cannot be used here as it requires being set up
-            // immediately after parsing, which is not possible for CUs from preProcess()
-            String content = cu.toString();
+            // Try to use LexicalPreservingPrinter for whitespace preservation
+            // Falls back to default pretty printer if lexical preservation fails
+            String content;
+            try {
+                content = LexicalPreservingPrinter.print(cu);
+            } catch (Exception e) {
+                // LexicalPreservingPrinter can fail on complex AST modifications (e.g., parameter reordering)
+                logger.warn("LexicalPreservingPrinter failed for {}, using default printer: {}", 
+                           fullyQualifiedName, e.getMessage());
+                content = cu.toString();
+            }
 
             // If resulting content is identical to original, skip writing
             if (original != null && original.equals(content)) {
@@ -474,6 +480,10 @@ public class QueryOptimizer extends QueryOptimizationChecker{
     public static void main(String[] args) throws Exception {
         long s = System.currentTimeMillis();
         Settings.loadConfigMap();
+        
+        // Enable lexical preservation BEFORE preProcess to preserve whitespace in all parsed files
+        AbstractCompiler.setEnableLexicalPreservation(true);
+        
         AbstractCompiler.preProcess();
         
         // Parse command-line flags
