@@ -4,10 +4,12 @@ import sa.com.cloudsolutions.antikythera.generator.QueryMethodParameter;
 
 /**
  * Represents a parsed WHERE clause condition from a repository query.
- * Contains information about the column, operator, cardinality, and position
+ * Contains information about the table, column, operator, cardinality, and position
  * within the WHERE clause for optimization analysis.
+ * 
+ * Enhanced to support JOINs by tracking which table each column belongs to.
  */
-public record WhereCondition(String columnName, String operator, CardinalityLevel cardinality, int position,
+public record WhereCondition(String tableName, String columnName, String operator, CardinalityLevel cardinality, int position,
                              QueryMethodParameter parameter) {
     /**
      * Checks if this condition uses a high cardinality column.
@@ -27,9 +29,4 @@ public record WhereCondition(String columnName, String operator, CardinalityLeve
         return cardinality == CardinalityLevel.LOW;
     }
 
-    @Override
-    public String toString() {
-        return String.format("columnName='%s', operator='%s', cardinality=%s, position=%d",
-                columnName, operator, cardinality, position);
-    }
 }

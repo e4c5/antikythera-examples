@@ -81,7 +81,7 @@ public class QueryAnalysisEngine {
                 String columnName = param.getColumnName();
                 if (columnName != null && !columnName.isEmpty()) {
                     CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(tableName, columnName);
-                    WhereCondition condition = new WhereCondition(columnName, "=", cardinality, i, param);
+                    WhereCondition condition = new WhereCondition(tableName, columnName, "=", cardinality, i, param);
                     whereConditions.add(condition);
                 }
             }

@@ -96,7 +96,7 @@ public class QueryOptimizationExtractor {
                 // Use existing cardinality analysis infrastructure
                 CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(tableName, columnName);
                 
-                WhereCondition condition = new WhereCondition(columnName, "=", cardinality, i, param);
+                WhereCondition condition = new WhereCondition(tableName, columnName, "=", cardinality, i, param);
                 conditions.add(condition);
                 
                 logger.debug("Extracted condition from method parameter: {}", condition);
