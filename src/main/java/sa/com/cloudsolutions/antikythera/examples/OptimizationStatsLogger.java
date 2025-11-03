@@ -39,9 +39,7 @@ public class OptimizationStatsLogger {
         public int getQueriesAnalyzed() { return queriesAnalyzed; }
         public void setQueriesAnalyzed(int queriesAnalyzed) { this.queriesAnalyzed = queriesAnalyzed; }
         public int getQueryAnnotationsChanged() { return queryAnnotationsChanged; }
-        public void setQueryAnnotationsChanged(int queryAnnotationsChanged) { this.queryAnnotationsChanged = queryAnnotationsChanged; }
         public int getMethodSignaturesChanged() { return methodSignaturesChanged; }
-        public void setMethodSignaturesChanged(int methodSignaturesChanged) { this.methodSignaturesChanged = methodSignaturesChanged; }
         public int getMethodCallsUpdated() { return methodCallsUpdated; }
         public void setMethodCallsUpdated(int methodCallsUpdated) { this.methodCallsUpdated = methodCallsUpdated; }
         public int getDependentClassesModified() { return dependentClassesModified; }
@@ -52,8 +50,7 @@ public class OptimizationStatsLogger {
         // Increment methods for easier tracking
         public void incrementQueryAnnotationsChanged() { queryAnnotationsChanged++; }
         public void incrementMethodSignaturesChanged() { methodSignaturesChanged++; }
-        public void incrementMethodCallsUpdated() { methodCallsUpdated++; }
-        public void incrementDependentClassesModified() { dependentClassesModified++; }
+
         
         @Override
         public String toString() {

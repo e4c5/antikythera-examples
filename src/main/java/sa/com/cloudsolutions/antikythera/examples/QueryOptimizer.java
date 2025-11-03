@@ -87,11 +87,8 @@ public class QueryOptimizer extends QueryOptimizationChecker{
                     // Check if method name changed (indicating signature should change)
                     boolean methodNameChanged = !issue.query().getMethodName().equals(issue.optimizedQuery().getMethodName());
 
-                    // Only reorder parameters if the method name has changed
-                    // (If name hasn't changed, we just swap placeholders in the query, keeping same parameter order)
-                    boolean parametersReordered = false;
                     if (methodNameChanged) {
-                        parametersReordered = reorderMethodParameters(
+                        reorderMethodParameters(
                             issue.query().getMethodDeclaration().asMethodDeclaration(),
                             issue.currentColumnOrder(),
                             issue.recommendedColumnOrder()
@@ -135,12 +132,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         }
         totalFilesModified += stats.getDependentClassesModified();
         
-        // Log statistics to CSV file
-        try {
-            OptimizationStatsLogger.logStats(stats);
-        } catch (IOException e) {
-            System.err.println("Failed to log optimization stats: " + e.getMessage());
-        }
+        OptimizationStatsLogger.logStats(stats);
     }
 
     /**
