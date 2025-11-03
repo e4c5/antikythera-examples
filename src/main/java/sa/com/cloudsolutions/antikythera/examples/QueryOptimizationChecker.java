@@ -769,7 +769,7 @@ public class QueryOptimizationChecker {
      * @param columns list of column names in index order
      * @return XML changeset string
      */
-    private String buildLiquibaseMultiColumnIndexChangeSet(String tableName, LinkedHashSet<String> columns) {
+    String buildLiquibaseMultiColumnIndexChangeSet(String tableName, LinkedHashSet<String> columns) {
         if (columns.isEmpty()) return "";
         if (tableName.isEmpty()) tableName = TABLE_NAME_TAG;
         
