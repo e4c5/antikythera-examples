@@ -769,7 +769,7 @@ public class QueryOptimizationChecker {
      * @param columns list of column names in index order
      * @return XML changeset string
      */
-    private String buildLiquibaseMultiColumnIndexChangeSet(String tableName, List<String> columns) {
+    private String buildLiquibaseMultiColumnIndexChangeSet(String tableName, LinkedHashSet<String> columns) {
         if (columns.isEmpty()) return "";
         if (tableName.isEmpty()) tableName = TABLE_NAME_TAG;
         
@@ -822,37 +822,26 @@ public class QueryOptimizationChecker {
         if (table == null || table.isEmpty()) {
             table = inferTableNameFromQuerySafe(result.getQuery().getQuery(), result.getQuery().getClassname());
         }
-        logger.debug("Collecting index suggestions for table: {}, method: {}", table, result.getMethodName());
-        
-        // Strategy: Check if query uses multiple columns in WHERE clause
-        // If yes, create a multi-column index. If no, create single-column index.
+
         List<String> columnsForIndex = new ArrayList<>();
         
         // Collect columns from the recommended order (from AI or optimization issues)
         for (OptimizationIssue issue : issues) {
             if (issue.severity() == OptimizationIssue.Severity.HIGH || issue.severity() == OptimizationIssue.Severity.MEDIUM) {
-                if (issue.recommendedColumnOrder() != null && !issue.recommendedColumnOrder().isEmpty()) {
-                    // Use the full recommended column order for multi-column index
-                    columnsForIndex = new ArrayList<>(issue.recommendedColumnOrder());
-                    logger.debug("Found {} HIGH/MEDIUM severity columns for index: {}", columnsForIndex.size(), columnsForIndex);
+                if (issue.recommendedColumnOrder() != null) {
+                    columnsForIndex.addAll(issue.recommendedColumnOrder());
                     break; // Use the first high/medium severity issue's recommendation
-                } else {
-                    logger.debug("Issue severity={}, but recommendedColumnOrder is null or empty", issue.severity());
                 }
             }
         }
         
         // If no columns from issues, try to extract from WHERE conditions
         if (columnsForIndex.isEmpty() && !result.getWhereConditions().isEmpty()) {
-            logger.debug("No columns from issues, extracting from WHERE conditions. Found {} conditions", result.getWhereConditions().size());
             for (WhereCondition condition : result.getWhereConditions()) {
                 if (condition.cardinality() != CardinalityLevel.LOW) {
                     columnsForIndex.add(condition.columnName());
-                    logger.debug("Added column {} from WHERE condition (cardinality: {})", condition.columnName(), condition.cardinality());
                 }
             }
-        } else if (columnsForIndex.isEmpty()) {
-            logger.debug("No columns to index - issues empty and no WHERE conditions");
         }
         
         // Filter out columns that already have indexes and low-cardinality columns
@@ -863,9 +852,6 @@ public class QueryOptimizationChecker {
                 filteredColumns.add(column);
             }
         }
-        
-        // Decide: multi-column index or single-column index?
-        logger.debug("After filtering, {} columns remain for indexing on table {}: {}", filteredColumns.size(), table, filteredColumns);
         
         if (filteredColumns.size() > 1) {
             // Create multi-column index
@@ -882,23 +868,6 @@ public class QueryOptimizationChecker {
                 logger.info("Single-column index suggestion for {}.{} - {}", table, column, added ? "ADDED" : "DUPLICATE");
             } else {
                 logger.debug("Skipping {}.{} - already has index with leading column", table, column);
-            }
-        } else {
-            logger.debug("No columns passed filtering for table {}", table);
-        }
-        
-        // Also collect AI-recommended indexes from the result (for backward compatibility)
-        for (String indexRecommendation : result.getIndexSuggestions()) {
-            // indexRecommendation format is "table.column"
-            String[] parts = indexRecommendation.split("\\.", 2);
-            if (parts.length == 2) {
-                String tbl = parts[0];
-                String column = parts[1];
-                CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(tbl, column);
-                if (cardinality != CardinalityLevel.LOW && !CardinalityAnalyzer.hasIndexWithLeadingColumn(tbl, column)) {
-                    String key = (tbl + "|" + column).toLowerCase();
-                    suggestedNewIndexes.add(key);
-                }
             }
         }
     }
@@ -929,7 +898,7 @@ public class QueryOptimizationChecker {
                 String[] parts = key.split("\\|", 2);
                 String table = parts.length > 0 ? parts[0] : TABLE_NAME_TAG;
                 String columnsStr = parts.length > 1 ? parts[1] : COLUMN_NAME_TAG;
-                List<String> columns = List.of(columnsStr.split(","));
+                LinkedHashSet<String> columns = new LinkedHashSet<>(List.of(columnsStr.split(",")));
                 
                 // Use new multi-column index changeset builder
                 String snippet = buildLiquibaseMultiColumnIndexChangeSet(table, columns);
@@ -1052,7 +1021,7 @@ public class QueryOptimizationChecker {
             String[] parts = key.split("\\|", 2);
             String table = parts.length > 0 ? parts[0] : TABLE_NAME_TAG;
             String columnsStr = parts.length > 1 ? parts[1] : COLUMN_NAME_TAG;
-            List<String> columns = List.of(columnsStr.split(","));
+            LinkedHashSet<String> columns = new LinkedHashSet<>(List.of(columnsStr.split(",")));
 
             String changeSet = buildLiquibaseMultiColumnIndexChangeSet(table, columns);
 

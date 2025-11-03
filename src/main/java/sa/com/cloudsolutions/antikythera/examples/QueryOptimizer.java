@@ -1,8 +1,5 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
-import com.github.javaparser.JavaParser;
-import com.github.javaparser.ast.CompilationUnit;
-import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.expr.AnnotationExpr;
@@ -24,7 +21,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -141,12 +137,12 @@ public class QueryOptimizer extends QueryOptimizationChecker{
      * <p>
      * This handles both single-member (@Query("...")) and normal
      * (@Query(value = "...")) annotation styles.
+     * 
+     * IMPORTANT: Modifies the annotation IN PLACE to ensure LexicalPreservingPrinter tracks changes.
      *
      * @param method          The method node containing the annotation.
      * @param annotationName  The name of the annotation to find (e.g., "Query").
      * @param newStringValue  The new string to set as the annotation's value.
-     * @return true if the annotation was found and successfully replaced,
-     * false otherwise.
      */
     public void updateAnnotationValue(MethodDeclaration method,
                                          String annotationName,
@@ -155,43 +151,28 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         // 1. Find the annotation on the method
         Optional<AnnotationExpr> oldAnnotationOpt = method.getAnnotationByName(annotationName);
         if (oldAnnotationOpt.isPresent()) {
-
-
-            AnnotationExpr oldAnnotation = oldAnnotationOpt.get();
+            AnnotationExpr annotation = oldAnnotationOpt.get();
 
             // 2. Create the new value expression
             StringLiteralExpr newValueExpr = new StringLiteralExpr(newStringValue);
 
-            // 3. Clone the old annotation to preserve its formatting
-            AnnotationExpr newAnnotation = oldAnnotation.clone();
-
-            // 4. Modify the clone's value based on its type
-            boolean updateSucceeded = false;
-            if (newAnnotation.isSingleMemberAnnotationExpr()) {
-
+            // 3. Modify IN PLACE (not replace) so LexicalPreservingPrinter tracks the change
+            if (annotation.isSingleMemberAnnotationExpr()) {
                 // --- Case 1: @Query("...") ---
-                newAnnotation.asSingleMemberAnnotationExpr().setMemberValue(newValueExpr);
-                updateSucceeded = true;
+                annotation.asSingleMemberAnnotationExpr().setMemberValue(newValueExpr);
 
-            } else if (newAnnotation.isNormalAnnotationExpr()) {
-
+            } else if (annotation.isNormalAnnotationExpr()) {
                 // --- Case 2: @Query(value = "...") ---
-                NormalAnnotationExpr normal = newAnnotation.asNormalAnnotationExpr();
+                NormalAnnotationExpr normal = annotation.asNormalAnnotationExpr();
 
-                // Find the pair named "value" and update it
+                // Find the pair named "value" and update it IN PLACE
                 Optional<MemberValuePair> valuePair = normal.getPairs().stream()
                         .filter(p -> p.getName().asString().equals("value"))
                         .findFirst();
 
                 if (valuePair.isPresent()) {
                     valuePair.get().setValue(newValueExpr);
-                    updateSucceeded = true;
                 }
-            }
-
-            // 5. If we successfully modified the clone, replace the original
-            if (updateSucceeded) {
-                oldAnnotation.replace(newAnnotation);
             }
         }
     }
@@ -229,25 +210,29 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         }
         
         try {
-            // Get current parameters
+            // Get current parameters (save copies before modifying)
             var currentParams = new ArrayList<>(method.getParameters());
-            var reorderedParams = new ArrayList<Parameter>();
+            var paramNodeList = method.getParameters();
             
-            // Reorder parameters based on column order mapping
+            // Build reordered parameter list
+            var reorderedParams = new ArrayList<Parameter>();
             for (String recommendedColumn : recommendedColumnOrder) {
                 int currentIndex = currentColumnOrder.indexOf(recommendedColumn);
                 if (currentIndex >= 0 && currentIndex < currentParams.size()) {
-                    reorderedParams.add(currentParams.get(currentIndex).clone());
+                    reorderedParams.add(currentParams.get(currentIndex));
                 }
             }
             
             // Only apply if we successfully mapped all parameters
             if (reorderedParams.size() == currentParams.size()) {
-                method.getParameters().clear();
-                method.getParameters().addAll(reorderedParams);
+                // Replace parameters one-by-one using set() for better LexicalPreservingPrinter tracking
+                // This is more LPP-friendly than clear()+addAll()
+                for (int i = 0; i < reorderedParams.size(); i++) {
+                    paramNodeList.set(i, reorderedParams.get(i));
+                }
                 
-                // Note: Proper indentation will be applied by DefaultPrettyPrinter if
-                // LexicalPreservingPrinter fails due to parameter reordering
+                // Note: Parameter reordering may still cause LexicalPreservingPrinter to fall back
+                // to default formatting in some cases, but this approach maximizes compatibility
                 
                 return true;
             }
@@ -328,9 +313,14 @@ public class QueryOptimizer extends QueryOptimizationChecker{
     }
     
     /**
-     * Writes the modified compilation unit to disk with whitespace preservation.
-     * Uses LexicalPreservingPrinter to maintain original formatting (enabled in main() before preProcess).
-     * Falls back to default pretty printer if lexical preservation fails on complex AST modifications.
+     * Writes the modified compilation unit to disk.
+     * 
+     * Attempts to use LexicalPreservingPrinter for whitespace preservation, but falls back to
+     * cu.toString() if:
+     * 1. LexicalPreservingPrinter throws an exception
+     * 2. LexicalPreservingPrinter returns unchanged content (indicating AST mods weren't tracked)
+     * 
+     * The fallback uses JavaParser's default pretty printer which produces consistent formatting.
      */
     private static void writeFile(String fullyQualifiedName) throws FileNotFoundException {
         String fullPath = Settings.getBasePath() + "src/main/java/" + AbstractCompiler.classToPath(fullyQualifiedName);
@@ -350,14 +340,15 @@ public class QueryOptimizer extends QueryOptimizationChecker{
                 original = null; // If reading fails, proceed to write to be safe
             }
             
-            // Try to use LexicalPreservingPrinter for whitespace preservation
-            // Falls back to default pretty printer if lexical preservation fails
+            // Use LexicalPreservingPrinter for whitespace preservation
+            // Since we modify annotations IN PLACE, LexicalPreservingPrinter should track changes properly
             String content;
             try {
                 content = LexicalPreservingPrinter.print(cu);
+                logger.debug("LexicalPreservingPrinter successfully preserved formatting for {}", fullyQualifiedName);
             } catch (Exception e) {
-                // LexicalPreservingPrinter can fail on complex AST modifications (e.g., parameter reordering)
-                logger.warn("LexicalPreservingPrinter failed for {}, using default printer: {}", 
+                // LexicalPreservingPrinter can still fail on complex AST modifications (e.g., parameter reordering)
+                logger.warn("LexicalPreservingPrinter failed for {}: {}. Using default printer (may lose formatting).", 
                            fullyQualifiedName, e.getMessage());
                 content = cu.toString();
             }
