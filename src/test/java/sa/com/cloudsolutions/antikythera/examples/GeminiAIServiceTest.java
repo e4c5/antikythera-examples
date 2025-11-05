@@ -26,7 +26,7 @@ import static org.mockito.Mockito.*;
 class GeminiAIServiceTest {
 
     private GeminiAIService geminiAIService;
-    private AIServiceConfig config;
+    private Map<String, Object> config;
     
     @Mock
     private HttpClient mockHttpClient;
@@ -50,11 +50,11 @@ class GeminiAIServiceTest {
         geminiAIService = new GeminiAIService();
         
         // Create a test configuration
-        config = new AIServiceConfig();
-        config.setApiKey("test-api-key");
-        config.setTimeoutSeconds(30);
-        config.setTrackUsage(true);
-        config.setCostPer1kTokens(0.001);
+        config = new HashMap<>();
+        config.put("api_key", "test-api-key");
+        config.put("timeout_seconds", 30);
+        config.put("track_usage", true);
+        config.put("cost_per_1k_tokens", 0.001);
         
         // Configure the service
         geminiAIService.configure(config);
@@ -70,9 +70,9 @@ class GeminiAIServiceTest {
 
     @Test
     void testConfigure() throws IOException {
-        AIServiceConfig testConfig = new AIServiceConfig();
-        testConfig.setApiKey("test-key");
-        testConfig.setTimeoutSeconds(60);
+        Map<String, Object> testConfig = new HashMap<>();
+        testConfig.put("api_key", "test-key");
+        testConfig.put("timeout_seconds", 60);
         
         GeminiAIService service = new GeminiAIService();
         assertDoesNotThrow(() -> service.configure(testConfig));
