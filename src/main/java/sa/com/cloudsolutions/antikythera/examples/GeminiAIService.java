@@ -310,7 +310,7 @@ public class GeminiAIService {
 
             lastTokenUsage = new TokenUsage(inputTokens, outputTokens, totalTokens, estimatedCost, cachedContentTokenCount);
 
-            boolean trackUsage = getConfigBoolean("track_usage");
+            boolean trackUsage = getConfigBoolean("track_usage", true);
             if (trackUsage) {
                 logger.info("Token usage: {}", lastTokenUsage.getFormattedReport());
                 if (cachedContentTokenCount > 0) {
@@ -771,14 +771,16 @@ public class GeminiAIService {
     /**
      * Gets a boolean configuration value.
      */
-    private boolean getConfigBoolean(String key) {
+    private boolean getConfigBoolean(String key, boolean defaultValue) {
+        if (config == null) return defaultValue;
 
         Object value = config.get(key);
         if (value instanceof Boolean b) {
             return b;
+        } else if (value instanceof String str) {
+            return Boolean.parseBoolean(str);
         }
 
-        return Boolean.parseBoolean(value.toString());
-
+        return defaultValue;
     }
 }
