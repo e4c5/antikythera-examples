@@ -1,9 +1,10 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.Mock;
 import org.mockito.MockedStatic;
 import org.mockito.MockitoAnnotations;
@@ -353,37 +354,16 @@ class GeminiAIServiceTest {
         assertEquals("", result);
     }
 
-    @Test
-    void testExtractJsonFromResponse_ValidJson() throws Exception {
-        java.lang.reflect.Method method = GeminiAIService.class.getDeclaredMethod("extractJsonFromResponse", String.class);
-        method.setAccessible(true);
+    @ParameterizedTest
+    @CsvSource({
+        "'Here is the JSON response:\n[{\"test\": \"value\"}]\nEnd of response.', '[{\"test\": \"value\"}]'",
+        "'```json\n[{\"test\": \"value\"}]\n```', '[{\"test\": \"value\"}]'",
+        "'No JSON here, just plain text.', ''"
+    })
+    void testExtractJsonFromResponse(String input, String expected) {
+        String result = geminiAIService.extractJsonFromResponse(input);
         
-        String response = "Here is the JSON response:\n[{\"test\": \"value\"}]\nEnd of response.";
-        String result = (String) method.invoke(geminiAIService, response);
-        
-        assertEquals("[{\"test\": \"value\"}]", result);
-    }
-
-    @Test
-    void testExtractJsonFromResponse_CodeBlock() throws Exception {
-        java.lang.reflect.Method method = GeminiAIService.class.getDeclaredMethod("extractJsonFromResponse", String.class);
-        method.setAccessible(true);
-        
-        String response = "```json\n[{\"test\": \"value\"}]\n```";
-        String result = (String) method.invoke(geminiAIService, response);
-        
-        assertEquals("[{\"test\": \"value\"}]", result);
-    }
-
-    @Test
-    void testExtractJsonFromResponse_NoJson() throws Exception {
-        java.lang.reflect.Method method = GeminiAIService.class.getDeclaredMethod("extractJsonFromResponse", String.class);
-        method.setAccessible(true);
-        
-        String response = "No JSON here, just plain text.";
-        String result = (String) method.invoke(geminiAIService, response);
-        
-        assertEquals("", result);
+        assertEquals(expected, result);
     }
 
     @Test
@@ -476,14 +456,14 @@ class GeminiAIServiceTest {
         when(mockQuery.getOriginalQuery()).thenReturn("SELECT * FROM users WHERE name = ?");
         
         // Mock method declaration with proper callable declaration
-        Callable mockCallable = mock(Callable.class);
+        Callable callable = mock(Callable.class);
         MethodDeclaration mockMethod = mock(MethodDeclaration.class);
         
-        when(mockQuery.getMethodDeclaration()).thenReturn(mockCallable);
-        when(mockCallable.isMethodDeclaration()).thenReturn(true);
-        when(mockCallable.asMethodDeclaration()).thenReturn(mockMethod);
-        doReturn(mockMethod).when(mockCallable).getCallableDeclaration();
-        when(mockCallable.toString()).thenReturn("findByName(String name)");
+        when(mockQuery.getMethodDeclaration()).thenReturn(callable);
+        when(callable.isMethodDeclaration()).thenReturn(true);
+        when(callable.asMethodDeclaration()).thenReturn(mockMethod);
+        doReturn(mockMethod).when(callable).getCallableDeclaration();
+        when(callable.toString()).thenReturn("findByName(String name)");
         when(mockMethod.toString()).thenReturn("findByName(String name)");
         when(mockMethod.isAnnotationPresent("Query")).thenReturn(false);
         
