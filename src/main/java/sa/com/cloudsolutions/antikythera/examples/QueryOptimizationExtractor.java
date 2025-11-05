@@ -65,9 +65,7 @@ public class QueryOptimizationExtractor {
         // Use the optimization analysis visitor
         OptimizationAnalysisVisitor visitor = new OptimizationAnalysisVisitor(repositoryQuery, context);
         
-        List<WhereCondition> conditions = visitor.extractConditions(whereExpression);
-
-        return conditions;
+        return  visitor.extractConditions(whereExpression);
     }
     
     /**

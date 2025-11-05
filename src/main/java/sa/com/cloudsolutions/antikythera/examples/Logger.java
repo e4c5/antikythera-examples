@@ -42,11 +42,10 @@ public class Logger {
 
             VariableDeclarator vdecl = field.getVariable(0);
             TypeWrapper wrapper = AbstractCompiler.findType(cu, vdecl.getTypeAsString());
-            if (wrapper != null) {
-                if (wrapper.getFullyQualifiedName().equals("org.slf4j.Logger")) {
-                    loggerField = vdecl.getNameAsString();
-                }
+            if (wrapper != null  && wrapper.getFullyQualifiedName().equals("org.slf4j.Logger")) {
+                loggerField = vdecl.getNameAsString();
             }
+
         }
     }
 
@@ -55,15 +54,11 @@ public class Logger {
             super.visit(block, arg);
             if (block.getStatements().isEmpty()) {
                 Optional<Node> parent = block.getParentNode();
-                if (parent.isPresent() && parent.get() instanceof IfStmt) {
-                    IfStmt ifStmt = (IfStmt) parent.get();
+                if (parent.isPresent() && parent.get() instanceof IfStmt ifStmt) {
                     if (ifStmt.getElseStmt().isPresent()) {
-                        Statement elseStmt = ifStmt.getElseStmt().get();
-                        if (elseStmt instanceof BlockStmt) {
-                            BlockStmt elseBlock = (BlockStmt) elseStmt;
-                            if (elseBlock.getStatements().isEmpty()) {
-                                return null;
-                            }
+                        Statement elseStmt = ifStmt.getElseStmt().orElseThrow();
+                        if (elseStmt instanceof BlockStmt elseBlock && elseBlock.getStatements().isEmpty()) {
+                            return null;
                         }
                     }
                 }
