@@ -20,6 +20,21 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+/**
+ * Analyzes Java code to detect hard delete operations in JPA repositories.
+ * 
+ * This analyzer identifies hard deletes by examining:
+ * 1. Standard JPA repository delete methods (delete, deleteById, deleteAll, etc.)
+ * 2. Derived query methods (deleteBy*, removeBy*)
+ * 3. Custom @Query annotations containing DELETE statements
+ * 
+ * It distinguishes between hard and soft deletes by:
+ * - Checking for @Query annotations with UPDATE statements (typical soft delete pattern)
+ * - Looking for soft delete indicators in query conditions (deleted flags, status fields)
+ * - Analyzing @Modifying annotations combined with UPDATE queries
+ * 
+ * Output format: ClassName,MethodName,MethodCallExpression
+ */
 @SuppressWarnings("java:S106")
 public class HardDelete {
     static TypeDeclaration<?> current;
@@ -33,7 +48,7 @@ public class HardDelete {
             super.visit(field, cu);
             VariableDeclarator vdecl = field.getVariable(0);
             TypeWrapper wrapper = AbstractCompiler.findType(cu, vdecl.getTypeAsString());
-            if (wrapper != null && RepositoryAnalyzer.isJpaRepository(wrapper)) {
+            if (RepositoryAnalyzer.isJpaRepository(wrapper)) {
                 repoVars.put(vdecl.getNameAsString(), wrapper.getFullyQualifiedName());
             }
         }
@@ -41,56 +56,184 @@ public class HardDelete {
 
     /**
      * Visitor to detect hard delete method calls on JPARepository instances.
-     * If a delete method has a custom annotation, it's not considered a hard delete.
+     * A hard delete is identified as:
+     * 1. Standard JPA repository delete methods (delete, deleteById, deleteAll, etc.)
+     * 2. Derived query methods starting with "deleteBy" without custom @Query annotation
+     * 3. Methods with @Query annotation containing DELETE statements without soft delete logic
      */
     public static class HardDeleteVisitor extends VoidVisitorAdapter<CompilationUnit> {
-        private static final String SOFT_DELETE_ANNOTATION = "Query";
-
         @Override
         public void visit(MethodCallExpr mce, CompilationUnit cu) {
             super.visit(mce, cu);
 
-            if (!mce.getNameAsString().toLowerCase().contains("delete")) return;
-
             mce.getScope().ifPresent(scope -> {
                 String varName = scope.toString();
-                if (repoVars.containsKey(varName) && !hasSoftDeleteAnnotation(mce, cu, varName)) {
+                if (repoVars.containsKey(varName) && isHardDeleteMethod(mce, cu, varName)) {
                     String className = current.asClassOrInterfaceDeclaration().getFullyQualifiedName().orElseThrow();
-                    System.out.println(className + "," + currentMethod
-                            + "," + mce );
+                    System.out.println(className + "," + currentMethod + "," + mce);
                 }
             });
         }
 
+        /**
+         * Determines if a method call represents a hard delete operation.
+         */
+        private boolean isHardDeleteMethod(MethodCallExpr mce, CompilationUnit cu, String repoVar) {
+            String methodName = mce.getNameAsString();
+            
+            // Check for standard JPA repository delete methods
+            if (isStandardJpaDeleteMethod(methodName)) {
+                return !isSoftDeleteImplementation(mce, cu, repoVar);
+            }
+            
+            // Check for derived query delete methods
+            if (isDerivedDeleteMethod(methodName)) {
+                return !isSoftDeleteImplementation(mce, cu, repoVar);
+            }
+            
+            // Check for custom query methods that perform deletes
+            if (isCustomDeleteQuery(mce, cu, repoVar)) {
+                return !isSoftDeleteImplementation(mce, cu, repoVar);
+            }
+            
+            return false;
+        }
 
-        private boolean hasSoftDeleteAnnotation(MethodCallExpr mce, CompilationUnit cu, String repoVar) {
-            // Try to resolve the repository type and method, then check for custom annotation
-            Optional<TypeDeclaration<?>> repoType = cu.getTypes().stream()
-                .filter(td -> td.getMembers().stream()
-                    .anyMatch(m -> m instanceof FieldDeclaration field &&
-                        field.getVariables().stream()
-                            .anyMatch(v -> v.getNameAsString().equals(repoVar))))
-                .findFirst();
+        /**
+         * Checks if the method name matches standard JPA repository delete methods.
+         */
+        private boolean isStandardJpaDeleteMethod(String methodName) {
+            return "delete".equals(methodName) ||
+                   "deleteById".equals(methodName) ||
+                   "deleteAll".equals(methodName) ||
+                   "deleteAllById".equals(methodName) ||
+                   "deleteInBatch".equals(methodName) ||
+                   "deleteAllInBatch".equals(methodName) ||
+                   "deleteAllByIdInBatch".equals(methodName);
+        }
 
+        /**
+         * Checks if the method name follows the derived query pattern for delete operations.
+         */
+        private boolean isDerivedDeleteMethod(String methodName) {
+            return methodName.startsWith("deleteBy") || methodName.startsWith("removeBy");
+        }
+
+        /**
+         * Checks if the method has a custom @Query annotation with DELETE statement.
+         */
+        private boolean isCustomDeleteQuery(MethodCallExpr mce, CompilationUnit cu, String repoVar) {
+            String repoTypeName = repoVars.get(repoVar);
+            if (repoTypeName == null) return false;
+
+            // Try to find the repository interface definition
+            Optional<TypeDeclaration<?>> repoType = findRepositoryType(cu, repoVar, repoTypeName);
+            
             if (repoType.isPresent()) {
                 List<MethodDeclaration> methods = repoType.get().getMethodsByName(mce.getNameAsString());
                 for (MethodDeclaration method : methods) {
-                    // Use RepositoryAnalyzer utility to check for Query annotation
                     if (RepositoryAnalyzer.hasQueryAnnotation(method)) {
-                        System.err.println(currentMethod + "," + mce + " is a soft delete" );
-                        return true;
-                    }
-                    // Also check for other query-related annotations that might indicate soft delete
-                    for (AnnotationExpr ann : method.getAnnotations()) {
-                        if (RepositoryAnalyzer.isQueryRelatedAnnotation(ann.getNameAsString())) {
-                            System.err.println(currentMethod + "," + mce + " is a soft delete" );
+                        String queryValue = extractQueryValue(method);
+                        if (queryValue.toUpperCase().contains("DELETE")) {
                             return true;
                         }
                     }
                 }
             }
-            // Could not find annotation, assume hard delete
             return false;
+        }
+
+        /**
+         * Determines if a delete method implementation is actually a soft delete.
+         */
+        private boolean isSoftDeleteImplementation(MethodCallExpr mce, CompilationUnit cu, String repoVar) {
+            String repoTypeName = repoVars.get(repoVar);
+            if (repoTypeName == null) return false;
+
+            Optional<TypeDeclaration<?>> repoType = findRepositoryType(cu, repoVar, repoTypeName);
+            
+            if (repoType.isPresent()) {
+                List<MethodDeclaration> methods = repoType.get().getMethodsByName(mce.getNameAsString());
+                for (MethodDeclaration method : methods) {
+                    // Check for @Query annotation with UPDATE statement (soft delete pattern)
+                    if (RepositoryAnalyzer.hasQueryAnnotation(method)) {
+                        String queryValue = extractQueryValue(method);
+                        String upperQuery = queryValue.toUpperCase();
+                        
+                        // Soft delete typically uses UPDATE to set a flag/timestamp
+                        if (upperQuery.contains("UPDATE") && 
+                            (upperQuery.contains("DELETED") || upperQuery.contains("ACTIVE") || 
+                             upperQuery.contains("STATUS") || upperQuery.contains("ENABLED"))) {
+                            System.err.println(currentMethod + "," + mce + " is a soft delete (UPDATE query)");
+                            return true;
+                        }
+                        
+                        // If it's a DELETE query, check for soft delete conditions
+                        if (upperQuery.contains("DELETE") && 
+                            (upperQuery.contains("WHERE") && 
+                             (upperQuery.contains("DELETED") || upperQuery.contains("ACTIVE") || 
+                              upperQuery.contains("STATUS")))) {
+                            System.err.println(currentMethod + "," + mce + " might be a conditional delete");
+                            // This could be either hard or soft delete depending on the condition
+                            // For now, we'll be conservative and not flag it as hard delete
+                            return true;
+                        }
+                    }
+                    
+                    // Check for @Modifying annotation combined with @Query
+                    if (RepositoryAnalyzer.hasModifyingAnnotation(method) && 
+                        RepositoryAnalyzer.hasQueryAnnotation(method)) {
+                        String queryValue = extractQueryValue(method);
+                        if (queryValue.toUpperCase().contains("UPDATE")) {
+                            System.err.println(currentMethod + "," + mce + " is a soft delete (@Modifying + UPDATE)");
+                            return true;
+                        }
+                    }
+                }
+            }
+            
+            return false;
+        }
+
+        /**
+         * Attempts to find the repository type definition.
+         */
+        private Optional<TypeDeclaration<?>> findRepositoryType(CompilationUnit cu, String repoVar, String repoTypeName) {
+            // First try to find in the current compilation unit
+            Optional<TypeDeclaration<?>> localType = cu.getTypes().stream()
+                .filter(td -> td.getMembers().stream()
+                    .anyMatch(m -> m instanceof FieldDeclaration field &&
+                        field.getVariables().stream()
+                            .anyMatch(v -> v.getNameAsString().equals(repoVar))))
+                .findFirst();
+                
+            if (localType.isPresent()) {
+                return localType;
+            }
+            
+            // Try to find by type name in the compilation unit
+            return cu.getTypes().stream()
+                .filter(td -> repoTypeName.endsWith(td.getNameAsString()))
+                .findFirst();
+        }
+
+        /**
+         * Extracts the query value from a @Query annotation.
+         */
+        private String extractQueryValue(MethodDeclaration method) {
+            return method.getAnnotationByName("Query")
+                .flatMap(ann -> {
+                    if (ann instanceof com.github.javaparser.ast.expr.SingleMemberAnnotationExpr single) {
+                        return Optional.of(single.getMemberValue().toString().replaceAll("^\"|\"$", ""));
+                    } else if (ann instanceof com.github.javaparser.ast.expr.NormalAnnotationExpr normal) {
+                        return normal.getPairs().stream()
+                            .filter(pair -> "value".equals(pair.getNameAsString()))
+                            .map(pair -> pair.getValue().toString().replaceAll("^\"|\"$", ""))
+                            .findFirst();
+                    }
+                    return Optional.empty();
+                })
+                .orElse("");
         }
     }
 
