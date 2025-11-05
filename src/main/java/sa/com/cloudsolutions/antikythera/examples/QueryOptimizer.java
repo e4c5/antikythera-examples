@@ -186,7 +186,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
      * @param recommendedColumnOrder the recommended column order
      * @return true if parameters were reordered, false otherwise
      */
-    private boolean reorderMethodParameters(MethodDeclaration method, 
+    boolean reorderMethodParameters(MethodDeclaration method, 
                                            List<String> currentColumnOrder, 
                                            List<String> recommendedColumnOrder) {
         // Validate inputs
@@ -307,7 +307,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
      * is now enabled globally before preProcess() in main().
      * All files parsed during preProcess() automatically get lexical preservation.
      */
-    private void setupLexicalPreservation(String fullyQualifiedName) throws IOException {
+    void setupLexicalPreservation(String fullyQualifiedName) throws IOException {
         // No-op: Lexical preservation is enabled globally via AbstractCompiler.setEnableLexicalPreservation(true)
         // in main() before preProcess() is called, so all parsed files already have it.
     }
@@ -322,7 +322,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
      * 
      * The fallback uses JavaParser's default pretty printer which produces consistent formatting.
      */
-    private static void writeFile(String fullyQualifiedName) throws FileNotFoundException {
+    static void writeFile(String fullyQualifiedName) throws FileNotFoundException {
         String fullPath = Settings.getBasePath() + "src/main/java/" + AbstractCompiler.classToPath(fullyQualifiedName);
         File f = new File(fullPath);
 
@@ -451,7 +451,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
      * @param flag the flag to check for
      * @return true if the flag is present
      */
-    private static boolean hasFlag(String[] args, String flag) {
+    static boolean hasFlag(String[] args, String flag) {
         for (String arg : args) {
             if (arg.equals(flag)) {
                 return true;
