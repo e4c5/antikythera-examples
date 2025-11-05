@@ -228,7 +228,6 @@ public class CodeAnalysisEngine {
             Pattern.compile("<changeSet[^>]*>", Pattern.MULTILINE),
             Pattern.compile("CREATE\\s+INDEX[^;]*;", Pattern.MULTILINE | Pattern.CASE_INSENSITIVE),
             Pattern.compile("DROP\\s+INDEX[^;]*;", Pattern.MULTILINE | Pattern.CASE_INSENSITIVE),
-            Pattern.compile("LiquibaseChangesWriter", Pattern.MULTILINE),
             Pattern.compile("getString\\([^)]+\\)", Pattern.MULTILINE)
         };
         

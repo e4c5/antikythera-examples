@@ -109,14 +109,7 @@ class CoverageImprovementTest {
         });
     }
 
-    @Test
-    void testLiquibaseChangesWriterInstantiation() {
-        // Test LiquibaseChangesWriter constructor
-        assertDoesNotThrow(() -> {
-            LiquibaseChangesWriter writer = new LiquibaseChangesWriter();
-            assertNotNull(writer);
-        });
-    }
+
 
     @Test
     void testRepoProcessorInstantiation() {

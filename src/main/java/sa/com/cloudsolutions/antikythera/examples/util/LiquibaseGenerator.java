@@ -16,7 +16,6 @@ import java.util.stream.Collectors;
  * - QueryOptimizationChecker.buildLiquibaseNonLockingIndexChangeSet()
  * - QueryOptimizationChecker.buildLiquibaseMultiColumnIndexChangeSet()
  * - QueryOptimizationChecker.buildLiquibaseDropIndexChangeSet()
- * - LiquibaseChangesWriter.write()
  */
 public class LiquibaseGenerator {
     
