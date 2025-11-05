@@ -25,6 +25,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Handles all interactions with the Gemini AI service including request formatting,
@@ -34,7 +35,7 @@ import java.util.List;
 public class GeminiAIService {
     private static final Logger logger = LoggerFactory.getLogger(GeminiAIService.class);
 
-    private AIServiceConfig config;
+    private Map<String, Object> config;
     private HttpClient httpClient;
     private final ObjectMapper objectMapper;
     private TokenUsage lastTokenUsage;
@@ -49,15 +50,16 @@ public class GeminiAIService {
     /**
      * Configures the AI service with the provided configuration.
      */
-    public void configure(AIServiceConfig config) {
+    public void configure(Map<String, Object> config) {
         this.config = config;
-        config.validate();
+        validateConfig();
 
+        int timeoutSeconds = getConfigInt("timeout_seconds", 60);
         this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(config.getTimeoutSeconds()))
+                .connectTimeout(Duration.ofSeconds(timeoutSeconds))
                 .build();
 
-        logger.debug("GeminiAIService configured: {}", config);
+        logger.debug("GeminiAIService configured with timeout: {}s", timeoutSeconds);
     }
 
     /**
@@ -271,13 +273,22 @@ public class GeminiAIService {
      * Sends the API request to Gemini AI service.
      */
     private String sendApiRequest(String payload) throws IOException, InterruptedException {
-        String url = config.getResolvedApiEndpoint() + "?key=" + config.getApiKey();
+        String apiEndpoint = getConfigString("api_endpoint", "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent");
+        String model = getConfigString("model", "gemini-1.5-flash");
+        String apiKey = getConfigString("api_key", null);
+        int timeoutSeconds = getConfigInt("timeout_seconds", 60);
+        
+        if (apiKey == null || apiKey.trim().isEmpty()) {
+            throw new IllegalStateException("AI service API key is required. Set GEMINI_API_KEY environment variable or configure ai_service.api_key in generator.yml");
+        }
+        
+        String url = apiEndpoint.replace("{model}", model) + "?key=" + apiKey;
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(payload))
-                .timeout(Duration.ofSeconds(config.getTimeoutSeconds()))
+                .timeout(Duration.ofSeconds(timeoutSeconds))
                 .build();
 
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
@@ -305,11 +316,13 @@ public class GeminiAIService {
             int totalTokens = usageMetadata.path("totalTokenCount").asInt(inputTokens + outputTokens);
             int cachedContentTokenCount = usageMetadata.path("cachedContentTokenCount").asInt(0);
 
-            double estimatedCost = (totalTokens / 1000.0) * config.getCostPer1kTokens();
+            double costPer1kTokens = getConfigDouble("cost_per_1k_tokens", 0.00015);
+            double estimatedCost = (totalTokens / 1000.0) * costPer1kTokens;
 
             lastTokenUsage = new TokenUsage(inputTokens, outputTokens, totalTokens, estimatedCost, cachedContentTokenCount);
 
-            if (config.isTrackUsage()) {
+            boolean trackUsage = getConfigBoolean("track_usage", true);
+            if (trackUsage) {
                 logger.info("Token usage: {}", lastTokenUsage.getFormattedReport());
                 if (cachedContentTokenCount > 0) {
                     logger.info("🚀 Cache hit! {} tokens served from cache, saving API costs", cachedContentTokenCount);
@@ -675,5 +688,110 @@ public class GeminiAIService {
         } else {
             return OptimizationIssue.Severity.LOW;
         }
+    }
+
+    /**
+     * Validates the configuration to ensure required settings are present.
+     */
+    private void validateConfig() {
+        String apiKey = getConfigString("api_key", null);
+        if (apiKey == null || apiKey.trim().isEmpty()) {
+            throw new IllegalStateException("AI service API key is required. Set GEMINI_API_KEY environment variable or configure ai_service.api_key in generator.yml");
+        }
+    }
+
+    /**
+     * Gets a string configuration value with fallback to environment variables.
+     */
+    private String getConfigString(String key, String defaultValue) {
+        if (config == null) return defaultValue;
+        
+        Object value = config.get(key);
+        if (value instanceof String str && !str.trim().isEmpty()) {
+            return str;
+        }
+        
+        // Fallback to environment variables
+        if ("api_key".equals(key)) {
+            String envValue = System.getenv("GEMINI_API_KEY");
+            if (envValue != null && !envValue.trim().isEmpty()) {
+                return envValue;
+            }
+        } else if ("api_endpoint".equals(key)) {
+            String envValue = System.getenv("AI_SERVICE_ENDPOINT");
+            if (envValue != null && !envValue.trim().isEmpty()) {
+                return envValue;
+            }
+        }
+        
+        return defaultValue;
+    }
+
+    /**
+     * Gets an integer configuration value.
+     */
+    private int getConfigInt(String key, int defaultValue) {
+        if (config == null) return defaultValue;
+        
+        Object value = config.get(key);
+        if (value instanceof Integer) {
+            return (Integer) value;
+        } else if (value instanceof String str) {
+            try {
+                return Integer.parseInt(str);
+            } catch (NumberFormatException e) {
+                logger.warn("Invalid integer value for {}: {}", key, str);
+            }
+        }
+        
+        // Fallback to environment variables
+        if ("queries_per_request".equals(key)) {
+            String envValue = System.getenv("AI_QUERIES_PER_REQUEST");
+            if (envValue != null && !envValue.trim().isEmpty()) {
+                try {
+                    return Integer.parseInt(envValue);
+                } catch (NumberFormatException e) {
+                    logger.warn("Invalid AI_QUERIES_PER_REQUEST environment variable: {}", envValue);
+                }
+            }
+        }
+        
+        return defaultValue;
+    }
+
+    /**
+     * Gets a double configuration value.
+     */
+    private double getConfigDouble(String key, double defaultValue) {
+        if (config == null) return defaultValue;
+        
+        Object value = config.get(key);
+        if (value instanceof Number) {
+            return ((Number) value).doubleValue();
+        } else if (value instanceof String str) {
+            try {
+                return Double.parseDouble(str);
+            } catch (NumberFormatException e) {
+                logger.warn("Invalid double value for {}: {}", key, str);
+            }
+        }
+        
+        return defaultValue;
+    }
+
+    /**
+     * Gets a boolean configuration value.
+     */
+    private boolean getConfigBoolean(String key, boolean defaultValue) {
+        if (config == null) return defaultValue;
+        
+        Object value = config.get(key);
+        if (value instanceof Boolean) {
+            return (Boolean) value;
+        } else if (value instanceof String str) {
+            return Boolean.parseBoolean(str);
+        }
+        
+        return defaultValue;
     }
 }

@@ -21,6 +21,7 @@ import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -77,8 +78,11 @@ public class QueryOptimizationChecker {
         
         // Initialize AI service components
         this.aiService = new GeminiAIService();
-        AIServiceConfig config = AIServiceConfigLoader.loadConfig();
-        this.aiService.configure(config);
+        Map<String, Object> aiConfig = (Map<String, Object>) Settings.getProperty("ai_service");
+        if (aiConfig == null) {
+            aiConfig = new HashMap<>();
+        }
+        this.aiService.configure(aiConfig);
         
         // Initialize batch processor for repository-level query collection
         this.batchProcessor = new QueryBatchProcessor();
