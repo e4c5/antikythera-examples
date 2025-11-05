@@ -58,23 +58,12 @@ public class GeminiAIService {
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(timeoutSeconds))
                 .build();
-
-        logger.debug("GeminiAIService configured with timeout: {}s", timeoutSeconds);
     }
 
     /**
      * Analyzes a batch of queries and returns optimization recommendations.
      */
     public List<OptimizationIssue> analyzeQueryBatch(QueryBatch batch) throws IOException, InterruptedException {
-        if (config == null) {
-            throw new IllegalStateException("AI service not configured. Call configure() first.");
-        }
-
-        if (batch == null || batch.isEmpty()) {
-            logger.debug("Empty batch provided, returning empty results");
-            return new ArrayList<>();
-        }
-
         String requestPayload = buildRequestPayload(batch);
         String response = sendApiRequest(requestPayload);
         return parseResponse(response, batch);

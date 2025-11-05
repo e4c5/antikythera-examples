@@ -79,35 +79,6 @@ class GeminiAIServiceTest {
     }
 
     @Test
-    void testAnalyzeQueryBatch_NotConfigured() throws IOException {
-        GeminiAIService unconfiguredService = new GeminiAIService();
-        QueryBatch batch = new QueryBatch();
-        
-        IllegalStateException exception = assertThrows(IllegalStateException.class, 
-            () -> unconfiguredService.analyzeQueryBatch(batch));
-        
-        assertTrue(exception.getMessage().contains("not configured"));
-    }
-
-    @Test
-    void testAnalyzeQueryBatch_EmptyBatch() throws IOException, InterruptedException {
-        QueryBatch emptyBatch = new QueryBatch();
-        
-        List<OptimizationIssue> result = geminiAIService.analyzeQueryBatch(emptyBatch);
-        
-        assertNotNull(result);
-        assertTrue(result.isEmpty());
-    }
-
-    @Test
-    void testAnalyzeQueryBatch_NullBatch() throws IOException, InterruptedException {
-        List<OptimizationIssue> result = geminiAIService.analyzeQueryBatch(null);
-        
-        assertNotNull(result);
-        assertTrue(result.isEmpty());
-    }
-
-    @Test
     void testAnalyzeQueryBatch_SuccessfulResponse() throws IOException, InterruptedException {
         // Setup mock HTTP client and response
         try (MockedStatic<HttpClient> httpClientMock = mockStatic(HttpClient.class)) {

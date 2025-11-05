@@ -108,3 +108,4 @@ Final notes:
 When you are unable to suggest an improvement, say so. Always return structured responses with the output being in the same order as the input.
 Never suggest moving a low cardinality column in front of a medium cardinality column or high cardinality column.
 Never suggest moving a medium cardinality column in front of a high cardinality column.
+Do not ever change a native (HQL/JPQL) query to a non native SQL query.
