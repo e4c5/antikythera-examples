@@ -116,7 +116,7 @@ public class QueryOptimizationChecker {
      * @param typeWrapper the type to check
      * @return true if it's a JPA repository, false otherwise
      */
-    private boolean isJpaRepository(TypeWrapper typeWrapper) {
+    boolean isJpaRepository(TypeWrapper typeWrapper) {
         if (typeWrapper.getType() instanceof ClassOrInterfaceDeclaration classOrInterface && classOrInterface.isInterface()) {
             for (var extendedType : classOrInterface.getExtendedTypes()) {
                 if (extendedType.getNameAsString().contains("JpaRepository") ||
@@ -168,7 +168,7 @@ public class QueryOptimizationChecker {
      * Collects raw queries from a repository without any programmatic analysis.
      * These will be sent directly to the LLM for optimization recommendations.
      */
-    private List<RepositoryQuery> collectRawQueries() {
+    List<RepositoryQuery> collectRawQueries() {
         List<RepositoryQuery> rawQueries = new ArrayList<>();
 
         // Use the queries that were already built by the RepositoryParser
@@ -210,7 +210,7 @@ public class QueryOptimizationChecker {
      * Creates a QueryBatch with raw queries and actual WHERE clause column cardinality information.
      * Uses QueryAnalysisEngine to extract actual columns from WHERE clauses and method parameters.
      */
-    private QueryBatch createRawQueryBatch(String repositoryName, List<RepositoryQuery> rawQueries) {
+    QueryBatch createRawQueryBatch(String repositoryName, List<RepositoryQuery> rawQueries) {
         QueryBatch batch = new QueryBatch(repositoryName);
 
         // Add all raw queries to the batch
@@ -231,7 +231,7 @@ public class QueryOptimizationChecker {
      * Adds actual WHERE clause column cardinality information using QueryAnalysisEngine.
      * Extracts columns from WHERE clauses and method parameters to get real query column usage.
      */
-    private void addWhereClauseColumnCardinality(QueryBatch batch, RepositoryQuery query) {
+    void addWhereClauseColumnCardinality(QueryBatch batch, RepositoryQuery query) {
         // Use existing QueryAnalysisEngine to extract WHERE conditions from the actual query
         QueryOptimizationResult tempResult = analysisEngine.analyzeQuery(query);
         List<WhereCondition> whereConditions = tempResult.getWhereConditions();
@@ -253,7 +253,7 @@ public class QueryOptimizationChecker {
      * Analyzes LLM recommendations and checks for required indexes.
      * This is where we do our programmatic analysis AFTER getting LLM recommendations.
      */
-    private List<QueryOptimizationResult> analyzeLLMRecommendations(List<OptimizationIssue> llmRecommendations, List<RepositoryQuery> rawQueries) {
+    List<QueryOptimizationResult> analyzeLLMRecommendations(List<OptimizationIssue> llmRecommendations, List<RepositoryQuery> rawQueries) {
         List<QueryOptimizationResult> finalResults = new ArrayList<>();
 
         for (int i = 0; i < llmRecommendations.size() && i < rawQueries.size(); i++) {
@@ -272,7 +272,7 @@ public class QueryOptimizationChecker {
      * This merged method combines the functionality of creating the result and analyzing indexes.
      * Uses QueryAnalysisEngine to extract WHERE conditions and the Indexes class to determine missing indexes.
      */
-    private QueryOptimizationResult createResultWithIndexAnalysis(OptimizationIssue llmRecommendation, RepositoryQuery rawQuery) {
+    QueryOptimizationResult createResultWithIndexAnalysis(OptimizationIssue llmRecommendation, RepositoryQuery rawQuery) {
         // Use QueryAnalysisEngine to extract WHERE conditions from the actual query
         // This is independent of LLM recommendations
         QueryOptimizationResult engineResult = analysisEngine.analyzeQuery(rawQuery);
@@ -325,7 +325,7 @@ public class QueryOptimizationChecker {
      * @param columnName the column name
      * @return true if an optimal index exists, false otherwise
      */
-    private boolean hasOptimalIndexForColumn(String tableName, String columnName) {
+    boolean hasOptimalIndexForColumn(String tableName, String columnName) {
         if (CardinalityAnalyzer.hasIndexWithLeadingColumn(tableName, columnName)) {
             return true;
         }
@@ -812,7 +812,7 @@ public class QueryOptimizationChecker {
                "</changeSet>";
     }
 
-    private void collectIndexSuggestions(QueryOptimizationResult result, List<OptimizationIssue> issues) {
+    void collectIndexSuggestions(QueryOptimizationResult result, List<OptimizationIssue> issues) {
         if (issues.isEmpty() && result.getIndexSuggestions().isEmpty()) {
             logger.debug("Skipping index collection - no issues and no index suggestions for query: {}", result.getMethodName());
             return;
@@ -1067,7 +1067,7 @@ public class QueryOptimizationChecker {
         }
     }
 
-    private boolean isCoveredByComposite(String table, String column) {
+    boolean isCoveredByComposite(String table, String column) {
         return suggestedMultiColumnIndexes.stream()
                 .anyMatch(mcKey -> {
                     String[] mcParts = mcKey.split("\\|", 2);
