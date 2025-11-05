@@ -13,17 +13,14 @@ import com.github.javaparser.ast.visitor.ModifierVisitor;
 import com.github.javaparser.printer.lexicalpreservation.LexicalPreservingPrinter;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
+import sa.com.cloudsolutions.antikythera.examples.util.FileOperationsManager;
 import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
-
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.io.PrintWriter;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -313,7 +310,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
     }
     
     /**
-     * Writes the modified compilation unit to disk.
+     * Writes the modified compilation unit to disk using FileOperationsManager.
      * 
      * Attempts to use LexicalPreservingPrinter for whitespace preservation, but falls back to
      * cu.toString() if:
@@ -324,9 +321,9 @@ public class QueryOptimizer extends QueryOptimizationChecker{
      */
     static void writeFile(String fullyQualifiedName) throws FileNotFoundException {
         String fullPath = Settings.getBasePath() + "src/main/java/" + AbstractCompiler.classToPath(fullyQualifiedName);
-        File f = new File(fullPath);
+        Path filePath = Path.of(fullPath);
 
-        if (f.exists()) {
+        if (FileOperationsManager.fileExists(filePath)) {
             var cu = AntikytheraRunTime.getCompilationUnit(fullyQualifiedName);
             if (cu == null) {
                 // No parsed CompilationUnit available, skip writing to avoid truncating the file
@@ -335,7 +332,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
             
             String original;
             try {
-                original = Files.readString(Path.of(fullPath), StandardCharsets.UTF_8);
+                original = FileOperationsManager.readFileContent(filePath);
             } catch (IOException e) {
                 original = null; // If reading fails, proceed to write to be safe
             }
@@ -358,13 +355,10 @@ public class QueryOptimizer extends QueryOptimizationChecker{
                 return;
             }
             
-            try (PrintWriter writer = new PrintWriter(f, StandardCharsets.UTF_8)) {
-                writer.print(content);
-            } catch (IOException ioe) {
-                // Fallback if UTF-8 encoding fails
-                try (PrintWriter writer = new PrintWriter(f)) {
-                    writer.print(content);
-                }
+            try {
+                FileOperationsManager.writeFileContent(filePath, content);
+            } catch (IOException e) {
+                throw new FileNotFoundException("Failed to write file " + fullPath + ": " + e.getMessage());
             }
         }
     }

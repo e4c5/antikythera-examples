@@ -1,10 +1,12 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
-import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
+import sa.com.cloudsolutions.antikythera.examples.util.FileOperationsManager;
+import sa.com.cloudsolutions.antikythera.examples.util.LiquibaseGenerator;
+import sa.com.cloudsolutions.antikythera.examples.util.RepositoryAnalyzer;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
 import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
@@ -34,6 +36,7 @@ public class QueryOptimizationChecker {
     protected final File liquibaseXmlPath;
     protected final GeminiAIService aiService;
     protected final QueryBatchProcessor batchProcessor;
+    protected final LiquibaseGenerator liquibaseGenerator;
 
     // Aggregated counters for summary and exit code logic
     protected int totalQueriesAnalyzed = 0;
@@ -79,6 +82,9 @@ public class QueryOptimizationChecker {
         
         // Initialize batch processor for repository-level query collection
         this.batchProcessor = new QueryBatchProcessor();
+        
+        // Initialize Liquibase generator with default configuration
+        this.liquibaseGenerator = new LiquibaseGenerator();
     }
 
     /**
@@ -112,20 +118,13 @@ public class QueryOptimizationChecker {
 
     /**
      * Checks if a TypeWrapper represents a JPA repository interface.
+     * Uses the consolidated RepositoryAnalyzer utility.
      *
      * @param typeWrapper the type to check
      * @return true if it's a JPA repository, false otherwise
      */
     boolean isJpaRepository(TypeWrapper typeWrapper) {
-        if (typeWrapper.getType() instanceof ClassOrInterfaceDeclaration classOrInterface && classOrInterface.isInterface()) {
-            for (var extendedType : classOrInterface.getExtendedTypes()) {
-                if (extendedType.getNameAsString().contains("JpaRepository") ||
-                    extendedType.toString().contains("JpaRepository")) {
-                    return true;
-                }
-            }
-        }
-        return false;
+        return RepositoryAnalyzer.isJpaRepository(typeWrapper);
     }
 
     /**
@@ -756,60 +755,25 @@ public class QueryOptimizationChecker {
     }
 
     private String buildLiquibaseNonLockingIndexChangeSet(String tableName, String columnName) {
-        if (columnName.isEmpty()) columnName = COLUMN_NAME_TAG;
-        if (tableName.isEmpty()) tableName = TABLE_NAME_TAG;
-        String idxName = ("idx_" + sanitize(tableName) + "_" + sanitize(columnName)).toLowerCase();
-        return getString(tableName, columnName, idxName);
+        return liquibaseGenerator.createIndexChangeset(tableName, columnName);
     }
 
     /**
      * Builds a Liquibase changeset for creating a multi-column index.
+     * Uses the consolidated LiquibaseGenerator utility.
      * 
      * @param tableName the table name
      * @param columns list of column names in index order
      * @return XML changeset string
      */
     String buildLiquibaseMultiColumnIndexChangeSet(String tableName, LinkedHashSet<String> columns) {
-        if (columns.isEmpty()) return "";
-        if (tableName.isEmpty()) tableName = TABLE_NAME_TAG;
-        
-        String columnList = String.join(", ", columns);
-        String columnNamePart = String.join("_", columns.stream().map(this::sanitize).toList());
-        String idxName = ("idx_" + sanitize(tableName) + "_" + columnNamePart).toLowerCase();
-        return getString(tableName, columnList, idxName);
+        return liquibaseGenerator.createMultiColumnIndexChangeset(tableName, columns);
     }
 
-    private String getString(String tableName, String columnList, String idxName) {
-        String id = idxName + "_" + System.currentTimeMillis();
 
-        return "<changeSet id=\"" + id + "\" author=\"antikythera\">\n" +
-               "    <preConditions onFail=\"MARK_RAN\">\n" +
-               "        <not>\n" +
-               "            <indexExists tableName=\"" + tableName + "\" indexName=\"" + idxName + "\"/>\n" +
-               "        </not>\n" +
-               "    </preConditions>\n" +
-               "    <sql dbms=\"postgresql\">CREATE INDEX CONCURRENTLY " + idxName + " ON " + tableName + " (" + columnList + ");</sql>\n" +
-               "    <sql dbms=\"oracle\">CREATE INDEX " + idxName + " ON " + tableName + " (" + columnList + ") ONLINE</sql>\n" +
-               "    <rollback>\n" +
-               "        <sql dbms=\"postgresql\">DROP INDEX CONCURRENTLY IF EXISTS " + idxName + ";</sql>\n" +
-               "        <sql dbms=\"oracle\">DROP INDEX " + idxName + "</sql>\n" +
-               "    </rollback>\n" +
-               "</changeSet>";
-    }
 
     private String buildLiquibaseDropIndexChangeSet(String indexName) {
-        if (indexName.isEmpty()) indexName = "<INDEX_NAME>";
-        String id = ("drop_" + sanitize(indexName) + "_" + System.currentTimeMillis()).toLowerCase();
-        return "<changeSet id=\"" + id + "\" author=\"antikythera\">\n" +
-               "    <preConditions onFail=\"MARK_RAN\">\n" +
-               "        <indexExists indexName=\"" + indexName + "\"/>\n" +
-               "    </preConditions>\n" +
-               "    <sql dbms=\"postgresql\">DROP INDEX CONCURRENTLY IF EXISTS " + indexName + ";</sql>\n" +
-               "    <sql dbms=\"oracle\">DROP INDEX " + indexName + "</sql>\n" +
-               "    <rollback>\n" +
-               "        <comment>Index " + indexName + " was dropped - manual recreation required if rollback needed</comment>\n" +
-               "    </rollback>\n" +
-               "</changeSet>";
+        return liquibaseGenerator.createDropIndexChangeset(indexName);
     }
 
     void collectIndexSuggestions(QueryOptimizationResult result, List<OptimizationIssue> issues) {
@@ -975,12 +939,7 @@ public class QueryOptimizationChecker {
         }
     }
 
-    private String sanitize(String s) {
-        if (s == null) {
-            return "";
-        }
-        return s.replaceAll("[^A-Za-z0-9_]+", "_");
-    }
+
 
     private String indent(String s, int spaces) {
         String pad = " ".repeat(Math.max(0, spaces));
@@ -1000,8 +959,7 @@ public class QueryOptimizationChecker {
 
     /**
      * Generates a Liquibase changes file from consolidated suggestions and includes it in the master file.
-     * Enhanced to integrate AI-generated index recommendations with existing Liquibase changeset generation.
-     * Now supports both single-column and multi-column indexes.
+     * Uses the consolidated LiquibaseGenerator utility for changeset creation and file operations.
      */
     public void generateLiquibaseChangesFile() throws IOException {
         if (suggestedNewIndexes.isEmpty() && suggestedMultiColumnIndexes.isEmpty()) {
@@ -1009,9 +967,9 @@ public class QueryOptimizationChecker {
             return;
         }
 
-        StringBuilder sb = new StringBuilder();
-        sb.append("    <!-- AI-Enhanced Query Optimization Index Recommendations -->\n");
-        sb.append("    <!-- Generated by QueryOptimizationChecker with multi-column index support -->\n");
+        List<String> changesets = new ArrayList<>();
+        changesets.add("    <!-- AI-Enhanced Query Optimization Index Recommendations -->");
+        changesets.add("    <!-- Generated by QueryOptimizationChecker with multi-column index support -->");
 
         int multiColumnCount = 0;
         int singleColumnCount = 0;
@@ -1025,10 +983,10 @@ public class QueryOptimizationChecker {
 
             String changeSet = buildLiquibaseMultiColumnIndexChangeSet(table, columns);
 
-            sb.append("\n    <!-- Multi-column index recommendation for ").append(table)
-              .append(" (").append(String.join(", ", columns)).append(") -->\n");
-            sb.append("    <!-- Note: First column is covered - no separate index needed -->\n");
-            sb.append(indentXml(changeSet, 4)).append("\n");
+            changesets.add("\n    <!-- Multi-column index recommendation for " + table +
+                          " (" + String.join(", ", columns) + ") -->");
+            changesets.add("    <!-- Note: First column is covered - no separate index needed -->");
+            changesets.add(indentXml(changeSet, 4));
             multiColumnCount++;
         }
 
@@ -1039,31 +997,30 @@ public class QueryOptimizationChecker {
             String column = parts.length > 1 ? parts[1] : COLUMN_NAME_TAG;
 
             if (isCoveredByComposite(table, column)) {
-                sb.append("\n    <!-- Skipping ").append(table).append(".").append(column)
-                  .append(" - covered by multi-column index -->\n");
+                changesets.add("\n    <!-- Skipping " + table + "." + column +
+                              " - covered by multi-column index -->");
                 continue;
             }
 
             String changeSet = buildLiquibaseNonLockingIndexChangeSet(table, column);
 
-            sb.append("\n    <!-- Single-column index recommendation for ").append(table).append(".").append(column).append(" -->\n");
-            sb.append(indentXml(changeSet, 4)).append("\n");
+            changesets.add("\n    <!-- Single-column index recommendation for " + table + "." + column + " -->");
+            changesets.add(indentXml(changeSet, 4));
             singleColumnCount++;
         }
 
         // Add summary comment
         int totalRecommendations = multiColumnCount + singleColumnCount;
-        sb.append("\n    <!-- Summary: ").append(totalRecommendations).append(" total index recommendations ");
-        sb.append("(").append(multiColumnCount).append(" multi-column, ");
-        sb.append(singleColumnCount).append(" single-column) -->\n");
+        changesets.add("\n    <!-- Summary: " + totalRecommendations + " total index recommendations " +
+                      "(" + multiColumnCount + " multi-column, " + singleColumnCount + " single-column) -->");
 
-        // Write to Liquibase changes file
-        LiquibaseChangesWriter writer = new LiquibaseChangesWriter();
-        LiquibaseChangesWriter.Written result = writer.write(liquibaseXmlPath, sb.toString());
+        // Use LiquibaseGenerator to write the changeset file
+        String allChangesets = String.join("\n", changesets);
+        LiquibaseGenerator.WriteResult result = liquibaseGenerator.writeChangesetToFile(liquibaseXmlPath, allChangesets);
 
-        if (result.changesFile() != null) {
+        if (result.wasWritten() && result.getChangesFile() != null) {
             logger.info("Generated Liquibase changes file: {} with {} index recommendations ({} multi-column, {} single-column)",
-                       result.changesFile().getName(), totalRecommendations, multiColumnCount, singleColumnCount);
+                       result.getChangesFile().getName(), totalRecommendations, multiColumnCount, singleColumnCount);
         }
     }
 

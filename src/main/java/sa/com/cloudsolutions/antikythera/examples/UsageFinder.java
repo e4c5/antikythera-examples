@@ -19,32 +19,26 @@ public class UsageFinder {
         Settings.loadConfigMap(yamlFile);
         AbstractCompiler.preProcess();
 
-        Map<String, CompilationUnit> resolved = AntikytheraRunTime.getResolvedCompilationUnits();
+        AntikytheraRunTime.getResolvedCompilationUnits().forEach((cls, cu) -> {
+            cu.getTypes().stream()
+                .filter(TypeDeclaration::isClassOrInterfaceDeclaration)
+                .map(TypeDeclaration::asClassOrInterfaceDeclaration)
+                .filter(cdecl -> cdecl.getAnnotationByName("Entity").isEmpty())
+                .filter(cdecl -> !cdecl.getFullyQualifiedName().orElse("").contains("dto"))
+                .forEach(cdecl -> cdecl.getFields().stream()
+                    .filter(fd -> isCollectionType(fd.getVariable(0).getTypeAsString()))
+                    .forEach(fd -> System.out.println(cdecl.getFullyQualifiedName().get() + " : " 
+                        + fd.getVariable(0).getTypeAsString() + " : " + fd.getVariable(0).getNameAsString())));
+        });
+    }
 
-        for (Map.Entry<String, CompilationUnit> entry : resolved.entrySet()) {
-            String cls = entry.getKey();
-            CompilationUnit cu = entry.getValue();
-
-            for(TypeDeclaration<?> t : cu.getTypes() ) {
-                if (t.isClassOrInterfaceDeclaration()) {
-                    ClassOrInterfaceDeclaration cdecl = t.asClassOrInterfaceDeclaration();
-                    if (cdecl.getAnnotationByName("Entity").isEmpty()) {
-                        for (FieldDeclaration fd : cdecl.getFields()) {
-                            String type = fd.getVariable(0).getTypeAsString();
-                            if (type.toString().contains("List ") || type.toString().contains("Set<") || type.contains("Map<")
-                                || type.toString().contains("Set ") || type.toString().contains("Map ") || type.toString().contains("List<")
-                            ) {
-                                if (!cdecl.getFullyQualifiedName().get().contains("dto")) {
-                                    System.out.println(cdecl.getFullyQualifiedName().get() + " : "
-                                            + type
-                                            + " : "
-                                            + fd.getVariable(0).getNameAsString());
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+    /**
+     * Checks if a type string represents a collection type (List, Set, Map).
+     * Consolidates the collection detection logic into a single method.
+     */
+    private static boolean isCollectionType(String type) {
+        return type.contains("List<") || type.contains("List ") || 
+               type.contains("Set<") || type.contains("Set ") || 
+               type.contains("Map<") || type.contains("Map ");
     }
 }

@@ -1,5 +1,8 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
+import sa.com.cloudsolutions.antikythera.examples.util.FileOperationsManager;
+import sa.com.cloudsolutions.antikythera.examples.util.GitOperationsManager;
+
 import java.io.*;
 import java.nio.file.*;
 import java.util.*;
@@ -41,9 +44,9 @@ public class RepoProcessor {
     private static void processRepos(Path project) throws IOException, InterruptedException {
         try (DirectoryStream<Path> repos = Files.newDirectoryStream(project)) {
             for (Path repo : repos) {
-                if (Files.isDirectory(repo)) {
+                if (FileOperationsManager.isDirectory(repo)) {
                     Path pom = repo.resolve("pom.xml");
-                    if (!Files.exists(pom)) continue;
+                    if (!FileOperationsManager.fileExists(pom)) continue;
                     currentRepo = repo;
                     String branch = findAndCheckoutBranch(repo);
                     if (branch == null) {
@@ -92,34 +95,14 @@ public class RepoProcessor {
 
     private static String findAndCheckoutBranch(Path repo) throws IOException, InterruptedException {
         System.out.println(repo);
-        String[] branches = {"develop", "Develop", "development"};
-        for (String branch : branches) {
-            try {
-                runGitCommand(repo, "git reset --hard");
-                runGitCommand(repo, "git checkout " + branch);
-                runGitCommand(repo, "git pull"); // Always pull after successful checkout
-                return branch;
-            } catch (IOException | InterruptedException e) {
-                // Ignore and try next branch
-            }
-        }
-        return null;
+        return GitOperationsManager.findAndCheckoutBranch(repo, "develop", "Develop", "development");
     }
 
-    private static void runGitCommand(Path repo, String command) throws IOException, InterruptedException {
 
-        String[] cmd = {"bash", "-c", command};
-        ProcessBuilder pb = new ProcessBuilder(cmd);
-        pb.directory(repo.toFile());
-        pb.inheritIO();
-        Process p = pb.start();
-        int exit = p.waitFor();
-        if (exit != 0) throw new IOException("Git command failed: " + command);
-    }
 
     private static void updateGeneratorYml(String projectName, String repoName) throws IOException {
         Path ymlPath = Paths.get("src/main/resources/generator.yml");
-        List<String> lines = Files.readAllLines(ymlPath);
+        List<String> lines = FileOperationsManager.readLines(ymlPath);
         for (int i = 0; i < lines.size(); i++) {
             String line = lines.get(i);
             if (line.trim().startsWith("base_path")) {
@@ -128,10 +111,10 @@ public class RepoProcessor {
                 lines.set(i, line);
             }
         }
-        Files.write(ymlPath, lines);
+        FileOperationsManager.writeLines(ymlPath, lines);
         // Copy to target/classes/generator.yml so classpath resource is updated
         Path targetYml = Paths.get("target/classes/generator.yml");
-        Files.createDirectories(targetYml.getParent());
-        Files.copy(ymlPath, targetYml, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        FileOperationsManager.createDirectories(targetYml.getParent());
+        FileOperationsManager.copyFile(ymlPath, targetYml);
     }
 }
