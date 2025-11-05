@@ -208,15 +208,8 @@ class QueryOptimizationCheckerTest {
         assertTrue(dropXml2.contains("<INDEX_NAME>"));
     }
 
-    @Test
-    void testSanitize() throws Exception {
-        Method sanitize = cls.getDeclaredMethod("sanitize", String.class);
-        sanitize.setAccessible(true);
-        // sanitize preserves case, only replaces non-alphanumerics with underscore
-        assertEquals("Abc_123", sanitize.invoke(checker, "Abc-123"));
-        assertEquals("", sanitize.invoke(checker, (Object) null));
-        assertEquals("user_name_field", sanitize.invoke(checker, "user-name@field"));
-    }
+    // Note: sanitize method moved to LiquibaseGenerator utility class
+    // Test coverage is now provided by LiquibaseGeneratorTest
 
     @Test
     void testIndent() throws Exception {

@@ -7,8 +7,8 @@ import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.AnnotationExpr;
-import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
+import sa.com.cloudsolutions.antikythera.examples.util.RepositoryAnalyzer;
 import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
@@ -33,32 +33,9 @@ public class HardDelete {
             super.visit(field, cu);
             VariableDeclarator vdecl = field.getVariable(0);
             TypeWrapper wrapper = AbstractCompiler.findType(cu, vdecl.getTypeAsString());
-            if (wrapper != null && isJpaRepository(wrapper)) {
+            if (wrapper != null && RepositoryAnalyzer.isJpaRepository(wrapper)) {
                 repoVars.put(vdecl.getNameAsString(), wrapper.getFullyQualifiedName());
             }
-        }
-
-
-        private boolean isJpaRepository(TypeWrapper wrapper) {
-            if ("org.springframework.data.jpa.repository.JpaRepository".equals(wrapper.getFullyQualifiedName())) {
-                return true;
-            }
-            if (wrapper.getClazz() != null) {
-                Class<?> clazz = wrapper.getClazz();
-                for (Class<?> iface : clazz.getInterfaces()) {
-                    if (iface.getName().contains("Repository")) {
-                        return true;
-                    }
-                }
-            }
-            if (wrapper.getType() != null && wrapper.getType().isClassOrInterfaceDeclaration()) {
-                for(ClassOrInterfaceType iface : wrapper.getType().asClassOrInterfaceDeclaration().getExtendedTypes()) {
-                    if (iface.getNameAsString().contains("Repository")) {
-                        return true;
-                    }
-                }
-            }
-            return false;
         }
     }
 
@@ -98,8 +75,14 @@ public class HardDelete {
             if (repoType.isPresent()) {
                 List<MethodDeclaration> methods = repoType.get().getMethodsByName(mce.getNameAsString());
                 for (MethodDeclaration method : methods) {
+                    // Use RepositoryAnalyzer utility to check for Query annotation
+                    if (RepositoryAnalyzer.hasQueryAnnotation(method)) {
+                        System.err.println(currentMethod + "," + mce + " is a soft delete" );
+                        return true;
+                    }
+                    // Also check for other query-related annotations that might indicate soft delete
                     for (AnnotationExpr ann : method.getAnnotations()) {
-                        if (ann.getNameAsString().equals(SOFT_DELETE_ANNOTATION)) {
+                        if (RepositoryAnalyzer.isQueryRelatedAnnotation(ann.getNameAsString())) {
                             System.err.println(currentMethod + "," + mce + " is a soft delete" );
                             return true;
                         }
