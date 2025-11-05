@@ -15,7 +15,6 @@ import java.util.List;
  * Consolidates file operation patterns from:
  * - QueryOptimizer.writeFile()
  * - RepoProcessor.updateGeneratorYml()
- * - LiquibaseChangesWriter.write()
  * - AnalysisInfrastructureRunner file operations
  * - JaCoCoTestCoverageAnalyzer file operations
  */
