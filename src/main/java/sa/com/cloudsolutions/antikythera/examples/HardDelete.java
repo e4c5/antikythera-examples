@@ -132,7 +132,7 @@ public class HardDelete {
             if (repoType.isPresent()) {
                 List<MethodDeclaration> methods = repoType.get().getMethodsByName(mce.getNameAsString());
                 for (MethodDeclaration method : methods) {
-                    if (RepositoryAnalyzer.hasQueryAnnotation(method)) {
+                    if (method.getAnnotationByName("Query").isPresent()) {
                         String queryValue = extractQueryValue(method);
                         if (queryValue.toUpperCase().contains("DELETE")) {
                             return true;
@@ -156,7 +156,7 @@ public class HardDelete {
                 List<MethodDeclaration> methods = repoType.get().getMethodsByName(mce.getNameAsString());
                 for (MethodDeclaration method : methods) {
                     // Check for @Query annotation with UPDATE statement (soft delete pattern)
-                    if (RepositoryAnalyzer.hasQueryAnnotation(method)) {
+                    if (method.getAnnotationByName("Query").isPresent()) {
                         String queryValue = extractQueryValue(method);
                         String upperQuery = queryValue.toUpperCase();
                         
