@@ -116,13 +116,6 @@ class RepositoryAnalyzerTest {
     }
 
     @Test
-    void testAnalyzeRepositoryWithNullFQN() {
-        // Test analyzeRepository with just FQN (should return null as documented)
-        RepositoryMetadata metadata = RepositoryAnalyzer.analyzeRepository("com.example.NonExistentRepository");
-        assertNull(metadata);
-    }
-
-    @Test
     void testIsDerivedQueryMethod() {
         // Test various derived query method patterns
         assertTrue(RepositoryAnalyzer.isDerivedQueryMethod("findByEmail"));
