@@ -2,16 +2,9 @@ package sa.com.cloudsolutions.antikythera.examples.util;
 
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
-import com.github.javaparser.ast.expr.AnnotationExpr;
-import com.github.javaparser.ast.expr.MemberValuePair;
-import com.github.javaparser.ast.expr.NormalAnnotationExpr;
-import com.github.javaparser.ast.expr.SingleMemberAnnotationExpr;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
 
 /**
  * Centralized utility class for JPA repository analysis with consistent identification logic,
@@ -70,36 +63,6 @@ public class RepositoryAnalyzer {
         return false;
     }
 
-    /**
-     * Checks if a method name indicates a derived query method.
-     * 
-     * @param methodName the method name to check
-     * @return true if it's a derived query method, false otherwise
-     */
-    public static boolean isDerivedQueryMethod(String methodName) {
-        return methodName.startsWith("findBy") || 
-               methodName.startsWith("countBy") || 
-               methodName.startsWith("deleteBy") || 
-               methodName.startsWith("existsBy") ||
-               methodName.startsWith("readBy") ||
-               methodName.startsWith("queryBy") ||
-               methodName.startsWith("getBy");
-    }
-    
-    /**
-     * Checks if an annotation name is query-related.
-     * 
-     * @param annotationName the annotation name to check
-     * @return true if it's query-related, false otherwise
-     */
-    public static boolean isQueryRelatedAnnotation(String annotationName) {
-        return "Query".equals(annotationName) || 
-               "Modifying".equals(annotationName) ||
-               "Procedure".equals(annotationName) ||
-               "NamedQuery".equals(annotationName) ||
-               "NamedQueries".equals(annotationName);
-    }
-    
     /**
      * Checks if a method has a @Query annotation.
      * 
