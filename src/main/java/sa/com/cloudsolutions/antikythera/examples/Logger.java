@@ -145,11 +145,8 @@ public class Logger {
                 loggerField = "log";
             }
             else {
-                loggerField = null;
+                loggerField = "logger";
                 decl.accept(visitor, cu);
-                if (loggerField == null) {
-                    loggerField = "logger";
-                }
             }
 
             for (MethodDeclaration m : decl.getMethods()) {
