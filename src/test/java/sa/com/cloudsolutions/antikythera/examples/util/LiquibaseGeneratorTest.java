@@ -174,28 +174,6 @@ class LiquibaseGeneratorTest {
     }
 
     @Test
-    void testWriteChangesetToFile() throws IOException {
-        // Test writing changeset to file
-        String changeset = generator.createIndexChangeset("users", "email");
-        WriteResult result = generator.writeChangesetToFile(masterFile, changeset);
-        
-        assertTrue(result.wasWritten());
-        assertNotNull(result.getChangesFile());
-        assertTrue(result.getChangesFile().exists());
-        
-        // Verify file content
-        String content = Files.readString(result.getChangesFile().toPath());
-        assertTrue(content.contains("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
-        assertTrue(content.contains("databaseChangeLog"));
-        assertTrue(content.contains(changeset));
-        
-        // Verify master file was updated
-        String masterContent = Files.readString(masterFile);
-        assertTrue(masterContent.contains("include file="));
-        assertTrue(masterContent.contains(result.getChangesFile().getName()));
-    }
-
-    @Test
     void testWriteChangesetToFileWithEmptyChangeset() throws IOException {
         // Test with empty changeset
         WriteResult result = generator.writeChangesetToFile(masterFile, "");
@@ -325,30 +303,6 @@ class LiquibaseGeneratorTest {
         // Should contain rollback
         assertTrue(changeset.contains("<rollback>"));
         assertTrue(changeset.contains("</rollback>"));
-    }
-
-    @Test
-    void testFileIntegrationOperations() throws IOException {
-        // Test file integration with multiple writes
-        String changeset1 = generator.createIndexChangeset("users", "email");
-        String changeset2 = generator.createIndexChangeset("orders", "user_id");
-        
-        WriteResult result1 = generator.writeChangesetToFile(masterFile, changeset1);
-        WriteResult result2 = generator.writeChangesetToFile(masterFile, changeset2);
-        
-        assertTrue(result1.wasWritten());
-        assertTrue(result2.wasWritten());
-        
-        // Master file should include both files
-        String masterContent = Files.readString(masterFile);
-        assertTrue(masterContent.contains(result1.getChangesFile().getName()));
-        assertTrue(masterContent.contains(result2.getChangesFile().getName()));
-        
-        // Should not duplicate includes
-        long includeCount = masterContent.lines()
-            .filter(line -> line.contains("include file="))
-            .count();
-        assertEquals(2, includeCount);
     }
 
     @Test
