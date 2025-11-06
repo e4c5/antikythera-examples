@@ -205,22 +205,7 @@ public class RepositoryAnalyzer {
         
         return annotations;
     }
-    
-    /**
-     * Analyzes a repository and returns comprehensive metadata.
-     * 
-     * @param fullyQualifiedName the fully qualified name of the repository
-     * @param typeWrapper the TypeWrapper representing the repository
-     * @return RepositoryMetadata object with comprehensive analysis
-     */
-    public static RepositoryMetadata analyzeRepository(String fullyQualifiedName, TypeWrapper typeWrapper) {
-        boolean isJpaRepo = isJpaRepository(typeWrapper);
-        List<String> extendedInterfaces = extractExtendedInterfaces(typeWrapper);
-        List<RepositoryMethod> methods = extractRepositoryMethods(typeWrapper);
-        
-        return new RepositoryMetadata(fullyQualifiedName, isJpaRepo, extendedInterfaces, methods, typeWrapper);
-    }
-    
+
     /**
      * Analyzes a repository by fully qualified name (requires TypeWrapper lookup).
      * 
