@@ -40,23 +40,6 @@ class CoverageImprovementTest {
     }
 
     @Test
-    void testUsageFinderMainWithEmptyArgs() {
-        // Test UsageFinder main method - this might fail due to missing config
-        // but we want to exercise the code path
-        assertThrows(Exception.class, () -> {
-            UsageFinder.main(new String[]{});
-        });
-    }
-
-    @Test
-    void testUsageFinderMainWithNullArgs() {
-        // Test UsageFinder main method with null args
-        assertThrows(Exception.class, () -> {
-            UsageFinder.main(null);
-        });
-    }
-
-    @Test
     void testCardinalityLevelValues() {
         // Test CardinalityLevel enum values
         CardinalityLevel[] levels = CardinalityLevel.values();

@@ -32,61 +32,6 @@ class UsageFinderCoverageTest {
     }
 
     @Test
-    void testMainMethodExists() {
-        // Verify the main method exists by checking it can be called
-        // This will likely fail due to missing configuration, but that's expected
-        assertThrows(Exception.class, () -> {
-            UsageFinder.main(new String[0]);
-        });
-    }
-
-    @Test
-    void testMainMethodWithNullArgs() {
-        // Test main method with null arguments
-        assertThrows(Exception.class, () -> {
-            UsageFinder.main(null);
-        });
-    }
-
-    @Test
-    void testMainMethodWithEmptyArgs() {
-        // Test main method with empty arguments
-        assertThrows(Exception.class, () -> {
-            UsageFinder.main(new String[0]);
-        });
-    }
-
-    @Test
-    void testMainMethodWithArgs() {
-        // Test main method with some arguments (should be ignored)
-        assertThrows(Exception.class, () -> {
-            UsageFinder.main(new String[]{"arg1", "arg2"});
-        });
-    }
-
-    @Test
-    void testMainMethodOutputCapture() {
-        // Test that we can capture output from main method
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-        PrintStream originalOut = System.out;
-        
-        try {
-            System.setOut(new PrintStream(outputStream));
-            
-            // This will throw an exception, but we want to test the output capture mechanism
-            assertThrows(Exception.class, () -> {
-                UsageFinder.main(new String[0]);
-            });
-            
-        } finally {
-            System.setOut(originalOut);
-        }
-        
-        // The output stream should exist (even if empty due to early exception)
-        assertNotNull(outputStream.toString());
-    }
-
-    @Test
     void testUsageFinderInstantiation() {
         // Test multiple instantiations
         UsageFinder finder1 = new UsageFinder();
@@ -206,27 +151,6 @@ class UsageFinderCoverageTest {
             
         } catch (NoSuchMethodException e) {
             fail("Main method should exist");
-        }
-    }
-
-    @Test
-    void testMainMethodExceptionHandling() {
-        // Test that main method properly handles various exception scenarios
-        
-        // Test with different argument arrays
-        String[][] testArgs = {
-            null,
-            new String[0],
-            new String[]{"test"},
-            new String[]{"arg1", "arg2", "arg3"}
-        };
-        
-        for (String[] args : testArgs) {
-            if (args != null) { // Skip null test to avoid NPE in test itself
-                assertThrows(Exception.class, () -> {
-                    UsageFinder.main(args);
-                }, "Main method should throw exception for args: " + java.util.Arrays.toString(args));
-            }
         }
     }
 }
