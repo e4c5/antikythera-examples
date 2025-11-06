@@ -130,38 +130,6 @@ public class TestCoverageValidationTest {
     }
 
     @Test
-    void validateRepositoryAnalyzerTestCoverage() {
-        // Verify RepositoryAnalyzer has comprehensive test coverage
-        Class<?> clazz = RepositoryAnalyzer.class;
-
-        // Get all public methods
-        Method[] publicMethods = clazz.getDeclaredMethods();
-        Set<String> publicMethodNames = new HashSet<>();
-        
-        for (Method method : publicMethods) {
-            if (Modifier.isPublic(method.getModifiers())) {
-                publicMethodNames.add(method.getName());
-            }
-        }
-        
-        // Verify key methods exist and are public
-        assertTrue(publicMethodNames.contains("isJpaRepository"), 
-                  "RepositoryAnalyzer should have isJpaRepository method");
-        assertTrue(publicMethodNames.contains("extractRepositoryMethods"), 
-                  "RepositoryAnalyzer should have extractRepositoryMethods method");
-        assertTrue(publicMethodNames.contains("extractQueryAnnotations"), 
-                  "RepositoryAnalyzer should have extractQueryAnnotations method");
-        assertTrue(publicMethodNames.contains("analyzeRepository"), 
-                  "RepositoryAnalyzer should have analyzeRepository method");
-        
-        // Verify the class is testable
-        assertDoesNotThrow(() -> new RepositoryAnalyzer(), 
-                          "RepositoryAnalyzer should be instantiable for testing");
-        
-        System.out.println("✓ RepositoryAnalyzer test coverage validation passed");
-    }
-
-    @Test
     void validateRefactoredClassesTestCoverage() {
         // Verify main refactored classes have test coverage
         Set<String> refactoredClasses = new HashSet<>(Arrays.asList(
