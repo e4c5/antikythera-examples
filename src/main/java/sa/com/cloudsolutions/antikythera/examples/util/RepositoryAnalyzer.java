@@ -63,16 +63,6 @@ public class RepositoryAnalyzer {
         return false;
     }
 
-    /**
-     * Checks if a method has a @Query annotation.
-     * 
-     * @param method the method to check
-     * @return true if the method has a @Query annotation, false otherwise
-     */
-    public static boolean hasQueryAnnotation(MethodDeclaration method) {
-        return method.getAnnotationByName("Query").isPresent();
-    }
-
     private static boolean isRepositoryInterface(String interfaceName) {
         return interfaceName != null && (
             interfaceName.contains("JpaRepository") ||
