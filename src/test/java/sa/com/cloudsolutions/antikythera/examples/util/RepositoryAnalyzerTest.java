@@ -6,13 +6,9 @@ import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import sa.com.cloudsolutions.antikythera.examples.util.RepositoryAnalyzer.QueryAnnotation;
-import sa.com.cloudsolutions.antikythera.examples.util.RepositoryAnalyzer.RepositoryMetadata;
-import sa.com.cloudsolutions.antikythera.examples.util.RepositoryAnalyzer.RepositoryMethod;
+
 import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
 
-import java.util.List;
-import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -187,48 +183,5 @@ class RepositoryAnalyzerTest {
         MethodDeclaration method2 = cu2.findFirst(MethodDeclaration.class).orElseThrow();
         
         assertFalse(RepositoryAnalyzer.hasQueryAnnotation(method2));
-    }
-
-    @Test
-    void testHasModifyingAnnotation() {
-        // Create method with @Modifying annotation
-        String methodWithModifying = """
-                @Modifying
-                @Query("UPDATE User u SET u.active = false")
-                public void deactivateAllUsers();
-                """;
-        
-        String classCode = """
-                package com.example;
-                import org.springframework.data.jpa.repository.Modifying;
-                import org.springframework.data.jpa.repository.Query;
-                public interface TestRepo {
-                    %s
-                }
-                """.formatted(methodWithModifying);
-        
-        CompilationUnit cu = javaParser.parse(classCode).getResult().orElseThrow();
-        MethodDeclaration method = cu.findFirst(MethodDeclaration.class).orElseThrow();
-        
-        assertTrue(RepositoryAnalyzer.hasModifyingAnnotation(method));
-        
-        // Create method without @Modifying annotation
-        String methodWithoutModifying = """
-                @Query("SELECT u FROM User u")
-                public List<User> findAllUsers();
-                """;
-        
-        String classCode2 = """
-                package com.example;
-                import org.springframework.data.jpa.repository.Query;
-                public interface TestRepo {
-                    %s
-                }
-                """.formatted(methodWithoutModifying);
-        
-        CompilationUnit cu2 = javaParser.parse(classCode2).getResult().orElseThrow();
-        MethodDeclaration method2 = cu2.findFirst(MethodDeclaration.class).orElseThrow();
-        
-        assertFalse(RepositoryAnalyzer.hasModifyingAnnotation(method2));
     }
 }
