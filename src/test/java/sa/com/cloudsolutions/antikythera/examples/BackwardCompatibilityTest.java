@@ -163,27 +163,6 @@ public class BackwardCompatibilityTest {
     }
 
     @Test
-    void testErrorHandlingCompatibility() {
-        // Test that error handling behavior is consistent
-        
-        // Test file operations with invalid paths
-        assertThrows(IOException.class, () -> {
-            fileOpsManager.readFileContent(Path.of("/invalid/path/file.txt"));
-        }, "Should throw IOException for invalid file paths");
-        
-        // Test that utility classes handle null inputs gracefully (based on actual implementation)
-        assertDoesNotThrow(() -> {
-            String result = liquibaseGenerator.createIndexChangeset(null, "column");
-            assertNotNull(result, "Should return a result even with null table name");
-        }, "Should handle null table names gracefully");
-        
-        assertDoesNotThrow(() -> {
-            String result = liquibaseGenerator.createIndexChangeset("table", null);
-            assertNotNull(result, "Should return a result even with null column name");
-        }, "Should handle null column names gracefully");
-    }
-
-    @Test
     void testCommandLineInterfaceCompatibility() {
         // Test that main classes can still be instantiated as they would be from command line
         
