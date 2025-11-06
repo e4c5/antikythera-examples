@@ -1,9 +1,5 @@
 package sa.com.cloudsolutions.antikythera.examples.util;
 
-import com.github.javaparser.printer.lexicalpreservation.LexicalPreservingPrinter;
-import sa.com.cloudsolutions.antikythera.configuration.Settings;
-import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
-
 import java.io.File;
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -381,8 +377,9 @@ public class LiquibaseGenerator {
             int idx = masterText.lastIndexOf("</databaseChangeLog>");
 
             String updated = masterText.substring(0, idx) + includeTag + "\n" + masterText.substring(idx);
-            PrintWriter writer = new PrintWriter(fileName);
-            writer.println(updated);
+            try (PrintWriter writer = new PrintWriter(fileName)) {
+                writer.println(updated);
+            }
         }
     }
 }
