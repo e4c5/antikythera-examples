@@ -20,6 +20,7 @@ import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -323,7 +324,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         String fullPath = Settings.getBasePath() + "src/main/java/" + AbstractCompiler.classToPath(fullyQualifiedName);
         Path filePath = Path.of(fullPath);
 
-        if (FileOperationsManager.fileExists(filePath)) {
+        if (Files.exists(filePath)) {
             var cu = AntikytheraRunTime.getCompilationUnit(fullyQualifiedName);
             if (cu == null) {
                 // No parsed CompilationUnit available, skip writing to avoid truncating the file

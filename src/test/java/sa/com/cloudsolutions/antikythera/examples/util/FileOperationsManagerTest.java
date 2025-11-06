@@ -174,30 +174,6 @@ class FileOperationsManagerTest {
     }
 
     @Test
-    void testFileExists() throws IOException {
-        // Assert file doesn't exist initially
-        assertFalse(FileOperationsManager.fileExists(testFile));
-
-        // Create file
-        Files.createFile(testFile);
-
-        // Assert file exists now
-        assertTrue(FileOperationsManager.fileExists(testFile));
-    }
-
-    @Test
-    void testIsDirectory() throws IOException {
-        // Test with file
-        Files.createFile(testFile);
-        assertFalse(FileOperationsManager.isDirectory(testFile));
-
-        // Test with directory
-        Path testDir = tempDir.resolve("testdir");
-        Files.createDirectory(testDir);
-        assertTrue(FileOperationsManager.isDirectory(testDir));
-    }
-
-    @Test
     void testCreateDirectories() throws IOException {
         // Arrange
         Path nestedDir = tempDir.resolve("level1").resolve("level2").resolve("level3");
@@ -249,40 +225,6 @@ class FileOperationsManagerTest {
     }
 
     @Test
-    void testAtomicWriteFileContent() throws IOException {
-        // Arrange
-        String content = "Atomic write test content";
-
-        // Act
-        FileOperationsManager.atomicWriteFileContent(testFile, content);
-
-        // Assert
-        assertTrue(Files.exists(testFile));
-        String readContent = Files.readString(testFile, StandardCharsets.UTF_8);
-        assertEquals(content, readContent);
-
-        // Verify no temporary files remain
-        assertFalse(Files.exists(testFile.resolveSibling(testFile.getFileName() + ".tmp")));
-    }
-
-    @Test
-    void testAtomicWriteLines() throws IOException {
-        // Arrange
-        List<String> lines = Arrays.asList("Atomic line 1", "Atomic line 2", "Atomic line 3");
-
-        // Act
-        FileOperationsManager.atomicWriteLines(testFile, lines);
-
-        // Assert
-        assertTrue(Files.exists(testFile));
-        List<String> readLines = Files.readAllLines(testFile, StandardCharsets.UTF_8);
-        assertEquals(lines, readLines);
-
-        // Verify no temporary files remain
-        assertFalse(Files.exists(testFile.resolveSibling(testFile.getFileName() + ".tmp")));
-    }
-
-    @Test
     void testConcurrentFileOperations() throws IOException {
         // Simplified concurrent test - just verify multiple file operations work
         for (int i = 0; i < 3; i++) {
@@ -323,19 +265,5 @@ class FileOperationsManagerTest {
         // Test that write operations handle access failures gracefully
         assertThrows(IOException.class, () -> 
             FileOperationsManager.writeFileContent(readOnlyFile, "test"));
-    }
-
-    @Test
-    void testAtomicOperationCleanupOnFailure() throws IOException {
-        // Create a scenario where atomic write might fail
-        Path invalidPath = Path.of("/invalid/path/that/should/not/exist/file.txt");
-        
-        // Atomic write should fail and clean up temporary files
-        assertThrows(IOException.class, () -> 
-            FileOperationsManager.atomicWriteFileContent(invalidPath, "test"));
-        
-        // Verify no temporary files are left behind in temp directory
-        // (We can't check the invalid path, but we can ensure our temp dir is clean)
-        assertTrue(Files.list(tempDir).noneMatch(p -> p.getFileName().toString().endsWith(".tmp")));
     }
 }

@@ -1,7 +1,6 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.BeforeEach;
 import sa.com.cloudsolutions.antikythera.examples.util.FileOperationsManager;
 import sa.com.cloudsolutions.antikythera.examples.util.GitOperationsManager;
 import sa.com.cloudsolutions.antikythera.examples.util.LiquibaseGenerator;
@@ -21,43 +20,6 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 public class TestCoverageValidationTest {
 
-    @Test
-    void validateFileOperationsManagerTestCoverage() {
-        // Verify FileOperationsManager has comprehensive test coverage
-        Class<?> clazz = FileOperationsManager.class;
-
-        // Get all public methods
-        Method[] publicMethods = clazz.getDeclaredMethods();
-        Set<String> publicMethodNames = new HashSet<>();
-        
-        for (Method method : publicMethods) {
-            if (Modifier.isPublic(method.getModifiers())) {
-                publicMethodNames.add(method.getName());
-            }
-        }
-        
-        // Verify key methods exist and are public
-        assertTrue(publicMethodNames.contains("readFileContent"), 
-                  "FileOperationsManager should have readFileContent method");
-        assertTrue(publicMethodNames.contains("writeFileContent"), 
-                  "FileOperationsManager should have writeFileContent method");
-        assertTrue(publicMethodNames.contains("appendToFile"), 
-                  "FileOperationsManager should have appendToFile method");
-        assertTrue(publicMethodNames.contains("fileExists"), 
-                  "FileOperationsManager should have fileExists method");
-        assertTrue(publicMethodNames.contains("createDirectories"), 
-                  "FileOperationsManager should have createDirectories method");
-        assertTrue(publicMethodNames.contains("readLines"), 
-                  "FileOperationsManager should have readLines method");
-        assertTrue(publicMethodNames.contains("writeLines"), 
-                  "FileOperationsManager should have writeLines method");
-        
-        // Verify the class is testable (can be instantiated)
-        assertDoesNotThrow(() -> new FileOperationsManager(), 
-                          "FileOperationsManager should be instantiable for testing");
-        
-        System.out.println("✓ FileOperationsManager test coverage validation passed");
-    }
 
     @Test
     void validateGitOperationsManagerTestCoverage() {

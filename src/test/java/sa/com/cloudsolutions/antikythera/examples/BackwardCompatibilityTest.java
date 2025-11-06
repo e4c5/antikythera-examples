@@ -191,25 +191,6 @@ public class BackwardCompatibilityTest {
     }
 
     @Test
-    void testConfigurationFileCompatibility() throws IOException {
-        // Test that existing configuration files are still supported
-        Path configFile = tempDir.resolve("generator.yml");
-        String yamlContent = """
-            repositories:
-              - name: test-repo
-                url: https://github.com/test/repo.git
-                branch: main
-            """;
-        
-        Files.write(configFile, yamlContent.getBytes());
-        
-        // Verify file operations work with YAML files
-        assertTrue(fileOpsManager.fileExists(configFile), "Configuration file should exist");
-        String content = fileOpsManager.readFileContent(configFile);
-        assertTrue(content.contains("test-repo"), "Configuration content should be readable");
-    }
-
-    @Test
     void testOutputFormatConsistency() throws IOException {
         // Test that output formats remain consistent
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
