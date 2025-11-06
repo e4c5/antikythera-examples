@@ -51,23 +51,14 @@ public class RepositoryAnalyzer {
      * Represents a query annotation (@Query, @Modifying, etc.).
      */
     public static class QueryAnnotation {
-        private final String annotationName;
         private final String value;
-        private final boolean isNative;
-        private final AnnotationExpr originalAnnotation;
-        
-        public QueryAnnotation(String annotationName, String value, boolean isNative, 
-                              AnnotationExpr originalAnnotation) {
-            this.annotationName = annotationName;
+
+        public QueryAnnotation(String annotationName, String value) {
             this.value = value;
-            this.isNative = isNative;
-            this.originalAnnotation = originalAnnotation;
         }
         
-        public String getAnnotationName() { return annotationName; }
         public String getValue() { return value; }
-        public boolean isNative() { return isNative; }
-        public AnnotationExpr getOriginalAnnotation() { return originalAnnotation; }
+
     }
     
     /**
@@ -199,25 +190,13 @@ public class RepositoryAnalyzer {
                 String value = extractAnnotationValue(annotation);
                 boolean isNative = extractNativeFlag(annotation);
                 
-                annotations.add(new QueryAnnotation(annotationName, value, isNative, annotation));
+                annotations.add(new QueryAnnotation(annotationName, value));
             }
         }
         
         return annotations;
     }
 
-    /**
-     * Analyzes a repository by fully qualified name (requires TypeWrapper lookup).
-     * 
-     * @param fullyQualifiedName the fully qualified name of the repository
-     * @return RepositoryMetadata object, or null if repository not found
-     */
-    public static RepositoryMetadata analyzeRepository(String fullyQualifiedName) {
-        // This would require integration with the existing TypeWrapper lookup mechanism
-        // For now, return null to indicate that TypeWrapper is required
-        return null;
-    }
-    
     /**
      * Checks if a method name indicates a derived query method.
      * 
