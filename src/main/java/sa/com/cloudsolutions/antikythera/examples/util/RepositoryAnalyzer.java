@@ -188,8 +188,6 @@ public class RepositoryAnalyzer {
             
             if (isQueryRelatedAnnotation(annotationName)) {
                 String value = extractAnnotationValue(annotation);
-                boolean isNative = extractNativeFlag(annotation);
-                
                 annotations.add(new QueryAnnotation(annotationName, value));
             }
         }
@@ -258,19 +256,7 @@ public class RepositoryAnalyzer {
             (interfaceName.contains("org.springframework.data") || interfaceName.endsWith("Repository"))
         );
     }
-    
-    private static List<String> extractExtendedInterfaces(TypeWrapper typeWrapper) {
-        List<String> interfaces = new ArrayList<>();
-        
-        if (typeWrapper.getType() instanceof ClassOrInterfaceDeclaration classOrInterface) {
-            for (ClassOrInterfaceType extendedType : classOrInterface.getExtendedTypes()) {
-                interfaces.add(extendedType.toString());
-            }
-        }
-        
-        return interfaces;
-    }
-    
+
     private static String extractAnnotationValue(AnnotationExpr annotation) {
         if (annotation instanceof SingleMemberAnnotationExpr singleMember) {
             return singleMember.getMemberValue().toString().replaceAll("^\"|\"$", "");
@@ -282,16 +268,5 @@ public class RepositoryAnalyzer {
             }
         }
         return "";
-    }
-    
-    private static boolean extractNativeFlag(AnnotationExpr annotation) {
-        if (annotation instanceof NormalAnnotationExpr normal) {
-            for (MemberValuePair pair : normal.getPairs()) {
-                if ("nativeQuery".equals(pair.getNameAsString())) {
-                    return "true".equals(pair.getValue().toString());
-                }
-            }
-        }
-        return false;
     }
 }
