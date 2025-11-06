@@ -1,7 +1,12 @@
 package sa.com.cloudsolutions.antikythera.examples.util;
 
+import com.github.javaparser.printer.lexicalpreservation.LexicalPreservingPrinter;
+import sa.com.cloudsolutions.antikythera.configuration.Settings;
+import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
+
 import java.io.File;
 import java.io.IOException;
+import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.text.SimpleDateFormat;
@@ -213,8 +218,10 @@ public class LiquibaseGenerator {
         Path outputFile = dir.resolve(fileName);
         
         String content = createLiquibaseDocument(changesets);
-        FileOperationsManager.writeFileContent(outputFile, content);
-        
+        PrintWriter writer = new PrintWriter(outputFile.toFile());
+        writer.println(content);
+        writer.close();
+
         // Update master file to include the new changeset file
         updateMasterFile(masterPath, fileName);
         
@@ -370,15 +377,11 @@ public class LiquibaseGenerator {
         
         // Check if this specific file is already included
         if (!masterText.contains("file=\"" + fileName + "\"")) {
-            // Insert before closing tag if present, otherwise just append
             int idx = masterText.lastIndexOf("</databaseChangeLog>");
-            if (idx >= 0) {
-                String updated = masterText.substring(0, idx) + includeTag + "\n" + masterText.substring(idx);
-                FileOperationsManager.writeFileContent(masterFile, updated);
-            } else {
-                // Fallback: append to end if no closing tag found
-                FileOperationsManager.writeFileContent(masterFile, masterText + "\n" + includeTag + "\n");
-            }
+
+            String updated = masterText.substring(0, idx) + includeTag + "\n" + masterText.substring(idx);
+            PrintWriter writer = new PrintWriter(fileName);
+            writer.println(updated);
         }
     }
 }

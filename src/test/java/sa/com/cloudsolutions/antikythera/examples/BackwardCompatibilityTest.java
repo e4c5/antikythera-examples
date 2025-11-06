@@ -149,34 +149,6 @@ public class BackwardCompatibilityTest {
     }
 
     @Test
-    void testFileOperationsManagerCompatibility() throws IOException {
-        // Test that FileOperationsManager provides consistent file operations
-        Path testFile = tempDir.resolve("test.txt");
-        String testContent = "Test content\nLine 2\nLine 3";
-        
-        // Test write and read operations
-        fileOpsManager.writeFileContent(testFile, testContent);
-        assertTrue(Files.exists(testFile), "File should be created");
-        
-        String readContent = fileOpsManager.readFileContent(testFile);
-        assertEquals(testContent, readContent, "Read content should match written content");
-        
-        // Test line operations
-        List<String> lines = Arrays.asList("Line 1", "Line 2", "Line 3");
-        Path lineFile = tempDir.resolve("lines.txt");
-        fileOpsManager.writeLines(lineFile, lines);
-        
-        List<String> readLines = fileOpsManager.readLines(lineFile);
-        assertEquals(lines, readLines, "Read lines should match written lines");
-        
-        // Test append operation
-        String appendContent = "\nAppended line";
-        fileOpsManager.appendToFile(testFile, appendContent);
-        String finalContent = fileOpsManager.readFileContent(testFile);
-        assertTrue(finalContent.contains("Appended line"), "File should contain appended content");
-    }
-
-    @Test
     void testRepositoryAnalyzerCompatibility() {
         // Test that RepositoryAnalyzer maintains consistent analysis behavior
         // This tests the core logic without requiring actual compiled classes
@@ -188,30 +160,6 @@ public class BackwardCompatibilityTest {
         assertDoesNotThrow(() -> {
             repositoryAnalyzer.toString(); // Basic object functionality
         }, "RepositoryAnalyzer should maintain basic API compatibility");
-    }
-
-    @Test
-    void testOutputFormatConsistency() throws IOException {
-        // Test that output formats remain consistent
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-        PrintStream originalOut = System.out;
-        
-        try {
-            System.setOut(new PrintStream(outputStream));
-            
-            // Test that classes can produce output without errors
-            // This ensures the refactored classes maintain their output behavior
-            
-            // Create a simple test scenario
-            Path testFile = tempDir.resolve("output-test.txt");
-            fileOpsManager.writeFileContent(testFile, "Test output");
-            
-            String content = fileOpsManager.readFileContent(testFile);
-            assertEquals("Test output", content, "Output should be consistent");
-            
-        } finally {
-            System.setOut(originalOut);
-        }
     }
 
     @Test

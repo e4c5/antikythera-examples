@@ -102,7 +102,7 @@ public class RepoProcessor {
 
     private static void updateGeneratorYml(String projectName, String repoName) throws IOException {
         Path ymlPath = Paths.get("src/main/resources/generator.yml");
-        List<String> lines = FileOperationsManager.readLines(ymlPath);
+        List<String> lines = Files.readAllLines(ymlPath);
         for (int i = 0; i < lines.size(); i++) {
             String line = lines.get(i);
             if (line.trim().startsWith("base_path")) {
@@ -111,10 +111,10 @@ public class RepoProcessor {
                 lines.set(i, line);
             }
         }
-        FileOperationsManager.writeLines(ymlPath, lines);
+        Files.write(ymlPath, lines);
         // Copy to target/classes/generator.yml so classpath resource is updated
         Path targetYml = Paths.get("target/classes/generator.yml");
-        FileOperationsManager.createDirectories(targetYml.getParent());
-        FileOperationsManager.copyFile(ymlPath, targetYml);
+        Files.createDirectories(targetYml.getParent());
+        Files.copy(ymlPath, targetYml, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
     }
 }

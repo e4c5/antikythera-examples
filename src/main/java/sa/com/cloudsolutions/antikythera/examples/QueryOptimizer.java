@@ -20,6 +20,7 @@ import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.PrintWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -357,7 +358,14 @@ public class QueryOptimizer extends QueryOptimizationChecker{
             }
             
             try {
-                FileOperationsManager.writeFileContent(filePath, content);
+                File f = new File(fullPath);
+
+                if (f.exists()) {
+                    PrintWriter writer = new PrintWriter(f);
+
+                    writer.print(LexicalPreservingPrinter.print(cu));
+                    writer.close();
+                }
             } catch (IOException e) {
                 throw new FileNotFoundException("Failed to write file " + fullPath + ": " + e.getMessage());
             }
