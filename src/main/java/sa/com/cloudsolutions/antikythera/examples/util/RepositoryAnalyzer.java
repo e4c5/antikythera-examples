@@ -72,19 +72,7 @@ public class RepositoryAnalyzer {
     public static boolean hasQueryAnnotation(MethodDeclaration method) {
         return method.getAnnotationByName("Query").isPresent();
     }
-    
-    /**
-     * Checks if a method has a @Modifying annotation.
-     * 
-     * @param method the method to check
-     * @return true if the method has a @Modifying annotation, false otherwise
-     */
-    public static boolean hasModifyingAnnotation(MethodDeclaration method) {
-        return method.getAnnotationByName("Modifying").isPresent();
-    }
-    
-    // Private helper methods
-    
+
     private static boolean isRepositoryInterface(String interfaceName) {
         return interfaceName != null && (
             interfaceName.contains("JpaRepository") ||

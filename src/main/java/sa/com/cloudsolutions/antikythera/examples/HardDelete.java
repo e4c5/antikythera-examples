@@ -179,16 +179,7 @@ public class HardDelete {
                             return true;
                         }
                     }
-                    
-                    // Check for @Modifying annotation combined with @Query
-                    if (RepositoryAnalyzer.hasModifyingAnnotation(method) && 
-                        RepositoryAnalyzer.hasQueryAnnotation(method)) {
-                        String queryValue = extractQueryValue(method);
-                        if (queryValue.toUpperCase().contains("UPDATE")) {
-                            System.err.println(currentMethod + "," + mce + " is a soft delete (@Modifying + UPDATE)");
-                            return true;
-                        }
-                    }
+
                 }
             }
             

@@ -44,9 +44,9 @@ public class RepoProcessor {
     private static void processRepos(Path project) throws IOException, InterruptedException {
         try (DirectoryStream<Path> repos = Files.newDirectoryStream(project)) {
             for (Path repo : repos) {
-                if (FileOperationsManager.isDirectory(repo)) {
+                if (Files.isDirectory(repo)) {
                     Path pom = repo.resolve("pom.xml");
-                    if (!FileOperationsManager.fileExists(pom)) continue;
+                    if (!Files.exists(pom)) continue;
                     currentRepo = repo;
                     String branch = findAndCheckoutBranch(repo);
                     if (branch == null) {
