@@ -13,7 +13,6 @@ import com.github.javaparser.ast.visitor.ModifierVisitor;
 import com.github.javaparser.printer.lexicalpreservation.LexicalPreservingPrinter;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
-import sa.com.cloudsolutions.antikythera.examples.util.FileOperationsManager;
 import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 

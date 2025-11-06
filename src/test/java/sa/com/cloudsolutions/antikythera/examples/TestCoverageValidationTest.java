@@ -1,10 +1,8 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
 import org.junit.jupiter.api.Test;
-import sa.com.cloudsolutions.antikythera.examples.util.FileOperationsManager;
 import sa.com.cloudsolutions.antikythera.examples.util.GitOperationsManager;
 import sa.com.cloudsolutions.antikythera.examples.util.LiquibaseGenerator;
-import sa.com.cloudsolutions.antikythera.examples.util.RepositoryAnalyzer;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -125,37 +123,6 @@ public class TestCoverageValidationTest {
     }
 
     @Test
-    void validateTestClassesExist() {
-        // Verify that test classes exist for all utility components
-        Set<String> expectedTestClasses = new HashSet<>(Arrays.asList(
-            "FileOperationsManagerTest",
-            "GitOperationsManagerTest",
-            "LiquibaseGeneratorTest", 
-            "RepositoryAnalyzerTest"
-        ));
-        
-        for (String testClassName : expectedTestClasses) {
-            try {
-                String fullTestClassName = "sa.com.cloudsolutions.antikythera.examples.util." + testClassName;
-                Class<?> testClass = Class.forName(fullTestClassName);
-                assertNotNull(testClass, "Test class " + testClassName + " should exist");
-                
-                // Verify the test class has test methods
-                Method[] methods = testClass.getDeclaredMethods();
-                boolean hasTestMethods = Arrays.stream(methods)
-                    .anyMatch(m -> m.isAnnotationPresent(Test.class));
-                
-                assertTrue(hasTestMethods, testClassName + " should have @Test methods");
-                
-                System.out.println("✓ " + testClassName + " exists and has test methods");
-                
-            } catch (ClassNotFoundException e) {
-                fail("Test class " + testClassName + " should exist: " + e.getMessage());
-            }
-        }
-    }
-
-    @Test
     void validateBranchCoverageScenarios() {
         // Verify that conditional logic branches are covered
         
@@ -181,52 +148,4 @@ public class TestCoverageValidationTest {
         System.out.println("✓ Branch coverage scenarios validation passed");
     }
 
-    @Test
-    void validateIntegrationTestCoverage() {
-        // Verify that component interactions are tested
-        
-        FileOperationsManager fileOps = new FileOperationsManager();
-        LiquibaseGenerator liquibase = new LiquibaseGenerator();
-        
-        // Test integration scenario: generate changeset and verify it can be written
-        String changeset = liquibase.createIndexChangeset("integration_table", "integration_column");
-        assertNotNull(changeset, "Changeset should be generated for integration test");
-        
-        // Verify the changeset has proper XML structure for file operations
-        assertTrue(changeset.contains("<changeSet"), "Changeset should have XML structure");
-        assertTrue(changeset.contains("</changeSet>"), "Changeset should be properly closed");
-        
-        System.out.println("✓ Integration test coverage validation passed");
-    }
-
-    @Test
-    void validatePublicMethodCoverage() {
-        // Verify all public methods of utility classes are testable
-        
-        Class<?>[] utilityClassTypes = {
-            FileOperationsManager.class,
-            GitOperationsManager.class,
-            LiquibaseGenerator.class,
-            RepositoryAnalyzer.class
-        };
-        
-        for (Class<?> clazz : utilityClassTypes) {
-            Method[] methods = clazz.getDeclaredMethods();
-            int publicMethodCount = 0;
-            
-            for (Method method : methods) {
-                if (Modifier.isPublic(method.getModifiers()) && 
-                    !method.getName().equals("toString") &&
-                    !method.getName().equals("equals") &&
-                    !method.getName().equals("hashCode")) {
-                    publicMethodCount++;
-                }
-            }
-            
-            assertTrue(publicMethodCount > 0, 
-                      clazz.getSimpleName() + " should have public methods to test");
-            
-            System.out.println("✓ " + clazz.getSimpleName() + " has " + publicMethodCount + " public methods");
-        }
-    }
 }

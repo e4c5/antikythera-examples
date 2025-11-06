@@ -1,6 +1,5 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
-import sa.com.cloudsolutions.antikythera.examples.util.FileOperationsManager;
 import sa.com.cloudsolutions.antikythera.examples.util.GitOperationsManager;
 
 import java.io.*;

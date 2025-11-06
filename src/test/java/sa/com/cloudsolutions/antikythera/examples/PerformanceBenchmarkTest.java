@@ -2,14 +2,8 @@ package sa.com.cloudsolutions.antikythera.examples;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
-import sa.com.cloudsolutions.antikythera.examples.util.FileOperationsManager;
 import sa.com.cloudsolutions.antikythera.examples.util.LiquibaseGenerator;
-import sa.com.cloudsolutions.antikythera.examples.util.RepositoryAnalyzer;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;

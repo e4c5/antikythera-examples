@@ -3,14 +3,11 @@ package sa.com.cloudsolutions.antikythera.examples;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import sa.com.cloudsolutions.antikythera.examples.util.FileOperationsManager;
 import sa.com.cloudsolutions.antikythera.examples.util.GitOperationsManager;
 import sa.com.cloudsolutions.antikythera.examples.util.LiquibaseGenerator;
 import sa.com.cloudsolutions.antikythera.examples.util.RepositoryAnalyzer;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
@@ -27,17 +24,13 @@ public class BackwardCompatibilityTest {
     @TempDir
     Path tempDir;
     
-    private FileOperationsManager fileOpsManager;
     private LiquibaseGenerator liquibaseGenerator;
     private RepositoryAnalyzer repositoryAnalyzer;
-    private GitOperationsManager gitOpsManager;
 
     @BeforeEach
     void setUp() {
-        fileOpsManager = new FileOperationsManager();
         liquibaseGenerator = new LiquibaseGenerator();
         repositoryAnalyzer = new RepositoryAnalyzer();
-        gitOpsManager = new GitOperationsManager();
     }
 
     @Test

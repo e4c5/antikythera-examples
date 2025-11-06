@@ -212,21 +212,4 @@ class HardDeleteTest {
         }
     }
 
-    @Test
-    void testHardDeleteUsesRefactoredComponents() {
-        // This test verifies that HardDelete is using the refactored utility components
-        // by checking that it doesn't crash when the utility classes are available
-        
-        try {
-            // Verify that the utility classes exist and are accessible
-            Class.forName("sa.com.cloudsolutions.antikythera.examples.util.RepositoryAnalyzer");
-            Class.forName("sa.com.cloudsolutions.antikythera.examples.util.FileOperationsManager");
-            
-            // If we get here, the utility classes are available
-            assertTrue(true, "Refactored utility components are available");
-            
-        } catch (ClassNotFoundException e) {
-            fail("Refactored utility components should be available: " + e.getMessage());
-        }
-    }
 }
