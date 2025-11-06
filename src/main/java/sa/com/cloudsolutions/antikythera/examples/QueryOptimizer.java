@@ -21,6 +21,7 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -334,7 +335,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
             
             String original;
             try {
-                original = FileOperationsManager.readFileContent(filePath);
+                original = Files.readString(filePath, StandardCharsets.UTF_8);
             } catch (IOException e) {
                 original = null; // If reading fails, proceed to write to be safe
             }

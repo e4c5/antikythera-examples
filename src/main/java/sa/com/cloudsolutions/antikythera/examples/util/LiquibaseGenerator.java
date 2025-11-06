@@ -8,6 +8,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.text.SimpleDateFormat;
 import java.util.*;
@@ -372,7 +373,7 @@ public class LiquibaseGenerator {
     }
     
     private void updateMasterFile(Path masterFile, String fileName) throws IOException {
-        String masterText = FileOperationsManager.readFileContent(masterFile);
+        String masterText = Files.readString(masterFile, StandardCharsets.UTF_8);
         String includeTag = String.format("    <include file=\"%s\"/>", fileName);
         
         // Check if this specific file is already included
