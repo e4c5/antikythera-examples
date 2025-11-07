@@ -38,6 +38,7 @@ import java.util.Optional;
 public class HardDelete {
     // Map repository variable name to its type
     private static final Map<String, String> repoVars = new HashMap<>();
+    public static final String QUERY = "Query";
     static TypeDeclaration<?> current;
     private static String currentMethod;
 
@@ -121,10 +122,6 @@ public class HardDelete {
                 return !isSoftDeleteImplementation(mce, cu, repoVar);
             }
 
-            // Check for custom query methods that perform deletes
-            if (isCustomDeleteQuery(mce, cu, repoVar)) {
-                return !isSoftDeleteImplementation(mce, cu, repoVar);
-            }
 
             return false;
         }
@@ -150,30 +147,6 @@ public class HardDelete {
         }
 
         /**
-         * Checks if the method has a custom @Query annotation with DELETE statement.
-         */
-        boolean isCustomDeleteQuery(MethodCallExpr mce, CompilationUnit cu, String repoVar) {
-            String repoTypeName = repoVars.get(repoVar);
-            if (repoTypeName == null) return false;
-
-            TypeWrapper repoType = findRepositoryType(cu, repoTypeName);
-
-            if (repoType != null && repoType.getType() != null) {
-                TypeDeclaration<?> decl = repoType.getType();
-                List<MethodDeclaration> methods = decl.getMethodsByName(mce.getNameAsString());
-                for (MethodDeclaration method : methods) {
-                    if (method.getAnnotationByName("Query").isPresent()) {
-                        String queryValue = extractQueryValue(method);
-                        if (queryValue.toUpperCase().startsWith("DELETE")) {
-                            return true;
-                        }
-                    }
-                }
-            }
-            return false;
-        }
-
-        /**
          * Determines if a delete method implementation is actually a soft delete.
          */
         private boolean isSoftDeleteImplementation(MethodCallExpr mce, CompilationUnit cu, String repoVar) {
@@ -186,8 +159,9 @@ public class HardDelete {
                 List<MethodDeclaration> methods = repoType.getType().getMethodsByName(mce.getNameAsString());
                 for (MethodDeclaration method : methods) {
                     // Check for @Query annotation with UPDATE statement (soft delete pattern)
-                    if (method.getAnnotationByName("Query").isPresent()) {
-                        String queryValue = extractQueryValue(method);
+                    if (method.getAnnotationByName(QUERY).isPresent()) {
+                        String queryValue = AbstractCompiler.extractAnnotationAttributes(
+                                method.getAnnotationByName(QUERY).orElseThrow()).get("value");
                         String upperQuery = queryValue.toUpperCase();
                         return !upperQuery.startsWith("DELETE");
                     }
@@ -202,25 +176,6 @@ public class HardDelete {
          */
         private TypeWrapper findRepositoryType(CompilationUnit cu,  String repoTypeName) {
             return AbstractCompiler.findType(cu, repoTypeName);
-        }
-
-        /**
-         * Extracts the query value from a @Query annotation.
-         */
-        private String extractQueryValue(MethodDeclaration method) {
-            return method.getAnnotationByName("Query")
-                    .flatMap(ann -> {
-                        if (ann instanceof com.github.javaparser.ast.expr.SingleMemberAnnotationExpr single) {
-                            return Optional.of(single.getMemberValue().toString().replaceAll("^\"|\"$", ""));
-                        } else if (ann instanceof com.github.javaparser.ast.expr.NormalAnnotationExpr normal) {
-                            return normal.getPairs().stream()
-                                    .filter(pair -> "value".equals(pair.getNameAsString()))
-                                    .map(pair -> pair.getValue().toString().replaceAll("^\"|\"$", ""))
-                                    .findFirst();
-                        }
-                        return Optional.empty();
-                    })
-                    .orElse("");
         }
     }
 
