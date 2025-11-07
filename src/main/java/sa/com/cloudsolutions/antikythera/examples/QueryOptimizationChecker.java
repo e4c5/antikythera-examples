@@ -785,56 +785,57 @@ public class QueryOptimizationChecker {
             return;
         }
         
-        String table = result.getQuery().getPrimaryTable();
-        if (table == null || table.isEmpty()) {
-            table = inferTableNameFromQuerySafe(result.getQuery().getQuery(), result.getQuery().getClassname());
-        }
-
-        List<String> columnsForIndex = new ArrayList<>();
+        // Group columns by table - critical for JOIN queries where columns come from multiple tables
+        Map<String, List<String>> columnsByTable = new HashMap<>();
         
-        // Collect columns from the recommended order (from AI or optimization issues)
-        for (OptimizationIssue issue : issues) {
-            if (issue.severity() == OptimizationIssue.Severity.HIGH || issue.severity() == OptimizationIssue.Severity.MEDIUM) {
-                if (issue.recommendedColumnOrder() != null) {
-                    columnsForIndex.addAll(issue.recommendedColumnOrder());
-                    break; // Use the first high/medium severity issue's recommendation
-                }
-            }
-        }
-        
-        // If no columns from issues, try to extract from WHERE conditions
-        if (columnsForIndex.isEmpty() && !result.getWhereConditions().isEmpty()) {
+        // Collect columns from WHERE conditions, grouped by their table
+        if (!result.getWhereConditions().isEmpty()) {
             for (WhereCondition condition : result.getWhereConditions()) {
                 if (condition.cardinality() != CardinalityLevel.LOW) {
-                    columnsForIndex.add(condition.columnName());
+                    String tableName = condition.tableName();
+                    if (tableName == null || tableName.isEmpty()) {
+                        // Fallback to inferring table name if not set in condition
+                        tableName = result.getQuery().getPrimaryTable();
+                        if (tableName == null || tableName.isEmpty()) {
+                            tableName = inferTableNameFromQuerySafe(result.getQuery().getQuery(), result.getQuery().getClassname());
+                        }
+                    }
+                    
+                    columnsByTable.computeIfAbsent(tableName, k -> new ArrayList<>()).add(condition.columnName());
                 }
             }
         }
         
-        // Filter out columns that already have indexes and low-cardinality columns
-        List<String> filteredColumns = new ArrayList<>();
-        for (String column : columnsForIndex) {
-            CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(table, column);
-            if (cardinality != CardinalityLevel.LOW) {
-                filteredColumns.add(column);
+        // Process each table's columns separately to create table-specific indexes
+        for (Map.Entry<String, List<String>> entry : columnsByTable.entrySet()) {
+            String table = entry.getKey();
+            List<String> columnsForTable = entry.getValue();
+            
+            // Filter out columns that already have indexes and low-cardinality columns
+            List<String> filteredColumns = new ArrayList<>();
+            for (String column : columnsForTable) {
+                CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(table, column);
+                if (cardinality != CardinalityLevel.LOW) {
+                    filteredColumns.add(column);
+                }
             }
-        }
-        
-        if (filteredColumns.size() > 1) {
-            // Create multi-column index
-            String key = (table + "|" + String.join(",", filteredColumns)).toLowerCase();
-            boolean added = suggestedMultiColumnIndexes.add(key);
-            logger.info("Multi-column index suggestion for {}: {} - {}", table, filteredColumns, added ? "ADDED" : "DUPLICATE");
-        } else if (filteredColumns.size() == 1) {
-            // Only one column needs indexing - create single-column index
-            String column = filteredColumns.get(0);
-            boolean hasExisting = CardinalityAnalyzer.hasIndexWithLeadingColumn(table, column);
-            if (!hasExisting) {
-                String key = (table + "|" + column).toLowerCase();
-                boolean added = suggestedNewIndexes.add(key);
-                logger.info("Single-column index suggestion for {}.{} - {}", table, column, added ? "ADDED" : "DUPLICATE");
-            } else {
-                logger.debug("Skipping {}.{} - already has index with leading column", table, column);
+            
+            if (filteredColumns.size() > 1) {
+                // Create multi-column index for this specific table
+                String key = (table + "|" + String.join(",", filteredColumns)).toLowerCase();
+                boolean added = suggestedMultiColumnIndexes.add(key);
+                logger.info("Multi-column index suggestion for {}: {} - {}", table, filteredColumns, added ? "ADDED" : "DUPLICATE");
+            } else if (filteredColumns.size() == 1) {
+                // Only one column needs indexing - create single-column index
+                String column = filteredColumns.get(0);
+                boolean hasExisting = CardinalityAnalyzer.hasIndexWithLeadingColumn(table, column);
+                if (!hasExisting) {
+                    String key = (table + "|" + column).toLowerCase();
+                    boolean added = suggestedNewIndexes.add(key);
+                    logger.info("Single-column index suggestion for {}.{} - {}", table, column, added ? "ADDED" : "DUPLICATE");
+                } else {
+                    logger.debug("Skipping {}.{} - already has index with leading column", table, column);
+                }
             }
         }
     }

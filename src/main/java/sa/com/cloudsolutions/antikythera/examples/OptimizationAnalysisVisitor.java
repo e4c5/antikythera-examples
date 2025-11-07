@@ -219,9 +219,8 @@ public class OptimizationAnalysisVisitor {
     }
     
     /**
-     * Resolves a table alias to the actual table name.
-     * For now, returns null to indicate alias resolution is not yet implemented.
-     * TODO: Parse FROM and JOIN clauses to build alias-to-table mapping.
+     * Resolves a table alias to the actual table name by parsing FROM and JOIN clauses.
+     * This is critical for JOIN queries where columns come from different tables.
      */
     private String resolveTableFromAlias(String aliasOrTable) {
         // If it matches the primary table or looks like a table name (snake_case), use it
@@ -229,8 +228,28 @@ public class OptimizationAnalysisVisitor {
             return aliasOrTable;
         }
         
-        // Otherwise, it's likely an alias - use primary table for now
-        // This is a simplification that works for many cases
+        // Try to resolve alias from query text
+        String queryText = repositoryQuery.getQuery();
+        if (queryText != null) {
+            // Pattern to match: FROM table_name alias or JOIN table_name alias
+            // Examples: "FROM Approval a", "LEFT JOIN BLAPP_open_coverage oc"
+            String pattern = "(?i)(?:FROM|JOIN)\\s+([\\w_]+)\\s+" + java.util.regex.Pattern.quote(aliasOrTable) + "\\b";
+            java.util.regex.Pattern p = java.util.regex.Pattern.compile(pattern);
+            java.util.regex.Matcher m = p.matcher(queryText);
+            
+            if (m.find()) {
+                String tableName = m.group(1);
+                // Convert to snake_case if it's in CamelCase (entity name)
+                if (!tableName.contains("_") && tableName.matches(".*[A-Z].*")) {
+                    tableName = tableName.replaceAll("([a-z])([A-Z])", "$1_$2").toLowerCase();
+                }
+                logger.debug("Resolved alias '{}' to table '{}'", aliasOrTable, tableName);
+                return tableName;
+            }
+        }
+        
+        // If we can't resolve the alias, use primary table as fallback
+        logger.debug("Could not resolve alias '{}', using primary table: {}", aliasOrTable, repositoryQuery.getPrimaryTable());
         return repositoryQuery.getPrimaryTable();
     }
     

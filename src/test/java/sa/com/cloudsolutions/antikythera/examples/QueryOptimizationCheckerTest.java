@@ -852,4 +852,104 @@ class QueryOptimizationCheckerTest {
         assertEquals(0, initialHigh);
         assertEquals(0, initialMedium);
     }
+
+    @Test
+    void testCollectIndexSuggestionsWithJoinQuery() throws Exception {
+        // Test that JOIN queries with columns from multiple tables generate separate indexes
+        
+        // Setup a mock index map with indexes to simulate real cardinality analysis
+        Map<String, List<Indexes.IndexInfo>> mockIndexMap = new HashMap<>();
+        
+        // Add a high-cardinality index for approval.admission_id
+        Indexes.IndexInfo approvalIndex = new Indexes.IndexInfo("INDEX", "idx_approval_admission", 
+            Arrays.asList("admission_id"));
+        mockIndexMap.put("approval", Arrays.asList(approvalIndex));
+        
+        // Add indexes for blapp_open_coverage
+        Indexes.IndexInfo coverageIndex1 = new Indexes.IndexInfo("INDEX", "idx_coverage_payer_group", 
+            Arrays.asList("payer_group_id"));
+        Indexes.IndexInfo coverageIndex2 = new Indexes.IndexInfo("INDEX", "idx_coverage_payer_contract", 
+            Arrays.asList("payer_contract_id"));
+        mockIndexMap.put("blapp_open_coverage", Arrays.asList(coverageIndex1, coverageIndex2));
+        
+        CardinalityAnalyzer.setIndexMap(mockIndexMap);
+        
+        // Create mock WHERE conditions from different tables
+        WhereCondition condition1 = mock(WhereCondition.class);
+        when(condition1.tableName()).thenReturn("approval");
+        when(condition1.columnName()).thenReturn("admission_id");
+        when(condition1.cardinality()).thenReturn(CardinalityLevel.HIGH);
+        
+        WhereCondition condition2 = mock(WhereCondition.class);
+        when(condition2.tableName()).thenReturn("blapp_open_coverage");
+        when(condition2.columnName()).thenReturn("payer_group_id");
+        when(condition2.cardinality()).thenReturn(CardinalityLevel.MEDIUM);
+        
+        WhereCondition condition3 = mock(WhereCondition.class);
+        when(condition3.tableName()).thenReturn("blapp_open_coverage");
+        when(condition3.columnName()).thenReturn("payer_contract_id");
+        when(condition3.cardinality()).thenReturn(CardinalityLevel.MEDIUM);
+        
+        // Setup mock result
+        when(mockResult.getIndexSuggestions()).thenReturn(Collections.emptyList());
+        when(mockResult.getQuery()).thenReturn(mockRepositoryQuery);
+        when(mockRepositoryQuery.getPrimaryTable()).thenReturn("approval");
+        when(mockRepositoryQuery.getClassname()).thenReturn("ApprovalRepository");
+        when(mockRepositoryQuery.getQuery()).thenReturn(
+            "SELECT * FROM Approval a LEFT JOIN BLAPP_open_coverage oc ON a.id = oc.approvalId " +
+            "WHERE a.admission_id = :admissionId AND oc.payer_group_id = :payerGroupId " +
+            "AND oc.payer_contract_id = :payerContractId"
+        );
+        when(mockResult.getWhereConditions()).thenReturn(Arrays.asList(condition1, condition2, condition3));
+        
+        List<OptimizationIssue> issues = Collections.emptyList();
+        
+        // Call the method
+        checker.collectIndexSuggestions(mockResult, issues);
+        
+        // Access the internal index suggestion sets
+        Field suggestedNewIndexesField = cls.getDeclaredField("suggestedNewIndexes");
+        suggestedNewIndexesField.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        LinkedHashSet<String> suggestedNewIndexes = (LinkedHashSet<String>) suggestedNewIndexesField.get(checker);
+        
+        Field suggestedMultiColumnIndexesField = cls.getDeclaredField("suggestedMultiColumnIndexes");
+        suggestedMultiColumnIndexesField.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        LinkedHashSet<String> suggestedMultiColumnIndexes = (LinkedHashSet<String>) suggestedMultiColumnIndexesField.get(checker);
+        
+        // Log the actual suggestions for debugging
+        System.out.println("Single-column indexes: " + suggestedNewIndexes);
+        System.out.println("Multi-column indexes: " + suggestedMultiColumnIndexes);
+        
+        // Verify no mixed-table indexes exist - this is the critical assertion
+        // A mixed-table index would have columns from different tables in the same index key
+        boolean hasMixedIndex = suggestedMultiColumnIndexes.stream()
+            .anyMatch(key -> {
+                // Check if a single index key contains columns from both tables
+                return (key.contains("approval") && key.contains("blapp_open_coverage")) ||
+                       (key.contains("admission_id") && 
+                        (key.contains("payer_group_id") || key.contains("payer_contract_id")));
+            });
+        
+        assertFalse(hasMixedIndex, "Should not create indexes mixing columns from different tables");
+        
+        // Verify that if multi-column indexes were created, they are table-specific
+        for (String indexKey : suggestedMultiColumnIndexes) {
+            String[] parts = indexKey.split("\\|");
+            if (parts.length == 2) {
+                String table = parts[0];
+                String columns = parts[1];
+                
+                // All columns in a multi-column index should belong to the same table
+                if (table.equals("approval")) {
+                    assertFalse(columns.contains("payer_group_id") || columns.contains("payer_contract_id"),
+                        "Approval table index should not contain columns from blapp_open_coverage");
+                } else if (table.equals("blapp_open_coverage")) {
+                    assertFalse(columns.contains("admission_id"),
+                        "blapp_open_coverage table index should not contain columns from approval");
+                }
+            }
+        }
+    }
 }
