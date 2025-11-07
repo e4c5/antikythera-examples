@@ -111,8 +111,10 @@ public class QueryOptimizationChecker {
                     
                 analyzeRepository(fullyQualifiedName, typeWrapper);
                 repositoriesProcessed++;
-
-                break;
+                i++;
+                if (i == 10) {
+                    break;
+                }
             }
         }
         

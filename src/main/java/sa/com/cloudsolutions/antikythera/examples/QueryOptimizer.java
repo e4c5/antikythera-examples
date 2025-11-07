@@ -64,6 +64,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         stats.setQueriesAnalyzed(results.size());
         
         List<QueryOptimizationResult> updates = new ArrayList<>();
+        boolean repositoryFileModified = false;
         
         // Setup LexicalPreservingPrinter by re-parsing the file to preserve whitespace
         setupLexicalPreservation(fullyQualifiedName);
@@ -78,6 +79,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
 
                     // Track @Query annotation changes (only count when we actually change it)
                     stats.incrementQueryAnnotationsChanged();
+                    repositoryFileModified = true;
 
                     // Check if method name changed (indicating signature should change)
                     boolean methodNameChanged = !issue.query().getMethodName().equals(issue.optimizedQuery().getMethodName());
@@ -99,8 +101,12 @@ public class QueryOptimizer extends QueryOptimizationChecker{
             updates.add(result);
         }
         
-        if (!updates.isEmpty()) {
-            writeFile(fullyQualifiedName);
+        if (repositoryFileModified) {
+            boolean fileWasWritten = writeFile(fullyQualifiedName);
+            if (!fileWasWritten) {
+                // File wasn't actually written (no content changes), so reset the modification flag
+                repositoryFileModified = false;
+            }
         }
         
         // Apply signature updates and track dependent class changes
@@ -122,8 +128,8 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         totalDependentClassesModified += stats.getDependentClassesModified();
         
         // Track files modified (repository file + dependent classes)
-        if (stats.getQueryAnnotationsChanged() > 0 || stats.getMethodSignaturesChanged() > 0) {
-            totalFilesModified++; // Repository file was modified
+        if (repositoryFileModified) {
+            totalFilesModified++; // Repository file was actually modified
         }
         totalFilesModified += stats.getDependentClassesModified();
         
@@ -290,9 +296,12 @@ public class QueryOptimizer extends QueryOptimizationChecker{
                     typeWrapper.getType().accept(visitor, updates);
                     
                     if (visitor.modified) {
-                        writeFile(className);
-                        stats.dependentClassesModified++;
-                        stats.methodCallsUpdated += visitor.methodCallsUpdated;
+                        boolean fileWasWritten = writeFile(className);
+                        // Only count as modified if the file was actually written (content changed)
+                        if (fileWasWritten) {
+                            stats.dependentClassesModified++;
+                            stats.methodCallsUpdated += visitor.methodCallsUpdated;
+                        }
                     }
                 }
             }
@@ -320,8 +329,10 @@ public class QueryOptimizer extends QueryOptimizationChecker{
      * 2. LexicalPreservingPrinter returns unchanged content (indicating AST mods weren't tracked)
      * 
      * The fallback uses JavaParser's default pretty printer which produces consistent formatting.
+     * 
+     * @return true if the file was actually written (content changed), false if skipped (no changes)
      */
-    static void writeFile(String fullyQualifiedName) throws FileNotFoundException {
+    static boolean writeFile(String fullyQualifiedName) throws FileNotFoundException {
         String fullPath = Settings.getBasePath() + "src/main/java/" + AbstractCompiler.classToPath(fullyQualifiedName);
         Path filePath = Path.of(fullPath);
 
@@ -329,7 +340,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
             var cu = AntikytheraRunTime.getCompilationUnit(fullyQualifiedName);
             if (cu == null) {
                 // No parsed CompilationUnit available, skip writing to avoid truncating the file
-                return;
+                return false;
             }
             
             String original;
@@ -354,7 +365,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
 
             // If resulting content is identical to original, skip writing
             if (original != null && original.equals(content)) {
-                return;
+                return false;
             }
             
             try {
@@ -365,11 +376,13 @@ public class QueryOptimizer extends QueryOptimizationChecker{
 
                     writer.print(LexicalPreservingPrinter.print(cu));
                     writer.close();
+                    return true;
                 }
             } catch (IOException e) {
                 throw new FileNotFoundException("Failed to write file " + fullPath + ": " + e.getMessage());
             }
         }
+        return false;
     }
 
     static class NameChangeVisitor extends ModifierVisitor<List<QueryOptimizationResult>> {
@@ -392,14 +405,26 @@ public class QueryOptimizer extends QueryOptimizationChecker{
                     if (update.getMethodName().equals(mce.getNameAsString()) && !update.getOptimizationIssues().isEmpty()) {
                         OptimizationIssue issue = update.getOptimizationIssues().getFirst();
                         if (issue.optimizedQuery() != null) {
-                            // Update method name
-                            mce.setName(issue.optimizedQuery().getMethodName());
+                            String originalMethodName = mce.getNameAsString();
+                            String newMethodName = issue.optimizedQuery().getMethodName();
+                            
+                            // Only count as an update if something actually changes
+                            boolean methodNameChanged = !originalMethodName.equals(newMethodName);
+                            boolean argumentsReordered = false;
+                            
+                            // Update method name if it changed
+                            if (methodNameChanged) {
+                                mce.setName(newMethodName);
+                            }
                             
                             // Reorder arguments based on column order changes
-                            reorderMethodArguments(mce, issue);
+                            argumentsReordered = reorderMethodArguments(mce, issue);
                             
-                            modified = true;
-                            methodCallsUpdated++;
+                            // Only mark as modified and increment counter if actual changes were made
+                            if (methodNameChanged || argumentsReordered) {
+                                modified = true;
+                                methodCallsUpdated++;
+                            }
                         }
                     }
                 }
@@ -411,8 +436,10 @@ public class QueryOptimizer extends QueryOptimizationChecker{
          * Reorders method call arguments based on the optimization issue's column order changes.
          * This ensures that when parameter order changes (e.g., findByEmailAndStatus -> findByStatusAndEmail),
          * the method call arguments are also reordered to match.
+         * 
+         * @return true if arguments were actually reordered, false otherwise
          */
-        private void reorderMethodArguments(MethodCallExpr mce, OptimizationIssue issue) {
+        private boolean reorderMethodArguments(MethodCallExpr mce, OptimizationIssue issue) {
             List<String> currentOrder = issue.currentColumnOrder();
             List<String> recommendedOrder = issue.recommendedColumnOrder();
             
@@ -420,12 +447,12 @@ public class QueryOptimizer extends QueryOptimizationChecker{
             if (currentOrder == null || recommendedOrder == null || 
                 currentOrder.equals(recommendedOrder) || 
                 currentOrder.size() != recommendedOrder.size()) {
-                return;
+                return false;
             }
             
             // Only reorder if argument count matches parameter count
             if (mce.getArguments().size() != currentOrder.size()) {
-                return;
+                return false;
             }
             
             // Create mapping from current position to new position
@@ -444,7 +471,10 @@ public class QueryOptimizer extends QueryOptimizationChecker{
             if (reorderedArgs.size() == currentArgs.size()) {
                 mce.getArguments().clear();
                 mce.getArguments().addAll(reorderedArgs);
+                return true;
             }
+            
+            return false;
         }
     }
 
