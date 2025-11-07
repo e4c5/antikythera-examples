@@ -66,7 +66,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         
         List<QueryOptimizationResult> updates = new ArrayList<>();
         boolean repositoryFileModified = false;
-        
+
         // Setup LexicalPreservingPrinter by re-parsing the file to preserve whitespace
         setupLexicalPreservation(fullyQualifiedName);
 
@@ -80,21 +80,22 @@ public class QueryOptimizer extends QueryOptimizationChecker{
 
                     // Track @Query annotation changes (only count when we actually change it)
                     stats.incrementQueryAnnotationsChanged();
-                    repositoryFileModified = true;
 
                     // Check if method name changed (indicating signature should change)
                     boolean methodNameChanged = !issue.query().getMethodName().equals(issue.optimizedQuery().getMethodName());
 
-                    if (methodNameChanged) {
-                        reorderMethodParameters(
-                            issue.query().getMethodDeclaration().asMethodDeclaration(),
-                            issue.currentColumnOrder(),
-                            issue.recommendedColumnOrder()
-                        );
-                    }
+                    // Reorder parameters if column order changed (regardless of method name change)
+                    boolean parametersReordered = reorderMethodParameters(
+                        issue.query().getMethodDeclaration().asMethodDeclaration(),
+                        issue.currentColumnOrder(),
+                        issue.recommendedColumnOrder()
+                    );
+
+                    // Track if file was modified (annotation always changes, and may also have parameter reordering)
+                    repositoryFileModified = true;
 
                     // Track method signature changes
-                    if (methodNameChanged) {
+                    if (methodNameChanged || parametersReordered) {
                         stats.incrementMethodSignaturesChanged();
                     }
                 }
@@ -375,7 +376,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
                 if (f.exists()) {
                     PrintWriter writer = new PrintWriter(f);
 
-                    writer.print(LexicalPreservingPrinter.print(cu));
+                    writer.print(content);  // Use the content variable we already computed
                     writer.close();
                     return true;
                 }
