@@ -68,15 +68,6 @@ public class QueryBatch {
     }
 
     /**
-     * Adds multiple queries at once, leveraging existing collection patterns.
-     */
-    public void addQueries(List<RepositoryQuery> queries) {
-        if (queries != null) {
-            queries.forEach(this::addQuery);
-        }
-    }
-
-    /**
      * Gets the cardinality level for a specific column.
      */
     public CardinalityLevel getColumnCardinality(String columnName) {

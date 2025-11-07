@@ -156,15 +156,15 @@ public class HardDelete {
             String repoTypeName = repoVars.get(repoVar);
             if (repoTypeName == null) return false;
 
-            // Try to find the repository interface definition
-            Optional<TypeDeclaration<?>> repoType = findRepositoryType(cu, repoVar, repoTypeName);
+            TypeWrapper repoType = findRepositoryType(cu, repoTypeName);
 
-            if (repoType.isPresent()) {
-                List<MethodDeclaration> methods = repoType.get().getMethodsByName(mce.getNameAsString());
+            if (repoType != null && repoType.getType() != null) {
+                TypeDeclaration<?> decl = repoType.getType();
+                List<MethodDeclaration> methods = decl.getMethodsByName(mce.getNameAsString());
                 for (MethodDeclaration method : methods) {
                     if (method.getAnnotationByName("Query").isPresent()) {
                         String queryValue = extractQueryValue(method);
-                        if (queryValue.toUpperCase().contains("DELETE")) {
+                        if (queryValue.toUpperCase().startsWith("DELETE")) {
                             return true;
                         }
                     }
@@ -180,36 +180,17 @@ public class HardDelete {
             String repoTypeName = repoVars.get(repoVar);
             if (repoTypeName == null) return false;
 
-            Optional<TypeDeclaration<?>> repoType = findRepositoryType(cu, repoVar, repoTypeName);
+            TypeWrapper repoType = findRepositoryType(cu, repoTypeName);
 
-            if (repoType.isPresent()) {
-                List<MethodDeclaration> methods = repoType.get().getMethodsByName(mce.getNameAsString());
+            if (repoType != null && repoType.getType() != null) {
+                List<MethodDeclaration> methods = repoType.getType().getMethodsByName(mce.getNameAsString());
                 for (MethodDeclaration method : methods) {
                     // Check for @Query annotation with UPDATE statement (soft delete pattern)
                     if (method.getAnnotationByName("Query").isPresent()) {
                         String queryValue = extractQueryValue(method);
                         String upperQuery = queryValue.toUpperCase();
-
-                        // Soft delete typically uses UPDATE to set a flag/timestamp
-                        if (upperQuery.contains("UPDATE") &&
-                                (upperQuery.contains("DELETED") || upperQuery.contains("ACTIVE") ||
-                                        upperQuery.contains("STATUS") || upperQuery.contains("ENABLED"))) {
-                            System.err.println(currentMethod + "," + mce + " is a soft delete (UPDATE query)");
-                            return true;
-                        }
-
-                        // If it's a DELETE query, check for soft delete conditions
-                        if (upperQuery.contains("DELETE") &&
-                                (upperQuery.contains("WHERE") &&
-                                        (upperQuery.contains("DELETED") || upperQuery.contains("ACTIVE") ||
-                                                upperQuery.contains("STATUS")))) {
-                            System.err.println(currentMethod + "," + mce + " might be a conditional delete");
-                            // This could be either hard or soft delete depending on the condition
-                            // For now, we'll be conservative and not flag it as hard delete
-                            return true;
-                        }
+                        return !upperQuery.startsWith("DELETE");
                     }
-
                 }
             }
 
@@ -219,23 +200,8 @@ public class HardDelete {
         /**
          * Attempts to find the repository type definition.
          */
-        private Optional<TypeDeclaration<?>> findRepositoryType(CompilationUnit cu, String repoVar, String repoTypeName) {
-            // First try to find in the current compilation unit
-            Optional<TypeDeclaration<?>> localType = cu.getTypes().stream()
-                    .filter(td -> td.getMembers().stream()
-                            .anyMatch(m -> m instanceof FieldDeclaration field &&
-                                    field.getVariables().stream()
-                                            .anyMatch(v -> v.getNameAsString().equals(repoVar))))
-                    .findFirst();
-
-            if (localType.isPresent()) {
-                return localType;
-            }
-
-            // Try to find by type name in the compilation unit
-            return cu.getTypes().stream()
-                    .filter(td -> repoTypeName.endsWith(td.getNameAsString()))
-                    .findFirst();
+        private TypeWrapper findRepositoryType(CompilationUnit cu,  String repoTypeName) {
+            return AbstractCompiler.findType(cu, repoTypeName);
         }
 
         /**
