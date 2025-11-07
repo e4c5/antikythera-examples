@@ -107,6 +107,22 @@ Example 5:
      @Query("SELECT mm.menuId, mmt.menuDescription, mmt.menuLongDescription FROM MenuMapping mm JOIN mm.translateSet mmt WHERE mmt.cultureCode = :cultureCode AND mm.companyId = :companyId AND mm.restaurantId = :restaurantId")
      List<Object[]>  findAllMenuMappingSummaryByRestaurantIdAndCompanyId(@Param("restaurantId") Integer restaurantId, @Param("companyId") Integer companyId, @Param("cultureCode") String cultureCode);
 
+Example 6:
+    Old Method:
+        @Query("SELECT  a FROM AccessRule a JOIN a.accessUser au where a.action = 'restricted' AND au.userId = :userId AND au.tenantId = :tenantId AND au.restaurant = :restuarant")
+        List<AccessRule> getRestrictedRules(@Param("userId") final String userId, @Param("tenantId") Long tenantId, @Param("restaurant") Long restaurant);
+    Cardinality:
+        user_id  - high
+        tenant_id - low
+        restaurant_id - low
+        action - low
+    notes:
+        In HQL/JPQL the '*' is not used to represent all columns.
+    Optimized Method:
+        @Query("SELECT a FROM AccessRule a JOIN a.accessUser au WHERE au.user_id = :userId AND au.tenant_id = :tenantId AND au.restaurant = :restaurant AND a.action = 'restricted'")
+        List<AccessRule> getRestrictedRules(@Param("userId") final String userId, @Param("tenantId") Long tenantId, @Param("restaurant") Long restaurant);
+
+
 
 Final notes:
 When you are unable to suggest an improvement, say so. Always return structured responses with the output being in the same order as the input.
