@@ -1,7 +1,6 @@
 package sa.com.cloudsolutions.antikythera.examples.util;
 
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
-import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
 

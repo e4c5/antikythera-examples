@@ -17,7 +17,6 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 /**
  * Analyzes Java code to detect hard delete operations in JPA repositories.
