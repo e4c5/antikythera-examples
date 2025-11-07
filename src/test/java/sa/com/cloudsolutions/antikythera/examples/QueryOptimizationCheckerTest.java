@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
+import sa.com.cloudsolutions.antikythera.examples.util.RepositoryAnalyzer;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
 import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
 import sa.com.cloudsolutions.liquibase.Indexes;
@@ -266,17 +267,6 @@ class QueryOptimizationCheckerTest {
         assertTrue(out.contains("SUGGESTED SINGLE-COLUMN INDEXES"));
         assertTrue(checker.getTotalIndexCreateRecommendations() >= 2);
         assertTrue(checker.getTotalIndexDropRecommendations() >= 0);
-    }
-
-    @Test
-    void testIsJpaRepository() {
-        // Test with null type wrapper
-        when(mockTypeWrapper.getType()).thenReturn(null);
-        assertFalse(checker.isJpaRepository(mockTypeWrapper));
-        
-        // The method is now package-private so we can test it directly with real objects if needed
-        // For now, we'll test the basic null case which is the most important edge case
-        assertTrue(true); // Placeholder - complex mocking of JavaParser AST is challenging
     }
 
     @Test

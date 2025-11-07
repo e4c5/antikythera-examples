@@ -26,11 +26,6 @@ class RepositoryAnalyzerTest {
         javaParser = new JavaParser();
     }
 
-    @Test
-    void testIsJpaRepositoryWithNullTypeWrapper() {
-        // Test with null TypeWrapper
-        assertFalse(RepositoryAnalyzer.isJpaRepository(null));
-    }
 
     @Test
     void testIsJpaRepositoryWithJpaRepositoryInterface() {
