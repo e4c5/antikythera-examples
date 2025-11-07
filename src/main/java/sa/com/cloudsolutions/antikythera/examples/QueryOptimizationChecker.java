@@ -102,7 +102,7 @@ public class QueryOptimizationChecker {
             String fullyQualifiedName = entry.getKey();
             TypeWrapper typeWrapper = entry.getValue();
 
-            if (isJpaRepository(typeWrapper)) {
+            if (RepositoryAnalyzer.isJpaRepository(typeWrapper)) {
                 results.clear(); // Clear results for each repository
                 
                 System.out.println("\n" + "=".repeat(80));
@@ -119,17 +119,6 @@ public class QueryOptimizationChecker {
         }
         
         System.out.printf("\n✅ Successfully analyzed %d out of %d repositories%n", repositoriesProcessed, i);
-    }
-
-    /**
-     * Checks if a TypeWrapper represents a JPA repository interface.
-     * Uses the consolidated RepositoryAnalyzer utility.
-     *
-     * @param typeWrapper the type to check
-     * @return true if it's a JPA repository, false otherwise
-     */
-    boolean isJpaRepository(TypeWrapper typeWrapper) {
-        return RepositoryAnalyzer.isJpaRepository(typeWrapper);
     }
 
     /**
