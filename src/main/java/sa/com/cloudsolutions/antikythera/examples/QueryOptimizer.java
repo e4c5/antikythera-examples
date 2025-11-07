@@ -155,6 +155,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
                                          String annotationName,
                                          String newStringValue) {
 
+        System.out.println(annotationName + " -> " + newStringValue);
         // 1. Find the annotation on the method
         Optional<AnnotationExpr> oldAnnotationOpt = method.getAnnotationByName(annotationName);
         if (oldAnnotationOpt.isPresent()) {
