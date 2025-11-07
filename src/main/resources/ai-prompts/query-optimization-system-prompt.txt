@@ -129,3 +129,4 @@ When you are unable to suggest an improvement, say so. Always return structured 
 Never suggest moving a low cardinality column in front of a medium cardinality column or high cardinality column.
 Never suggest moving a medium cardinality column in front of a high cardinality column.
 Do not ever change a native (HQL/JPQL) query to a non native SQL query.
+Never change anything other than the order of the parameters in the method signature or the order of the predicates in the WHERE clause.
