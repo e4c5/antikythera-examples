@@ -8,8 +8,10 @@ import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 
+import com.github.javaparser.ast.expr.AnnotationExpr;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import sa.com.cloudsolutions.antikythera.generator.QueryType;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
 import sa.com.cloudsolutions.antikythera.parser.BaseRepositoryParser;
 import sa.com.cloudsolutions.antikythera.parser.Callable;
@@ -26,6 +28,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Handles all interactions with the Gemini AI service including request formatting,
@@ -113,9 +116,7 @@ public class GeminiAIService {
             if (i > 0) {
                 queriesJson.append(",");
             }
-
-            // Determine query type
-            String queryType = determineQueryType(query);
+            QueryType queryType = determineQueryType(query);
 
             // Build table schema and cardinality string
             String tableSchemaAndCardinality = buildTableSchemaString(batch, query);
@@ -169,54 +170,26 @@ public class GeminiAIService {
      * Determines the query type based on the RepositoryQuery.
      * Now properly checks for @Query annotation presence instead of blindly relying on isNative flag.
      */
-    private String determineQueryType(RepositoryQuery query) {
-        // Check if the method has @Query annotation by examining the method declaration
-        if (hasQueryAnnotation(query)) {
-            // If @Query annotation is present, check if it's native
-            if (isNativeQuery(query)) {
-                return "NATIVE_SQL";
-            } else {
-                return "HQL";
+    private QueryType determineQueryType(RepositoryQuery query) {
+        Optional<AnnotationExpr> annotationExpr = query.getQueryAnnotation();
+        if (annotationExpr.isPresent()) {
+            if (query.isNative()) {
+                return QueryType.NATIVE_SQL;
             }
-        } else {
-            // No @Query annotation means it's a derived query
-            return "DERIVED";
+            return QueryType.HQL;
         }
-    }
-
-    /**
-     * Checks if the method has a @Query annotation.
-     */
-    private boolean hasQueryAnnotation(RepositoryQuery query) {
-        if (query.getMethodDeclaration() == null) {
-            return false;
-        }
-
-        // Check for @Query annotation on the method
-        if (query.getMethodDeclaration().isMethodDeclaration()) {
-            MethodDeclaration methodDecl = query.getMethodDeclaration().asMethodDeclaration();
-            return methodDecl.isAnnotationPresent("Query");
-        }
-        return false;
-    }
-
-    /**
-     * Checks if the query is native by examining the @Query annotation's nativeQuery parameter.
-     */
-    private boolean isNativeQuery(RepositoryQuery query) {
-        return hasQueryAnnotation(query) && query.isNative();
+        return QueryType.DERIVED;
     }
 
     /**
      * Gets the appropriate query text based on the query type.
      */
     private String getQueryText(RepositoryQuery query) {
-        String queryType = determineQueryType(query);
-        return switch (queryType) {
-            case "DERIVED" -> query.getMethodName();
-            case "HQL", "NATIVE_SQL" -> query.getOriginalQuery() != null ? query.getOriginalQuery() : query.getQuery();
-            default -> query.getMethodName();
-        };
+        QueryType queryType = determineQueryType(query);
+        if (queryType.equals(QueryType.DERIVED)) {
+            return query.getMethodName();
+        }
+        return query.getOriginalQuery();
     }
 
     /**
@@ -755,8 +728,8 @@ public class GeminiAIService {
         if (config == null) return defaultValue;
         
         Object value = config.get(key);
-        if (value instanceof Number) {
-            return ((Number) value).doubleValue();
+        if (value instanceof Number n) {
+            return n.doubleValue();
         } else if (value instanceof String str) {
             try {
                 return Double.parseDouble(str);
