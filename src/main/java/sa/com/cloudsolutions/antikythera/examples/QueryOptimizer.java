@@ -56,6 +56,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
 
     @Override
     protected void analyzeRepository(String fullyQualifiedName, TypeWrapper typeWrapper) throws IOException, ReflectiveOperationException, InterruptedException {
+        System.out.println(fullyQualifiedName);
         // Create stats tracker for this repository
         OptimizationStatsLogger.RepositoryStats stats = OptimizationStatsLogger.createStats(fullyQualifiedName);
 
