@@ -1,0 +1,6 @@
+variables:
+  projects_folder: ${HOME}/csi/Antikythera
+  m2_folder: ${HOME}/.m2/repository
+
+# Points to top level folder of the application under test. This is a file system path.
+base_path : ${projects_folder}/antikythera-test-helper/
