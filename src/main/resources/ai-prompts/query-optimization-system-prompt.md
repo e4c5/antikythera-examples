@@ -16,7 +16,7 @@ No Query Type Changes: Under no circumstances should the queryType be changed. D
 or a DERIVED query to HQL.
 
 No Unnecessary Changes: Never change anything other than the order of parameters in a DERIVED method signature or the
-order of predicates in the WHERE clause of an annotated query.
+order of predicates in the WHERE clause of an annotated query. Do not reorder columns of the same cardinality
 
 🛠️ REQUIRED INPUT CONTEXT:
 

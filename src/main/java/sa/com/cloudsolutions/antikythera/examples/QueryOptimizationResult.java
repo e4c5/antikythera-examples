@@ -1,13 +1,11 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
-import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
 import sa.com.cloudsolutions.antikythera.parser.Callable;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * Aggregates the results of query optimization analysis, including all identified
@@ -59,7 +57,7 @@ public class QueryOptimizationResult {
      * @return an unmodifiable list of WHERE conditions
      */
     public List<WhereCondition> getWhereConditions() {
-        return Collections.unmodifiableList(whereConditions);
+        return whereConditions;
     }
     
     /**

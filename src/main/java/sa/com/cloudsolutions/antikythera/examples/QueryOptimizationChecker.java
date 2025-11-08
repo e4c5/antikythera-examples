@@ -266,7 +266,6 @@ public class QueryOptimizationChecker {
             llmRecommendation.recommendedColumnOrder(),
             llmRecommendation.description(),
             llmRecommendation.severity(),
-            llmRecommendation.queryText(),
             llmRecommendation.aiExplanation(),
             llmRecommendation.optimizedQuery()
         );

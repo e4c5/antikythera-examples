@@ -38,12 +38,9 @@ public class QueryAnalysisEngine {
      * @return the analysis results including WHERE conditions and optimization issues
      */
     public QueryOptimizationResult analyzeQuery(RepositoryQuery repositoryQuery) {
-
-        String queryText = getQueryText(repositoryQuery);
-
         Statement statement = repositoryQuery.getStatement();
         if (statement == null) {
-            return handleDerivedQuery(repositoryQuery, queryText);
+            return handleDerivedQuery(repositoryQuery);
         }
 
         // Extract table name for cardinality analysis
@@ -55,21 +52,16 @@ public class QueryAnalysisEngine {
         // Extract WHERE clause conditions using the parser infrastructure
         List<WhereCondition> whereConditions = optimizationExtractor.extractWhereConditions(repositoryQuery);
 
-        // Analyze condition ordering for optimization opportunities using existing CardinalityAnalyzer
-        List<OptimizationIssue> optimizationIssues = analyzeConditionOrdering(
-            whereConditions, repositoryQuery, queryText);
-
-        return new QueryOptimizationResult(repositoryQuery, whereConditions, optimizationIssues, List.of());
+        return new QueryOptimizationResult(repositoryQuery, whereConditions, null, List.of());
     }
 
     /**
      * Handles analysis of derived query methods (findBy*, countBy*, etc.).
      */
-    private QueryOptimizationResult handleDerivedQuery(RepositoryQuery repositoryQuery, String queryText) {
+    private QueryOptimizationResult handleDerivedQuery(RepositoryQuery repositoryQuery) {
         // For derived queries, we can still analyze the method parameters to infer WHERE conditions
         List<WhereCondition> whereConditions = new ArrayList<>();
-        List<OptimizationIssue> optimizationIssues = new ArrayList<>();
-        
+
         List<QueryMethodParameter> methodParameters = repositoryQuery.getMethodParameters();
         if (methodParameters != null && !methodParameters.isEmpty()) {
             // Infer table name from repository class
@@ -85,130 +77,13 @@ public class QueryAnalysisEngine {
                     whereConditions.add(condition);
                 }
             }
-            
-            // Analyze the inferred conditions
-            optimizationIssues = analyzeConditionOrdering(whereConditions, repositoryQuery, queryText);
+
+            /**
+             * TODO Analyze the inferred conditions
+             */
         }
         
-        return new QueryOptimizationResult(repositoryQuery, whereConditions, optimizationIssues, List.of());
-    }
-    
-    /**
-     * Analyzes condition ordering to identify optimization opportunities based on cardinality analysis.
-     * Enhanced to provide comprehensive optimization recommendations using existing CardinalityAnalyzer.
-     * 
-     * @param conditions the list of WHERE conditions to analyze
-     * @param query the repository query
-     * @param queryText the full query text for reporting
-     * @return list of optimization issues found
-     */
-    private List<OptimizationIssue> analyzeConditionOrdering(List<WhereCondition> conditions, RepositoryQuery query, String queryText) {
-        List<OptimizationIssue> issues = new ArrayList<>();
-        
-        if (conditions.isEmpty()) {
-            logger.debug("No WHERE conditions found for analysis");
-            return issues;
-        }
-        
-        WhereCondition firstCondition = conditions.getFirst();
-        String tableName = query.getPrimaryTable();
-        
-        logger.debug("Analyzing condition ordering for {} conditions, first condition: {}", 
-                    conditions.size(), firstCondition);
-
-        // Rule 1: If the first condition is MEDIUM cardinality, ensure there is a supporting index
-        if (firstCondition.cardinality() == CardinalityLevel.MEDIUM) {
-            boolean hasLeadingIndex = CardinalityAnalyzer.hasIndexWithLeadingColumn(tableName, firstCondition.columnName());
-            if (!hasLeadingIndex) {
-                String description = String.format(
-                        "First WHERE condition uses medium cardinality column '%s' but no index starts with this column. " +
-                        "Create an index with leading column '%s' to improve query performance.",
-                        firstCondition.columnName(), firstCondition.columnName());
-                OptimizationIssue indexIssue = new OptimizationIssue(query, firstCondition.columnName(),
-                        firstCondition.columnName(), description, OptimizationIssue.Severity.HIGH, queryText);
-                issues.add(indexIssue);
-                logger.debug("Added index recommendation issue for medium cardinality column: {}", firstCondition.columnName());
-            }
-        }
-        
-        // Rule 2: Check if first condition is low cardinality while higher-cardinality alternatives exist
-        if (firstCondition.isLowCardinality()) {
-            // Prefer HIGH over MEDIUM if both exist
-            Optional<WhereCondition> highCardinalityAlternative = conditions.stream()
-                .filter(WhereCondition::isHighCardinality)
-                .findFirst();
-
-            if (highCardinalityAlternative.isPresent()) {
-                WhereCondition recommended = highCardinalityAlternative.get();
-
-                // Enhanced description with cardinality information
-                String cardinalityDetails = getCardinalityDetails(tableName, firstCondition, recommended);
-                String description = String.format(
-                    "Query starts with %s cardinality column '%s' but %s cardinality column '%s' is available. %s",
-                    firstCondition.cardinality().toString().toLowerCase(),
-                    firstCondition.columnName(),
-                    recommended.cardinality().toString().toLowerCase(),
-                    recommended.columnName(),
-                    cardinalityDetails);
-
-                OptimizationIssue issue = new OptimizationIssue(query, firstCondition.columnName(),
-                    recommended.columnName(), description, OptimizationIssue.Severity.HIGH, queryText);
-                issues.add(issue);
-                logger.debug("Added high severity issue: low cardinality first with high cardinality alternative");
-            } else {
-                // Rule 3: LOW followed by any MEDIUM should also be flagged
-                Optional<WhereCondition> mediumCardinalityAlternative = conditions.stream()
-                    .filter(cond -> cond.cardinality() == CardinalityLevel.MEDIUM)
-                    .findFirst();
-
-                if (mediumCardinalityAlternative.isPresent()) {
-                    WhereCondition recommended = mediumCardinalityAlternative.get();
-                    String description = String.format(
-                        "Query starts with low cardinality column '%s' but a medium cardinality column '%s' occurs later in the WHERE clause. Consider reordering for better selectivity.",
-                        firstCondition.columnName(),
-                        recommended.columnName());
-
-                    OptimizationIssue issue = new OptimizationIssue(query, firstCondition.columnName(),
-                        recommended.columnName(), description, OptimizationIssue.Severity.MEDIUM, queryText);
-                    issues.add(issue);
-                    logger.debug("Added medium severity issue: low cardinality first with medium cardinality alternative");
-                }
-            }
-        }
-        
-        // Rule 4: Check for suboptimal ordering of high cardinality columns
-        List<WhereCondition> highCardinalityConditions = conditions.stream()
-            .filter(WhereCondition::isHighCardinality)
-            .toList();
-            
-        if (highCardinalityConditions.size() > 1) {
-            // Find the most selective high cardinality column (primary keys are most selective)
-            Optional<WhereCondition> primaryKeyCondition = highCardinalityConditions.stream()
-                .filter(condition -> CardinalityAnalyzer.isPrimaryKey(tableName, condition.columnName()))
-                .findFirst();
-                
-            if (primaryKeyCondition.isPresent() && !firstCondition.equals(primaryKeyCondition.get())) {
-                WhereCondition recommended = primaryKeyCondition.get();
-                
-                // Enhanced description with cardinality and selectivity information
-                String selectivityDetails = getSelectivityDetails(tableName, firstCondition, recommended);
-                String description = String.format(
-                    "Primary key column '%s' should appear first in WHERE clause for optimal performance. " +
-                    "Currently starts with '%s' (%s cardinality). %s",
-                    recommended.columnName(),
-                    firstCondition.columnName(),
-                    firstCondition.cardinality().toString().toLowerCase(),
-                    selectivityDetails);
-                    
-                OptimizationIssue issue = new OptimizationIssue(query, firstCondition.columnName(),
-                    recommended.columnName(), description, OptimizationIssue.Severity.MEDIUM, queryText);
-                issues.add(issue);
-                logger.debug("Added primary key ordering issue");
-            }
-        }
-        
-        logger.debug("Analysis complete. Found {} optimization issues", issues.size());
-        return issues;
+        return new QueryOptimizationResult(repositoryQuery, whereConditions, null, List.of());
     }
 
     /**

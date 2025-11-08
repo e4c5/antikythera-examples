@@ -10,20 +10,8 @@ import java.util.Collections;
  */
 public record OptimizationIssue(RepositoryQuery query, List<String> currentColumnOrder,
                                 List<String> recommendedColumnOrder, String description,
-                                Severity severity, String queryText, String aiExplanation,
+                                Severity severity, String aiExplanation,
                                 RepositoryQuery optimizedQuery) {
-
-    /**
-     * Legacy constructor for backward compatibility with single column approach.
-     */
-    public OptimizationIssue(RepositoryQuery query, String currentFirstColumn,
-                            String recommendedFirstColumn, String description,
-                            Severity severity, String queryText) {
-        this(query, 
-             currentFirstColumn != null && !currentFirstColumn.isEmpty() ? List.of(currentFirstColumn) : Collections.emptyList(),
-             recommendedFirstColumn != null && !recommendedFirstColumn.isEmpty() ? List.of(recommendedFirstColumn) : Collections.emptyList(),
-             description, severity, queryText, "", null);
-    }
 
     /**
      * Severity levels for optimization issues based on potential performance impact.
@@ -93,10 +81,6 @@ public record OptimizationIssue(RepositoryQuery query, List<String> currentColum
         
         if (recommendedColumnOrder != null && !recommendedColumnOrder.isEmpty()) {
             report.append(String.format("  Recommended column order: %s%n", String.join(", ", recommendedColumnOrder)));
-        }
-
-        if (queryText != null && !queryText.isEmpty()) {
-            report.append(String.format("  Query: %s%n", queryText));
         }
 
         if (hasAIRecommendation()) {
