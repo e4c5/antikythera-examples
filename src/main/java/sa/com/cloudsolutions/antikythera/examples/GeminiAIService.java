@@ -170,7 +170,7 @@ public class GeminiAIService {
      * Determines the query type based on the RepositoryQuery.
      * Now properly checks for @Query annotation presence instead of blindly relying on isNative flag.
      */
-    private QueryType determineQueryType(RepositoryQuery query) {
+    QueryType determineQueryType(RepositoryQuery query) {
         Optional<AnnotationExpr> annotationExpr = query.getQueryAnnotation();
         if (annotationExpr.isPresent()) {
             if (query.isNative()) {
