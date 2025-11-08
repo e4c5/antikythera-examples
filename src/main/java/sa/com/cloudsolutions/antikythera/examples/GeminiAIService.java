@@ -301,39 +301,34 @@ public class GeminiAIService {
      * Parses the text response from AI to extract optimization recommendations.
      * Expects a JSON array response format as defined in the new prompt.
      */
-    private List<OptimizationIssue> parseRecommendations(String textResponse, QueryBatch batch) {
+    private List<OptimizationIssue> parseRecommendations(String textResponse, QueryBatch batch) throws IOException {
         List<OptimizationIssue> issues = new ArrayList<>();
 
-        try {
-            // Extract JSON from the response (it might be wrapped in markdown code blocks)
-            String jsonResponse = extractJsonFromResponse(textResponse);
 
-            if (jsonResponse.trim().isEmpty()) {
-                logger.warn("No valid JSON found in AI response");
-                return issues;
-            }
+        // Extract JSON from the response (it might be wrapped in markdown code blocks)
+        String jsonResponse = extractJsonFromResponse(textResponse);
 
-            // Parse the JSON array
-            JsonNode responseArray = objectMapper.readTree(jsonResponse);
+        if (jsonResponse.trim().isEmpty()) {
+            logger.warn("No valid JSON found in AI response");
+            return issues;
+        }
 
-            if (!responseArray.isArray()) {
-                logger.warn("AI response is not a JSON array as expected");
-                return issues;
-            }
+        // Parse the JSON array
+        JsonNode responseArray = objectMapper.readTree(jsonResponse);
 
-            // Process each optimization recommendation
-            List<RepositoryQuery> queries = batch.getQueries();
-            for (int i = 0; i < responseArray.size() && i < queries.size(); i++) {
-                JsonNode recommendation = responseArray.get(i);
-                RepositoryQuery originalQuery = queries.get(i);
+        if (!responseArray.isArray()) {
+            logger.warn("AI response is not a JSON array as expected");
+            return issues;
+        }
 
-                OptimizationIssue issue = parseOptimizationRecommendation(recommendation, originalQuery);
-                issues.add(issue);
-            }
+        // Process each optimization recommendation
+        List<RepositoryQuery> queries = batch.getQueries();
+        for (int i = 0; i < responseArray.size() && i < queries.size(); i++) {
+            JsonNode recommendation = responseArray.get(i);
+            RepositoryQuery originalQuery = queries.get(i);
 
-        } catch (Exception e) {
-            logger.error("Error parsing AI response: {}", e.getMessage(), e);
-            // Return empty list on parsing errors to avoid breaking the flow
+            OptimizationIssue issue = parseOptimizationRecommendation(recommendation, originalQuery);
+            issues.add(issue);
         }
 
         return issues;
@@ -422,7 +417,6 @@ public class GeminiAIService {
                     recommendedColumnOrder, // Same as current since no optimization needed
                     "Where clause is already optimized",
                     OptimizationIssue.Severity.LOW, // Low severity since no action needed
-                    originalQuery.getQuery(),
                     notes,
                     null
             );
@@ -435,7 +429,6 @@ public class GeminiAIService {
                 recommendedColumnOrder,
                 notes,
                 severity,
-                originalQuery.getQuery(),
                 notes,
                 optimizedQuery
         );
