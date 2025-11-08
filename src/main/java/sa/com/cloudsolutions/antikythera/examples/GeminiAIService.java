@@ -116,7 +116,6 @@ public class GeminiAIService {
             if (i > 0) {
                 queriesJson.append(",");
             }
-            QueryType queryType = determineQueryType(query);
 
             // Build table schema and cardinality string
             String tableSchemaAndCardinality = buildTableSchemaString(batch, query);
@@ -131,7 +130,7 @@ public class GeminiAIService {
                       "queryType": "%s",
                       "queryText": "%s",
                       "tableSchemaAndCardinality": "%s"
-                    }""", fullMethodSignature, queryType, queryText, tableSchemaAndCardinality));
+                    }""", fullMethodSignature, query.getQueryType(), queryText, tableSchemaAndCardinality));
         }
 
         queriesJson.append("]");
@@ -167,26 +166,10 @@ public class GeminiAIService {
     }
 
     /**
-     * Determines the query type based on the RepositoryQuery.
-     * Now properly checks for @Query annotation presence instead of blindly relying on isNative flag.
-     */
-    QueryType determineQueryType(RepositoryQuery query) {
-        Optional<AnnotationExpr> annotationExpr = query.getQueryAnnotation();
-        if (annotationExpr.isPresent()) {
-            if (query.isNative()) {
-                return QueryType.NATIVE_SQL;
-            }
-            return QueryType.HQL;
-        }
-        return QueryType.DERIVED;
-    }
-
-    /**
      * Gets the appropriate query text based on the query type.
      */
     private String getQueryText(RepositoryQuery query) {
-        QueryType queryType = determineQueryType(query);
-        if (queryType.equals(QueryType.DERIVED)) {
+        if (query.getQueryType().equals(QueryType.DERIVED)) {
             return query.getMethodName();
         }
         return query.getOriginalQuery();

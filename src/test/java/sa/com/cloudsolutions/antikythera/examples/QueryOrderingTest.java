@@ -48,7 +48,6 @@ class QueryOrderingTest {
         when(repoQuery.getStatement()).thenReturn(stmt);
         when(repoQuery.getOriginalQuery()).thenReturn(sql);
         when(repoQuery.getMethodParameters()).thenReturn(Collections.emptyList());
-        when(repoQuery.isNative()).thenReturn(true);
 
         QueryOptimizationResult result = engine.analyzeQuery(repoQuery);
 

@@ -132,23 +132,18 @@ public class QueryOptimizationChecker {
      * @param typeWrapper the TypeWrapper representing the repository
      */
     protected void analyzeRepository(String fullyQualifiedName, TypeWrapper typeWrapper) throws IOException, ReflectiveOperationException, InterruptedException {
-        logger.debug("Analyzing repository: {}", fullyQualifiedName);
-        
-        // Use RepositoryParser to process the repository type
         repositoryParser.compile(AbstractCompiler.classToPath(fullyQualifiedName));
         repositoryParser.processTypes();
-
-        // Build all queries using RepositoryParser
         repositoryParser.buildQueries();
 
         // Step 1: Collect raw methods for LLM analysis (no programmatic analysis yet)
-        List<RepositoryQuery> rawQueries = collectRawQueries();
+        Collection<RepositoryQuery> rawQueries = repositoryParser.getAllQueries();
 
         // Step 2: Send raw methods to LLM first
         List<OptimizationIssue> llmRecommendations = sendRawQueriesToLLM(fullyQualifiedName, rawQueries);
 
         // Step 3: Analyze LLM recommendations and check indexes
-        List<QueryOptimizationResult> finalResults = analyzeLLMRecommendations(llmRecommendations, rawQueries);
+        List<QueryOptimizationResult> finalResults = analyzeLLMRecommendations(llmRecommendations, rawQueries.stream().toList());
 
         // Step 4: Report final results
         for (QueryOptimizationResult result : finalResults) {
@@ -157,32 +152,12 @@ public class QueryOptimizationChecker {
         }
     }
 
-    /**
-     * Collects raw queries from a repository without any programmatic analysis.
-     * These will be sent directly to the LLM for optimization recommendations.
-     */
-    List<RepositoryQuery> collectRawQueries() {
-        List<RepositoryQuery> rawQueries = new ArrayList<>();
-
-        // Use the queries that were already built by the RepositoryParser
-        // instead of creating new Callable objects
-        Collection<RepositoryQuery> allQueries = repositoryParser.getAllQueries();
-
-        for (RepositoryQuery query : allQueries) {
-            if (query != null) {
-                totalQueriesAnalyzed++;
-                rawQueries.add(query);
-            }
-        }
-
-        return rawQueries;
-    }
 
     /**
      * Sends raw queries to LLM for optimization recommendations.
      * No programmatic analysis is done beforehand - LLM gets the raw methods.
      */
-    private List<OptimizationIssue> sendRawQueriesToLLM(String repositoryName, List<RepositoryQuery> rawQueries) throws IOException, InterruptedException {
+    private List<OptimizationIssue> sendRawQueriesToLLM(String repositoryName, Collection<RepositoryQuery> rawQueries) throws IOException, InterruptedException {
         // Create a batch with raw queries and basic cardinality information
         QueryBatch batch = createRawQueryBatch(repositoryName, rawQueries);
 
@@ -203,17 +178,12 @@ public class QueryOptimizationChecker {
      * Creates a QueryBatch with raw queries and actual WHERE clause column cardinality information.
      * Uses QueryAnalysisEngine to extract actual columns from WHERE clauses and method parameters.
      */
-    QueryBatch createRawQueryBatch(String repositoryName, List<RepositoryQuery> rawQueries) {
+    QueryBatch createRawQueryBatch(String repositoryName, Collection<RepositoryQuery> rawQueries) {
         QueryBatch batch = new QueryBatch(repositoryName);
 
         // Add all raw queries to the batch
         for (RepositoryQuery query : rawQueries) {
             batch.addQuery(query);
-        }
-
-        // Extract actual WHERE clause columns and their cardinality information
-        // Use QueryAnalysisEngine to get real columns from the actual queries
-        for (RepositoryQuery query : rawQueries) {
             addWhereClauseColumnCardinality(batch, query);
         }
 
@@ -236,8 +206,6 @@ public class QueryOptimizationChecker {
 
             if (columnName != null && cardinality != null) {
                 batch.addColumnCardinality(columnName, cardinality);
-                logger.debug("Added WHERE clause cardinality info: {} -> {} for query {}",
-                        columnName, cardinality, query.getMethodName());
             }
         }
     }

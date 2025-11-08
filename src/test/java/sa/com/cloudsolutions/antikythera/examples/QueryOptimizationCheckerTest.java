@@ -269,14 +269,6 @@ class QueryOptimizationCheckerTest {
         assertTrue(checker.getTotalIndexDropRecommendations() >= 0);
     }
 
-    @Test
-    void testCollectRawQueries() {
-        // This method requires mocking the RepositoryParser which is complex
-        // We'll test the basic functionality
-        List<RepositoryQuery> result = checker.collectRawQueries();
-        assertNotNull(result);
-        assertTrue(result.isEmpty()); // Empty because no queries are set up
-    }
 
     @Test
     void testCreateRawQueryBatch() {
