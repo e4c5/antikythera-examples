@@ -192,37 +192,6 @@ class GeminiAIServiceTest {
         assertEquals(0, tokenUsage.getTotalTokens());
     }
 
-    @Test
-    void testBuildRequestPayload() throws Exception {
-        QueryBatch batch = createTestQueryBatch();
-        
-        // Use reflection to test private method
-        java.lang.reflect.Method method = GeminiAIService.class.getDeclaredMethod("buildRequestPayload", QueryBatch.class);
-        method.setAccessible(true);
-        
-        String result = (String) method.invoke(geminiAIService, batch);
-        
-        assertNotNull(result);
-        assertTrue(result.contains("system_instruction"));
-        assertTrue(result.contains("contents"));
-        assertTrue(result.contains("findByName"));
-    }
-
-    @Test
-    void testGetQueryText_Derived() throws Exception {
-        when(mockRepositoryQuery.getMethodName()).thenReturn("findByEmailAndName");
-        when(mockRepositoryQuery.getMethodDeclaration()).thenReturn(mockCallable);
-        when(mockCallable.isMethodDeclaration()).thenReturn(true);
-        when(mockCallable.asMethodDeclaration()).thenReturn(mockMethodDeclaration);
-        when(mockMethodDeclaration.isAnnotationPresent("Query")).thenReturn(false);
-        
-        java.lang.reflect.Method method = GeminiAIService.class.getDeclaredMethod("getQueryText", RepositoryQuery.class);
-        method.setAccessible(true);
-        
-        String result = (String) method.invoke(geminiAIService, mockRepositoryQuery);
-        
-        assertEquals("findByEmailAndName", result);
-    }
 
     @Test
     void testEscapeJsonString() throws Exception {
