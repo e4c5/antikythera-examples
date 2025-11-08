@@ -8,7 +8,6 @@ import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 
-import com.github.javaparser.ast.expr.AnnotationExpr;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.generator.QueryType;
@@ -28,7 +27,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 /**
  * Handles all interactions with the Gemini AI service including request formatting,
@@ -94,9 +92,9 @@ public class GeminiAIService {
      * Loads the system prompt from the resource file.
      */
     private String loadSystemPrompt() throws IOException {
-        try (InputStream inputStream = getClass().getResourceAsStream("/ai-prompts/query-optimization-system-prompt.txt")) {
+        try (InputStream inputStream = getClass().getResourceAsStream("/ai-prompts/query-optimization-system-prompt.md")) {
             if (inputStream == null) {
-                throw new IllegalStateException("System prompt file not found: /ai-prompts/query-optimization-system-prompt.txt");
+                throw new IllegalStateException("System prompt file not found: /ai-prompts/query-optimization-system-prompt.md");
             }
             return new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
         }
