@@ -396,7 +396,6 @@ class QueryOptimizationCheckerTest {
         when(mockOptimizationIssue.recommendedColumnOrder()).thenReturn(Arrays.asList("email"));
         when(mockOptimizationIssue.description()).thenReturn("Test optimization");
         when(mockOptimizationIssue.severity()).thenReturn(OptimizationIssue.Severity.HIGH);
-        when(mockOptimizationIssue.queryText()).thenReturn("SELECT * FROM users WHERE id = ?");
         when(mockOptimizationIssue.aiExplanation()).thenReturn("AI explanation");
         when(mockOptimizationIssue.optimizedQuery()).thenReturn(null);
         
