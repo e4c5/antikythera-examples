@@ -167,7 +167,7 @@ public class GeminiAIService {
      * Gets the appropriate query text based on the query type.
      */
     private String getQueryText(RepositoryQuery query) {
-        if (query.getQueryType().equals(QueryType.DERIVED)) {
+        if (QueryType.DERIVED.equals(query.getQueryType())) {
             return query.getMethodName();
         }
         return query.getOriginalQuery();

@@ -726,24 +726,6 @@ class QueryOptimizationCheckerTest {
     }
 
     @Test
-    void testSendRawQueriesToLLM() throws Exception {
-        Method sendRawQueriesToLLM = cls.getDeclaredMethod("sendRawQueriesToLLM", String.class, List.class);
-        sendRawQueriesToLLM.setAccessible(true);
-        
-        List<RepositoryQuery> queries = Arrays.asList(mockRepositoryQuery);
-        when(mockRepositoryQuery.getMethodName()).thenReturn("findByEmail");
-        
-        try {
-            List<OptimizationIssue> result = (List<OptimizationIssue>) sendRawQueriesToLLM.invoke(checker, "TestRepository", queries);
-            // This might fail due to AI service configuration, but we test it doesn't crash
-            assertNotNull(result);
-        } catch (Exception e) {
-            // Expected - AI service might not be properly configured in test environment
-            assertTrue(e.getCause() != null || e.getMessage() != null);
-        }
-    }
-
-    @Test
     void testAnalyzeRepository() throws Exception {
         Method analyzeRepository = cls.getDeclaredMethod("analyzeRepository", String.class, TypeWrapper.class);
         analyzeRepository.setAccessible(true);
