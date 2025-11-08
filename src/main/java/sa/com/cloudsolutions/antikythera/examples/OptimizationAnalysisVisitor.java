@@ -16,7 +16,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.generator.QueryMethodParameter;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
-import sa.com.cloudsolutions.antikythera.parser.converter.ColumnMapping;
 import sa.com.cloudsolutions.antikythera.parser.converter.EntityMetadata;
 import sa.com.cloudsolutions.antikythera.parser.converter.SqlConversionContext;
 import sa.com.cloudsolutions.antikythera.parser.converter.TableMapping;
@@ -286,9 +285,9 @@ public class OptimizationAnalysisVisitor {
         
         // Try to find the property in any of the table mappings
         for (TableMapping tableMapping : metadata.getAllTableMappings()) {
-            ColumnMapping columnMapping = tableMapping.getColumnMapping(propertyName);
+            String columnMapping = tableMapping.getColumnMapping(propertyName);
             if (columnMapping != null) {
-                return columnMapping.getColumnName();
+                return columnMapping;
             }
         }
         
