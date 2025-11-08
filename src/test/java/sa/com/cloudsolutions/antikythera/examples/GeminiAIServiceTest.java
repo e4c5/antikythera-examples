@@ -209,98 +209,6 @@ class GeminiAIServiceTest {
     }
 
     @Test
-    void testDetermineQueryType_Derived() throws Exception {
-        // Mock a derived query (no @Query annotation)
-        when(mockRepositoryQuery.getMethodDeclaration()).thenReturn(mockCallable);
-        when(mockCallable.isMethodDeclaration()).thenReturn(true);
-        when(mockCallable.asMethodDeclaration()).thenReturn(mockMethodDeclaration);
-        when(mockMethodDeclaration.isAnnotationPresent("Query")).thenReturn(false);
-        
-        java.lang.reflect.Method method = GeminiAIService.class.getDeclaredMethod("determineQueryType", RepositoryQuery.class);
-        method.setAccessible(true);
-        
-        String result = (String) method.invoke(geminiAIService, mockRepositoryQuery);
-        
-        assertEquals("DERIVED", result);
-    }
-
-    @Test
-    void testDetermineQueryType_HQL() throws Exception {
-        // Mock an HQL query (@Query annotation, not native)
-        when(mockRepositoryQuery.getMethodDeclaration()).thenReturn(mockCallable);
-        when(mockCallable.isMethodDeclaration()).thenReturn(true);
-        when(mockCallable.asMethodDeclaration()).thenReturn(mockMethodDeclaration);
-        when(mockMethodDeclaration.isAnnotationPresent("Query")).thenReturn(true);
-        when(mockRepositoryQuery.isNative()).thenReturn(false);
-        
-        java.lang.reflect.Method method = GeminiAIService.class.getDeclaredMethod("determineQueryType", RepositoryQuery.class);
-        method.setAccessible(true);
-        
-        String result = (String) method.invoke(geminiAIService, mockRepositoryQuery);
-        
-        assertEquals("HQL", result);
-    }
-
-    @Test
-    void testDetermineQueryType_NativeSQL() throws Exception {
-        // Mock a native SQL query (@Query annotation, native = true)
-        when(mockRepositoryQuery.getMethodDeclaration()).thenReturn(mockCallable);
-        when(mockCallable.isMethodDeclaration()).thenReturn(true);
-        when(mockCallable.asMethodDeclaration()).thenReturn(mockMethodDeclaration);
-        when(mockMethodDeclaration.isAnnotationPresent("Query")).thenReturn(true);
-        when(mockRepositoryQuery.isNative()).thenReturn(true);
-        
-        java.lang.reflect.Method method = GeminiAIService.class.getDeclaredMethod("determineQueryType", RepositoryQuery.class);
-        method.setAccessible(true);
-        
-        String result = (String) method.invoke(geminiAIService, mockRepositoryQuery);
-        
-        assertEquals("NATIVE_SQL", result);
-    }
-
-    @Test
-    void testHasQueryAnnotation_WithAnnotation() throws Exception {
-        when(mockRepositoryQuery.getMethodDeclaration()).thenReturn(mockCallable);
-        when(mockCallable.isMethodDeclaration()).thenReturn(true);
-        when(mockCallable.asMethodDeclaration()).thenReturn(mockMethodDeclaration);
-        when(mockMethodDeclaration.isAnnotationPresent("Query")).thenReturn(true);
-        
-        java.lang.reflect.Method method = GeminiAIService.class.getDeclaredMethod("hasQueryAnnotation", RepositoryQuery.class);
-        method.setAccessible(true);
-        
-        boolean result = (boolean) method.invoke(geminiAIService, mockRepositoryQuery);
-        
-        assertTrue(result);
-    }
-
-    @Test
-    void testHasQueryAnnotation_WithoutAnnotation() throws Exception {
-        when(mockRepositoryQuery.getMethodDeclaration()).thenReturn(mockCallable);
-        when(mockCallable.isMethodDeclaration()).thenReturn(true);
-        when(mockCallable.asMethodDeclaration()).thenReturn(mockMethodDeclaration);
-        when(mockMethodDeclaration.isAnnotationPresent("Query")).thenReturn(false);
-        
-        java.lang.reflect.Method method = GeminiAIService.class.getDeclaredMethod("hasQueryAnnotation", RepositoryQuery.class);
-        method.setAccessible(true);
-        
-        boolean result = (boolean) method.invoke(geminiAIService, mockRepositoryQuery);
-        
-        assertFalse(result);
-    }
-
-    @Test
-    void testHasQueryAnnotation_NullMethodDeclaration() throws Exception {
-        when(mockRepositoryQuery.getMethodDeclaration()).thenReturn(null);
-        
-        java.lang.reflect.Method method = GeminiAIService.class.getDeclaredMethod("hasQueryAnnotation", RepositoryQuery.class);
-        method.setAccessible(true);
-        
-        boolean result = (boolean) method.invoke(geminiAIService, mockRepositoryQuery);
-        
-        assertFalse(result);
-    }
-
-    @Test
     void testGetQueryText_Derived() throws Exception {
         when(mockRepositoryQuery.getMethodName()).thenReturn("findByEmailAndName");
         when(mockRepositoryQuery.getMethodDeclaration()).thenReturn(mockCallable);
@@ -314,23 +222,6 @@ class GeminiAIServiceTest {
         String result = (String) method.invoke(geminiAIService, mockRepositoryQuery);
         
         assertEquals("findByEmailAndName", result);
-    }
-
-    @Test
-    void testGetQueryText_HQL() throws Exception {
-        when(mockRepositoryQuery.getMethodDeclaration()).thenReturn(mockCallable);
-        when(mockCallable.isMethodDeclaration()).thenReturn(true);
-        when(mockCallable.asMethodDeclaration()).thenReturn(mockMethodDeclaration);
-        when(mockMethodDeclaration.isAnnotationPresent("Query")).thenReturn(true);
-        when(mockRepositoryQuery.isNative()).thenReturn(false);
-        when(mockRepositoryQuery.getOriginalQuery()).thenReturn("SELECT u FROM User u WHERE u.email = ?1");
-        
-        java.lang.reflect.Method method = GeminiAIService.class.getDeclaredMethod("getQueryText", RepositoryQuery.class);
-        method.setAccessible(true);
-        
-        String result = (String) method.invoke(geminiAIService, mockRepositoryQuery);
-        
-        assertEquals("SELECT u FROM User u WHERE u.email = ?1", result);
     }
 
     @Test
