@@ -43,35 +43,19 @@ public class LiquibaseGenerator {
             return liquibaseDbms;
         }
     }
-    
+
     /**
-     * Configuration for changeset generation.
-     */
-    public static class ChangesetConfig {
-        private final String author;
-        private final Set<DatabaseDialect> supportedDialects;
-        private final boolean includePreconditions;
-        private final boolean includeRollback;
-        
-        public ChangesetConfig(String author, Set<DatabaseDialect> supportedDialects, 
-                              boolean includePreconditions, boolean includeRollback) {
-            this.author = author;
-            this.supportedDialects = supportedDialects;
-            this.includePreconditions = includePreconditions;
-            this.includeRollback = includeRollback;
-        }
-        
+         * Configuration for changeset generation.
+         */
+        public record ChangesetConfig(String author, Set<DatabaseDialect> supportedDialects, boolean includePreconditions,
+                                      boolean includeRollback) {
+
         public static ChangesetConfig defaultConfig() {
-            return new ChangesetConfig("antikythera", 
-                                     Set.of(DatabaseDialect.POSTGRESQL, DatabaseDialect.ORACLE),
-                                     true, true);
+                return new ChangesetConfig("antikythera",
+                        Set.of(DatabaseDialect.POSTGRESQL, DatabaseDialect.ORACLE),
+                        true, true);
+            }
         }
-        
-        public String getAuthor() { return author; }
-        public Set<DatabaseDialect> getSupportedDialects() { return supportedDialects; }
-        public boolean isIncludePreconditions() { return includePreconditions; }
-        public boolean isIncludeRollback() { return includeRollback; }
-    }
     
     /**
      * Result of a changeset file write operation.
@@ -109,9 +93,6 @@ public class LiquibaseGenerator {
      * @return XML changeset string
      */
     public String createIndexChangeset(String tableName, String columnName) {
-        if (columnName == null || columnName.isEmpty()) columnName = COLUMN_NAME_TAG;
-        if (tableName == null || tableName.isEmpty()) tableName = TABLE_NAME_TAG;
-        
         String indexName = generateIndexName(tableName, List.of(columnName));
         return createIndexChangesetInternal(tableName, List.of(columnName), indexName);
     }
@@ -154,22 +135,22 @@ public class LiquibaseGenerator {
         String changesetId = generateChangesetId("drop_" + sanitize(indexName));
         StringBuilder sb = new StringBuilder();
         
-        sb.append("<changeSet id=\"").append(changesetId).append("\" author=\"").append(config.getAuthor()).append("\">\n");
+        sb.append("<changeSet id=\"").append(changesetId).append("\" author=\"").append(config.author()).append("\">\n");
         
-        if (config.isIncludePreconditions()) {
+        if (config.includePreconditions()) {
             sb.append("    <preConditions onFail=\"MARK_RAN\">\n");
             sb.append("        <indexExists indexName=\"").append(indexName).append("\"/>\n");
             sb.append("    </preConditions>\n");
         }
         
         // Add SQL for each supported dialect
-        for (DatabaseDialect dialect : config.getSupportedDialects()) {
+        for (DatabaseDialect dialect : config.supportedDialects()) {
             sb.append("    <sql dbms=\"").append(dialect.getLiquibaseDbms()).append("\">");
             sb.append(getDropIndexSql(dialect, indexName));
             sb.append("</sql>\n");
         }
         
-        if (config.isIncludeRollback()) {
+        if (config.includeRollback()) {
             sb.append("    <rollback>\n");
             sb.append("        <comment>Index ").append(indexName).append(" was dropped - manual recreation required if rollback needed</comment>\n");
             sb.append("    </rollback>\n");
@@ -288,9 +269,9 @@ public class LiquibaseGenerator {
         
         StringBuilder sb = new StringBuilder();
         
-        sb.append("<changeSet id=\"").append(changesetId).append("\" author=\"").append(config.getAuthor()).append("\">\n");
+        sb.append("<changeSet id=\"").append(changesetId).append("\" author=\"").append(config.author()).append("\">\n");
         
-        if (config.isIncludePreconditions()) {
+        if (config.includePreconditions()) {
             sb.append("    <preConditions onFail=\"MARK_RAN\">\n");
             sb.append("        <not>\n");
             sb.append("            <indexExists tableName=\"").append(tableName).append("\" indexName=\"").append(indexName).append("\"/>\n");
@@ -299,15 +280,15 @@ public class LiquibaseGenerator {
         }
         
         // Add SQL for each supported dialect
-        for (DatabaseDialect dialect : config.getSupportedDialects()) {
+        for (DatabaseDialect dialect : config.supportedDialects()) {
             sb.append("    <sql dbms=\"").append(dialect.getLiquibaseDbms()).append("\">");
             sb.append(getCreateIndexSql(dialect, indexName, tableName, columnList));
             sb.append("</sql>\n");
         }
         
-        if (config.isIncludeRollback()) {
+        if (config.includeRollback()) {
             sb.append("    <rollback>\n");
-            for (DatabaseDialect dialect : config.getSupportedDialects()) {
+            for (DatabaseDialect dialect : config.supportedDialects()) {
                 sb.append("        <sql dbms=\"").append(dialect.getLiquibaseDbms()).append("\">");
                 sb.append(getDropIndexSql(dialect, indexName));
                 sb.append("</sql>\n");

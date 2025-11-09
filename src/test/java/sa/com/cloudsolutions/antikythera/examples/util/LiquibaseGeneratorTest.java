@@ -274,11 +274,11 @@ class LiquibaseGeneratorTest {
         // Test default configuration
         ChangesetConfig defaultConfig = ChangesetConfig.defaultConfig();
         
-        assertEquals("antikythera", defaultConfig.getAuthor());
-        assertTrue(defaultConfig.getSupportedDialects().contains(DatabaseDialect.POSTGRESQL));
-        assertTrue(defaultConfig.getSupportedDialects().contains(DatabaseDialect.ORACLE));
-        assertTrue(defaultConfig.isIncludePreconditions());
-        assertTrue(defaultConfig.isIncludeRollback());
+        assertEquals("antikythera", defaultConfig.author());
+        assertTrue(defaultConfig.supportedDialects().contains(DatabaseDialect.POSTGRESQL));
+        assertTrue(defaultConfig.supportedDialects().contains(DatabaseDialect.ORACLE));
+        assertTrue(defaultConfig.includePreconditions());
+        assertTrue(defaultConfig.includeRollback());
     }
 
     @Test

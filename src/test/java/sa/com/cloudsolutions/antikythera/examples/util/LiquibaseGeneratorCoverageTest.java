@@ -392,11 +392,11 @@ class LiquibaseGeneratorCoverageTest {
         LiquibaseGenerator.ChangesetConfig config = LiquibaseGenerator.ChangesetConfig.defaultConfig();
         
         // Then
-        assertEquals("antikythera", config.getAuthor());
-        assertTrue(config.getSupportedDialects().contains(LiquibaseGenerator.DatabaseDialect.POSTGRESQL));
-        assertTrue(config.getSupportedDialects().contains(LiquibaseGenerator.DatabaseDialect.ORACLE));
-        assertTrue(config.isIncludePreconditions());
-        assertTrue(config.isIncludeRollback());
+        assertEquals("antikythera", config.author());
+        assertTrue(config.supportedDialects().contains(LiquibaseGenerator.DatabaseDialect.POSTGRESQL));
+        assertTrue(config.supportedDialects().contains(LiquibaseGenerator.DatabaseDialect.ORACLE));
+        assertTrue(config.includePreconditions());
+        assertTrue(config.includeRollback());
     }
 
     @Test
@@ -410,10 +410,10 @@ class LiquibaseGeneratorCoverageTest {
         );
         
         // Then
-        assertEquals("custom-author", config.getAuthor());
-        assertEquals(dialects, config.getSupportedDialects());
-        assertFalse(config.isIncludePreconditions());
-        assertTrue(config.isIncludeRollback());
+        assertEquals("custom-author", config.author());
+        assertEquals(dialects, config.supportedDialects());
+        assertFalse(config.includePreconditions());
+        assertTrue(config.includeRollback());
     }
 
     @Test
