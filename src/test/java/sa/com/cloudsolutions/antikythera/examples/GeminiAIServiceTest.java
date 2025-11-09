@@ -194,23 +194,17 @@ class GeminiAIServiceTest {
 
 
     @Test
-    void testEscapeJsonString() throws Exception {
-        java.lang.reflect.Method method = GeminiAIService.class.getDeclaredMethod("escapeJsonString", String.class);
-        method.setAccessible(true);
-        
+    void testEscapeJsonString() {
         String input = "Test \"string\" with\nnewlines\tand\\backslashes";
-        String result = (String) method.invoke(geminiAIService, input);
-        
+        String result = geminiAIService.escapeJsonString(input);
+
         assertEquals("Test \\\"string\\\" with\\nnewlines\\tand\\\\backslashes", result);
     }
 
     @Test
-    void testEscapeJsonString_Null() throws Exception {
-        java.lang.reflect.Method method = GeminiAIService.class.getDeclaredMethod("escapeJsonString", String.class);
-        method.setAccessible(true);
-        
-        String result = (String) method.invoke(geminiAIService, (String) null);
-        
+    void testEscapeJsonString_Null() {
+        String result = geminiAIService.escapeJsonString(null);
+
         assertEquals("", result);
     }
 
@@ -227,73 +221,56 @@ class GeminiAIServiceTest {
     }
 
     @Test
-    void testDetermineSeverity_High() throws Exception {
-        java.lang.reflect.Method method = GeminiAIService.class.getDeclaredMethod("determineSeverity", String.class, List.class, List.class);
-        method.setAccessible(true);
-        
+    void testDetermineSeverity_High() {
         String notes = "High priority optimization needed";
         List<String> currentOrder = Arrays.asList("email", "name");
         List<String> recommendedOrder = Arrays.asList("name", "email");
         
-        OptimizationIssue.Severity result = (OptimizationIssue.Severity) method.invoke(geminiAIService, notes, currentOrder, recommendedOrder);
-        
+        OptimizationIssue.Severity result = geminiAIService.determineSeverity(notes, currentOrder, recommendedOrder);
+
         assertEquals(OptimizationIssue.Severity.HIGH, result);
     }
 
     @Test
-    void testDetermineSeverity_Medium() throws Exception {
-        java.lang.reflect.Method method = GeminiAIService.class.getDeclaredMethod("determineSeverity", String.class, List.class, List.class);
-        method.setAccessible(true);
-        
+    void testDetermineSeverity_Medium() {
         String notes = "Medium priority optimization";
         List<String> currentOrder = Arrays.asList("email", "name");
         List<String> recommendedOrder = Arrays.asList("name", "email");
         
-        OptimizationIssue.Severity result = (OptimizationIssue.Severity) method.invoke(geminiAIService, notes, currentOrder, recommendedOrder);
-        
+        OptimizationIssue.Severity result = geminiAIService.determineSeverity(notes, currentOrder, recommendedOrder);
+
         assertEquals(OptimizationIssue.Severity.MEDIUM, result);
     }
 
     @Test
-    void testDetermineSeverity_Low() throws Exception {
-        java.lang.reflect.Method method = GeminiAIService.class.getDeclaredMethod("determineSeverity", String.class, List.class, List.class);
-        method.setAccessible(true);
-        
+    void testDetermineSeverity_Low() {
         String notes = "Minor optimization";
         List<String> currentOrder = Arrays.asList("email", "name");
         List<String> recommendedOrder = Arrays.asList("email", "name"); // Same order
         
-        OptimizationIssue.Severity result = (OptimizationIssue.Severity) method.invoke(geminiAIService, notes, currentOrder, recommendedOrder);
-        
+        OptimizationIssue.Severity result = geminiAIService.determineSeverity(notes, currentOrder, recommendedOrder);
+
         assertEquals(OptimizationIssue.Severity.LOW, result);
     }
 
     @Test
-    void testParseRecommendations_InvalidJson() throws Exception {
-        java.lang.reflect.Method method = GeminiAIService.class.getDeclaredMethod("parseRecommendations", String.class, QueryBatch.class);
-        method.setAccessible(true);
-        
+    void testParseRecommendations_InvalidJson() throws IOException {
         String invalidJson = "This is not valid JSON";
         QueryBatch batch = createTestQueryBatch();
         
-        @SuppressWarnings("unchecked")
-        List<OptimizationIssue> result = (List<OptimizationIssue>) method.invoke(geminiAIService, invalidJson, batch);
-        
+        List<OptimizationIssue> result = geminiAIService.parseRecommendations(invalidJson, batch);
+
         assertNotNull(result);
         assertTrue(result.isEmpty());
     }
 
     @Test
-    void testParseRecommendations_ValidJson() throws Exception {
-        java.lang.reflect.Method method = GeminiAIService.class.getDeclaredMethod("parseRecommendations", String.class, QueryBatch.class);
-        method.setAccessible(true);
-        
+    void testParseRecommendations_ValidJson() throws IOException {
         String validJson = "[{\"optimizedCodeElement\": \"findByNameAndEmail(String name, String email)\", \"notes\": \"Reordered for better performance\"}]";
         QueryBatch batch = createTestQueryBatch();
         
-        @SuppressWarnings("unchecked")
-        List<OptimizationIssue> result = (List<OptimizationIssue>) method.invoke(geminiAIService, validJson, batch);
-        
+        List<OptimizationIssue> result = geminiAIService.parseRecommendations(validJson, batch);
+
         assertNotNull(result);
         assertEquals(1, result.size());
         
@@ -339,7 +316,7 @@ class GeminiAIServiceTest {
     }
 
     @Test
-    void testBuildTableSchemaString() throws Exception {
+    void testBuildTableSchemaString() {
         QueryBatch batch = new QueryBatch("TestRepository");
         Map<String, CardinalityLevel> cardinalities = new HashMap<>();
         cardinalities.put("email", CardinalityLevel.HIGH);
@@ -349,11 +326,8 @@ class GeminiAIServiceTest {
         RepositoryQuery mockQuery = mock(RepositoryQuery.class);
         when(mockQuery.getPrimaryTable()).thenReturn("users");
         
-        java.lang.reflect.Method method = GeminiAIService.class.getDeclaredMethod("buildTableSchemaString", QueryBatch.class, RepositoryQuery.class);
-        method.setAccessible(true);
-        
-        String result = (String) method.invoke(geminiAIService, batch, mockQuery);
-        
+        String result = geminiAIService.buildTableSchemaString(batch, mockQuery);
+
         assertNotNull(result);
         assertTrue(result.contains("users"));
         assertTrue(result.contains("email:HIGH"));
@@ -361,7 +335,7 @@ class GeminiAIServiceTest {
     }
 
     @Test
-    void testBuildTableSchemaString_NullTable() throws Exception {
+    void testBuildTableSchemaString_NullTable() {
         QueryBatch batch = new QueryBatch("TestRepository");
         Map<String, CardinalityLevel> cardinalities = new HashMap<>();
         cardinalities.put("id", CardinalityLevel.LOW);
@@ -370,25 +344,19 @@ class GeminiAIServiceTest {
         RepositoryQuery mockQuery = mock(RepositoryQuery.class);
         when(mockQuery.getPrimaryTable()).thenReturn(null);
         
-        java.lang.reflect.Method method = GeminiAIService.class.getDeclaredMethod("buildTableSchemaString", QueryBatch.class, RepositoryQuery.class);
-        method.setAccessible(true);
-        
-        String result = (String) method.invoke(geminiAIService, batch, mockQuery);
-        
+        String result = geminiAIService.buildTableSchemaString(batch, mockQuery);
+
         assertNotNull(result);
         assertTrue(result.contains("UnknownTable"));
         assertTrue(result.contains("id:LOW"));
     }
 
     @Test
-    void testBuildGeminiApiRequest() throws Exception {
+    void testBuildGeminiApiRequest() {
         String userQueryData = "[{\"method\": \"findByName\", \"queryType\": \"DERIVED\"}]";
         
-        java.lang.reflect.Method method = GeminiAIService.class.getDeclaredMethod("buildGeminiApiRequest", String.class);
-        method.setAccessible(true);
-        
-        String result = (String) method.invoke(geminiAIService, userQueryData);
-        
+        String result = geminiAIService.buildGeminiApiRequest(userQueryData);
+
         assertNotNull(result);
         assertTrue(result.contains("system_instruction"));
         assertTrue(result.contains("contents"));
@@ -397,7 +365,7 @@ class GeminiAIServiceTest {
     }
 
     @Test
-    void testExtractTokenUsage_ValidResponse() throws Exception {
+    void testExtractTokenUsage_ValidResponse() throws IOException {
         String responseBody = """
             {
               "usageMetadata": {
@@ -409,11 +377,8 @@ class GeminiAIServiceTest {
             }
             """;
         
-        java.lang.reflect.Method method = GeminiAIService.class.getDeclaredMethod("extractTokenUsage", String.class);
-        method.setAccessible(true);
-        
-        method.invoke(geminiAIService, responseBody);
-        
+        geminiAIService.extractTokenUsage(responseBody);
+
         TokenUsage tokenUsage = geminiAIService.getLastTokenUsage();
         assertEquals(100, tokenUsage.getInputTokens());
         assertEquals(50, tokenUsage.getOutputTokens());
@@ -422,7 +387,7 @@ class GeminiAIServiceTest {
     }
 
     @Test
-    void testExtractTokenUsage_NoMetadata() throws Exception {
+    void testExtractTokenUsage_NoMetadata() throws IOException {
         String responseBody = """
             {
               "candidates": [
@@ -435,17 +400,14 @@ class GeminiAIServiceTest {
             }
             """;
         
-        java.lang.reflect.Method method = GeminiAIService.class.getDeclaredMethod("extractTokenUsage", String.class);
-        method.setAccessible(true);
-        
-        method.invoke(geminiAIService, responseBody);
-        
+        geminiAIService.extractTokenUsage(responseBody);
+
         TokenUsage tokenUsage = geminiAIService.getLastTokenUsage();
         assertEquals(0, tokenUsage.getTotalTokens());
     }
 
     @Test
-    void testParseResponse_ValidResponse() throws Exception {
+    void testParseResponse_ValidResponse() throws IOException {
         String responseBody = """
             {
               "candidates": [
@@ -464,18 +426,14 @@ class GeminiAIServiceTest {
         
         QueryBatch batch = createSimpleTestBatch();
         
-        java.lang.reflect.Method method = GeminiAIService.class.getDeclaredMethod("parseResponse", String.class, QueryBatch.class);
-        method.setAccessible(true);
-        
-        @SuppressWarnings("unchecked")
-        List<OptimizationIssue> result = (List<OptimizationIssue>) method.invoke(geminiAIService, responseBody, batch);
-        
+        List<OptimizationIssue> result = geminiAIService.parseResponse(responseBody, batch);
+
         assertNotNull(result);
         assertEquals(1, result.size());
     }
 
     @Test
-    void testParseResponse_EmptyResponse() throws Exception {
+    void testParseResponse_EmptyResponse() throws IOException {
         String responseBody = """
             {
               "candidates": []
@@ -484,38 +442,31 @@ class GeminiAIServiceTest {
         
         QueryBatch batch = createSimpleTestBatch();
         
-        java.lang.reflect.Method method = GeminiAIService.class.getDeclaredMethod("parseResponse", String.class, QueryBatch.class);
-        method.setAccessible(true);
-        
-        @SuppressWarnings("unchecked")
-        List<OptimizationIssue> result = (List<OptimizationIssue>) method.invoke(geminiAIService, responseBody, batch);
-        
+        List<OptimizationIssue> result = geminiAIService.parseResponse(responseBody, batch);
+
         assertNotNull(result);
         assertTrue(result.isEmpty());
     }
 
     @Test
-    void testExtractJsonFromResponse_MultipleFormats() throws Exception {
-        java.lang.reflect.Method method = GeminiAIService.class.getDeclaredMethod("extractJsonFromResponse", String.class);
-        method.setAccessible(true);
-        
+    void testExtractJsonFromResponse_MultipleFormats() {
         // Test with markdown code block
         String codeBlockResponse = "```json\n[{\"test\": \"value\"}]\n```";
-        String result1 = (String) method.invoke(geminiAIService, codeBlockResponse);
+        String result1 = geminiAIService.extractJsonFromResponse(codeBlockResponse);
         assertEquals("[{\"test\": \"value\"}]", result1);
         
         // Test with plain JSON
         String plainResponse = "Here is the result: [{\"test\": \"value\"}] end";
-        String result2 = (String) method.invoke(geminiAIService, plainResponse);
+        String result2 = geminiAIService.extractJsonFromResponse(plainResponse);
         assertEquals("[{\"test\": \"value\"}]", result2);
         
         // Test with no JSON
         String noJsonResponse = "No JSON content here";
-        String result3 = (String) method.invoke(geminiAIService, noJsonResponse);
+        String result3 = geminiAIService.extractJsonFromResponse(noJsonResponse);
         assertEquals("", result3);
         
         // Test with null input
-        String result4 = (String) method.invoke(geminiAIService, (String) null);
+        String result4 = geminiAIService.extractJsonFromResponse(null);
         assertNull(result4);
     }
 
