@@ -16,9 +16,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.generator.QueryMethodParameter;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
-import sa.com.cloudsolutions.antikythera.parser.converter.EntityMetadata;
-import sa.com.cloudsolutions.antikythera.parser.converter.SqlConversionContext;
-import sa.com.cloudsolutions.antikythera.parser.converter.TableMapping;
 
 import java.util.ArrayList;
 import java.util.List;
