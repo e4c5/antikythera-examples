@@ -48,6 +48,7 @@ class GeminiAIServiceTest {
     static void setUpAll() throws IOException {
         Settings.loadConfigMap(new File("src/test/resources/generator.yml"));
         AbstractCompiler.preProcess();
+        CardinalityAnalyzer.setIndexMap(new HashMap<>());
     }
 
     @BeforeEach
@@ -106,7 +107,7 @@ class GeminiAIServiceTest {
                       "content": {
                         "parts": [
                           {
-                            "text": "[{\\"optimizedCodeElement\\": \\"findByEmailAndName(String email, String name)\\", \\"notes\\": \\"Reordered parameters for better performance\\"}]"
+                            "text": "[{\\"optimizedCodeElement\\": \\"User findByEmailAndName(String email, String name);\\", \\"notes\\": \\"Reordered parameters for better performance\\"}]"
                           }
                         ]
                       }
@@ -272,7 +273,7 @@ class GeminiAIServiceTest {
 
     @Test
     void testParseRecommendations_ValidJson() throws IOException {
-        String validJson = "[{\"optimizedCodeElement\": \"findByNameAndEmail(String name, String email)\", \"notes\": \"Reordered for better performance\"}]";
+        String validJson = "[{\"optimizedCodeElement\": \"User findByNameAndEmail(String name, String email);\", \"notes\": \"Reordered for better performance\"}]";
         QueryBatch batch = createTestQueryBatch();
         
         List<OptimizationIssue> result = geminiAIService.parseRecommendations(validJson, batch);
@@ -430,7 +431,7 @@ class GeminiAIServiceTest {
                   "content": {
                     "parts": [
                       {
-                        "text": "[{\\"optimizedCodeElement\\": \\"findByNameAndEmail(String name, String email)\\", \\"notes\\": \\"Reordered parameters\\"}]"
+                        "text": "[{\\"optimizedCodeElement\\": \\"User findByNameAndEmail(String name, String email);\\", \\"notes\\": \\"Reordered parameters\\"}]"
                       }
                     ]
                   }
