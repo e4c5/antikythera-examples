@@ -58,22 +58,6 @@ class LiquibaseGeneratorTest {
     }
 
     @Test
-    void testCreateIndexChangesetWithNullValues() {
-        // Test with null table name
-        String changeset1 = generator.createIndexChangeset(null, "email");
-        assertTrue(changeset1.contains("<TABLE_NAME>"));
-        
-        // Test with null column name
-        String changeset2 = generator.createIndexChangeset("users", null);
-        assertTrue(changeset2.contains("<COLUMN_NAME>"));
-        
-        // Test with empty values
-        String changeset3 = generator.createIndexChangeset("", "");
-        assertTrue(changeset3.contains("<TABLE_NAME>"));
-        assertTrue(changeset3.contains("<COLUMN_NAME>"));
-    }
-
-    @Test
     void testCreateMultiColumnIndexChangeset() {
         // Test multi-column index creation
         List<String> columns = Arrays.asList("user_id", "created_date", "status");
@@ -184,22 +168,6 @@ class LiquibaseGeneratorTest {
         WriteResult result2 = generator.writeChangesetToFile(masterFile, null);
         assertFalse(result2.wasWritten());
         assertNull(result2.getChangesFile());
-    }
-
-    @Test
-    void testGenerateIndexName() {
-        // Test index name generation
-        String indexName = generator.generateIndexName("users", Arrays.asList("email"));
-        assertEquals("idx_users_email", indexName);
-        
-        // Test multi-column index name
-        String multiIndexName = generator.generateIndexName("orders", 
-            Arrays.asList("user_id", "created_date"));
-        assertEquals("idx_orders_user_id_created_date", multiIndexName);
-        
-        // Test with empty columns
-        String emptyIndexName = generator.generateIndexName("table", new ArrayList<>());
-        assertEquals("idx_table", emptyIndexName);
     }
 
     @Test

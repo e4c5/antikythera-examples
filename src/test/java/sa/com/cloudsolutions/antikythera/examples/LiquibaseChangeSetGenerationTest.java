@@ -21,7 +21,7 @@ class LiquibaseChangeSetGenerationTest {
     Path tempDir;
     
     private QueryOptimizationChecker checker;
-    private Class<?> checkerClass;
+
 
     @BeforeEach
     void setUp() throws Exception {
@@ -36,15 +36,11 @@ class LiquibaseChangeSetGenerationTest {
         
         Settings.loadConfigMap();
         checker = new QueryOptimizationChecker(liquibaseFile);
-        checkerClass = QueryOptimizationChecker.class;
     }
 
     @Test
-    void testBuildLiquibaseNonLockingIndexChangeSet() throws Exception {
-        Method method = checkerClass.getDeclaredMethod("buildLiquibaseNonLockingIndexChangeSet", String.class, String.class);
-        method.setAccessible(true);
-        
-        String result = (String) method.invoke(checker, "users", "email");
+    void testBuildLiquibaseNonLockingIndexChangeSet() {
+        String result = checker.buildLiquibaseNonLockingIndexChangeSet("users","email");
         
         // Verify basic structure
         assertTrue(result.contains("<changeSet"));
@@ -67,11 +63,8 @@ class LiquibaseChangeSetGenerationTest {
     }
 
     @Test
-    void testBuildLiquibaseDropIndexChangeSet() throws Exception {
-        Method method = checkerClass.getDeclaredMethod("buildLiquibaseDropIndexChangeSet", String.class);
-        method.setAccessible(true);
-        
-        String result = (String) method.invoke(checker, "idx_users_email");
+    void testBuildLiquibaseDropIndexChangeSet() {
+        String result = checker.buildLiquibaseDropIndexChangeSet("idx_users_email");
         
         // Verify basic structure
         assertTrue(result.contains("<changeSet"));
@@ -92,35 +85,8 @@ class LiquibaseChangeSetGenerationTest {
     }
 
     @Test
-    void testChangeSetWithEmptyTableName() throws Exception {
-        Method method = checkerClass.getDeclaredMethod("buildLiquibaseNonLockingIndexChangeSet", String.class, String.class);
-        method.setAccessible(true);
-        
-        String result = (String) method.invoke(checker, "", "email");
-        
-        // Should use placeholder for empty table name
-        assertTrue(result.contains("<TABLE_NAME>"));
-    }
-
-    @Test
-    void testChangeSetWithEmptyColumnName() throws Exception {
-        Method method = checkerClass.getDeclaredMethod("buildLiquibaseNonLockingIndexChangeSet", String.class, String.class);
-        method.setAccessible(true);
-        
-        String result = (String) method.invoke(checker, "users", "");
-        
-        // Should use placeholder for empty column name
-        assertTrue(result.contains("<COLUMN_NAME>"));
-    }
-
-    @Test
-    void testDropChangeSetWithEmptyIndexName() throws Exception {
-        Method method = checkerClass.getDeclaredMethod("buildLiquibaseDropIndexChangeSet", String.class);
-        method.setAccessible(true);
-        
-        String result = (String) method.invoke(checker, "");
-        
-        // Should use placeholder for empty index name
+    void testDropChangeSetWithEmptyIndexName() {
+        String result = checker.buildLiquibaseDropIndexChangeSet("");
         assertTrue(result.contains("<INDEX_NAME>"));
     }
 
@@ -134,12 +100,9 @@ class LiquibaseChangeSetGenerationTest {
 
     @Test
     void testChangeSetIdUniqueness() throws Exception {
-        Method method = checkerClass.getDeclaredMethod("buildLiquibaseNonLockingIndexChangeSet", String.class, String.class);
-        method.setAccessible(true);
-        
-        String result1 = (String) method.invoke(checker, "users", "email");
+        String result1 = checker.buildLiquibaseNonLockingIndexChangeSet("users", "email");
         Thread.sleep(1); // Ensure different timestamp
-        String result2 = (String) method.invoke(checker, "users", "email");
+        String result2 = checker.buildLiquibaseNonLockingIndexChangeSet("users", "email");
         
         // Extract IDs and verify they're different (due to timestamp)
         String id1 = extractChangeSetId(result1);

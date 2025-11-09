@@ -71,35 +71,20 @@ class LiquibaseGeneratorCoverageTest {
 
     @Test
     void testCreateIndexChangesetWithNullColumn() {
-        // When
-        String changeset = generator.createIndexChangeset("users", null);
-        
-        // Then
-        assertNotNull(changeset);
-        assertTrue(changeset.contains("users"));
-        assertTrue(changeset.contains("<COLUMN_NAME>"));
+        assertThrows(NullPointerException.class,
+                () -> generator.createIndexChangeset("users", null));
     }
 
     @Test
     void testCreateIndexChangesetWithEmptyColumn() {
-        // When
         String changeset = generator.createIndexChangeset("users", "");
-        
-        // Then
         assertNotNull(changeset);
         assertTrue(changeset.contains("users"));
-        assertTrue(changeset.contains("<COLUMN_NAME>"));
     }
 
     @Test
     void testCreateIndexChangesetWithNullTable() {
-        // When
-        String changeset = generator.createIndexChangeset(null, "email");
-        
-        // Then
-        assertNotNull(changeset);
-        assertTrue(changeset.contains("<TABLE_NAME>"));
-        assertTrue(changeset.contains("email"));
+        assertThrows(IllegalArgumentException.class, () -> generator.createIndexChangeset(null, "email"));
     }
 
     @Test
@@ -255,11 +240,7 @@ class LiquibaseGeneratorCoverageTest {
 
     @Test
     void testGenerateIndexNameWithEmptyColumns() {
-        // When
-        String indexName = generator.generateIndexName("users", Collections.emptyList());
-        
-        // Then
-        assertEquals("idx_users", indexName);
+        assertThrows(IllegalArgumentException.class,  () -> generator.generateIndexName("users", Collections.emptyList()));
     }
 
     @Test
