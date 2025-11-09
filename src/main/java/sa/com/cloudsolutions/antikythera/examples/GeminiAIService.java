@@ -388,26 +388,19 @@ public class GeminiAIService {
 
         /*
          * Extract the current column order from the original RepositoryQuery.
-         * For recommended order, we need to create a new RepositoryQuery from the optimized code element.
+         * For the recommended order, we need to create a new RepositoryQuery from the optimized code element.
          */
         List<String> currentColumnOrder;
         List<String> recommendedColumnOrder;
         RepositoryQuery optimizedQuery = null;
         
-        try {
-            currentColumnOrder = extractColumnOrderFromRepositoryQuery(originalQuery);
-            if (optimizationNeeded) {
-                OptimizedQueryResult optimizedResult = extractRecommendedColumnOrder(optimizedCodeElement, originalQuery);
-                recommendedColumnOrder = optimizedResult.columnOrder();
-                optimizedQuery = optimizedResult.optimizedQuery();
-            } else {
-                recommendedColumnOrder = currentColumnOrder;
-            }
-        } catch (Exception e) {
-            // Fallback for test scenarios or when extraction fails
-            logger.debug("Failed to extract column orders, using fallback approach: {}", e.getMessage());
-            currentColumnOrder = extractSimpleColumnOrder(originalQuery);
-            recommendedColumnOrder = optimizationNeeded ? extractSimpleColumnOrder(optimizedCodeElement) : currentColumnOrder;
+        currentColumnOrder = extractColumnOrderFromRepositoryQuery(originalQuery);
+        if (optimizationNeeded) {
+            OptimizedQueryResult optimizedResult = extractRecommendedColumnOrder(optimizedCodeElement, originalQuery);
+            recommendedColumnOrder = optimizedResult.columnOrder();
+            optimizedQuery = optimizedResult.optimizedQuery();
+        } else {
+            recommendedColumnOrder = currentColumnOrder;
         }
 
         if (!optimizationNeeded) {
@@ -453,61 +446,6 @@ public class GeminiAIService {
             String columnName = condition.columnName();
             if (columnName != null && !columnName.trim().isEmpty()) {
                 columns.add(columnName);
-            }
-        }
-        return columns;
-    }
-
-    /**
-     * Simple fallback method to extract column names from method signature or query.
-     * Used when the full QueryOptimizationExtractor approach fails (e.g., in tests).
-     */
-    private List<String> extractSimpleColumnOrder(RepositoryQuery repositoryQuery) {
-        List<String> columns = new ArrayList<>();
-        if (repositoryQuery == null) {
-            return columns;
-        }
-        
-        String methodName = repositoryQuery.getMethodName();
-        if (methodName != null && methodName.startsWith("findBy")) {
-            // Extract column names from method name like "findByEmailAndName"
-            String columnsStr = methodName.substring(6); // Remove "findBy"
-            String[] parts = columnsStr.split("And");
-            for (String part : parts) {
-                if (!part.trim().isEmpty()) {
-                    // Convert camelCase to lowercase
-                    String columnName = part.substring(0, 1).toLowerCase() + part.substring(1);
-                    columns.add(columnName);
-                }
-            }
-        }
-        return columns;
-    }
-
-    /**
-     * Simple fallback method to extract column names from optimized code element.
-     * Used when the full parsing approach fails (e.g., in tests).
-     */
-    private List<String> extractSimpleColumnOrder(String optimizedCodeElement) {
-        List<String> columns = new ArrayList<>();
-        if (optimizedCodeElement == null) {
-            return columns;
-        }
-        
-        // Extract method name from signature like "findByNameAndEmail(String name, String email)"
-        int parenIndex = optimizedCodeElement.indexOf('(');
-        if (parenIndex > 0) {
-            String methodName = optimizedCodeElement.substring(0, parenIndex);
-            if (methodName.startsWith("findBy")) {
-                String columnsStr = methodName.substring(6); // Remove "findBy"
-                String[] parts = columnsStr.split("And");
-                for (String part : parts) {
-                    if (!part.trim().isEmpty()) {
-                        // Convert camelCase to lowercase
-                        String columnName = part.substring(0, 1).toLowerCase() + part.substring(1);
-                        columns.add(columnName);
-                    }
-                }
             }
         }
         return columns;
