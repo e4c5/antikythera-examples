@@ -160,7 +160,7 @@ public class HardDelete {
                     // Check for @Query annotation with UPDATE statement (soft delete pattern)
                     if (method.getAnnotationByName(QUERY).isPresent()) {
                         String queryValue = AbstractCompiler.extractAnnotationAttributes(
-                                method.getAnnotationByName(QUERY).orElseThrow()).get("value");
+                                method.getAnnotationByName(QUERY).orElseThrow()).get("value").toString().replace("\"","");
                         String upperQuery = queryValue.toUpperCase();
                         return !upperQuery.startsWith("DELETE");
                     }
