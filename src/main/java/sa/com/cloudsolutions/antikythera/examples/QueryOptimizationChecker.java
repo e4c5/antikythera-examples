@@ -715,7 +715,7 @@ public class QueryOptimizationChecker {
         return snake.isEmpty() ? TABLE_NAME_TAG : snake;
     }
 
-    private String buildLiquibaseNonLockingIndexChangeSet(String tableName, String columnName) {
+    String buildLiquibaseNonLockingIndexChangeSet(String tableName, String columnName) {
         return liquibaseGenerator.createIndexChangeset(tableName, columnName);
     }
 
@@ -731,9 +731,7 @@ public class QueryOptimizationChecker {
         return liquibaseGenerator.createMultiColumnIndexChangeset(tableName, columns);
     }
 
-
-
-    private String buildLiquibaseDropIndexChangeSet(String indexName) {
+    String buildLiquibaseDropIndexChangeSet(String indexName) {
         return liquibaseGenerator.createDropIndexChangeset(indexName);
     }
 

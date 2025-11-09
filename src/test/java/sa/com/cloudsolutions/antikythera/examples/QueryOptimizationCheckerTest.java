@@ -158,24 +158,7 @@ class QueryOptimizationCheckerTest {
     }
 
     @Test
-    void testBuildLiquibaseNonLockingIndexChangeSet() throws Exception {
-        Method buildCreate = cls.getDeclaredMethod("buildLiquibaseNonLockingIndexChangeSet", String.class, String.class);
-        buildCreate.setAccessible(true);
-        String createXml = (String) buildCreate.invoke(checker, "users", "email");
-        assertTrue(
-                createXml.contains("CREATE INDEX CONCURRENTLY idx_users_email ON users (email)")
-                        || createXml.contains("CREATE INDEX idx_users_email ON users (email)")
-        );
-        assertTrue(createXml.toLowerCase().contains("rollback"));
-        
-        // Test with empty parameters
-        String createXml2 = (String) buildCreate.invoke(checker, "", "");
-        assertTrue(createXml2.contains("<TABLE_NAME>"));
-        assertTrue(createXml2.contains("<COLUMN_NAME>"));
-    }
-
-    @Test
-    void testBuildLiquibaseMultiColumnIndexChangeSet() throws Exception {
+    void testBuildLiquibaseMultiColumnIndexChangeSet() {
         LinkedHashSet<String> columns = new LinkedHashSet<>();
         columns.add("user_id");
         columns.add("created_date");

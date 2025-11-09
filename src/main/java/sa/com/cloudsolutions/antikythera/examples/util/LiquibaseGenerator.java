@@ -226,8 +226,12 @@ public class LiquibaseGenerator {
      * @return generated index name
      */
     public String generateIndexName(String tableName, List<String> columns) {
-        if (columns.isEmpty()) return "idx_" + sanitize(tableName);
-        
+        if (columns.isEmpty()) {
+            throw new IllegalArgumentException("Columns cannot be empty");
+        }
+        if (tableName == null || tableName.isEmpty()) {
+            throw new IllegalArgumentException("Table name cannot be null or empty");
+        }
         String columnPart = columns.stream()
                 .map(this::sanitize)
                 .collect(Collectors.joining("_"));
