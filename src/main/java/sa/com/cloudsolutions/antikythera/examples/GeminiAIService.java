@@ -469,7 +469,7 @@ public class GeminiAIService {
 
         ClassOrInterfaceDeclaration cdecl = cloneClassSignature(cu.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow());
 
-        CompilationUnit tmp = StaticJavaParser.parse(String.format("class Dummy{ %s }", optimizedCodeElement));
+        CompilationUnit tmp = StaticJavaParser.parse(String.format("interface Dummy{ %s }", optimizedCodeElement));
         MethodDeclaration newMethod = tmp.findFirst(MethodDeclaration.class).orElseThrow();
 
         // Remove the old method that matches the signature of the old MethodDeclaration
