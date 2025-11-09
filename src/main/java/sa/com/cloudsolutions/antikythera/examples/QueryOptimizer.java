@@ -98,9 +98,9 @@ public class QueryOptimizer extends QueryOptimizationChecker{
                     if (methodNameChanged || parametersReordered) {
                         stats.incrementMethodSignaturesChanged();
                     }
+                    updates.add(result);
                 }
             }
-            updates.add(result);
         }
         
         if (repositoryFileModified) {
