@@ -104,7 +104,7 @@ public class GeminiAIService {
      * Builds the request payload for the Gemini AI API using proper message structure.
      * Separates system instructions from user query data for better API interaction.
      */
-    private String buildRequestPayload(QueryBatch batch) {
+    String buildRequestPayload(QueryBatch batch) {
         // Build the JSON array of queries as expected by the new prompt
         StringBuilder queriesJson = new StringBuilder();
         queriesJson.append("[");
@@ -139,7 +139,7 @@ public class GeminiAIService {
      * Builds the Gemini API request with proper message structure.
      * Uses Gemini's contents format with separate parts for system and user content.
      */
-    private String buildGeminiApiRequest(String userQueryData) {
+    String buildGeminiApiRequest(String userQueryData) {
         // Escape strings for JSON
         String escapedSystemPrompt = escapeJsonString(systemPrompt);
         String escapedUserData = escapeJsonString(userQueryData);
@@ -166,7 +166,7 @@ public class GeminiAIService {
     /**
      * Gets the appropriate query text based on the query type.
      */
-    private String getQueryText(RepositoryQuery query) {
+    String getQueryText(RepositoryQuery query) {
         if (QueryType.DERIVED.equals(query.getQueryType())) {
             return query.getMethodName();
         }
@@ -176,7 +176,7 @@ public class GeminiAIService {
     /**
      * Builds the table schema and cardinality string for the AI prompt.
      */
-    private String buildTableSchemaString(QueryBatch batch, RepositoryQuery query) {
+    String buildTableSchemaString(QueryBatch batch, RepositoryQuery query) {
         StringBuilder schema = new StringBuilder();
         String tableName = query.getPrimaryTable();
         if (tableName == null || tableName.isEmpty()) {
@@ -201,7 +201,7 @@ public class GeminiAIService {
     /**
      * Escapes a string for JSON format.
      */
-    private String escapeJsonString(String str) {
+    String escapeJsonString(String str) {
         if (str == null) {
             return "";
         }
@@ -215,7 +215,7 @@ public class GeminiAIService {
     /**
      * Sends the API request to Gemini AI service.
      */
-    private String sendApiRequest(String payload) throws IOException, InterruptedException {
+    String sendApiRequest(String payload) throws IOException, InterruptedException {
         String apiEndpoint = getConfigString("api_endpoint", "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent");
         String model = getConfigString("model", "gemini-1.5-flash");
         String apiKey = getConfigString("api_key", null);
@@ -249,7 +249,7 @@ public class GeminiAIService {
     /**
      * Extracts token usage information from the API response.
      */
-    private void extractTokenUsage(String responseBody) throws IOException {
+    void extractTokenUsage(String responseBody) throws IOException {
         JsonNode root = objectMapper.readTree(responseBody);
         JsonNode usageMetadata = root.path("usageMetadata");
 
@@ -279,7 +279,7 @@ public class GeminiAIService {
     /**
      * Parses the AI response and converts it to OptimizationIssue objects.
      */
-    private List<OptimizationIssue> parseResponse(String responseBody, QueryBatch batch) throws IOException {
+    List<OptimizationIssue> parseResponse(String responseBody, QueryBatch batch) throws IOException {
         JsonNode root = objectMapper.readTree(responseBody);
         JsonNode candidates = root.path("candidates");
 
@@ -301,7 +301,7 @@ public class GeminiAIService {
      * Parses the text response from AI to extract optimization recommendations.
      * Expects a JSON array response format as defined in the new prompt.
      */
-    private List<OptimizationIssue> parseRecommendations(String textResponse, QueryBatch batch) throws IOException {
+    List<OptimizationIssue> parseRecommendations(String textResponse, QueryBatch batch) throws IOException {
         List<OptimizationIssue> issues = new ArrayList<>();
 
 
@@ -379,7 +379,7 @@ public class GeminiAIService {
      * Always returns an OptimizationIssue - never returns null.
      * If no optimization is needed, returns an issue indicating no action required.
      */
-    private OptimizationIssue parseOptimizationRecommendation(JsonNode recommendation, RepositoryQuery originalQuery) throws IOException {
+    OptimizationIssue parseOptimizationRecommendation(JsonNode recommendation, RepositoryQuery originalQuery) throws IOException {
         String optimizedCodeElement = recommendation.path("optimizedCodeElement").asText();
         String notes = recommendation.path("notes").asText();
 
@@ -431,7 +431,7 @@ public class GeminiAIService {
      * Extracts column order from a RepositoryQuery using QueryOptimizationExtractor.
      * This replaces the manual method signature parsing with proper WHERE clause analysis.
      */
-    private List<String> extractColumnOrderFromRepositoryQuery(RepositoryQuery repositoryQuery) {
+    List<String> extractColumnOrderFromRepositoryQuery(RepositoryQuery repositoryQuery) {
         List<String> columns = new ArrayList<>();
 
         if (repositoryQuery == null) {
@@ -462,7 +462,7 @@ public class GeminiAIService {
      * Creates a new RepositoryQuery that clones the original method but with the optimized method signature,
      * then passes it through to extractColumnOrderFromRepositoryQuery.
      */
-    private OptimizedQueryResult extractRecommendedColumnOrder(String optimizedCodeElement, RepositoryQuery originalQuery) throws IOException {
+    OptimizedQueryResult extractRecommendedColumnOrder(String optimizedCodeElement, RepositoryQuery originalQuery) throws IOException {
         CompilationUnit cu = originalQuery.getMethodDeclaration().getCallableDeclaration().findCompilationUnit().orElseThrow();
 
         MethodDeclaration old = originalQuery.getMethodDeclaration().asMethodDeclaration();
@@ -539,7 +539,7 @@ public class GeminiAIService {
      * @param <T>  The type of Node in the list.
      * @return A new NodeList containing cloned nodes.
      */
-    private <T extends Node> NodeList<T> cloneNodeList(NodeList<T> list) {
+    <T extends Node> NodeList<T> cloneNodeList(NodeList<T> list) {
         if (list == null || list.isEmpty()) {
             return new NodeList<>();
         }
@@ -554,7 +554,7 @@ public class GeminiAIService {
     /**
      * Determines the severity of the optimization issue.
      */
-    private OptimizationIssue.Severity determineSeverity(String notes, List<String> currentOrder, List<String> recommendedOrder) {
+    OptimizationIssue.Severity determineSeverity(String notes, List<String> currentOrder, List<String> recommendedOrder) {
         if (notes.toLowerCase().contains("high") || notes.toLowerCase().contains("primary key")) {
             return OptimizationIssue.Severity.HIGH;
         } else if (notes.toLowerCase().contains("medium") || !currentOrder.equals(recommendedOrder)) {
@@ -567,7 +567,7 @@ public class GeminiAIService {
     /**
      * Validates the configuration to ensure required settings are present.
      */
-    private void validateConfig() {
+    void validateConfig() {
         String apiKey = getConfigString("api_key", null);
         if (apiKey == null || apiKey.trim().isEmpty()) {
             throw new IllegalStateException("AI service API key is required. Set GEMINI_API_KEY environment variable or configure ai_service.api_key in generator.yml");
@@ -577,7 +577,7 @@ public class GeminiAIService {
     /**
      * Gets a string configuration value with fallback to environment variables.
      */
-    private String getConfigString(String key, String defaultValue) {
+    String getConfigString(String key, String defaultValue) {
         if (config == null) return defaultValue;
         
         Object value = config.get(key);
@@ -604,7 +604,7 @@ public class GeminiAIService {
     /**
      * Gets an integer configuration value.
      */
-    private int getConfigInt(String key, int defaultValue) {
+    int getConfigInt(String key, int defaultValue) {
         if (config == null) return defaultValue;
         
         Object value = config.get(key);
@@ -636,7 +636,7 @@ public class GeminiAIService {
     /**
      * Gets a double configuration value.
      */
-    private double getConfigDouble(String key, double defaultValue) {
+    double getConfigDouble(String key, double defaultValue) {
         if (config == null) return defaultValue;
         
         Object value = config.get(key);
@@ -656,7 +656,7 @@ public class GeminiAIService {
     /**
      * Gets a boolean configuration value.
      */
-    private boolean getConfigBoolean(String key, boolean defaultValue) {
+    boolean getConfigBoolean(String key, boolean defaultValue) {
         if (config == null) return defaultValue;
 
         Object value = config.get(key);
