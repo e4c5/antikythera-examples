@@ -466,25 +466,19 @@ public class GeminiAIService {
         CompilationUnit originalCompilationUnit = originalQuery.getMethodDeclaration()
                 .getCallableDeclaration().findCompilationUnit().orElseThrow();
 
-        MethodDeclaration old = originalQuery.getMethodDeclaration().asMethodDeclaration();
-
         ClassOrInterfaceDeclaration cdecl = cloneClassSignature(originalCompilationUnit.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow());
+        CompilationUnit cu = new CompilationUnit();
+        cu.addType(cdecl);
 
         CompilationUnit tmp = StaticJavaParser.parse(String.format("interface Dummy{ %s }", optimizedCodeElement));
         MethodDeclaration newMethod = tmp.findFirst(MethodDeclaration.class).orElseThrow();
-
-        // Remove the old method that matches the signature of the old MethodDeclaration
-        cdecl.getMethodsBySignature(old.getName().asString(), old.getParameters().stream()
-                        .map(param -> param.getType().asString())
-                        .toArray(String[]::new))
-                .forEach(cdecl::remove);
-
         // Replace it with the newly created method instance
         cdecl.addMember(newMethod);
 
-        BaseRepositoryParser parser = BaseRepositoryParser.create(originalCompilationUnit);
+        BaseRepositoryParser parser = BaseRepositoryParser.create(cu);
         parser.processTypes();
-        RepositoryQuery rq = parser.getQueryFromRepositoryMethod(new Callable(newMethod, null));
+        parser.buildQueries();
+        RepositoryQuery rq = parser.getAllQueries().stream().findFirst().orElseThrow();
         return new OptimizedQueryResult(rq, extractColumnOrderFromRepositoryQuery(rq));
     }
 
