@@ -37,12 +37,10 @@ public class OptimizationAnalysisVisitor {
 
     private final List<WhereCondition> conditions;
     private final RepositoryQuery repositoryQuery;
-    private final SqlConversionContext context;
     private int positionCounter;
     
-    public OptimizationAnalysisVisitor(RepositoryQuery repositoryQuery, SqlConversionContext context) {
+    public OptimizationAnalysisVisitor(RepositoryQuery repositoryQuery) {
         this.repositoryQuery = repositoryQuery;
-        this.context = context;
         this.conditions = new ArrayList<>();
         this.positionCounter = 0;
     }
@@ -264,36 +262,10 @@ public class OptimizationAnalysisVisitor {
             String[] parts = columnName.split("\\.");
             columnName = parts[parts.length - 1];
         }
-        
-        // Use existing column mapping if available
-        if (context != null && context.entityMetadata() != null) {
-            String mappedColumn = findColumnMapping(columnName);
-            if (mappedColumn != null) {
-                columnName = mappedColumn;
-            }
-        }
-        
+
         return columnName;
     }
-    
-    /**
-     * Finds column mapping using the existing EntityMetadata infrastructure.
-     * This leverages the same logic used in SqlGenerationVisitor.
-     */
-    private String findColumnMapping(String propertyName) {
-        EntityMetadata metadata = context.entityMetadata();
-        
-        // Try to find the property in any of the table mappings
-        for (TableMapping tableMapping : metadata.getAllTableMappings()) {
-            String columnMapping = tableMapping.getColumnMapping(propertyName);
-            if (columnMapping != null) {
-                return columnMapping;
-            }
-        }
-        
-        return null; // No mapping found, use original name
-    }
-    
+
     /**
      * Finds matching parameter using enhanced logic that leverages the parser infrastructure.
      * This replaces the custom parameter matching in QueryAnalysisEngine.
