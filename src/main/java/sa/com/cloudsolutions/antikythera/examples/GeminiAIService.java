@@ -463,11 +463,12 @@ public class GeminiAIService {
      * then passes it through to extractColumnOrderFromRepositoryQuery.
      */
     OptimizedQueryResult extractRecommendedColumnOrder(String optimizedCodeElement, RepositoryQuery originalQuery) throws IOException {
-        CompilationUnit cu = originalQuery.getMethodDeclaration().getCallableDeclaration().findCompilationUnit().orElseThrow();
+        CompilationUnit originalCompilationUnit = originalQuery.getMethodDeclaration()
+                .getCallableDeclaration().findCompilationUnit().orElseThrow();
 
         MethodDeclaration old = originalQuery.getMethodDeclaration().asMethodDeclaration();
 
-        ClassOrInterfaceDeclaration cdecl = cloneClassSignature(cu.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow());
+        ClassOrInterfaceDeclaration cdecl = cloneClassSignature(originalCompilationUnit.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow());
 
         CompilationUnit tmp = StaticJavaParser.parse(String.format("interface Dummy{ %s }", optimizedCodeElement));
         MethodDeclaration newMethod = tmp.findFirst(MethodDeclaration.class).orElseThrow();
@@ -481,7 +482,7 @@ public class GeminiAIService {
         // Replace it with the newly created method instance
         cdecl.addMember(newMethod);
 
-        BaseRepositoryParser parser = BaseRepositoryParser.create(cu);
+        BaseRepositoryParser parser = BaseRepositoryParser.create(originalCompilationUnit);
         parser.processTypes();
         RepositoryQuery rq = parser.getQueryFromRepositoryMethod(new Callable(newMethod, null));
         return new OptimizedQueryResult(rq, extractColumnOrderFromRepositoryQuery(rq));
