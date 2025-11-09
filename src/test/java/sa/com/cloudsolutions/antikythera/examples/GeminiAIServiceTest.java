@@ -1,6 +1,8 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
+import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -8,9 +10,14 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.Mock;
 import org.mockito.MockedStatic;
 import org.mockito.MockitoAnnotations;
+import sa.com.cloudsolutions.antikythera.configuration.Settings;
+import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
+import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
+import sa.com.cloudsolutions.antikythera.parser.BaseRepositoryParser;
 import sa.com.cloudsolutions.antikythera.parser.Callable;
 
+import java.io.File;
 import java.io.IOException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -26,6 +33,8 @@ import static org.mockito.Mockito.*;
  */
 class GeminiAIServiceTest {
 
+    public static final String USER_REPOSITORY = "sa.com.cloudsolutions.antikythera.testhelper.repository.UserRepository";
+
     private GeminiAIService geminiAIService;
     private Map<String, Object> config;
     
@@ -34,15 +43,12 @@ class GeminiAIServiceTest {
     
     @Mock
     private HttpResponse<String> mockHttpResponse;
-    
-    @Mock
-    private RepositoryQuery mockRepositoryQuery;
-    
-    @Mock
-    private Callable mockCallable;
-    
-    @Mock
-    private MethodDeclaration mockMethodDeclaration;
+
+    @BeforeAll
+    static void setUpAll() throws IOException {
+        Settings.loadConfigMap(new File("src/test/resources/generator.yml"));
+        AbstractCompiler.preProcess();
+    }
 
     @BeforeEach
     void setUp() throws IOException {
@@ -280,58 +286,67 @@ class GeminiAIServiceTest {
     }
 
     /**
-     * Helper method to create a test QueryBatch with mock data.
+     * Helper method to create a test QueryBatch using real repository sources.
      */
-    private QueryBatch createTestQueryBatch() {
-        QueryBatch batch = new QueryBatch("TestRepository");
+    private QueryBatch createTestQueryBatch() throws IOException {
+        CompilationUnit repoUnit = AntikytheraRunTime.getCompilationUnit(USER_REPOSITORY);
+        BaseRepositoryParser parser = BaseRepositoryParser.create(repoUnit);
+        parser.processTypes();
+        parser.buildQueries();
         
-        // Create mock repository query
-        RepositoryQuery mockQuery = mock(RepositoryQuery.class);
-        when(mockQuery.getMethodName()).thenReturn("findByName");
-        when(mockQuery.getPrimaryTable()).thenReturn("users");
-        when(mockQuery.getQuery()).thenReturn("SELECT * FROM users WHERE name = ?");
-        when(mockQuery.getOriginalQuery()).thenReturn("SELECT * FROM users WHERE name = ?");
+        QueryBatch batch = new QueryBatch("UserRepository");
         
-        // Mock method declaration with proper callable declaration
-        Callable callable = mock(Callable.class);
-        MethodDeclaration mockMethod = mock(MethodDeclaration.class);
+        // Get a real query from the parsed repository
+        MethodDeclaration findByUsername = repoUnit.findAll(MethodDeclaration.class).stream()
+                .filter(m -> m.getNameAsString().equals("findByUsername"))
+                .findFirst()
+                .orElseThrow();
         
-        when(mockQuery.getMethodDeclaration()).thenReturn(callable);
-        when(callable.isMethodDeclaration()).thenReturn(true);
-        when(callable.asMethodDeclaration()).thenReturn(mockMethod);
-        doReturn(mockMethod).when(callable).getCallableDeclaration();
-        when(callable.toString()).thenReturn("findByName(String name)");
-        when(mockMethod.toString()).thenReturn("findByName(String name)");
-        when(mockMethod.isAnnotationPresent("Query")).thenReturn(false);
+        Callable callable = new Callable(findByUsername, null);
+        RepositoryQuery query = parser.getQueryFromRepositoryMethod(callable);
         
-        batch.addQuery(mockQuery);
+        if (query != null) {
+            batch.addQuery(query);
+        }
         
         // Add column cardinalities
         Map<String, CardinalityLevel> cardinalities = new HashMap<>();
-        cardinalities.put("name", CardinalityLevel.HIGH);
+        cardinalities.put("username", CardinalityLevel.HIGH);
         cardinalities.put("email", CardinalityLevel.MEDIUM);
+        cardinalities.put("age", CardinalityLevel.LOW);
         batch.setColumnCardinalities(cardinalities);
         
         return batch;
     }
 
     @Test
-    void testBuildTableSchemaString() {
-        QueryBatch batch = new QueryBatch("TestRepository");
+    void testBuildTableSchemaString() throws IOException {
+        CompilationUnit repoUnit = AntikytheraRunTime.getCompilationUnit(USER_REPOSITORY);
+        BaseRepositoryParser parser = BaseRepositoryParser.create(repoUnit);
+        parser.processTypes();
+        parser.buildQueries();
+        
+        QueryBatch batch = new QueryBatch("UserRepository");
         Map<String, CardinalityLevel> cardinalities = new HashMap<>();
         cardinalities.put("email", CardinalityLevel.HIGH);
-        cardinalities.put("name", CardinalityLevel.MEDIUM);
+        cardinalities.put("username", CardinalityLevel.MEDIUM);
         batch.setColumnCardinalities(cardinalities);
         
-        RepositoryQuery mockQuery = mock(RepositoryQuery.class);
-        when(mockQuery.getPrimaryTable()).thenReturn("users");
+        MethodDeclaration findByUsername = repoUnit.findAll(MethodDeclaration.class).stream()
+                .filter(m -> m.getNameAsString().equals("findByUsername"))
+                .findFirst()
+                .orElseThrow();
         
-        String result = geminiAIService.buildTableSchemaString(batch, mockQuery);
+        Callable callable = new Callable(findByUsername, null);
+        RepositoryQuery query = parser.getQueryFromRepositoryMethod(callable);
+        
+        String result = geminiAIService.buildTableSchemaString(batch, query);
 
         assertNotNull(result);
-        assertTrue(result.contains("users"));
+        // The table name should be "users" from the User entity @Table annotation
+        assertTrue(result.contains("users"), "Expected 'users' in: " + result);
         assertTrue(result.contains("email:HIGH"));
-        assertTrue(result.contains("name:MEDIUM"));
+        assertTrue(result.contains("username:MEDIUM"));
     }
 
     @Test
@@ -471,21 +486,31 @@ class GeminiAIServiceTest {
     }
 
     /**
-     * Helper method to create a simple test batch without complex mocking.
+     * Helper method to create a simple test batch using real repository sources.
      */
-    private QueryBatch createSimpleTestBatch() {
-        QueryBatch batch = new QueryBatch("TestRepository");
+    private QueryBatch createSimpleTestBatch() throws IOException {
+        CompilationUnit repoUnit = AntikytheraRunTime.getCompilationUnit(USER_REPOSITORY);
+        BaseRepositoryParser parser = BaseRepositoryParser.create(repoUnit);
+        parser.processTypes();
+        parser.buildQueries();
         
-        // Create a simple mock query that doesn't require complex callable mocking
-        RepositoryQuery mockQuery = mock(RepositoryQuery.class);
-        when(mockQuery.getMethodName()).thenReturn("findByName");
-        when(mockQuery.getPrimaryTable()).thenReturn("users");
-        when(mockQuery.getQuery()).thenReturn("SELECT * FROM users WHERE name = ?");
+        QueryBatch batch = new QueryBatch("UserRepository");
         
-        batch.addQuery(mockQuery);
+        // Get a simple query from the parsed repository
+        MethodDeclaration findByEmail = repoUnit.findAll(MethodDeclaration.class).stream()
+                .filter(m -> m.getNameAsString().equals("findByEmail"))
+                .findFirst()
+                .orElseThrow();
+        
+        Callable callable = new Callable(findByEmail, null);
+        RepositoryQuery query = parser.getQueryFromRepositoryMethod(callable);
+        
+        if (query != null) {
+            batch.addQuery(query);
+        }
         
         Map<String, CardinalityLevel> cardinalities = new HashMap<>();
-        cardinalities.put("name", CardinalityLevel.HIGH);
+        cardinalities.put("email", CardinalityLevel.HIGH);
         batch.setColumnCardinalities(cardinalities);
         
         return batch;

@@ -608,28 +608,11 @@ public class GeminiAIService {
         if (config == null) return defaultValue;
         
         Object value = config.get(key);
-        if (value instanceof Integer) {
-            return (Integer) value;
+        if (value instanceof Integer i) {
+            return i;
         } else if (value instanceof String str) {
-            try {
-                return Integer.parseInt(str);
-            } catch (NumberFormatException e) {
-                logger.warn("Invalid integer value for {}: {}", key, str);
-            }
+            return Integer.parseInt(str);
         }
-        
-        // Fallback to environment variables
-        if ("queries_per_request".equals(key)) {
-            String envValue = System.getenv("AI_QUERIES_PER_REQUEST");
-            if (envValue != null && !envValue.trim().isEmpty()) {
-                try {
-                    return Integer.parseInt(envValue);
-                } catch (NumberFormatException e) {
-                    logger.warn("Invalid AI_QUERIES_PER_REQUEST environment variable: {}", envValue);
-                }
-            }
-        }
-        
         return defaultValue;
     }
 
@@ -643,11 +626,7 @@ public class GeminiAIService {
         if (value instanceof Number n) {
             return n.doubleValue();
         } else if (value instanceof String str) {
-            try {
-                return Double.parseDouble(str);
-            } catch (NumberFormatException e) {
-                logger.warn("Invalid double value for {}: {}", key, str);
-            }
+             return Double.parseDouble(str);
         }
         
         return defaultValue;

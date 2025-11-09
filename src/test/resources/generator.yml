@@ -1,6 +1,34 @@
+# Configuration for GeminiAIService tests
+# Points to the antikythera-test-helper module for test data
+
 variables:
-  projects_folder: ${HOME}/csi/Antikythera
+  projects_folder: ..
   m2_folder: ${HOME}/.m2/repository
 
-# Points to top level folder of the application under test. This is a file system path.
-base_path : ${projects_folder}/antikythera-examples/
+# Points to the test helper module which contains sample repositories and entities
+base_path: ${projects_folder}/antikythera-test-helper/src/main/java
+
+# The top level package for the test helper
+base_package: sa.com.cloudsolutions
+
+# Path to output the generated test project (not used in these tests but required)
+output_path: /tmp/antikythera-examples-test
+
+#
+# Dependencies configuration
+#
+dependencies:
+  # what should be done if a dependency cannot be found? options are log and exit
+  on_error: log
+
+#
+# Database settings (not used in these tests but required for configuration)
+#
+database:
+  url: jdbc:h2:mem:testdb
+  user: sa
+  password: 
+  schema: PUBLIC
+  run_queries: false
+
+log_level: INFO
