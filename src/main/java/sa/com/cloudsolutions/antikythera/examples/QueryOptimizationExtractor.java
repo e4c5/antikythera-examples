@@ -23,10 +23,9 @@ import java.util.List;
  */
 public class QueryOptimizationExtractor {
     private static final Logger logger = LoggerFactory.getLogger(QueryOptimizationExtractor.class);
-    private final EntityMappingResolver entityMappingResolver;
-    
+
     public QueryOptimizationExtractor() {
-        this.entityMappingResolver = new EntityMappingResolver();
+
     }
     
     /**
@@ -56,14 +55,8 @@ public class QueryOptimizationExtractor {
      */
     public List<WhereCondition> extractConditionsFromExpression(Expression whereExpression, 
                                                                RepositoryQuery repositoryQuery) {
-        // Build entity metadata for the query
-        EntityMetadata entityMetadata = buildEntityMetadata(repositoryQuery);
-        
-        // Create conversion context
-        SqlConversionContext context = new SqlConversionContext(entityMetadata, DatabaseDialect.POSTGRESQL);
-        
         // Use the optimization analysis visitor
-        OptimizationAnalysisVisitor visitor = new OptimizationAnalysisVisitor(repositoryQuery, context);
+        OptimizationAnalysisVisitor visitor = new OptimizationAnalysisVisitor(repositoryQuery);
         
         return  visitor.extractConditions(whereExpression);
     }
@@ -103,48 +96,6 @@ public class QueryOptimizationExtractor {
         
         return conditions;
     }
-    
-    /**
-     * Builds entity metadata for the given repository query.
-     * This leverages the existing EntityMappingResolver from the parser package.
-     */
-    private EntityMetadata buildEntityMetadata(RepositoryQuery repositoryQuery) {
-        try {
-            // Try to resolve entity metadata from the repository query's entity type
-            if (repositoryQuery.getEntityType() != null) {
-                // Find the entity class from the type
-                Class<?> entityClass = resolveEntityClass(repositoryQuery);
-                if (entityClass != null) {
-                    return entityMappingResolver.resolveEntityMetadata(entityClass);
-                }
-            }
-        } catch (Exception e) {
-            logger.debug("Could not build entity metadata: {}", e.getMessage());
-        }
-        
-        // Return empty metadata if resolution fails
-        return EntityMetadata.empty();
-    }
-    
-    /**
-     * Resolves the entity class from the repository query.
-     * This uses the existing type resolution logic from the parser package.
-     */
-    private Class<?> resolveEntityClass(RepositoryQuery repositoryQuery) {
-        try {
-            // Try to load the class from the entity type name
-            String entityTypeName = repositoryQuery.getEntityType().toString();
-            
-            // Remove generic type parameters if present
-            if (entityTypeName.contains("<")) {
-                entityTypeName = entityTypeName.substring(0, entityTypeName.indexOf("<"));
-            }
-            
-            // Try to load the class
-            return Class.forName(entityTypeName);
-        } catch (ClassNotFoundException e) {
-            logger.debug("Could not resolve entity class: {}", e.getMessage());
-            return null;
-        }
-    }
+
+
 }
