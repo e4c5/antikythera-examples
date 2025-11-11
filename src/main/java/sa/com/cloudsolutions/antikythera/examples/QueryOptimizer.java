@@ -15,6 +15,7 @@ import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
+import sa.com.cloudsolutions.antikythera.parser.converter.EntityMappingResolver;
 
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -52,6 +53,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
     public QueryOptimizer(File liquibaseXmlPath) throws Exception {
         super(liquibaseXmlPath);
         Fields.buildDependencies();
+        EntityMappingResolver.build();
     }
 
     @Override
