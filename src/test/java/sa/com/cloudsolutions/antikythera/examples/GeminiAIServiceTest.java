@@ -16,6 +16,7 @@ import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 import sa.com.cloudsolutions.antikythera.parser.BaseRepositoryParser;
 import sa.com.cloudsolutions.antikythera.parser.Callable;
+import sa.com.cloudsolutions.antikythera.parser.converter.EntityMappingResolver;
 
 import java.io.File;
 import java.io.IOException;
@@ -45,9 +46,10 @@ class GeminiAIServiceTest {
     private HttpResponse<String> mockHttpResponse;
 
     @BeforeAll
-    static void setUpAll() throws IOException {
+    static void setUpAll() throws IOException, ReflectiveOperationException {
         Settings.loadConfigMap(new File("src/test/resources/generator.yml"));
         AbstractCompiler.preProcess();
+        EntityMappingResolver.build();
         CardinalityAnalyzer.setIndexMap(new HashMap<>());
     }
 
