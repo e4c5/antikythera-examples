@@ -13,6 +13,8 @@ import com.github.javaparser.ast.visitor.ModifierVisitor;
 import com.github.javaparser.printer.lexicalpreservation.LexicalPreservingPrinter;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
+import sa.com.cloudsolutions.antikythera.generator.QueryType;
+import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
 import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 import sa.com.cloudsolutions.antikythera.parser.converter.EntityMappingResolver;
@@ -75,16 +77,20 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         for (QueryOptimizationResult result : results) {
             if (!result.isAlreadyOptimized() && !result.getOptimizationIssues().isEmpty()) {
                 OptimizationIssue issue = result.getOptimizationIssues().getFirst();
-                if (issue.optimizedQuery() != null) {
-                    // Actually update the annotation
-                    updateAnnotationValue(issue.query().getMethodDeclaration().asMethodDeclaration(),
-                            "Query", issue.optimizedQuery().getStatement().toString());
-
-                    // Track @Query annotation changes (only count when we actually change it)
+                RepositoryQuery optimizedQuery = issue.optimizedQuery();
+                if (optimizedQuery != null) {
+                    if (QueryType.HQL.equals(optimizedQuery.getQueryType())) {
+                        updateAnnotationValue(issue.query().getMethodDeclaration().asMethodDeclaration(),
+                                "Query",  optimizedQuery.getQuery());
+                    }
+                    else {
+                        updateAnnotationValue(issue.query().getMethodDeclaration().asMethodDeclaration(),
+                                "Query",optimizedQuery.getStatement().toString());
+                    }
                     stats.incrementQueryAnnotationsChanged();
 
                     // Check if method name changed (indicating signature should change)
-                    boolean methodNameChanged = !issue.query().getMethodName().equals(issue.optimizedQuery().getMethodName());
+                    boolean methodNameChanged = !issue.query().getMethodName().equals(optimizedQuery.getMethodName());
 
                     // Reorder parameters if column order changed (regardless of method name change)
                     boolean parametersReordered = reorderMethodParameters(
@@ -112,31 +118,35 @@ public class QueryOptimizer extends QueryOptimizationChecker{
                 repositoryFileModified = false;
             }
         }
-        
+
+        updateStats(fullyQualifiedName, updates, stats, repositoryFileModified);
+    }
+
+    private void updateStats(String fullyQualifiedName, List<QueryOptimizationResult> updates, OptimizationStatsLogger.RepositoryStats stats, boolean repositoryFileModified) throws IOException {
         // Apply signature updates and track dependent class changes
         MethodCallUpdateStats callStats = applySignatureUpdatesToUsagesWithStats(updates, fullyQualifiedName);
         stats.setMethodCallsUpdated(callStats.methodCallsUpdated);
         stats.setDependentClassesModified(callStats.dependentClassesModified);
-        
+
         // Track Liquibase indexes generated for this repository only (delta from previous count)
         int currentIndexCount = suggestedNewIndexes.size();
         int indexesGeneratedForThisRepository = currentIndexCount - previousIndexCount;
         stats.setLiquibaseIndexesGenerated(indexesGeneratedForThisRepository);
         previousIndexCount = currentIndexCount;
-        
+
         // Accumulate aggregate statistics
         totalRepositoriesProcessed++;
         totalQueryAnnotationsChanged += stats.getQueryAnnotationsChanged();
         totalMethodSignaturesChanged += stats.getMethodSignaturesChanged();
         totalMethodCallsUpdated += stats.getMethodCallsUpdated();
         totalDependentClassesModified += stats.getDependentClassesModified();
-        
+
         // Track files modified (repository file + dependent classes)
         if (repositoryFileModified) {
             totalFilesModified++; // Repository file was actually modified
         }
         totalFilesModified += stats.getDependentClassesModified();
-        
+
         OptimizationStatsLogger.logStats(stats);
     }
 
@@ -180,9 +190,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
                         .filter(p -> p.getName().asString().equals("value"))
                         .findFirst();
 
-                if (valuePair.isPresent()) {
-                    valuePair.get().setValue(newValueExpr);
-                }
+                valuePair.ifPresent(memberValuePair -> memberValuePair.setValue(newValueExpr));
             }
         }
     }
