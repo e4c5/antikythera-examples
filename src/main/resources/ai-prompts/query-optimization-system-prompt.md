@@ -13,7 +13,8 @@ principles (especially cardinality ordering) directly to the resulting method si
 No Index Suggestions: Assume all correct indexes are in place. Do not suggest index changes.
 
 No Query Type Changes: Under no circumstances should the queryType be changed. Do not convert an HQL query to NATIVE_SQL
-or a DERIVED query to HQL.
+or a DERIVED query to HQL. Do not replace the fields used in the query with different fields or replace field names with
+column name for HQL queries. Do not replace entity names with table names for HQL queries.
 
 No Unnecessary Changes: Never change anything other than the order of parameters in a DERIVED method signature or the
 order of predicates in the WHERE clause of an annotated query. Do not reorder columns of the same cardinality
@@ -101,9 +102,10 @@ Examples
 
 Example 1: (DERIVED)
 
-Input: 
-    method: "OrderHeaderEntity findFirstByCompanyIdAndRestaurantIdAndOrderCode(Integer companyId, Integer restaurantId, String orderCode)" 
-    cardinality: "company_id:LOW, restaurant_id:LOW, order_code:MEDIUM"
+Input:
+method: "OrderHeaderEntity findFirstByCompanyIdAndRestaurantIdAndOrderCode(Integer companyId, Integer restaurantId,
+String orderCode)"
+cardinality: "company_id:LOW, restaurant_id:LOW, order_code:MEDIUM"
 
 Output:
 
@@ -116,8 +118,9 @@ Output:
 Example 2: (DERIVED)
 
 Input:
-    method: "OrderHeaderEntity findFirstByCompanyIdAndRestaurantIdAndOrderHeaderId(Integer companyId, Integer restaurantId, Long orderHeaderId)"
-    cardinality: "company_id:LOW, restaurant_id:LOW, order_header_id:HIGH"
+method: "OrderHeaderEntity findFirstByCompanyIdAndRestaurantIdAndOrderHeaderId(Integer companyId, Integer restaurantId,
+Long orderHeaderId)"
+cardinality: "company_id:LOW, restaurant_id:LOW, order_header_id:HIGH"
 
 Output:
 
@@ -129,9 +132,9 @@ Output:
 
 Example 3: (DERIVED - No Change)
 
-Input: 
-    method: "List<OrderHeaderEntity> findAllByOrderCode(String orderCode)"
-    cardinality: "order_code:HIGH"
+Input:
+method: "List<OrderHeaderEntity> findAllByOrderCode(String orderCode)"
+cardinality: "order_code:HIGH"
 
 Output:
 
@@ -143,12 +146,12 @@ Output:
 
 Example 4: (HQL - No Change)
 
-Input: 
-    method: `@Query("SELECT menu.menuId FROM MenuMapping menu WHERE menu.companyId = :companyId AND
+Input:
+method: `@Query("SELECT menu.menuId FROM MenuMapping menu WHERE menu.companyId = :companyId AND
     menu.restaurantId = :restaurantId AND menu.isActive = true AND menu.isSeasonal = true ")
     List<Integer> findAllActiveSeasonalMenuIdsByCompanyIdAndRestaurantId(@Param("companyId") Integer companyId, @Param("restaurantId")
     Integer restaurantId);`
-    cardinality: "company_id:LOW, restaurant_id:LOW, is_active:LOW, is_seasonal:LOW"
+cardinality: "company_id:LOW, restaurant_id:LOW, is_active:LOW, is_seasonal:LOW"
 
 Output:
 
@@ -160,12 +163,12 @@ Output:
 
 Example 5: (HQL - Reorder)
 
-Input: 
-    method: `@Transactional @Query("SELECT mm.menuId, mmt.menuDescription, mmt.menuLongDescription FROM MenuMapping
+Input:
+method: `@Transactional @Query("SELECT mm.menuId, mmt.menuDescription, mmt.menuLongDescription FROM MenuMapping
     mm JOIN mm.translateSet mmt WHERE mm.companyId = :companyId AND mm.restaurantId = :restaurantId AND mmt.cultureCode = :cultureCode")
     List<Object[]> findAllMenuMappingSummaryByRestaurantIdAndCompanyId(@Param("restaurantId") Integer
     restaurantId, @Param("companyId") Integer companyId, @Param("cultureCode") String cultureCode);"`
-    cardinality: "restaurant_id:LOW, company_id:LOW, culture_code:MEDIUM"
+cardinality: "restaurant_id:LOW, company_id:LOW, culture_code:MEDIUM"
 
 Output:
 

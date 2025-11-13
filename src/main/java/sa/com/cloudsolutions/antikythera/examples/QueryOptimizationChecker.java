@@ -254,7 +254,6 @@ public class QueryOptimizationChecker {
                     // Index is missing or not optimal - add to required indexes
                     String indexRecommendation = String.format("%s.%s", tableName, columnName);
                     requiredIndexes.add(indexRecommendation);
-                    logger.debug("Index needed for {}.{} (cardinality: {})", tableName, columnName, cardinality);
                 }
             }
         }
@@ -343,10 +342,6 @@ public class QueryOptimizationChecker {
             
             // Print the full WHERE clause and query information
             printQueryDetails(result);
-            
-            if (logger.isDebugEnabled()) {
-                logger.debug("Query details: {}", result.getQuery());
-            }
         }
     }
     
@@ -779,18 +774,14 @@ public class QueryOptimizationChecker {
             if (filteredColumns.size() > 1) {
                 // Create multi-column index for this specific table
                 String key = (table + "|" + String.join(",", filteredColumns)).toLowerCase();
-                boolean added = suggestedMultiColumnIndexes.add(key);
-                logger.info("Multi-column index suggestion for {}: {} - {}", table, filteredColumns, added ? "ADDED" : "DUPLICATE");
+                suggestedMultiColumnIndexes.add(key);
             } else if (filteredColumns.size() == 1) {
                 // Only one column needs indexing - create single-column index
                 String column = filteredColumns.get(0);
                 boolean hasExisting = CardinalityAnalyzer.hasIndexWithLeadingColumn(table, column);
                 if (!hasExisting) {
                     String key = (table + "|" + column).toLowerCase();
-                    boolean added = suggestedNewIndexes.add(key);
-                    logger.info("Single-column index suggestion for {}.{} - {}", table, column, added ? "ADDED" : "DUPLICATE");
-                } else {
-                    logger.debug("Skipping {}.{} - already has index with leading column", table, column);
+                    suggestedNewIndexes.add(key);
                 }
             }
         }
@@ -923,7 +914,6 @@ public class QueryOptimizationChecker {
      */
     public void generateLiquibaseChangesFile() throws IOException {
         if (suggestedNewIndexes.isEmpty() && suggestedMultiColumnIndexes.isEmpty()) {
-            logger.info("No index recommendations to generate Liquibase changes for");
             return;
         }
 
