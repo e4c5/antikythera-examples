@@ -437,9 +437,8 @@ public class GeminiAIService {
         if (repositoryQuery == null) {
             return columns;
         }
-        // Use QueryOptimizationExtractor to properly analyze WHERE conditions
-        QueryOptimizationExtractor extractor = new QueryOptimizationExtractor();
-        List<WhereCondition> whereConditions = extractor.extractWhereConditions(repositoryQuery);
+
+        List<WhereCondition> whereConditions = QueryOptimizationExtractor.extractWhereConditions(repositoryQuery);
 
         // Extract column names in the order they appear in WHERE clause
         for (WhereCondition condition : whereConditions) {

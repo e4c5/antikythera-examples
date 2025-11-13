@@ -2,96 +2,150 @@ package sa.com.cloudsolutions.antikythera.examples;
 
 import net.sf.jsqlparser.expression.Expression;
 import net.sf.jsqlparser.statement.Statement;
+import net.sf.jsqlparser.statement.StatementVisitorAdapter;
+import net.sf.jsqlparser.statement.delete.Delete;
+import net.sf.jsqlparser.statement.select.FromItem;
+import net.sf.jsqlparser.statement.select.Join;
+import net.sf.jsqlparser.statement.select.ParenthesedSelect;
 import net.sf.jsqlparser.statement.select.PlainSelect;
 import net.sf.jsqlparser.statement.select.Select;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import sa.com.cloudsolutions.antikythera.generator.QueryMethodParameter;
+import net.sf.jsqlparser.statement.update.Update;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
 
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Factory class that integrates optimization analysis with the existing parser infrastructure.
- * This replaces the custom parsing logic in QueryAnalysisEngine by leveraging the
- * well-tested parser package capabilities.
+ * Recursively process queries with subqueries, UPDATE statements, and DELETE statements
+ * using StatementVisitorAdapter pattern to extract WHERE clause conditions for optimization analysis.
  */
 public class QueryOptimizationExtractor {
-    private static final Logger logger = LoggerFactory.getLogger(QueryOptimizationExtractor.class);
 
-    public QueryOptimizationExtractor() {
-
+    private QueryOptimizationExtractor() {
+        /* use this as a utility class */
     }
-    
     /**
      * Extracts WHERE conditions from a RepositoryQuery using the existing parser infrastructure.
      * This is the main method that replaces QueryAnalysisEngine.extractWhereConditions().
+     *
+     * Enhanced to handle SELECT, UPDATE, DELETE statements, and their subqueries recursively.
      */
-    public List<WhereCondition> extractWhereConditions(RepositoryQuery repositoryQuery) {
+    public static List<WhereCondition> extractWhereConditions(RepositoryQuery repositoryQuery) {
         Statement statement = repositoryQuery.getStatement();
-        
-        if (statement instanceof Select select && select.getSelectBody() instanceof PlainSelect plainSelect) {
-            Expression whereClause = plainSelect.getWhere();
-            
-            if (whereClause != null) {
-                return extractConditionsFromExpression(whereClause, repositoryQuery);
-            }
-        }
-        
-        // For queries without parsed statements (e.g., derived queries), 
-        // extract conditions from method parameters
-        logger.debug("No WHERE clause found in parsed statement, extracting from method parameters");
-        return extractConditionsFromMethodParameters(repositoryQuery);
-    }
-    
-    /**
-     * Extracts conditions from a WHERE expression using the parser infrastructure.
-     * This replaces QueryAnalysisEngine.extractConditionsFromExpression().
-     */
-    public List<WhereCondition> extractConditionsFromExpression(Expression whereExpression, 
-                                                               RepositoryQuery repositoryQuery) {
-        // Use the optimization analysis visitor
-        OptimizationAnalysisVisitor visitor = new OptimizationAnalysisVisitor(repositoryQuery);
-        
-        return  visitor.extractConditions(whereExpression);
-    }
-    
-    /**
-     * Extracts WHERE conditions from method parameters for derived queries.
-     * This handles cases where queries are inferred from method names (findBy*, etc.).
-     */
-    public List<WhereCondition> extractConditionsFromMethodParameters(RepositoryQuery repositoryQuery) {
-        List<WhereCondition> conditions = new ArrayList<>();
-        List<QueryMethodParameter> methodParameters = repositoryQuery.getMethodParameters();
-        
-        if (methodParameters == null || methodParameters.isEmpty()) {
-            return conditions;
-        }
-        
-        String tableName = repositoryQuery.getPrimaryTable();
-        if (tableName == null || tableName.isEmpty()) {
-            logger.debug("Cannot extract conditions from method parameters without table name");
-            return conditions;
-        }
-        
-        for (int i = 0; i < methodParameters.size(); i++) {
-            QueryMethodParameter param = methodParameters.get(i);
-            String columnName = param.getColumnName();
-            
-            if (columnName != null && !columnName.isEmpty()) {
-                // Use existing cardinality analysis infrastructure
-                CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(tableName, columnName);
-                
-                WhereCondition condition = new WhereCondition(tableName, columnName, "=", cardinality, i, param);
-                conditions.add(condition);
-                
-                logger.debug("Extracted condition from method parameter: {}", condition);
-            }
-        }
-        
-        return conditions;
-    }
+        List<WhereCondition> allConditions = new ArrayList<>();
 
+        // Use StatementVisitorAdapter to handle different statement types
+        WhereClauseCollector collector = new WhereClauseCollector(repositoryQuery, allConditions);
+        statement.accept(collector);
+
+        return allConditions;
+    }
+    
+
+    /**
+     * StatementVisitorAdapter that recursively collects WHERE clauses from various SQL statements.
+     * Handles SELECT, UPDATE, DELETE statements, and their subqueries.
+     */
+    private static class WhereClauseCollector extends StatementVisitorAdapter<Void> {
+        private final RepositoryQuery repositoryQuery;
+        private final List<WhereCondition> conditions;
+
+        public WhereClauseCollector(RepositoryQuery repositoryQuery, List<WhereCondition> conditions) {
+            this.repositoryQuery = repositoryQuery;
+            this.conditions = conditions;
+        }
+
+        /**
+         * Extracts conditions from a WHERE expression using the parser infrastructure.
+         */
+        public List<WhereCondition> extractConditionsFromExpression(Expression whereExpression,
+                                                                    RepositoryQuery repositoryQuery) {
+            OptimizationAnalysisVisitor visitor = new OptimizationAnalysisVisitor(repositoryQuery);
+
+            return visitor.extractConditions(whereExpression);
+        }
+
+        @Override
+        public <S> Void visit(Select select, S context) {
+            // Process PlainSelect statements
+            if (select.getPlainSelect() != null) {
+                processPlainSelect(select.getPlainSelect());
+            }
+            return null;
+        }
+
+        @Override
+        public <S> Void visit(Update update, S context) {
+            extractConditions(update.getWhere(), update.getFromItem());
+
+            // Process joins if present
+            if (update.getJoins() != null) {
+                for (Join join : update.getJoins()) {
+                    processFromItem(join.getRightItem());
+                }
+            }
+            return null;
+        }
+
+        private void extractConditions(Expression whereClause, FromItem update1) {
+            if (whereClause != null) {
+                List<WhereCondition> updateConditions = extractConditionsFromExpression(whereClause, repositoryQuery);
+                conditions.addAll(updateConditions);
+            }
+
+            if (update1 != null) {
+                processFromItem(update1);
+            }
+        }
+
+        @Override
+        public <S> Void visit(Delete delete, S context) {
+            Expression whereClause = delete.getWhere();
+            if (whereClause != null) {
+                List<WhereCondition> deleteConditions = extractConditionsFromExpression(whereClause, repositoryQuery);
+                conditions.addAll(deleteConditions);
+            }
+
+            if (delete.getJoins() != null) {
+                for (Join join : delete.getJoins()) {
+                    processFromItem(join.getRightItem());
+                }
+            }
+            return null;
+        }
+
+        /**
+         * Processes a PlainSelect statement, extracting WHERE conditions and recursively
+         * processing any subqueries in FROM and JOIN clauses.
+         */
+        private void processPlainSelect(PlainSelect plainSelect) {
+            // Process WHERE clause
+            extractConditions(plainSelect.getWhere(), plainSelect.getFromItem());
+
+            // Process JOINs for subqueries and ON conditions
+            if (plainSelect.getJoins() != null) {
+                for (Join join : plainSelect.getJoins()) {
+                    processFromItem(join.getRightItem());
+
+                    // Also check ON conditions in joins
+                    if (join.getOnExpressions() != null) {
+                        for (Expression onExpr : join.getOnExpressions()) {
+                            List<WhereCondition> joinConditions = extractConditionsFromExpression(onExpr, repositoryQuery);
+                            conditions.addAll(joinConditions);
+                        }
+                    }
+                }
+            }
+        }
+
+        /**
+         * Processes a FromItem, recursively handling subqueries (ParenthesedSelect).
+         */
+        private void processFromItem(Object fromItem) {
+            if (fromItem instanceof ParenthesedSelect parenthesedSelect && parenthesedSelect.getPlainSelect() != null) {
+                processPlainSelect(parenthesedSelect.getPlainSelect());
+            }
+        }
+    }
 
 }

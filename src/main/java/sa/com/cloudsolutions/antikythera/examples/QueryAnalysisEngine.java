@@ -6,7 +6,6 @@ import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.generator.QueryMethodParameter;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
 
-import java.util.Optional;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -17,19 +16,8 @@ import java.util.List;
  * Updated to support AI-powered query optimization with enhanced analysis capabilities.
  */
 public class QueryAnalysisEngine {
-
     private static final Logger logger = LoggerFactory.getLogger(QueryAnalysisEngine.class);
 
-    private final QueryOptimizationExtractor optimizationExtractor;
-    
-    /**
-     * Creates a new QueryAnalysisEngine with the provided cardinality analyzer.
-     * 
-     */
-    public QueryAnalysisEngine() {
-        this.optimizationExtractor = new QueryOptimizationExtractor();
-    }
-    
     /**
      * Analyzes a RepositoryQuery using its parsed Statement to identify optimization opportunities.
      * Enhanced to handle both HQL and native SQL queries through RepositoryQuery conversion.
@@ -50,7 +38,7 @@ public class QueryAnalysisEngine {
         }
 
         // Extract WHERE clause conditions using the parser infrastructure
-        List<WhereCondition> whereConditions = optimizationExtractor.extractWhereConditions(repositoryQuery);
+        List<WhereCondition> whereConditions = QueryOptimizationExtractor.extractWhereConditions(repositoryQuery);
 
         return new QueryOptimizationResult(repositoryQuery, whereConditions, null, List.of());
     }
