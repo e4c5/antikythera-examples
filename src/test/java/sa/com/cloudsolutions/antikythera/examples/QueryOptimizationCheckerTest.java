@@ -286,8 +286,8 @@ class QueryOptimizationCheckerTest {
     @Test
     void testCollectIndexSuggestions() {
         // Create mock objects
-        when(mockResult.indexSuggestions()).thenReturn(Arrays.asList("users.email"));
-        when(mockResult.query()).thenReturn(mockRepositoryQuery);
+        when(mockResult.getIndexSuggestions()).thenReturn(Arrays.asList("users.email"));
+        when(mockResult.getQuery()).thenReturn(mockRepositoryQuery);
         when(mockRepositoryQuery.getPrimaryTable()).thenReturn("users");
         when(mockRepositoryQuery.getClassname()).thenReturn("UserRepository");
         when(mockRepositoryQuery.getQuery()).thenReturn("SELECT * FROM users WHERE email = ?");
@@ -295,7 +295,7 @@ class QueryOptimizationCheckerTest {
         WhereCondition mockCondition = mock(WhereCondition.class);
         when(mockCondition.columnName()).thenReturn("email");
         when(mockCondition.cardinality()).thenReturn(CardinalityLevel.HIGH);
-        when(mockResult.whereConditions()).thenReturn(Arrays.asList(mockCondition));
+        when(mockResult.getWhereConditions()).thenReturn(Arrays.asList(mockCondition));
         
         when(mockOptimizationIssue.severity()).thenReturn(OptimizationIssue.Severity.HIGH);
         when(mockOptimizationIssue.recommendedColumnOrder()).thenReturn(Arrays.asList("email"));
@@ -338,7 +338,7 @@ class QueryOptimizationCheckerTest {
         QueryOptimizationResult result = checker.createResultWithIndexAnalysis(mockOptimizationIssue, mockRepositoryQuery);
         
         assertNotNull(result);
-        assertEquals(mockRepositoryQuery, result.query());
+        assertEquals(mockRepositoryQuery, result.getQuery());
     }
 
     @Test
@@ -356,7 +356,7 @@ class QueryOptimizationCheckerTest {
     @Test
     void testReportingMethods() {
         // Test private reporting methods through direct calls
-        when(mockResult.whereConditions()).thenReturn(new ArrayList<>());
+        when(mockResult.getWhereConditions()).thenReturn(new ArrayList<>());
         WhereCondition result = checker.findConditionByColumn(mockResult, "email");
         assertNull(result);
         
@@ -418,8 +418,8 @@ class QueryOptimizationCheckerTest {
     @Test
     void testReportOptimizationResults() {
         // Test with empty optimization issues (should call reportOptimizedQuery)
-        when(mockResult.optimizationIssue()).thenReturn(null);
-        when(mockResult.whereConditions()).thenReturn(new ArrayList<>());
+        when(mockResult.getOptimizationIssue()).thenReturn(null);
+        when(mockResult.getWhereConditions()).thenReturn(new ArrayList<>());
         
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         PrintStream originalOut = System.out;
@@ -441,9 +441,9 @@ class QueryOptimizationCheckerTest {
         when(mockCondition.cardinality()).thenReturn(CardinalityLevel.HIGH);
         when(mockCondition.columnName()).thenReturn("email");
         
-        when(mockResult.whereConditions()).thenReturn(Arrays.asList(mockCondition));
+        when(mockResult.getWhereConditions()).thenReturn(Arrays.asList(mockCondition));
         when(mockResult.getFirstCondition()).thenReturn(mockCondition);
-        when(mockResult.query()).thenReturn(mockRepositoryQuery);
+        when(mockResult.getQuery()).thenReturn(mockRepositoryQuery);
         when(mockRepositoryQuery.getClassname()).thenReturn("UserRepository");
         when(mockResult.getMethodName()).thenReturn("findByEmail");
         when(mockResult.getFullWhereClause()).thenReturn("email = ?");
@@ -464,7 +464,7 @@ class QueryOptimizationCheckerTest {
     @Test
     void testPrintQueryDetails() {
         when(mockResult.getFullWhereClause()).thenReturn("email = ? AND status = ?");
-        when(mockResult.optimizationIssue()).thenReturn(null);
+        when(mockResult.getOptimizationIssue()).thenReturn(null);
         
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         PrintStream originalOut = System.out;
@@ -534,7 +534,7 @@ class QueryOptimizationCheckerTest {
         when(mockOptimizationIssue.hasAIRecommendation()).thenReturn(true);
         when(mockOptimizationIssue.aiExplanation()).thenReturn("AI suggests reordering");
         
-        when(mockResult.whereConditions()).thenReturn(new ArrayList<>());
+        when(mockResult.getWhereConditions()).thenReturn(new ArrayList<>());
         
         String result = checker.formatOptimizationIssueEnhanced(mockOptimizationIssue, 1, mockResult);
 
@@ -553,11 +553,11 @@ class QueryOptimizationCheckerTest {
         when(mockOptimizationIssue.recommendedFirstColumn()).thenReturn("email");
         when(mockOptimizationIssue.hasAIRecommendation()).thenReturn(false);
         
-        when(mockResult.query()).thenReturn(mockRepositoryQuery);
+        when(mockResult.getQuery()).thenReturn(mockRepositoryQuery);
         when(mockRepositoryQuery.getClassname()).thenReturn("UserRepository");
         when(mockResult.getMethodName()).thenReturn("findByEmail");
-        when(mockResult.whereConditions()).thenReturn(new ArrayList<>());
-        when(mockResult.indexSuggestions()).thenReturn(new ArrayList<>());
+        when(mockResult.getWhereConditions()).thenReturn(new ArrayList<>());
+        when(mockResult.getIndexSuggestions()).thenReturn(new ArrayList<>());
         when(mockResult.getFullWhereClause()).thenReturn("id = ? AND email = ?");
         
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -587,7 +587,7 @@ class QueryOptimizationCheckerTest {
         when(mockStatement.toString()).thenReturn("SELECT * FROM users WHERE id = ?");
         when(mockRepositoryQuery.getStatement()).thenReturn(mockStatement);
         
-        when(mockResult.query()).thenReturn(mockRepositoryQuery);
+        when(mockResult.getQuery()).thenReturn(mockRepositoryQuery);
         when(mockRepositoryQuery.getClassname()).thenReturn("UserRepository");
         
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -632,7 +632,7 @@ class QueryOptimizationCheckerTest {
         WhereCondition mockCondition = mock(WhereCondition.class);
         when(mockCondition.columnName()).thenReturn("email");
         
-        when(mockResult.whereConditions()).thenReturn(Arrays.asList(mockCondition));
+        when(mockResult.getWhereConditions()).thenReturn(Arrays.asList(mockCondition));
         
         WhereCondition result = checker.findConditionByColumn(mockResult, "email");
         assertEquals(mockCondition, result);
@@ -715,8 +715,8 @@ class QueryOptimizationCheckerTest {
         when(condition3.cardinality()).thenReturn(CardinalityLevel.MEDIUM);
         
         // Setup mock result
-        when(mockResult.indexSuggestions()).thenReturn(Collections.emptyList());
-        when(mockResult.query()).thenReturn(mockRepositoryQuery);
+        when(mockResult.getIndexSuggestions()).thenReturn(Collections.emptyList());
+        when(mockResult.getQuery()).thenReturn(mockRepositoryQuery);
         when(mockRepositoryQuery.getPrimaryTable()).thenReturn("approval");
         when(mockRepositoryQuery.getClassname()).thenReturn("ApprovalRepository");
         when(mockRepositoryQuery.getQuery()).thenReturn(
@@ -724,7 +724,7 @@ class QueryOptimizationCheckerTest {
             "WHERE a.admission_id = :admissionId AND oc.payer_group_id = :payerGroupId " +
             "AND oc.payer_contract_id = :payerContractId"
         );
-        when(mockResult.whereConditions()).thenReturn(Arrays.asList(condition1, condition2, condition3));
+        when(mockResult.getWhereConditions()).thenReturn(Arrays.asList(condition1, condition2, condition3));
 
         // Call the method
         checker.collectIndexSuggestions(mockResult);

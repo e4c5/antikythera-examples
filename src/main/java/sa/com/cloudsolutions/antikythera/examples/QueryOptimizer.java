@@ -72,7 +72,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         boolean repositoryFileModified = false;
 
         for (QueryOptimizationResult result : results) {
-            OptimizationIssue issue = result.optimizationIssue();
+            OptimizationIssue issue = result.getOptimizationIssue();
             if (issue != null) {
                 RepositoryQuery optimizedQuery = issue.optimizedQuery();
                 if (optimizedQuery != null) {
@@ -395,7 +395,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
                 // Loop through ALL updates to find matching method
                 for (QueryOptimizationResult update : updates) {
                     // Check if this call matches the current update's method name
-                    OptimizationIssue issue = update.optimizationIssue();
+                    OptimizationIssue issue = update.getOptimizationIssue();
                     if (update.getMethodName().equals(mce.getNameAsString()) && issue != null) {
                         if (issue.optimizedQuery() != null) {
                             String originalMethodName = mce.getNameAsString();
