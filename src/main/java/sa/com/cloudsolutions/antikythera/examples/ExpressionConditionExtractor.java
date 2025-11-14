@@ -64,7 +64,6 @@ public class ExpressionConditionExtractor extends ExpressionVisitorAdapter<Void>
 
     @Override
     public <S> Void visit(AndExpression andExpr, S context) {
-        // Process left side first (maintains order for optimization analysis)
         andExpr.getLeftExpression().accept(this, context);
         andExpr.getRightExpression().accept(this, context);
         return null;
@@ -126,6 +125,7 @@ public class ExpressionConditionExtractor extends ExpressionVisitorAdapter<Void>
 
     @Override
     public <S> Void visit(InExpression inExpr, S context) {
+        logger.debug("Visiting InExpression: {}", inExpr);
         extractConditionFromIn(inExpr);
         return null;
     }
