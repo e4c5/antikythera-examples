@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.ImportDeclaration;
 import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
@@ -470,6 +471,9 @@ public class GeminiAIService {
         cu.addType(cdecl);
 
         CompilationUnit tmp = StaticJavaParser.parse(String.format("interface Dummy{ %s }", optimizedCodeElement));
+        for (ImportDeclaration importDecl : originalCompilationUnit.getImports()) {
+            cu.addImport(importDecl);
+        }
         MethodDeclaration newMethod = tmp.findFirst(MethodDeclaration.class).orElseThrow();
         // Replace it with the newly created method instance
         cdecl.addMember(newMethod);

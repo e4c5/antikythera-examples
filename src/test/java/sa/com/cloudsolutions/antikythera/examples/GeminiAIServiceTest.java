@@ -1,6 +1,5 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
-import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,15 +32,15 @@ import static org.mockito.Mockito.*;
  * Comprehensive tests for GeminiAIService with mocked HTTP calls.
  */
 class GeminiAIServiceTest {
-
-    public static final String USER_REPOSITORY = "sa.com.cloudsolutions.antikythera.testhelper.repository.UserRepository";
+    public static final String USER_REPO = "sa.com.cloudsolutions.antikythera.testhelper.repository.UserRepository";
 
     private GeminiAIService geminiAIService;
     private Map<String, Object> config;
-    
+    private static BaseRepositoryParser bp;
+
     @Mock
     private HttpClient mockHttpClient;
-    
+
     @Mock
     private HttpResponse<String> mockHttpResponse;
 
@@ -51,21 +50,26 @@ class GeminiAIServiceTest {
         AbstractCompiler.preProcess();
         EntityMappingResolver.build();
         CardinalityAnalyzer.setIndexMap(new HashMap<>());
+
+        bp = BaseRepositoryParser.create(
+                AntikytheraRunTime.getCompilationUnit(USER_REPO));
+        bp.processTypes();
+        bp.buildQueries();
     }
 
     @BeforeEach
     void setUp() throws IOException {
         MockitoAnnotations.openMocks(this);
-        
+
         geminiAIService = new GeminiAIService();
-        
+
         // Create a test configuration
         config = new HashMap<>();
         config.put("api_key", "test-api-key");
         config.put("timeout_seconds", 30);
         config.put("track_usage", true);
         config.put("cost_per_1k_tokens", 0.001);
-        
+
         // Configure the service
         geminiAIService.configure(config);
     }
@@ -83,7 +87,7 @@ class GeminiAIServiceTest {
         Map<String, Object> testConfig = new HashMap<>();
         testConfig.put("api_key", "test-key");
         testConfig.put("timeout_seconds", 60);
-        
+
         GeminiAIService service = new GeminiAIService();
         assertDoesNotThrow(() -> service.configure(testConfig));
     }
@@ -96,54 +100,54 @@ class GeminiAIServiceTest {
             when(mockBuilder.connectTimeout(any())).thenReturn(mockBuilder);
             when(mockBuilder.build()).thenReturn(mockHttpClient);
             httpClientMock.when(HttpClient::newBuilder).thenReturn(mockBuilder);
-            
+
             // Create a new service instance to use the mocked HttpClient
             GeminiAIService testService = new GeminiAIService();
             testService.configure(config);
-            
+
             // Mock successful HTTP response
             String mockResponseBody = """
-                {
-                  "candidates": [
                     {
-                      "content": {
-                        "parts": [
-                          {
-                            "text": "[{\\"optimizedCodeElement\\": \\"User findByEmailAndName(String email, String name);\\", \\"notes\\": \\"Reordered parameters for better performance\\"}]"
+                      "candidates": [
+                        {
+                          "content": {
+                            "parts": [
+                              {
+                                "text": "[{\\"optimizedCodeElement\\": \\"User findByUsername(String username);\\", \\"notes\\": \\"Reordered parameters for better performance\\"}]"
+                              }
+                            ]
                           }
-                        ]
+                        }
+                      ],
+                      "usageMetadata": {
+                        "promptTokenCount": 100,
+                        "candidatesTokenCount": 50,
+                        "totalTokenCount": 150,
+                        "cachedContentTokenCount": 20
                       }
                     }
-                  ],
-                  "usageMetadata": {
-                    "promptTokenCount": 100,
-                    "candidatesTokenCount": 50,
-                    "totalTokenCount": 150,
-                    "cachedContentTokenCount": 20
-                  }
-                }
-                """;
-            
+                    """;
+
             when(mockHttpResponse.statusCode()).thenReturn(200);
             when(mockHttpResponse.body()).thenReturn(mockResponseBody);
             when(mockHttpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
-                .thenReturn(mockHttpResponse);
-            
+                    .thenReturn(mockHttpResponse);
+
             // Create test batch
             QueryBatch batch = createTestQueryBatch();
-            
+
             List<OptimizationIssue> result = testService.analyzeQueryBatch(batch);
-            
+
             assertNotNull(result);
             assertEquals(1, result.size());
-            
+
             // Verify token usage was extracted
             TokenUsage tokenUsage = testService.getLastTokenUsage();
             assertEquals(100, tokenUsage.getInputTokens());
             assertEquals(50, tokenUsage.getOutputTokens());
             assertEquals(150, tokenUsage.getTotalTokens());
             assertEquals(20, tokenUsage.getCachedContentTokenCount());
-            
+
             // Verify cache efficiency calculation
             double expectedEfficiency = (20.0 / 150.0) * 100.0;
             assertEquals(expectedEfficiency, testService.getCacheEfficiency(), 0.01);
@@ -157,21 +161,21 @@ class GeminiAIServiceTest {
             when(mockBuilder.connectTimeout(any())).thenReturn(mockBuilder);
             when(mockBuilder.build()).thenReturn(mockHttpClient);
             httpClientMock.when(HttpClient::newBuilder).thenReturn(mockBuilder);
-            
+
             GeminiAIService testService = new GeminiAIService();
             testService.configure(config);
-            
+
             // Mock HTTP error response
             when(mockHttpResponse.statusCode()).thenReturn(400);
             when(mockHttpResponse.body()).thenReturn("Bad Request");
             when(mockHttpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
-                .thenReturn(mockHttpResponse);
-            
+                    .thenReturn(mockHttpResponse);
+
             QueryBatch batch = createTestQueryBatch();
-            
-            IOException exception = assertThrows(IOException.class, 
-                () -> testService.analyzeQueryBatch(batch));
-            
+
+            IOException exception = assertThrows(IOException.class,
+                    () -> testService.analyzeQueryBatch(batch));
+
             assertTrue(exception.getMessage().contains("API request failed"));
             assertTrue(exception.getMessage().contains("400"));
         }
@@ -189,7 +193,7 @@ class GeminiAIServiceTest {
         java.lang.reflect.Field field = GeminiAIService.class.getDeclaredField("lastTokenUsage");
         field.setAccessible(true);
         field.set(geminiAIService, tokenUsage);
-        
+
         double expectedEfficiency = (30.0 / 150.0) * 100.0;
         assertEquals(expectedEfficiency, geminiAIService.getCacheEfficiency(), 0.01);
     }
@@ -219,13 +223,13 @@ class GeminiAIServiceTest {
 
     @ParameterizedTest
     @CsvSource({
-        "'Here is the JSON response:\n[{\"test\": \"value\"}]\nEnd of response.', '[{\"test\": \"value\"}]'",
-        "'```json\n[{\"test\": \"value\"}]\n```', '[{\"test\": \"value\"}]'",
-        "'No JSON here, just plain text.', ''"
+            "'Here is the JSON response:\n[{\"test\": \"value\"}]\nEnd of response.', '[{\"test\": \"value\"}]'",
+            "'```json\n[{\"test\": \"value\"}]\n```', '[{\"test\": \"value\"}]'",
+            "'No JSON here, just plain text.', ''"
     })
     void testExtractJsonFromResponse(String input, String expected) {
         String result = geminiAIService.extractJsonFromResponse(input);
-        
+
         assertEquals(expected, result);
     }
 
@@ -234,7 +238,7 @@ class GeminiAIServiceTest {
         String notes = "High priority optimization needed";
         List<String> currentOrder = Arrays.asList("email", "name");
         List<String> recommendedOrder = Arrays.asList("name", "email");
-        
+
         OptimizationIssue.Severity result = geminiAIService.determineSeverity(notes, currentOrder, recommendedOrder);
 
         assertEquals(OptimizationIssue.Severity.HIGH, result);
@@ -245,7 +249,7 @@ class GeminiAIServiceTest {
         String notes = "Medium priority optimization";
         List<String> currentOrder = Arrays.asList("email", "name");
         List<String> recommendedOrder = Arrays.asList("name", "email");
-        
+
         OptimizationIssue.Severity result = geminiAIService.determineSeverity(notes, currentOrder, recommendedOrder);
 
         assertEquals(OptimizationIssue.Severity.MEDIUM, result);
@@ -256,7 +260,7 @@ class GeminiAIServiceTest {
         String notes = "Minor optimization";
         List<String> currentOrder = Arrays.asList("email", "name");
         List<String> recommendedOrder = Arrays.asList("email", "name"); // Same order
-        
+
         OptimizationIssue.Severity result = geminiAIService.determineSeverity(notes, currentOrder, recommendedOrder);
 
         assertEquals(OptimizationIssue.Severity.LOW, result);
@@ -266,7 +270,7 @@ class GeminiAIServiceTest {
     void testParseRecommendations_InvalidJson() throws Exception {
         String invalidJson = "This is not valid JSON";
         QueryBatch batch = createTestQueryBatch();
-        
+
         List<OptimizationIssue> result = geminiAIService.parseRecommendations(invalidJson, batch);
 
         assertNotNull(result);
@@ -277,12 +281,12 @@ class GeminiAIServiceTest {
     void testParseRecommendations_ValidJson() throws Exception {
         String validJson = "[{\"optimizedCodeElement\": \"User findByNameAndEmail(String name, String email);\", \"notes\": \"Reordered for better performance\"}]";
         QueryBatch batch = createTestQueryBatch();
-        
+
         List<OptimizationIssue> result = geminiAIService.parseRecommendations(validJson, batch);
 
         assertNotNull(result);
         assertEquals(1, result.size());
-        
+
         OptimizationIssue issue = result.get(0);
         assertNotNull(issue);
         assertTrue(issue.aiExplanation().contains("Reordered for better performance"));
@@ -291,20 +295,14 @@ class GeminiAIServiceTest {
     /**
      * Helper method to create a test QueryBatch with properly mocked RepositoryQuery.
      */
-    private QueryBatch createTestQueryBatch() throws Exception {
+    private QueryBatch createTestQueryBatch() {
         QueryBatch batch = new QueryBatch("UserRepository");
-        
-        // Create a properly mocked RepositoryQuery with valid statement
-        RepositoryQuery mockQuery = mock(RepositoryQuery.class);
-        String sql = "SELECT * FROM users WHERE username = ?";
-        net.sf.jsqlparser.statement.Statement statement = net.sf.jsqlparser.parser.CCJSqlParserUtil.parse(sql);
+        MethodDeclaration md = bp.getCompilationUnit().findAll(MethodDeclaration.class).stream()
+                .filter(m -> m.getNameAsString().equals("findByUsername"))
+                .findFirst()
+                .orElseThrow();
 
-        when(mockQuery.getMethodDeclaration()).thenReturn(new Callable(md));
-        when(mockQuery.getStatement()).thenReturn(statement);
-        when(mockQuery.getQuery()).thenReturn(sql);
-        when(mockQuery.getMethodName()).thenReturn("findByUsername");
-        when(mockQuery.getPrimaryTable()).thenReturn("users");
-        when(mockQuery.getMethodParameters()).thenReturn(new ArrayList<>());
+        RepositoryQuery mockQuery = bp.getQueryFromRepositoryMethod(new Callable(md, null));
 
         batch.addQuery(mockQuery);
 
@@ -314,38 +312,27 @@ class GeminiAIServiceTest {
         cardinalities.put("email", CardinalityLevel.MEDIUM);
         cardinalities.put("age", CardinalityLevel.LOW);
         batch.setColumnCardinalities(cardinalities);
-        
+
         return batch;
     }
 
     @Test
-    void testBuildTableSchemaString() throws IOException {
-        CompilationUnit repoUnit = AntikytheraRunTime.getCompilationUnit(USER_REPOSITORY);
-        BaseRepositoryParser parser = BaseRepositoryParser.create(repoUnit);
-        parser.processTypes();
-        parser.buildQueries();
-        
-        QueryBatch batch = new QueryBatch("UserRepository");
-        Map<String, CardinalityLevel> cardinalities = new HashMap<>();
-        cardinalities.put("email", CardinalityLevel.HIGH);
-        cardinalities.put("username", CardinalityLevel.MEDIUM);
-        batch.setColumnCardinalities(cardinalities);
-        
-        MethodDeclaration findByUsername = repoUnit.findAll(MethodDeclaration.class).stream()
+    void testBuildTableSchemaString() {
+        QueryBatch batch = createTestQueryBatch();
+        MethodDeclaration md = bp.getCompilationUnit().findAll(MethodDeclaration.class).stream()
                 .filter(m -> m.getNameAsString().equals("findByUsername"))
                 .findFirst()
                 .orElseThrow();
-        
-        Callable callable = new Callable(findByUsername, null);
-        RepositoryQuery query = parser.getQueryFromRepositoryMethod(callable);
-        
+
+        RepositoryQuery query = bp.getQueryFromRepositoryMethod(new Callable(md, null));
+
         String result = geminiAIService.buildTableSchemaString(batch, query);
 
         assertNotNull(result);
         // The table name should be "users" from the User entity @Table annotation
         assertTrue(result.contains("users"), "Expected 'users' in: " + result);
-        assertTrue(result.contains("email:HIGH"));
-        assertTrue(result.contains("username:MEDIUM"));
+        assertTrue(result.contains("email:MEDIUM"));
+        assertTrue(result.contains("username:HIGH"));
     }
 
     @Test
@@ -354,10 +341,10 @@ class GeminiAIServiceTest {
         Map<String, CardinalityLevel> cardinalities = new HashMap<>();
         cardinalities.put("id", CardinalityLevel.LOW);
         batch.setColumnCardinalities(cardinalities);
-        
+
         RepositoryQuery mockQuery = mock(RepositoryQuery.class);
         when(mockQuery.getPrimaryTable()).thenReturn(null);
-        
+
         String result = geminiAIService.buildTableSchemaString(batch, mockQuery);
 
         assertNotNull(result);
@@ -368,7 +355,7 @@ class GeminiAIServiceTest {
     @Test
     void testBuildGeminiApiRequest() {
         String userQueryData = "[{\"method\": \"findByName\", \"queryType\": \"DERIVED\"}]";
-        
+
         String result = geminiAIService.buildGeminiApiRequest(userQueryData);
 
         assertNotNull(result);
@@ -381,16 +368,16 @@ class GeminiAIServiceTest {
     @Test
     void testExtractTokenUsage_ValidResponse() throws IOException {
         String responseBody = """
-            {
-              "usageMetadata": {
-                "promptTokenCount": 100,
-                "candidatesTokenCount": 50,
-                "totalTokenCount": 150,
-                "cachedContentTokenCount": 25
-              }
-            }
-            """;
-        
+                {
+                  "usageMetadata": {
+                    "promptTokenCount": 100,
+                    "candidatesTokenCount": 50,
+                    "totalTokenCount": 150,
+                    "cachedContentTokenCount": 25
+                  }
+                }
+                """;
+
         geminiAIService.extractTokenUsage(responseBody);
 
         TokenUsage tokenUsage = geminiAIService.getLastTokenUsage();
@@ -403,17 +390,17 @@ class GeminiAIServiceTest {
     @Test
     void testExtractTokenUsage_NoMetadata() throws IOException {
         String responseBody = """
-            {
-              "candidates": [
                 {
-                  "content": {
-                    "parts": [{"text": "response"}]
-                  }
+                  "candidates": [
+                    {
+                      "content": {
+                        "parts": [{"text": "response"}]
+                      }
+                    }
+                  ]
                 }
-              ]
-            }
-            """;
-        
+                """;
+
         geminiAIService.extractTokenUsage(responseBody);
 
         TokenUsage tokenUsage = geminiAIService.getLastTokenUsage();
@@ -423,23 +410,23 @@ class GeminiAIServiceTest {
     @Test
     void testParseResponse_ValidResponse() throws Exception {
         String responseBody = """
-            {
-              "candidates": [
                 {
-                  "content": {
-                    "parts": [
-                      {
-                        "text": "[{\\"optimizedCodeElement\\": \\"User findByNameAndEmail(String name, String email);\\", \\"notes\\": \\"Reordered parameters\\"}]"
+                  "candidates": [
+                    {
+                      "content": {
+                        "parts": [
+                          {
+                            "text": "[{\\"optimizedCodeElement\\": \\"User findByUsername(String username);\\", \\"notes\\": \\"Reordered parameters\\"}]"
+                          }
+                        ]
                       }
-                    ]
-                  }
+                    }
+                  ]
                 }
-              ]
-            }
-            """;
-        
-        QueryBatch batch = createSimpleTestBatch();
-        
+                """;
+
+        QueryBatch batch = createTestQueryBatch();
+
         List<OptimizationIssue> result = geminiAIService.parseResponse(responseBody, batch);
 
         assertNotNull(result);
@@ -449,13 +436,13 @@ class GeminiAIServiceTest {
     @Test
     void testParseResponse_EmptyResponse() throws Exception {
         String responseBody = """
-            {
-              "candidates": []
-            }
-            """;
-        
-        QueryBatch batch = createSimpleTestBatch();
-        
+                {
+                  "candidates": []
+                }
+                """;
+
+        QueryBatch batch = createTestQueryBatch();
+
         List<OptimizationIssue> result = geminiAIService.parseResponse(responseBody, batch);
 
         assertNotNull(result);
@@ -468,45 +455,19 @@ class GeminiAIServiceTest {
         String codeBlockResponse = "```json\n[{\"test\": \"value\"}]\n```";
         String result1 = geminiAIService.extractJsonFromResponse(codeBlockResponse);
         assertEquals("[{\"test\": \"value\"}]", result1);
-        
+
         // Test with plain JSON
         String plainResponse = "Here is the result: [{\"test\": \"value\"}] end";
         String result2 = geminiAIService.extractJsonFromResponse(plainResponse);
         assertEquals("[{\"test\": \"value\"}]", result2);
-        
+
         // Test with no JSON
         String noJsonResponse = "No JSON content here";
         String result3 = geminiAIService.extractJsonFromResponse(noJsonResponse);
         assertEquals("", result3);
-        
+
         // Test with null input
         String result4 = geminiAIService.extractJsonFromResponse(null);
         assertNull(result4);
-    }
-
-    /**
-     * Helper method to create a simple test batch with properly mocked RepositoryQuery.
-     */
-    private QueryBatch createSimpleTestBatch() throws Exception {
-        QueryBatch batch = new QueryBatch("UserRepository");
-        
-        // Create a properly mocked RepositoryQuery with valid statement
-        RepositoryQuery mockQuery = mock(RepositoryQuery.class);
-        String sql = "SELECT * FROM users WHERE email = ?";
-        net.sf.jsqlparser.statement.Statement statement = net.sf.jsqlparser.parser.CCJSqlParserUtil.parse(sql);
-
-        when(mockQuery.getStatement()).thenReturn(statement);
-        when(mockQuery.getQuery()).thenReturn(sql);
-        when(mockQuery.getMethodName()).thenReturn("findByEmail");
-        when(mockQuery.getPrimaryTable()).thenReturn("users");
-        when(mockQuery.getMethodParameters()).thenReturn(new ArrayList<>());
-
-        batch.addQuery(mockQuery);
-
-        Map<String, CardinalityLevel> cardinalities = new HashMap<>();
-        cardinalities.put("email", CardinalityLevel.HIGH);
-        batch.setColumnCardinalities(cardinalities);
-        
-        return batch;
     }
 }
