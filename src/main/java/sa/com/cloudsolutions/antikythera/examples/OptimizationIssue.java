@@ -13,6 +13,10 @@ public record OptimizationIssue(RepositoryQuery query, List<String> currentColum
                                 Severity severity, String aiExplanation,
                                 RepositoryQuery optimizedQuery) {
 
+    public OptimizationIssue() {
+        this(null, null, null , null , null , null , null);
+    }
+
     /**
      * Severity levels for optimization issues based on potential performance impact.
      */

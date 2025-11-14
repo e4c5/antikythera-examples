@@ -75,8 +75,8 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         setupLexicalPreservation(fullyQualifiedName);
 
         for (QueryOptimizationResult result : results) {
-            if (!result.isAlreadyOptimized() && !result.getOptimizationIssues().isEmpty()) {
-                OptimizationIssue issue = result.getOptimizationIssues().getFirst();
+            OptimizationIssue issue = result.optimizationIssue();
+            if (issue != null) {
                 RepositoryQuery optimizedQuery = issue.optimizedQuery();
                 if (optimizedQuery != null) {
                     if (QueryType.HQL.equals(optimizedQuery.getQueryType())) {
@@ -415,8 +415,8 @@ public class QueryOptimizer extends QueryOptimizationChecker{
                 // Loop through ALL updates to find matching method
                 for (QueryOptimizationResult update : updates) {
                     // Check if this call matches the current update's method name
-                    if (update.getMethodName().equals(mce.getNameAsString()) && !update.getOptimizationIssues().isEmpty()) {
-                        OptimizationIssue issue = update.getOptimizationIssues().getFirst();
+                    OptimizationIssue issue = update.optimizationIssue();
+                    if (update.getMethodName().equals(mce.getNameAsString()) && issue != null) {
                         if (issue.optimizedQuery() != null) {
                             String originalMethodName = mce.getNameAsString();
                             String newMethodName = issue.optimizedQuery().getMethodName();

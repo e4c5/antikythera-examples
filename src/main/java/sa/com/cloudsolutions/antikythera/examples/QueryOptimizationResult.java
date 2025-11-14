@@ -11,138 +11,53 @@ import java.util.List;
  * Aggregates the results of query optimization analysis, including all identified
  * issues, WHERE clause conditions, and summary statistics.
  */
-public class QueryOptimizationResult {
-    private final RepositoryQuery query;
-    private final List<WhereCondition> whereConditions;
-    private final List<OptimizationIssue> optimizationIssues;
-    private final boolean isAlreadyOptimized;
-    private final List<String> indexSuggestions;
+public record QueryOptimizationResult(RepositoryQuery query, List<WhereCondition> whereConditions,
+                                      OptimizationIssue optimizationIssue, List<String> indexSuggestions) {
     /**
      * Creates a new QueryOptimizationResult instance.
-     * 
-     * @param query the full query that was analyzed
-     * @param whereConditions the list of WHERE clause conditions found in the query
-     * @param optimizationIssues the list of optimization issues identified
+     *
+     * @param query             the full query that was analyzed
+     * @param whereConditions   the list of WHERE clause conditions found in the query
+     * @param optimizationIssue the issue identified
      */
-    public QueryOptimizationResult(RepositoryQuery query,List<WhereCondition> whereConditions,
-                                   List<OptimizationIssue> optimizationIssues, List<String> indexSuggestions) {
+    public QueryOptimizationResult(RepositoryQuery query, List<WhereCondition> whereConditions,
+                                   OptimizationIssue optimizationIssue, List<String> indexSuggestions) {
         this.query = query;
         this.whereConditions = new ArrayList<>(whereConditions != null ? whereConditions : Collections.emptyList());
-        this.optimizationIssues = new ArrayList<>(optimizationIssues != null ? optimizationIssues : Collections.emptyList());
-        this.isAlreadyOptimized = this.optimizationIssues.isEmpty();
+        this.optimizationIssue = optimizationIssue;
         this.indexSuggestions = indexSuggestions;
     }
-    
+
     /**
      * Gets the method name that was analyzed.
-     * 
+     *
      * @return the method name
      */
     public String getMethodName() {
         return query.getMethodName();
     }
-    
-    /**
-     * Gets the full query text that was analyzed.
-     * 
-     * @return the query text
-     */
-    public RepositoryQuery getQuery() {
-        return query;
-    }
-    
-    /**
-     * Gets the list of WHERE clause conditions found in the query.
-     * 
-     * @return an unmodifiable list of WHERE conditions
-     */
-    public List<WhereCondition> getWhereConditions() {
-        return whereConditions;
-    }
-    
-    /**
-     * Gets the list of optimization issues identified in the query.
-     * 
-     * @return an unmodifiable list of optimization issues
-     */
-    public List<OptimizationIssue> getOptimizationIssues() {
-        return Collections.unmodifiableList(optimizationIssues);
-    }
-    
+
     /**
      * Checks if the query is already optimized (no issues found).
-     * 
+     *
      * @return true if no optimization issues were found, false otherwise
      */
     public boolean isAlreadyOptimized() {
-        return isAlreadyOptimized;
+        return optimizationIssue == null;
     }
-    
-    /**
-     * Checks if any optimization issues were found.
-     * 
-     * @return true if optimization issues exist, false otherwise
-     */
-    public boolean hasOptimizationIssues() {
-        return !optimizationIssues.isEmpty();
-    }
-    
+
     /**
      * Gets the number of WHERE clause conditions in the query.
-     * 
+     *
      * @return the count of WHERE conditions
      */
     public int getWhereConditionCount() {
         return whereConditions.size();
     }
-    
-    /**
-     * Gets the number of optimization issues found.
-     * 
-     * @return the count of optimization issues
-     */
-    public int getOptimizationIssueCount() {
-        return optimizationIssues.size();
-    }
 
     /**
-     * Gets the highest severity level among all issues.
-     * 
-     * @return the highest severity, or null if no issues exist
-     */
-    public OptimizationIssue.Severity getHighestSeverity() {
-        if (optimizationIssues.isEmpty()) {
-            return null;
-        }
-        
-        boolean hasHigh = optimizationIssues.stream().anyMatch(OptimizationIssue::isHighSeverity);
-        if (hasHigh) {
-            return OptimizationIssue.Severity.HIGH;
-        }
-        
-        boolean hasMedium = optimizationIssues.stream().anyMatch(OptimizationIssue::isMediumSeverity);
-        if (hasMedium) {
-            return OptimizationIssue.Severity.MEDIUM;
-        }
-        
-        return OptimizationIssue.Severity.LOW;
-    }
-    
-    /**
-     * Gets WHERE conditions filtered by cardinality level.
-     * 
-     * @param cardinality the cardinality level to filter by
-     * @return a list of conditions with the specified cardinality
-     */
-    public List<WhereCondition> getConditionsByCardinality(CardinalityLevel cardinality) {
-        return whereConditions.stream()
-                .filter(condition -> condition.cardinality() == cardinality)
-                .toList();
-    }
-    
-    /**
      * Gets the first WHERE condition in the query.
-     * 
+     *
      * @return the first WHERE condition, or null if no conditions exist
      */
     public WhereCondition getFirstCondition() {
@@ -151,106 +66,50 @@ public class QueryOptimizationResult {
                 .findFirst()
                 .orElse(null);
     }
-    
-    /**
-     * Checks if the first WHERE condition uses a high-cardinality column.
-     * 
-     * @return true if the first condition is high cardinality, false otherwise
-     */
-    public boolean isFirstConditionHighCardinality() {
-        WhereCondition firstCondition = getFirstCondition();
-        return firstCondition != null && firstCondition.isHighCardinality();
-    }
-    
-    /**
-     * Gets a formatted summary report of the analysis results.
-     * 
-     * @return formatted summary report
-     */
-    public String getSummaryReport() {
-        StringBuilder report = new StringBuilder();
-        report.append(String.format("Query Analysis Results for %s.%s%n", query.getClassname(), getMethodName()));
-        
-        // Include full WHERE clause information
-        String fullQuery = query.getOriginalQuery();
-        report.append(String.format("Full Query: %s%n", fullQuery));
-        report.append(String.format("WHERE Conditions: %d%n", getWhereConditionCount()));
-        report.append(String.format("Optimization Issues: %d%n", getOptimizationIssueCount()));
-        report.append(String.format("Is Optimized: %s%n", isAlreadyOptimized ? "Yes" : "No"));
-        
-        if (hasOptimizationIssues()) {
-            report.append(String.format("Highest Severity: %s%n", getHighestSeverity()));
-        }
-        
-        return report.toString();
-    }
-
-    public List<String> getIndexSuggestions() {
-        return indexSuggestions;
-    }
 
     @Override
     public String toString() {
         return String.format("repositoryClass='%s', methodName='%s', " +
-                           "whereConditions=%d, optimizationIssues=%d, isOptimized=%s",
-                           query.getClassname(), getMethodName(), whereConditions.size(),
-                           optimizationIssues.size(), isAlreadyOptimized);
+                        "whereConditions=%d, optimizationIssues=%d, isOptimized=%s",
+                query.getClassname(), getMethodName(), whereConditions.size());
     }
 
     public Callable getMethod() {
-        return getQuery().getMethodDeclaration();
+        return query().getMethodDeclaration();
     }
-    
-    /**
-     * Clears all optimization issues from this result.
-     * Used when replacing programmatic analysis with AI recommendations.
-     */
-    public void clearOptimizationIssues() {
-        optimizationIssues.clear();
-    }
-    
-    /**
-     * Adds an optimization issue to this result.
-     * Used when integrating AI recommendations.
-     * 
-     * @param issue the optimization issue to add
-     */
-    public void addOptimizationIssue(OptimizationIssue issue) {
-        optimizationIssues.add(issue);
-    }
-    
+
     /**
      * Gets the full WHERE clause text from the parsed WHERE conditions.
      * Uses the existing parsed WHERE condition data instead of re-parsing the query text.
-     * 
+     *
      * @return the full WHERE clause text reconstructed from parsed conditions, or empty string if not available
      */
     public String getFullWhereClause() {
         if (whereConditions.isEmpty()) {
             return "";
         }
-        
+
         // Build WHERE clause from parsed conditions
         StringBuilder whereClause = new StringBuilder("WHERE ");
-        
+
         // Sort conditions by position to maintain proper order
         List<WhereCondition> sortedConditions = whereConditions.stream()
                 .sorted((c1, c2) -> Integer.compare(c1.position(), c2.position()))
                 .toList();
-        
+
         for (int i = 0; i < sortedConditions.size(); i++) {
             WhereCondition condition = sortedConditions.get(i);
-            
+
             if (i > 0) {
                 whereClause.append(" AND ");
             }
-            
+
             whereClause.append(condition.columnName())
-                      .append(" ")
-                      .append(condition.operator())
-                      .append(" ?");
+                    .append(" ")
+                    .append(condition.operator())
+                    .append(" ?");
         }
-        
+
         return whereClause.toString();
     }
 }
