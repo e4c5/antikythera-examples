@@ -11,9 +11,11 @@ import sa.com.cloudsolutions.liquibase.Indexes;
 
 import java.io.File;
 import java.io.FileWriter;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -26,19 +28,9 @@ import static org.mockito.Mockito.when;
  */
 class QueryOptimizationExtractorTest {
 
-    private static File liquibaseFile;
-
     @BeforeAll
-    static void setupClass() throws Exception{
-        // Load YAML settings explicitly to avoid reflection hacks
-        Path tmpDir = Files.createTempDirectory("qoc-test");
-        liquibaseFile = tmpDir.resolve("db.changelog-master.xml").toFile();
-        try (FileWriter fw = new FileWriter(liquibaseFile)) {
-            fw.write("<databaseChangeLog xmlns=\"http://www.liquibase.org/xml/ns/dbchangelog\"></databaseChangeLog>");
-        }
-        assertTrue(Indexes.load(liquibaseFile).isEmpty(), "Expected empty index map for minimal Liquibase file");
-
-        Settings.loadConfigMap();
+    static void setUp() throws IOException {
+        CardinalityAnalyzer.setIndexMap(new HashMap<>());
     }
 
     private RepositoryQuery createMockRepositoryQuery() {
