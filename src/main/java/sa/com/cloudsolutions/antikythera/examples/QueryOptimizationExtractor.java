@@ -27,7 +27,7 @@ public class QueryOptimizationExtractor {
 
         // Use StatementVisitorAdapter to handle different statement types
         WhereClauseCollector collector = new WhereClauseCollector(repositoryQuery, allConditions);
-        statement.accept(collector);
+        statement.accept(collector, null);
 
         return allConditions;
     }

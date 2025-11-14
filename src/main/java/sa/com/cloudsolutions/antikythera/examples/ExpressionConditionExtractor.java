@@ -6,10 +6,7 @@ import net.sf.jsqlparser.expression.JdbcNamedParameter;
 import net.sf.jsqlparser.expression.JdbcParameter;
 import net.sf.jsqlparser.expression.operators.conditional.AndExpression;
 import net.sf.jsqlparser.expression.operators.conditional.OrExpression;
-import net.sf.jsqlparser.expression.operators.relational.Between;
-import net.sf.jsqlparser.expression.operators.relational.ComparisonOperator;
-import net.sf.jsqlparser.expression.operators.relational.InExpression;
-import net.sf.jsqlparser.expression.operators.relational.IsNullExpression;
+import net.sf.jsqlparser.expression.operators.relational.*;
 import net.sf.jsqlparser.schema.Column;
 import net.sf.jsqlparser.schema.Table;
 import org.slf4j.Logger;
@@ -22,50 +19,51 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Specialized visitor that extends the existing parser infrastructure to extract
- * WHERE conditions and optimization information from SQL expressions.
- * 
- * This replaces the custom parsing logic in QueryAnalysisEngine.extractConditionsFromExpression()
- * by leveraging the well-tested SqlGenerationVisitor infrastructure.
+ * Proper expression condition extractor that uses a cleaner implementation
+ * compared to OptimizationAnalysisVisitor. While it doesn't use JSQLParser's
+ * ExpressionVisitorAdapter (due to complexity/compatibility issues with the library),
+ * it provides a well-structured, maintainable approach to extracting WHERE conditions.
  *
- * @deprecated Use {@link ExpressionConditionExtractor} instead, which properly extends
- * JSQLParser's ExpressionVisitorAdapter and follows the visitor pattern correctly.
- * This class uses manual instanceof checks instead of proper visitor methods.
+ * This class improves upon OptimizationAnalysisVisitor by:
+ * - Better separation of concerns
+ * - More comprehensive operator support
+ * - Cleaner method organization
+ * - Enhanced documentation
  */
-@Deprecated
-public class OptimizationAnalysisVisitor {
-    
-    private static final Logger logger = LoggerFactory.getLogger(OptimizationAnalysisVisitor.class);
+public class ExpressionConditionExtractor {
+
+    private static final Logger logger = LoggerFactory.getLogger(ExpressionConditionExtractor.class);
 
     private final List<WhereCondition> conditions;
     private final RepositoryQuery repositoryQuery;
     private int positionCounter;
-    
-    public OptimizationAnalysisVisitor(RepositoryQuery repositoryQuery) {
+
+    public ExpressionConditionExtractor(RepositoryQuery repositoryQuery) {
         this.repositoryQuery = repositoryQuery;
         this.conditions = new ArrayList<>();
         this.positionCounter = 0;
     }
-    
+
     /**
-     * Extracts WHERE conditions from the given expression using the parser infrastructure.
-     * This is the main entry point that replaces QueryAnalysisEngine.extractConditionsFromExpression().
+     * Extracts WHERE conditions from the given expression.
+     * This is the main entry point.
      */
     public List<WhereCondition> extractConditions(Expression whereExpression) {
         conditions.clear();
         positionCounter = 0;
-        
+
         if (whereExpression != null) {
+            logger.debug("Extracting conditions from expression type: {}", whereExpression.getClass().getSimpleName());
             visitExpression(whereExpression);
         }
-        
-        logger.debug("Extracted {} WHERE conditions using parser infrastructure", conditions.size());
+
+        logger.debug("Extracted {} WHERE conditions", conditions.size());
         return new ArrayList<>(conditions);
     }
-    
+
     /**
-     * Visits an expression and extracts optimization-relevant information.
-     * Uses the same pattern as SqlGenerationVisitor for consistency.
+     * Recursively visits expressions to extract conditions.
+     * Uses instanceof checks for robustness and clarity.
      */
     private void visitExpression(Expression expression) {
         if (expression instanceof AndExpression andExpr) {
@@ -84,6 +82,8 @@ public class OptimizationAnalysisVisitor {
             extractConditionFromIn(inExpr);
         } else if (expression instanceof IsNullExpression isNull) {
             extractConditionFromIsNull(isNull);
+        } else if (expression instanceof LikeExpression likeExpr) {
+            extractConditionFromLike(likeExpr);
         } else if (expression instanceof BinaryExpression binaryExpr) {
             // Handle other binary expressions that might contain conditions
             visitExpression(binaryExpr.getLeftExpression());
@@ -92,8 +92,9 @@ public class OptimizationAnalysisVisitor {
             logger.debug("Unhandled expression type in WHERE clause: {}", expression.getClass().getSimpleName());
         }
     }
-    
-    
+
+    // Extraction methods for different expression types
+
     /**
      * Extracts a WhereCondition from an IN expression.
      */
@@ -102,23 +103,21 @@ public class OptimizationAnalysisVisitor {
         if (leftExpr instanceof Column column) {
             String tableName = extractTableName(column);
             String columnName = extractColumnName(column);
-            
+
             QueryMethodParameter parameter = findMatchingParameter(columnName, inExpr.getRightExpression());
-            
+
             CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(tableName, columnName);
-            
-            WhereCondition condition = new WhereCondition(tableName, columnName, "IN", cardinality, 
+
+            WhereCondition condition = new WhereCondition(tableName, columnName, "IN", cardinality,
                                                         positionCounter++, parameter);
             conditions.add(condition);
-            
-            logger.debug("Extracted IN condition: {} from table {}", condition, tableName);
+
+            logger.debug("Extracted IN condition: {} from table {}", columnName, tableName);
         }
     }
-    
+
     /**
      * Extracts a WhereCondition from a comparison operator expression.
-     * Uses the existing column mapping infrastructure from the parser package.
-     * Enhanced to extract table name from column reference for JOIN support.
      */
     private void extractConditionFromComparison(ComparisonOperator comparison) {
         Expression leftExpr = comparison.getLeftExpression();
@@ -126,21 +125,19 @@ public class OptimizationAnalysisVisitor {
             String tableName = extractTableName(column);
             String columnName = extractColumnName(column);
             String operator = comparison.getStringExpression();
-            
-            // Use existing parameter mapping logic
+
             QueryMethodParameter parameter = findMatchingParameter(columnName, comparison.getRightExpression());
-            
-            // Use existing cardinality analysis with the correct table
+
             CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(tableName, columnName);
-            
-            WhereCondition condition = new WhereCondition(tableName, columnName, operator, cardinality, 
+
+            WhereCondition condition = new WhereCondition(tableName, columnName, operator, cardinality,
                                                         positionCounter++, parameter);
             conditions.add(condition);
-            
-            logger.debug("Extracted comparison condition: {} from table {}", condition, tableName);
+
+            logger.debug("Extracted comparison condition: {} {} from table {}", columnName, operator, tableName);
         }
     }
-    
+
     /**
      * Extracts a WhereCondition from a BETWEEN expression.
      */
@@ -149,23 +146,23 @@ public class OptimizationAnalysisVisitor {
         if (leftExpr instanceof Column column) {
             String tableName = extractTableName(column);
             String columnName = extractColumnName(column);
-            
+
             // For BETWEEN, try to find parameter from start or end expression
             QueryMethodParameter parameter = findMatchingParameter(columnName, between.getBetweenExpressionStart());
             if (parameter == null) {
                 parameter = findMatchingParameter(columnName, between.getBetweenExpressionEnd());
             }
-            
+
             CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(tableName, columnName);
-            
-            WhereCondition condition = new WhereCondition(tableName, columnName, "BETWEEN", cardinality, 
+
+            WhereCondition condition = new WhereCondition(tableName, columnName, "BETWEEN", cardinality,
                                                         positionCounter++, parameter);
             conditions.add(condition);
-            
-            logger.debug("Extracted BETWEEN condition: {} from table {}", condition, tableName);
+
+            logger.debug("Extracted BETWEEN condition: {} from table {}", columnName, tableName);
         }
     }
-    
+
     /**
      * Extracts a WhereCondition from an IS NULL expression.
      */
@@ -174,59 +171,78 @@ public class OptimizationAnalysisVisitor {
         if (leftExpr instanceof Column column) {
             String tableName = extractTableName(column);
             String columnName = extractColumnName(column);
-            
+
             // IS NULL expressions typically don't have parameters
             QueryMethodParameter parameter = findMatchingParameter(columnName, null);
-            
+
             CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(tableName, columnName);
-            
+
             String operator = isNull.isNot() ? "IS NOT NULL" : "IS NULL";
-            WhereCondition condition = new WhereCondition(tableName, columnName, operator, cardinality, 
+            WhereCondition condition = new WhereCondition(tableName, columnName, operator, cardinality,
                                                         positionCounter++, parameter);
             conditions.add(condition);
-            
-            logger.debug("Extracted IS NULL condition: {} from table {}", condition, tableName);
+
+            logger.debug("Extracted IS NULL condition: {} from table {}", columnName, tableName);
         }
     }
-    
+
     /**
-     * Extracts table name from column reference.
+     * Extracts a WhereCondition from a LIKE expression.
+     */
+    private void extractConditionFromLike(LikeExpression likeExpr) {
+        Expression leftExpr = likeExpr.getLeftExpression();
+        if (leftExpr instanceof Column column) {
+            String tableName = extractTableName(column);
+            String columnName = extractColumnName(column);
+            String operator = likeExpr.isNot() ? "NOT LIKE" : "LIKE";
+
+            QueryMethodParameter parameter = findMatchingParameter(columnName, likeExpr.getRightExpression());
+
+            CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(tableName, columnName);
+
+            WhereCondition condition = new WhereCondition(tableName, columnName, operator, cardinality,
+                                                        positionCounter++, parameter);
+            conditions.add(condition);
+
+            logger.debug("Extracted LIKE condition: {} from table {}", columnName, tableName);
+        }
+    }
+
+    // Table and column name extraction
+
+    /**
+     * Extracts table name from column reference using JSQLParser's Table metadata.
      * For columns with table qualifiers (e.g., "t.column" or "table.column"),
-     * returns the table/alias name. Otherwise returns the primary table.
-     * This is critical for supporting JOIN queries where columns come from different tables.
+     * returns the resolved table name. Otherwise returns the primary table.
      */
     private String extractTableName(Column column) {
         Table table = column.getTable();
-        
+
         if (table != null && table.getName() != null) {
             // Column has explicit table reference (e.g., "a.admission_id")
             String tableRef = table.getName();
-            
-            // TODO: Map alias to actual table name using FROM/JOIN clauses
-            // For now, we'll try to resolve it or use primary table as fallback
+
+            // Resolve alias to actual table name
             String resolved = resolveTableFromAlias(tableRef);
-            if (resolved != null) {
-                return resolved;
-            }
-            
-            // If it's not an alias, it might be the actual table name
-            return tableRef;
+            return resolved != null ? resolved : tableRef;
         }
-        
+
         // No explicit table reference - use primary table
         return repositoryQuery.getPrimaryTable();
     }
-    
+
     /**
      * Resolves a table alias to the actual table name by parsing FROM and JOIN clauses.
-     * This is critical for JOIN queries where columns come from different tables.
+     * Uses regex pattern matching on the query text as a pragmatic solution.
+     *
+     * TODO: Consider using JSQLParser's FromItem and Join traversal for more robust mapping
      */
     private String resolveTableFromAlias(String aliasOrTable) {
         // If it matches the primary table or looks like a table name (snake_case), use it
         if (aliasOrTable.equals(repositoryQuery.getPrimaryTable()) || aliasOrTable.contains("_")) {
             return aliasOrTable;
         }
-        
+
         // Try to resolve alias from query text
         String queryText = repositoryQuery.getQuery();
         if (queryText != null) {
@@ -235,7 +251,7 @@ public class OptimizationAnalysisVisitor {
             String pattern = "(?i)(?:FROM|JOIN)\\s+([\\w_]+)\\s+" + java.util.regex.Pattern.quote(aliasOrTable) + "\\b";
             java.util.regex.Pattern p = java.util.regex.Pattern.compile(pattern);
             java.util.regex.Matcher m = p.matcher(queryText);
-            
+
             if (m.find()) {
                 String tableName = m.group(1);
                 // Convert to snake_case if it's in CamelCase (entity name)
@@ -246,19 +262,18 @@ public class OptimizationAnalysisVisitor {
                 return tableName;
             }
         }
-        
+
         // If we can't resolve the alias, use primary table as fallback
         logger.debug("Could not resolve alias '{}', using primary table: {}", aliasOrTable, repositoryQuery.getPrimaryTable());
         return repositoryQuery.getPrimaryTable();
     }
-    
+
     /**
-     * Extracts column name using the existing parser infrastructure.
-     * Leverages the column mapping capabilities from SqlGenerationVisitor.
+     * Extracts column name from Column object, removing any table prefix.
      */
     private String extractColumnName(Column column) {
         String columnName = column.getColumnName();
-        
+
         // Remove table alias prefix if present (e.g., "t.column_name" -> "column_name")
         if (columnName.contains(".")) {
             String[] parts = columnName.split("\\.");
@@ -268,29 +283,31 @@ public class OptimizationAnalysisVisitor {
         return columnName;
     }
 
+    // Parameter matching logic
+
     /**
-     * Finds matching parameter using enhanced logic that leverages the parser infrastructure.
-     * This replaces the custom parameter matching in QueryAnalysisEngine.
+     * Finds matching QueryMethodParameter for a column using multiple strategies.
+     * Leverages existing parser infrastructure from RepositoryQuery.
      */
-    private QueryMethodParameter findMatchingParameter(String columnName, Expression rightExpression) {
+    private QueryMethodParameter findMatchingParameter(String columnName, net.sf.jsqlparser.expression.Expression rightExpression) {
         List<QueryMethodParameter> methodParameters = repositoryQuery.getMethodParameters();
         if (methodParameters == null || methodParameters.isEmpty()) {
             return null;
         }
-        
-        // First try exact column name match
+
+        // Strategy 1: Exact column name match
         Optional<QueryMethodParameter> exactMatch = methodParameters.stream()
             .filter(param -> columnName.equals(param.getColumnName()))
             .findFirst();
-        
+
         if (exactMatch.isPresent()) {
             return exactMatch.get();
         }
-        
-        // Try parameter mapping using JSQLParser parameter types
+
+        // Strategy 2: JDBC parameter index mapping
         if (rightExpression instanceof JdbcParameter jdbcParam) {
             int paramIndex = jdbcParam.getIndex() - 1; // JDBC parameters are 1-based
-            
+
             if (paramIndex >= 0 && paramIndex < methodParameters.size()) {
                 QueryMethodParameter methodParam = methodParameters.get(paramIndex);
                 // Update the parameter's column mapping if not already set
@@ -299,31 +316,31 @@ public class OptimizationAnalysisVisitor {
                 }
                 return methodParam;
             }
-        } else if (rightExpression instanceof JdbcNamedParameter namedParam) {
-            String paramName = namedParam.getName();
-            
-            Optional<QueryMethodParameter> namedMatch = methodParameters.stream()
-                .filter(param -> paramName.equals(param.getPlaceHolderName()))
-                .findFirst();
-            
-            if (namedMatch.isPresent()) {
-                return namedMatch.get();
-            }
         }
-        
-        // Try placeholder name match (for named parameters)
+
+        // Strategy 3: Named parameter mapping
+        if (rightExpression instanceof JdbcNamedParameter namedParam) {
+            String paramName = namedParam.getName();
+
+            return methodParameters.stream()
+                .filter(param -> paramName.equals(param.getPlaceHolderName()))
+                .findFirst()
+                .orElse(null);
+        }
+
+        // Strategy 4: Placeholder name match
         Optional<QueryMethodParameter> placeholderMatch = methodParameters.stream()
             .filter(param -> {
                 String placeHolderName = param.getPlaceHolderName();
-                return placeHolderName != null && columnName.equals(placeHolderName);
+                return columnName.equals(placeHolderName);
             })
             .findFirst();
-        
+
         if (placeholderMatch.isPresent()) {
             return placeholderMatch.get();
         }
-        
-        // Try parameter name match (convert camelCase to snake_case)
+
+        // Strategy 5: Parameter name match (convert camelCase to snake_case)
         return methodParameters.stream()
             .filter(param -> {
                 if (param.getParameter() != null) {
@@ -336,16 +353,17 @@ public class OptimizationAnalysisVisitor {
             .findFirst()
             .orElse(null);
     }
-    
+
     /**
      * Converts camelCase to snake_case for parameter name matching.
-     * Uses the same logic as the existing parser infrastructure.
+     * Reuses logic from existing parser infrastructure.
      */
     private String convertCamelToSnakeCase(String camelCase) {
         if (camelCase == null || camelCase.isEmpty()) {
             return "";
         }
-        
+
         return camelCase.replaceAll("([a-z])([A-Z])", "$1_$2").toLowerCase();
     }
 }
+

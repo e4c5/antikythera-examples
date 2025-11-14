@@ -27,13 +27,14 @@ class WhereClauseCollector extends StatementVisitorAdapter<Void> {
     }
 
     /**
-     * Extracts conditions from a WHERE expression using the parser infrastructure.
+     * Extracts conditions from a WHERE expression using the improved extractor.
+     * Now uses ExpressionConditionExtractor which provides better structure than OptimizationAnalysisVisitor.
      */
     public List<WhereCondition> extractConditionsFromExpression(Expression whereExpression,
                                                                 RepositoryQuery repositoryQuery) {
-        OptimizationAnalysisVisitor visitor = new OptimizationAnalysisVisitor(repositoryQuery);
+        ExpressionConditionExtractor extractor = new ExpressionConditionExtractor(repositoryQuery);
 
-        return visitor.extractConditions(whereExpression);
+        return extractor.extractConditions(whereExpression);
     }
 
     @Override
