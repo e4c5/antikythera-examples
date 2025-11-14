@@ -360,7 +360,7 @@ public class QueryOptimizationChecker {
         this.totalMediumPriorityRecommendations += mediumCount;
         
         // Report header with summary
-        System.out.printf("\n⚠ OPTIMIZATION NEEDED: %s.%s (%d issue%s found)%n",
+        System.out.printf("\n⚠ OPTIMIZATION NEEDED: %s.%s%n",
                                         result.query().getClassname(),
                                         result.getMethodName());
         
