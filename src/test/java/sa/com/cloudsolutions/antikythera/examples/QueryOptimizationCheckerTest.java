@@ -67,7 +67,7 @@ class QueryOptimizationCheckerTest {
     }
 
     @Test
-    void testParseListArg() throws Exception {
+    void testParseListArg() {
         Set<String> low = QueryOptimizationChecker.parseListArg(new String[]{"--low-cardinality=email,is_active,  USER_ID   ", "--other=x"}, "--low-cardinality=");
         assertTrue(low.contains("email"));
         assertTrue(low.contains("is_active"));
@@ -76,13 +76,13 @@ class QueryOptimizationCheckerTest {
     }
 
     @Test
-    void testParseListArg_NoMatch() throws Exception {
+    void testParseListArg_NoMatch() {
         Set<String> none = QueryOptimizationChecker.parseListArg(new String[]{"--foo=bar"}, "--low-cardinality=");
         assertTrue(none.isEmpty());
     }
 
     @Test
-    void testSeverityPriorityOrdering() throws Exception {
+    void testSeverityPriorityOrdering()  {
         int pHigh = checker.getSeverityPriority(OptimizationIssue.Severity.HIGH);
         int pMed = checker.getSeverityPriority(OptimizationIssue.Severity.MEDIUM);
         int pLow = checker.getSeverityPriority(OptimizationIssue.Severity.LOW);
@@ -90,7 +90,7 @@ class QueryOptimizationCheckerTest {
     }
 
     @Test
-    void testSeverityIconMapping() throws Exception {
+    void testSeverityIconMapping() {
         String iHigh = checker.getSeverityIcon(OptimizationIssue.Severity.HIGH);
         String iMed = checker.getSeverityIcon(OptimizationIssue.Severity.MEDIUM);
         String iLow = checker.getSeverityIcon(OptimizationIssue.Severity.LOW);
@@ -100,7 +100,7 @@ class QueryOptimizationCheckerTest {
     }
 
     @Test
-    void testInferTableNameFromQuery() throws Exception {
+    void testInferTableNameFromQuery() {
         String table1 = checker.inferTableNameFromQuery("SELECT * FROM public.users u WHERE u.id = ?");
         assertEquals("users", table1);
         
@@ -118,7 +118,7 @@ class QueryOptimizationCheckerTest {
     }
 
     @Test
-    void testInferTableNameFromQuerySafeFallback() throws Exception {
+    void testInferTableNameFromQuerySafeFallback() {
         String table2 = checker.inferTableNameFromQuerySafe(null, "UserAccountRepository");
         assertEquals("user_account", table2);
         
@@ -128,7 +128,7 @@ class QueryOptimizationCheckerTest {
     }
 
     @Test
-    void testInferTableNameFromRepositoryClassName() throws Exception {
+    void testInferTableNameFromRepositoryClassName() {
         String table1 = checker.inferTableNameFromRepositoryClassName("com.example.UserRepository");
         assertEquals("user", table1);
         
@@ -157,7 +157,7 @@ class QueryOptimizationCheckerTest {
     }
 
     @Test
-    void testBuildLiquibaseDropIndexChangeSet() throws Exception {
+    void testBuildLiquibaseDropIndexChangeSet() {
         String dropXml = checker.buildLiquibaseDropIndexChangeSet("idx_users_email");
         assertTrue(
                 dropXml.contains("DROP INDEX CONCURRENTLY IF EXISTS idx_users_email")
@@ -176,7 +176,7 @@ class QueryOptimizationCheckerTest {
     // Test coverage is now provided by LiquibaseGeneratorTest
 
     @Test
-    void testIndent() throws Exception {
+    void testIndent() {
         String indented = checker.indent("a\nb", 2);
         assertEquals("  a\n  b", indented);
         
@@ -190,7 +190,7 @@ class QueryOptimizationCheckerTest {
     }
 
     @Test
-    void testIndentXml() throws Exception {
+    void testIndentXml() {
         String xml = "<tag>\n<nested>value</nested>\n</tag>";
         String result = checker.indentXml(xml, 2);
         assertTrue(result.contains("  <tag>"));
@@ -205,7 +205,7 @@ class QueryOptimizationCheckerTest {
     }
 
     @Test
-    void testPrintConsolidatedIndexActions() throws Exception {
+    void testPrintConsolidatedIndexActions() {
         LinkedHashSet<String> suggestedSet = checker.getSuggestedNewIndexes();
         suggestedSet.add("users|email");
         suggestedSet.add("orders|user_id");
@@ -318,7 +318,7 @@ class QueryOptimizationCheckerTest {
     }
 
     @Test
-    void testGenerateLiquibaseChangesFile() throws Exception {
+    void testGenerateLiquibaseChangesFile() {
         // Add some index suggestions
         LinkedHashSet<String> suggestedSet = checker.getSuggestedNewIndexes();
         suggestedSet.add("users|email");
@@ -365,7 +365,7 @@ class QueryOptimizationCheckerTest {
     }
 
     @Test
-    void testReportingMethods() throws Exception {
+    void testReportingMethods() {
         // Test private reporting methods through direct calls
         when(mockResult.getWhereConditions()).thenReturn(new ArrayList<>());
         WhereCondition result = checker.findConditionByColumn(mockResult, "email");
@@ -384,7 +384,7 @@ class QueryOptimizationCheckerTest {
     }
 
     @Test
-    void testMultiColumnIndexSuggestions() throws Exception {
+    void testMultiColumnIndexSuggestions() {
         LinkedHashSet<String> multiColumnSet = checker.getSuggestedMultiColumnIndexes();
 
         multiColumnSet.add("users|email,name,status");
@@ -402,7 +402,7 @@ class QueryOptimizationCheckerTest {
     }
 
     @Test
-    void testLiquibaseGeneration() throws Exception {
+    void testLiquibaseGeneration() {
         // Test the method that generates Liquibase changes
         LinkedHashSet<String> suggestedSet = checker.getSuggestedNewIndexes();
         suggestedSet.add("users|email");
@@ -417,7 +417,7 @@ class QueryOptimizationCheckerTest {
     }
 
     @Test
-    void testStaticMethods() throws Exception {
+    void testStaticMethods() {
         // Test parseListArg method which is static and safe to test
         Set<String> result = QueryOptimizationChecker.parseListArg(new String[]{"--test=a,b,c"}, "--test=");
         assertEquals(3, result.size());
@@ -427,7 +427,7 @@ class QueryOptimizationCheckerTest {
     }
 
     @Test
-    void testReportOptimizationResults() throws Exception {
+    void testReportOptimizationResults() {
         // Test with empty optimization issues (should call reportOptimizedQuery)
         when(mockResult.getOptimizationIssues()).thenReturn(new ArrayList<>());
         when(mockResult.getWhereConditions()).thenReturn(new ArrayList<>());
@@ -446,7 +446,7 @@ class QueryOptimizationCheckerTest {
     }
 
     @Test
-    void testReportOptimizedQuery() throws Exception {
+    void testReportOptimizedQuery() {
         // Mock a WhereCondition
         WhereCondition mockCondition = mock(WhereCondition.class);
         when(mockCondition.cardinality()).thenReturn(CardinalityLevel.HIGH);
@@ -473,7 +473,7 @@ class QueryOptimizationCheckerTest {
     }
 
     @Test
-    void testPrintQueryDetails() throws Exception {
+    void testPrintQueryDetails() {
         when(mockResult.getFullWhereClause()).thenReturn("email = ? AND status = ?");
         when(mockResult.hasOptimizationIssues()).thenReturn(false);
         
@@ -491,7 +491,7 @@ class QueryOptimizationCheckerTest {
     }
 
     @Test
-    void testAddColumnReorderingRecommendations() throws Exception {
+    void testAddColumnReorderingRecommendations() {
         // Test with empty list
         List<OptimizationIssue> emptyIssues = new ArrayList<>();
         
@@ -527,7 +527,7 @@ class QueryOptimizationCheckerTest {
     }
 
     @Test
-    void testAddPriorityRecommendations() throws Exception {
+    void testAddPriorityRecommendations() {
         StringBuilder recommendations = new StringBuilder();
         
         when(mockOptimizationIssue.recommendedFirstColumn()).thenReturn("email");
@@ -543,7 +543,7 @@ class QueryOptimizationCheckerTest {
     }
 
     @Test
-    void testFormatOptimizationIssueEnhanced() throws Exception {
+    void testFormatOptimizationIssueEnhanced() {
         when(mockOptimizationIssue.severity()).thenReturn(OptimizationIssue.Severity.HIGH);
         when(mockOptimizationIssue.description()).thenReturn("Test optimization issue");
         when(mockOptimizationIssue.currentFirstColumn()).thenReturn("id");
@@ -561,7 +561,7 @@ class QueryOptimizationCheckerTest {
     }
 
     @Test
-    void testReportOptimizationIssues() throws Exception {
+    void testReportOptimizationIssues() {
         when(mockOptimizationIssue.severity()).thenReturn(OptimizationIssue.Severity.HIGH);
         when(mockOptimizationIssue.isHighSeverity()).thenReturn(true);
         when(mockOptimizationIssue.isMediumSeverity()).thenReturn(false);
@@ -593,7 +593,7 @@ class QueryOptimizationCheckerTest {
     }
 
     @Test
-    void testReportOptimizationIssuesQuiet() throws Exception {
+    void testReportOptimizationIssuesQuiet() {
         when(mockOptimizationIssue.isHighSeverity()).thenReturn(true);
         when(mockOptimizationIssue.isMediumSeverity()).thenReturn(false);
         when(mockOptimizationIssue.optimizedQuery()).thenReturn(mockRepositoryQuery);
@@ -625,7 +625,7 @@ class QueryOptimizationCheckerTest {
     }
 
     @Test
-    void testAnalyzeRepository() throws Exception {
+    void testAnalyzeRepository() {
         try {
             checker.analyzeRepository("com.example.UserRepository", mockTypeWrapper);
             // This will likely fail due to complex dependencies, but we test it doesn't crash
@@ -637,7 +637,7 @@ class QueryOptimizationCheckerTest {
     }
 
     @Test
-    void testAnalyze() throws Exception {
+    void testAnalyze() {
         try {
             checker.analyze();
             // This will likely fail due to AntikytheraRunTime dependencies
@@ -649,7 +649,7 @@ class QueryOptimizationCheckerTest {
     }
 
     @Test
-    void testFindConditionByColumn() throws Exception {
+    void testFindConditionByColumn() {
         WhereCondition mockCondition = mock(WhereCondition.class);
         when(mockCondition.columnName()).thenReturn("email");
         
@@ -664,7 +664,7 @@ class QueryOptimizationCheckerTest {
     }
 
     @Test
-    void testFormatConditionWithCardinalityWithCondition() throws Exception {
+    void testFormatConditionWithCardinalityWithCondition() {
         WhereCondition mockCondition = mock(WhereCondition.class);
         when(mockCondition.cardinality()).thenReturn(CardinalityLevel.HIGH);
         
@@ -688,7 +688,7 @@ class QueryOptimizationCheckerTest {
     }
 
     @Test
-    void testCounterIncrements() throws Exception {
+    void testCounterIncrements() {
         // Test that counters are properly incremented
         int initialHigh = checker.getTotalHighPriorityRecommendations();
         int initialMedium = checker.getTotalMediumPriorityRecommendations();
@@ -699,7 +699,7 @@ class QueryOptimizationCheckerTest {
     }
 
     @Test
-    void testCollectIndexSuggestionsWithJoinQuery() throws Exception {
+    void testCollectIndexSuggestionsWithJoinQuery() {
         // Test that JOIN queries with columns from multiple tables generate separate indexes
         
         // Setup a mock index map with indexes to simulate real cardinality analysis
