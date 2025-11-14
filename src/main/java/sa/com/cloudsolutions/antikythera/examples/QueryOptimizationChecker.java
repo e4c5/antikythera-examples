@@ -35,7 +35,6 @@ public class QueryOptimizationChecker {
     protected final QueryAnalysisEngine analysisEngine;
     protected final File liquibaseXmlPath;
     protected final GeminiAIService aiService;
-    protected final QueryBatchProcessor batchProcessor;
     protected final LiquibaseGenerator liquibaseGenerator;
 
     // Aggregated counters for summary and exit code logic
@@ -82,10 +81,6 @@ public class QueryOptimizationChecker {
             aiConfig = new HashMap<>();
         }
         this.aiService.configure(aiConfig);
-        
-        // Initialize batch processor for repository-level query collection
-        this.batchProcessor = new QueryBatchProcessor();
-        
         // Initialize Liquibase generator with default configuration
         this.liquibaseGenerator = new LiquibaseGenerator();
     }
