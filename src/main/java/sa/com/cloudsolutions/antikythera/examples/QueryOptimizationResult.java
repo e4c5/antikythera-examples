@@ -38,15 +38,6 @@ public record QueryOptimizationResult(RepositoryQuery query, List<WhereCondition
     }
 
     /**
-     * Checks if the query is already optimized (no issues found).
-     *
-     * @return true if no optimization issues were found, false otherwise
-     */
-    public boolean isAlreadyOptimized() {
-        return optimizationIssue == null;
-    }
-
-    /**
      * Gets the number of WHERE clause conditions in the query.
      *
      * @return the count of WHERE conditions

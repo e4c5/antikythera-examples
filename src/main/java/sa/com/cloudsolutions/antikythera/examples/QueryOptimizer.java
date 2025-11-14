@@ -71,9 +71,6 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         List<QueryOptimizationResult> updates = new ArrayList<>();
         boolean repositoryFileModified = false;
 
-        // Setup LexicalPreservingPrinter by re-parsing the file to preserve whitespace
-        setupLexicalPreservation(fullyQualifiedName);
-
         for (QueryOptimizationResult result : results) {
             OptimizationIssue issue = result.optimizationIssue();
             if (issue != null) {
@@ -298,13 +295,6 @@ public class QueryOptimizer extends QueryOptimizationChecker{
                 TypeWrapper typeWrapper = AntikytheraRunTime.getResolvedTypes().get(className);
                 
                 if (typeWrapper != null) {
-                    // Setup lexical preservation for dependent class before modifying
-                    try {
-                        setupLexicalPreservation(className);
-                    } catch (IOException e) {
-                        System.err.println("Warning: Failed to setup lexical preservation for dependent class " + className + ": " + e.getMessage());
-                    }
-                    
                     NameChangeVisitor visitor = new NameChangeVisitor(fieldName);
                     typeWrapper.getType().accept(visitor, updates);
                     
@@ -323,16 +313,6 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         return stats;
     }
 
-    /**
-     * Sets up lexical preservation - intentionally empty as LexicalPreservingPrinter
-     * is now enabled globally before preProcess() in main().
-     * All files parsed during preProcess() automatically get lexical preservation.
-     */
-    void setupLexicalPreservation(String fullyQualifiedName) throws IOException {
-        // No-op: Lexical preservation is enabled globally via AbstractCompiler.setEnableLexicalPreservation(true)
-        // in main() before preProcess() is called, so all parsed files already have it.
-    }
-    
     /**
      * Writes the modified compilation unit to disk using FileOperationsManager.
      * 
