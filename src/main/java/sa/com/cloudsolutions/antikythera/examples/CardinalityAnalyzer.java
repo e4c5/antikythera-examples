@@ -120,6 +120,9 @@ public class CardinalityAnalyzer {
      * @return true if the column is a primary key, false otherwise
      */
     public static boolean isPrimaryKey(String tableName, String columnName) {
+        if (indexMap == null) {
+            return false;
+        }
         List<Indexes.IndexInfo> indexes = indexMap.get(tableName);
         if (indexes == null) {
             return false;

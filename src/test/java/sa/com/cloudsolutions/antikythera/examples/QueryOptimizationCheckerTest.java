@@ -1,13 +1,13 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
-import com.github.javaparser.ast.type.ClassOrInterfaceType;
+
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
-import sa.com.cloudsolutions.antikythera.examples.util.RepositoryAnalyzer;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
 import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
 import sa.com.cloudsolutions.liquibase.Indexes;
@@ -16,8 +16,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.PrintStream;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
@@ -25,16 +23,13 @@ import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
-import net.sf.jsqlparser.statement.Statement;
-
 /**
  * Comprehensive unit tests for QueryOptimizationChecker with improved coverage.
  */
 class QueryOptimizationCheckerTest {
 
     private QueryOptimizationChecker checker;
-    private Class<?> cls;
-    
+
     @Mock
     private TypeWrapper mockTypeWrapper;
     
@@ -50,29 +45,30 @@ class QueryOptimizationCheckerTest {
     @Mock
     private QueryOptimizationResult mockResult;
 
-    @BeforeEach
-    void setUp() throws Exception {
-        MockitoAnnotations.openMocks(this);
-        
+    private static File liquibaseFile;
+
+    @BeforeAll
+    static void setupClass() throws Exception{
+        // Load YAML settings explicitly to avoid reflection hacks
         Path tmpDir = Files.createTempDirectory("qoc-test");
-        File liquibaseFile = tmpDir.resolve("db.changelog-master.xml").toFile();
+        liquibaseFile = tmpDir.resolve("db.changelog-master.xml").toFile();
         try (FileWriter fw = new FileWriter(liquibaseFile)) {
             fw.write("<databaseChangeLog xmlns=\"http://www.liquibase.org/xml/ns/dbchangelog\"></databaseChangeLog>");
         }
         assertTrue(Indexes.load(liquibaseFile).isEmpty(), "Expected empty index map for minimal Liquibase file");
 
-        // Load YAML settings explicitly to avoid reflection hacks
         Settings.loadConfigMap();
+    }
+
+    @BeforeEach
+    void setUp() throws Exception {
+        MockitoAnnotations.openMocks(this);
         checker = new QueryOptimizationChecker(liquibaseFile);
-        cls = QueryOptimizationChecker.class;
     }
 
     @Test
     void testParseListArg() throws Exception {
-        Method parseListArg = cls.getDeclaredMethod("parseListArg", String[].class, String.class);
-        parseListArg.setAccessible(true);
-        @SuppressWarnings("unchecked")
-        Set<String> low = (Set<String>) parseListArg.invoke(null, new Object[]{new String[]{"--low-cardinality=email,is_active,  USER_ID   ", "--other=x"}, "--low-cardinality="});
+        Set<String> low = QueryOptimizationChecker.parseListArg(new String[]{"--low-cardinality=email,is_active,  USER_ID   ", "--other=x"}, "--low-cardinality=");
         assertTrue(low.contains("email"));
         assertTrue(low.contains("is_active"));
         assertTrue(low.contains("user_id"));
@@ -81,30 +77,23 @@ class QueryOptimizationCheckerTest {
 
     @Test
     void testParseListArg_NoMatch() throws Exception {
-        Method parseListArg = cls.getDeclaredMethod("parseListArg", String[].class, String.class);
-        parseListArg.setAccessible(true);
-        @SuppressWarnings("unchecked")
-        Set<String> none = (Set<String>) parseListArg.invoke(null, new Object[]{new String[]{"--foo=bar"}, "--low-cardinality="});
+        Set<String> none = QueryOptimizationChecker.parseListArg(new String[]{"--foo=bar"}, "--low-cardinality=");
         assertTrue(none.isEmpty());
     }
 
     @Test
     void testSeverityPriorityOrdering() throws Exception {
-        Method getSeverityPriority = cls.getDeclaredMethod("getSeverityPriority", OptimizationIssue.Severity.class);
-        getSeverityPriority.setAccessible(true);
-        int pHigh = (int) getSeverityPriority.invoke(checker, OptimizationIssue.Severity.HIGH);
-        int pMed = (int) getSeverityPriority.invoke(checker, OptimizationIssue.Severity.MEDIUM);
-        int pLow = (int) getSeverityPriority.invoke(checker, OptimizationIssue.Severity.LOW);
+        int pHigh = checker.getSeverityPriority(OptimizationIssue.Severity.HIGH);
+        int pMed = checker.getSeverityPriority(OptimizationIssue.Severity.MEDIUM);
+        int pLow = checker.getSeverityPriority(OptimizationIssue.Severity.LOW);
         assertTrue(pHigh < pMed && pMed < pLow);
     }
 
     @Test
     void testSeverityIconMapping() throws Exception {
-        Method getSeverityIcon = cls.getDeclaredMethod("getSeverityIcon", OptimizationIssue.Severity.class);
-        getSeverityIcon.setAccessible(true);
-        String iHigh = (String) getSeverityIcon.invoke(checker, OptimizationIssue.Severity.HIGH);
-        String iMed = (String) getSeverityIcon.invoke(checker, OptimizationIssue.Severity.MEDIUM);
-        String iLow = (String) getSeverityIcon.invoke(checker, OptimizationIssue.Severity.LOW);
+        String iHigh = checker.getSeverityIcon(OptimizationIssue.Severity.HIGH);
+        String iMed = checker.getSeverityIcon(OptimizationIssue.Severity.MEDIUM);
+        String iLow = checker.getSeverityIcon(OptimizationIssue.Severity.LOW);
         assertEquals("🔴", iHigh);
         assertEquals("🟡", iMed);
         assertEquals("🟢", iLow);
@@ -112,48 +101,41 @@ class QueryOptimizationCheckerTest {
 
     @Test
     void testInferTableNameFromQuery() throws Exception {
-        Method inferFromQuery = cls.getDeclaredMethod("inferTableNameFromQuery", String.class);
-        inferFromQuery.setAccessible(true);
-        String table1 = (String) inferFromQuery.invoke(checker, "SELECT * FROM public.users u WHERE u.id = ?");
+        String table1 = checker.inferTableNameFromQuery("SELECT * FROM public.users u WHERE u.id = ?");
         assertEquals("users", table1);
         
         // Test with quoted table names
-        String table2 = (String) inferFromQuery.invoke(checker, "SELECT * FROM `user_accounts` WHERE id = ?");
+        String table2 = checker.inferTableNameFromQuery("SELECT * FROM `user_accounts` WHERE id = ?");
         assertEquals("user_accounts", table2);
         
         // Test with null query
-        String table3 = (String) inferFromQuery.invoke(checker, (Object) null);
+        String table3 = checker.inferTableNameFromQuery(null);
         assertNull(table3);
         
         // Test with no FROM clause
-        String table4 = (String) inferFromQuery.invoke(checker, "SELECT 1");
+        String table4 = checker.inferTableNameFromQuery("SELECT 1");
         assertNull(table4);
     }
 
     @Test
     void testInferTableNameFromQuerySafeFallback() throws Exception {
-        Method inferSafe = cls.getDeclaredMethod("inferTableNameFromQuerySafe", String.class, String.class);
-        inferSafe.setAccessible(true);
-        String table2 = (String) inferSafe.invoke(checker, null, "UserAccountRepository");
+        String table2 = checker.inferTableNameFromQuerySafe(null, "UserAccountRepository");
         assertEquals("user_account", table2);
         
         // Test with valid query text
-        String table3 = (String) inferSafe.invoke(checker, "SELECT * FROM orders", "UserRepository");
+        String table3 = checker.inferTableNameFromQuerySafe("SELECT * FROM orders", "UserRepository");
         assertEquals("orders", table3);
     }
 
     @Test
     void testInferTableNameFromRepositoryClassName() throws Exception {
-        Method inferFromClass = cls.getDeclaredMethod("inferTableNameFromRepositoryClassName", String.class);
-        inferFromClass.setAccessible(true);
-        
-        String table1 = (String) inferFromClass.invoke(checker, "com.example.UserRepository");
+        String table1 = checker.inferTableNameFromRepositoryClassName("com.example.UserRepository");
         assertEquals("user", table1);
         
-        String table2 = (String) inferFromClass.invoke(checker, "OrderItemRepository");
+        String table2 = checker.inferTableNameFromRepositoryClassName("OrderItemRepository");
         assertEquals("order_item", table2);
         
-        String table3 = (String) inferFromClass.invoke(checker, "Repository");
+        String table3 = checker.inferTableNameFromRepositoryClassName("Repository");
         assertEquals("<TABLE_NAME>", table3);
     }
 
@@ -176,9 +158,7 @@ class QueryOptimizationCheckerTest {
 
     @Test
     void testBuildLiquibaseDropIndexChangeSet() throws Exception {
-        Method buildDrop = cls.getDeclaredMethod("buildLiquibaseDropIndexChangeSet", String.class);
-        buildDrop.setAccessible(true);
-        String dropXml = (String) buildDrop.invoke(checker, "idx_users_email");
+        String dropXml = checker.buildLiquibaseDropIndexChangeSet("idx_users_email");
         assertTrue(
                 dropXml.contains("DROP INDEX CONCURRENTLY IF EXISTS idx_users_email")
                         || dropXml.contains("DROP INDEX idx_users_email")
@@ -188,7 +168,7 @@ class QueryOptimizationCheckerTest {
         assertTrue(dropXml.contains("manual recreation required"));
         
         // Test with empty index name
-        String dropXml2 = (String) buildDrop.invoke(checker, "");
+        String dropXml2 = checker.buildLiquibaseDropIndexChangeSet("");
         assertTrue(dropXml2.contains("<INDEX_NAME>"));
     }
 
@@ -197,44 +177,36 @@ class QueryOptimizationCheckerTest {
 
     @Test
     void testIndent() throws Exception {
-        Method indent = cls.getDeclaredMethod("indent", String.class, int.class);
-        indent.setAccessible(true);
-        String indented = (String) indent.invoke(checker, "a\nb", 2);
+        String indented = checker.indent("a\nb", 2);
         assertEquals("  a\n  b", indented);
         
         // Test with zero spaces
-        String indented2 = (String) indent.invoke(checker, "test", 0);
+        String indented2 = checker.indent("test", 0);
         assertEquals("test", indented2);
         
         // Test with negative spaces
-        String indented3 = (String) indent.invoke(checker, "test", -1);
+        String indented3 = checker.indent("test", -1);
         assertEquals("test", indented3);
     }
 
     @Test
     void testIndentXml() throws Exception {
-        Method indentXml = cls.getDeclaredMethod("indentXml", String.class, int.class);
-        indentXml.setAccessible(true);
-        
         String xml = "<tag>\n<nested>value</nested>\n</tag>";
-        String result = (String) indentXml.invoke(checker, xml, 2);
+        String result = checker.indentXml(xml, 2);
         assertTrue(result.contains("  <tag>"));
         assertTrue(result.contains("  <nested>value</nested>"));
         
         // Test with null/empty
-        String result2 = (String) indentXml.invoke(checker, null, 2);
+        String result2 = checker.indentXml(null, 2);
         assertNull(result2);
         
-        String result3 = (String) indentXml.invoke(checker, "", 2);
+        String result3 = checker.indentXml("", 2);
         assertEquals("", result3);
     }
 
     @Test
     void testPrintConsolidatedIndexActions() throws Exception {
-        Field suggested = cls.getDeclaredField("suggestedNewIndexes");
-        suggested.setAccessible(true);
-        @SuppressWarnings("unchecked")
-        LinkedHashSet<String> suggestedSet = (LinkedHashSet<String>) suggested.get(checker);
+        LinkedHashSet<String> suggestedSet = checker.getSuggestedNewIndexes();
         suggestedSet.add("users|email");
         suggestedSet.add("orders|user_id");
 
@@ -291,20 +263,12 @@ class QueryOptimizationCheckerTest {
     @Test
     void testIsCoveredByComposite() {
         // Add a multi-column index suggestion
-        Field multiColumnField;
-        try {
-            multiColumnField = cls.getDeclaredField("suggestedMultiColumnIndexes");
-            multiColumnField.setAccessible(true);
-            @SuppressWarnings("unchecked")
-            LinkedHashSet<String> multiColumnSet = (LinkedHashSet<String>) multiColumnField.get(checker);
-            multiColumnSet.add("users|email,name");
-            
-            assertTrue(checker.isCoveredByComposite("users", "email"));
-            assertFalse(checker.isCoveredByComposite("users", "name")); // Not first column
-            assertFalse(checker.isCoveredByComposite("orders", "email")); // Different table
-        } catch (Exception e) {
-            fail("Failed to test isCoveredByComposite: " + e.getMessage());
-        }
+        LinkedHashSet<String> multiColumnSet = checker.getSuggestedMultiColumnIndexes();
+        multiColumnSet.add("users|email,name");
+
+        assertTrue(checker.isCoveredByComposite("users", "email"));
+        assertFalse(checker.isCoveredByComposite("users", "name")); // Not first column
+        assertFalse(checker.isCoveredByComposite("orders", "email")); // Different table
     }
 
     @Test
@@ -356,10 +320,7 @@ class QueryOptimizationCheckerTest {
     @Test
     void testGenerateLiquibaseChangesFile() throws Exception {
         // Add some index suggestions
-        Field suggested = cls.getDeclaredField("suggestedNewIndexes");
-        suggested.setAccessible(true);
-        @SuppressWarnings("unchecked")
-        LinkedHashSet<String> suggestedSet = (LinkedHashSet<String>) suggested.get(checker);
+        LinkedHashSet<String> suggestedSet = checker.getSuggestedNewIndexes();
         suggestedSet.add("users|email");
         
         // This method requires file I/O, so we'll just test it doesn't throw
@@ -405,19 +366,13 @@ class QueryOptimizationCheckerTest {
 
     @Test
     void testReportingMethods() throws Exception {
-        // Test private reporting methods through reflection
-        Method findConditionByColumn = cls.getDeclaredMethod("findConditionByColumn", QueryOptimizationResult.class, String.class);
-        findConditionByColumn.setAccessible(true);
-        
+        // Test private reporting methods through direct calls
         when(mockResult.getWhereConditions()).thenReturn(new ArrayList<>());
-        WhereCondition result = (WhereCondition) findConditionByColumn.invoke(checker, mockResult, "email");
+        WhereCondition result = checker.findConditionByColumn(mockResult, "email");
         assertNull(result);
         
         // Test formatConditionWithCardinality
-        Method formatCondition = cls.getDeclaredMethod("formatConditionWithCardinality", String.class, WhereCondition.class);
-        formatCondition.setAccessible(true);
-        
-        String formatted = (String) formatCondition.invoke(checker, "email", null);
+        String formatted = checker.formatConditionWithCardinality("email", null);
         assertTrue(formatted.contains("cardinality unknown"));
     }
 
@@ -430,11 +385,8 @@ class QueryOptimizationCheckerTest {
 
     @Test
     void testMultiColumnIndexSuggestions() throws Exception {
-        Field multiColumnField = cls.getDeclaredField("suggestedMultiColumnIndexes");
-        multiColumnField.setAccessible(true);
-        @SuppressWarnings("unchecked")
-        LinkedHashSet<String> multiColumnSet = (LinkedHashSet<String>) multiColumnField.get(checker);
-        
+        LinkedHashSet<String> multiColumnSet = checker.getSuggestedMultiColumnIndexes();
+
         multiColumnSet.add("users|email,name,status");
         
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -452,10 +404,7 @@ class QueryOptimizationCheckerTest {
     @Test
     void testLiquibaseGeneration() throws Exception {
         // Test the method that generates Liquibase changes
-        Field suggested = cls.getDeclaredField("suggestedNewIndexes");
-        suggested.setAccessible(true);
-        @SuppressWarnings("unchecked")
-        LinkedHashSet<String> suggestedSet = (LinkedHashSet<String>) suggested.get(checker);
+        LinkedHashSet<String> suggestedSet = checker.getSuggestedNewIndexes();
         suggestedSet.add("users|email");
         
         // This will likely fail due to file I/O but we test it doesn't crash
@@ -470,11 +419,7 @@ class QueryOptimizationCheckerTest {
     @Test
     void testStaticMethods() throws Exception {
         // Test parseListArg method which is static and safe to test
-        Method parseListArg = cls.getDeclaredMethod("parseListArg", String[].class, String.class);
-        parseListArg.setAccessible(true);
-        
-        @SuppressWarnings("unchecked")
-        Set<String> result = (Set<String>) parseListArg.invoke(null, new Object[]{new String[]{"--test=a,b,c"}, "--test="});
+        Set<String> result = QueryOptimizationChecker.parseListArg(new String[]{"--test=a,b,c"}, "--test=");
         assertEquals(3, result.size());
         assertTrue(result.contains("a"));
         assertTrue(result.contains("b"));
@@ -483,9 +428,6 @@ class QueryOptimizationCheckerTest {
 
     @Test
     void testReportOptimizationResults() throws Exception {
-        Method reportOptimizationResults = cls.getDeclaredMethod("reportOptimizationResults", QueryOptimizationResult.class);
-        reportOptimizationResults.setAccessible(true);
-        
         // Test with empty optimization issues (should call reportOptimizedQuery)
         when(mockResult.getOptimizationIssues()).thenReturn(new ArrayList<>());
         when(mockResult.getWhereConditions()).thenReturn(new ArrayList<>());
@@ -494,7 +436,7 @@ class QueryOptimizationCheckerTest {
         PrintStream originalOut = System.out;
         System.setOut(new PrintStream(baos));
         try {
-            reportOptimizationResults.invoke(checker, mockResult);
+            checker.reportOptimizationResults(mockResult);
         } finally {
             System.setOut(originalOut);
         }
@@ -505,9 +447,6 @@ class QueryOptimizationCheckerTest {
 
     @Test
     void testReportOptimizedQuery() throws Exception {
-        Method reportOptimizedQuery = cls.getDeclaredMethod("reportOptimizedQuery", QueryOptimizationResult.class);
-        reportOptimizedQuery.setAccessible(true);
-        
         // Mock a WhereCondition
         WhereCondition mockCondition = mock(WhereCondition.class);
         when(mockCondition.cardinality()).thenReturn(CardinalityLevel.HIGH);
@@ -524,7 +463,7 @@ class QueryOptimizationCheckerTest {
         PrintStream originalOut = System.out;
         System.setOut(new PrintStream(baos));
         try {
-            reportOptimizedQuery.invoke(checker, mockResult);
+            checker.reportOptimizedQuery(mockResult);
         } finally {
             System.setOut(originalOut);
         }
@@ -535,9 +474,6 @@ class QueryOptimizationCheckerTest {
 
     @Test
     void testPrintQueryDetails() throws Exception {
-        Method printQueryDetails = cls.getDeclaredMethod("printQueryDetails", QueryOptimizationResult.class);
-        printQueryDetails.setAccessible(true);
-        
         when(mockResult.getFullWhereClause()).thenReturn("email = ? AND status = ?");
         when(mockResult.hasOptimizationIssues()).thenReturn(false);
         
@@ -545,7 +481,7 @@ class QueryOptimizationCheckerTest {
         PrintStream originalOut = System.out;
         System.setOut(new PrintStream(baos));
         try {
-            printQueryDetails.invoke(checker, mockResult);
+            checker.printQueryDetails(mockResult);
         } finally {
             System.setOut(originalOut);
         }
@@ -556,9 +492,6 @@ class QueryOptimizationCheckerTest {
 
     @Test
     void testAddColumnReorderingRecommendations() throws Exception {
-        Method addColumnReorderingRecommendations = cls.getDeclaredMethod("addColumnReorderingRecommendations", List.class);
-        addColumnReorderingRecommendations.setAccessible(true);
-        
         // Test with empty list
         List<OptimizationIssue> emptyIssues = new ArrayList<>();
         
@@ -566,7 +499,7 @@ class QueryOptimizationCheckerTest {
         PrintStream originalOut = System.out;
         System.setOut(new PrintStream(baos));
         try {
-            addColumnReorderingRecommendations.invoke(checker, emptyIssues);
+            checker.addColumnReorderingRecommendations(emptyIssues);
         } finally {
             System.setOut(originalOut);
         }
@@ -584,7 +517,7 @@ class QueryOptimizationCheckerTest {
         baos = new ByteArrayOutputStream();
         System.setOut(new PrintStream(baos));
         try {
-            addColumnReorderingRecommendations.invoke(checker, issues);
+            checker.addColumnReorderingRecommendations(issues);
         } finally {
             System.setOut(originalOut);
         }
@@ -595,18 +528,14 @@ class QueryOptimizationCheckerTest {
 
     @Test
     void testAddPriorityRecommendations() throws Exception {
-        Method addPriorityRecommendations = cls.getDeclaredMethod("addPriorityRecommendations", 
-            StringBuilder.class, List.class, String.class, String.class, String.class, String.class);
-        addPriorityRecommendations.setAccessible(true);
-        
         StringBuilder recommendations = new StringBuilder();
         
         when(mockOptimizationIssue.recommendedFirstColumn()).thenReturn("email");
         when(mockOptimizationIssue.currentFirstColumn()).thenReturn("id");
         List<OptimizationIssue> issues = Arrays.asList(mockOptimizationIssue);
         
-        addPriorityRecommendations.invoke(checker, recommendations, issues, 
-            "🔴 HIGH PRIORITY:", "Move '%s' condition to the beginning", 
+        checker.addPriorityRecommendations(recommendations, issues,
+            "🔴 HIGH PRIORITY:", "Move '%s' condition to the beginning",
             "⚠ CREATE NEEDED", "Required indexes:");
         
         String result = recommendations.toString();
@@ -615,10 +544,6 @@ class QueryOptimizationCheckerTest {
 
     @Test
     void testFormatOptimizationIssueEnhanced() throws Exception {
-        Method formatOptimizationIssueEnhanced = cls.getDeclaredMethod("formatOptimizationIssueEnhanced", 
-            OptimizationIssue.class, int.class, QueryOptimizationResult.class);
-        formatOptimizationIssueEnhanced.setAccessible(true);
-        
         when(mockOptimizationIssue.severity()).thenReturn(OptimizationIssue.Severity.HIGH);
         when(mockOptimizationIssue.description()).thenReturn("Test optimization issue");
         when(mockOptimizationIssue.currentFirstColumn()).thenReturn("id");
@@ -628,8 +553,8 @@ class QueryOptimizationCheckerTest {
         
         when(mockResult.getWhereConditions()).thenReturn(new ArrayList<>());
         
-        String result = (String) formatOptimizationIssueEnhanced.invoke(checker, mockOptimizationIssue, 1, mockResult);
-        
+        String result = checker.formatOptimizationIssueEnhanced(mockOptimizationIssue, 1, mockResult);
+
         assertTrue(result.contains("HIGH PRIORITY"));
         assertTrue(result.contains("Test optimization issue"));
         assertTrue(result.contains("AI suggests reordering"));
@@ -637,10 +562,6 @@ class QueryOptimizationCheckerTest {
 
     @Test
     void testReportOptimizationIssues() throws Exception {
-        Method reportOptimizationIssues = cls.getDeclaredMethod("reportOptimizationIssues", 
-            QueryOptimizationResult.class, List.class);
-        reportOptimizationIssues.setAccessible(true);
-        
         when(mockOptimizationIssue.severity()).thenReturn(OptimizationIssue.Severity.HIGH);
         when(mockOptimizationIssue.isHighSeverity()).thenReturn(true);
         when(mockOptimizationIssue.isMediumSeverity()).thenReturn(false);
@@ -662,7 +583,7 @@ class QueryOptimizationCheckerTest {
         PrintStream originalOut = System.out;
         System.setOut(new PrintStream(baos));
         try {
-            reportOptimizationIssues.invoke(checker, mockResult, issues);
+            checker.reportOptimizationIssues(mockResult, issues);
         } finally {
             System.setOut(originalOut);
         }
@@ -673,10 +594,6 @@ class QueryOptimizationCheckerTest {
 
     @Test
     void testReportOptimizationIssuesQuiet() throws Exception {
-        Method reportOptimizationIssuesQuiet = cls.getDeclaredMethod("reportOptimizationIssuesQuiet", 
-            QueryOptimizationResult.class, List.class);
-        reportOptimizationIssuesQuiet.setAccessible(true);
-        
         when(mockOptimizationIssue.isHighSeverity()).thenReturn(true);
         when(mockOptimizationIssue.isMediumSeverity()).thenReturn(false);
         when(mockOptimizationIssue.optimizedQuery()).thenReturn(mockRepositoryQuery);
@@ -698,7 +615,7 @@ class QueryOptimizationCheckerTest {
         PrintStream originalOut = System.out;
         System.setOut(new PrintStream(baos));
         try {
-            reportOptimizationIssuesQuiet.invoke(checker, mockResult, issues);
+            checker.reportOptimizationIssuesQuiet(mockResult, issues);
         } finally {
             System.setOut(originalOut);
         }
@@ -709,11 +626,8 @@ class QueryOptimizationCheckerTest {
 
     @Test
     void testAnalyzeRepository() throws Exception {
-        Method analyzeRepository = cls.getDeclaredMethod("analyzeRepository", String.class, TypeWrapper.class);
-        analyzeRepository.setAccessible(true);
-        
         try {
-            analyzeRepository.invoke(checker, "com.example.UserRepository", mockTypeWrapper);
+            checker.analyzeRepository("com.example.UserRepository", mockTypeWrapper);
             // This will likely fail due to complex dependencies, but we test it doesn't crash
             assertTrue(true);
         } catch (Exception e) {
@@ -724,11 +638,8 @@ class QueryOptimizationCheckerTest {
 
     @Test
     void testAnalyze() throws Exception {
-        Method analyze = cls.getDeclaredMethod("analyze");
-        analyze.setAccessible(true);
-        
         try {
-            analyze.invoke(checker);
+            checker.analyze();
             // This will likely fail due to AntikytheraRunTime dependencies
             assertTrue(true);
         } catch (Exception e) {
@@ -739,31 +650,25 @@ class QueryOptimizationCheckerTest {
 
     @Test
     void testFindConditionByColumn() throws Exception {
-        Method findConditionByColumn = cls.getDeclaredMethod("findConditionByColumn", QueryOptimizationResult.class, String.class);
-        findConditionByColumn.setAccessible(true);
-        
         WhereCondition mockCondition = mock(WhereCondition.class);
         when(mockCondition.columnName()).thenReturn("email");
         
         when(mockResult.getWhereConditions()).thenReturn(Arrays.asList(mockCondition));
         
-        WhereCondition result = (WhereCondition) findConditionByColumn.invoke(checker, mockResult, "email");
+        WhereCondition result = checker.findConditionByColumn(mockResult, "email");
         assertEquals(mockCondition, result);
         
         // Test with non-matching column
-        WhereCondition result2 = (WhereCondition) findConditionByColumn.invoke(checker, mockResult, "nonexistent");
+        WhereCondition result2 = checker.findConditionByColumn(mockResult, "nonexistent");
         assertNull(result2);
     }
 
     @Test
     void testFormatConditionWithCardinalityWithCondition() throws Exception {
-        Method formatCondition = cls.getDeclaredMethod("formatConditionWithCardinality", String.class, WhereCondition.class);
-        formatCondition.setAccessible(true);
-        
         WhereCondition mockCondition = mock(WhereCondition.class);
         when(mockCondition.cardinality()).thenReturn(CardinalityLevel.HIGH);
         
-        String result = (String) formatCondition.invoke(checker, "email", mockCondition);
+        String result = checker.formatConditionWithCardinality("email", mockCondition);
         assertTrue(result.contains("email"));
         assertTrue(result.contains("high cardinality"));
     }
@@ -785,15 +690,9 @@ class QueryOptimizationCheckerTest {
     @Test
     void testCounterIncrements() throws Exception {
         // Test that counters are properly incremented
-        Field totalHighField = cls.getDeclaredField("totalHighPriorityRecommendations");
-        totalHighField.setAccessible(true);
-        
-        Field totalMediumField = cls.getDeclaredField("totalMediumPriorityRecommendations");
-        totalMediumField.setAccessible(true);
-        
-        int initialHigh = (Integer) totalHighField.get(checker);
-        int initialMedium = (Integer) totalMediumField.get(checker);
-        
+        int initialHigh = checker.getTotalHighPriorityRecommendations();
+        int initialMedium = checker.getTotalMediumPriorityRecommendations();
+
         // These should start at 0
         assertEquals(0, initialHigh);
         assertEquals(0, initialMedium);
@@ -854,16 +753,9 @@ class QueryOptimizationCheckerTest {
         checker.collectIndexSuggestions(mockResult, issues);
         
         // Access the internal index suggestion sets
-        Field suggestedNewIndexesField = cls.getDeclaredField("suggestedNewIndexes");
-        suggestedNewIndexesField.setAccessible(true);
-        @SuppressWarnings("unchecked")
-        LinkedHashSet<String> suggestedNewIndexes = (LinkedHashSet<String>) suggestedNewIndexesField.get(checker);
-        
-        Field suggestedMultiColumnIndexesField = cls.getDeclaredField("suggestedMultiColumnIndexes");
-        suggestedMultiColumnIndexesField.setAccessible(true);
-        @SuppressWarnings("unchecked")
-        LinkedHashSet<String> suggestedMultiColumnIndexes = (LinkedHashSet<String>) suggestedMultiColumnIndexesField.get(checker);
-        
+        LinkedHashSet<String> suggestedNewIndexes = checker.getSuggestedNewIndexes();
+        LinkedHashSet<String> suggestedMultiColumnIndexes = checker.getSuggestedMultiColumnIndexes();
+
         // Log the actual suggestions for debugging
         System.out.println("Single-column indexes: " + suggestedNewIndexes);
         System.out.println("Multi-column indexes: " + suggestedMultiColumnIndexes);

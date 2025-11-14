@@ -304,7 +304,7 @@ public class QueryOptimizationChecker {
      * 
      * @param result the analysis results to report
      */
-    private void reportOptimizationResults(QueryOptimizationResult result) {
+    void reportOptimizationResults(QueryOptimizationResult result) {
         List<OptimizationIssue> issues = result.getOptimizationIssues();
         
         if (issues.isEmpty()) {
@@ -327,7 +327,7 @@ public class QueryOptimizationChecker {
      * 
      * @param result the analysis results for an optimized query
      */
-    private void reportOptimizedQuery(QueryOptimizationResult result) {
+    void reportOptimizedQuery(QueryOptimizationResult result) {
         if (!result.getWhereConditions().isEmpty()) {
             WhereCondition firstCondition = result.getFirstCondition();
             String cardinalityInfo = firstCondition != null ? 
@@ -351,7 +351,7 @@ public class QueryOptimizationChecker {
      * @param result the analysis results
      * @param issues the list of optimization issues to report
      */
-    private void reportOptimizationIssues(QueryOptimizationResult result, List<OptimizationIssue> issues) {
+    void reportOptimizationIssues(QueryOptimizationResult result, List<OptimizationIssue> issues) {
         // Sort issues by severity (HIGH -> MEDIUM -> LOW) for prioritized reporting
         List<OptimizationIssue> sortedIssues = issues.stream()
             .sorted((issue1, issue2) -> {
@@ -413,7 +413,7 @@ public class QueryOptimizationChecker {
      * @param severity the severity level
      * @return priority value for sorting
      */
-    private int getSeverityPriority(OptimizationIssue.Severity severity) {
+    int getSeverityPriority(OptimizationIssue.Severity severity) {
         return switch (severity) {
             case HIGH -> 0;
             case MEDIUM -> 1;
@@ -431,7 +431,7 @@ public class QueryOptimizationChecker {
      * @param result the full analysis result for additional context
      * @return formatted string representation of the issue
      */
-    private String formatOptimizationIssueEnhanced(OptimizationIssue issue, int issueNumber, 
+    String formatOptimizationIssueEnhanced(OptimizationIssue issue, int issueNumber,
                                                   QueryOptimizationResult result) {
         StringBuilder formatted = new StringBuilder();
         
@@ -477,7 +477,7 @@ public class QueryOptimizationChecker {
      * @param severity the severity level
      * @return icon string for the severity
      */
-    private String getSeverityIcon(OptimizationIssue.Severity severity) {
+    String getSeverityIcon(OptimizationIssue.Severity severity) {
         return switch (severity) {
             case HIGH -> "🔴";
             case MEDIUM -> "🟡";
@@ -492,7 +492,7 @@ public class QueryOptimizationChecker {
      * @param result the analysis results
      * @param issues the list of optimization issues to report
      */
-    private void reportOptimizationIssuesQuiet(QueryOptimizationResult result, List<OptimizationIssue> issues) {
+    void reportOptimizationIssuesQuiet(QueryOptimizationResult result, List<OptimizationIssue> issues) {
         // Update global recommendation counters
         int highCount = (int) issues.stream().filter(OptimizationIssue::isHighSeverity).count();
         int mediumCount = (int) issues.stream().filter(OptimizationIssue::isMediumSeverity).count();
@@ -550,7 +550,7 @@ public class QueryOptimizationChecker {
      * @param columnName the column name to find
      * @return the matching WhereCondition or null if not found
      */
-    private WhereCondition findConditionByColumn(QueryOptimizationResult result, String columnName) {
+    WhereCondition findConditionByColumn(QueryOptimizationResult result, String columnName) {
         return result.getWhereConditions().stream()
             .filter(condition -> columnName.equals(condition.columnName()))
             .findFirst()
@@ -564,7 +564,7 @@ public class QueryOptimizationChecker {
      * @param condition the WhereCondition object (may be null)
      * @return formatted string with cardinality information
      */
-    private String formatConditionWithCardinality(String columnName, WhereCondition condition) {
+    String formatConditionWithCardinality(String columnName, WhereCondition condition) {
         if (condition != null) {
             return String.format("%s (%s cardinality)", columnName, 
                                condition.cardinality().toString().toLowerCase());
@@ -580,7 +580,7 @@ public class QueryOptimizationChecker {
      * 
      * @param result the query optimization result to print details for
      */
-    private void printQueryDetails(QueryOptimizationResult result) {
+    void printQueryDetails(QueryOptimizationResult result) {
         // Print the original WHERE clause
         String originalWhereClause = result.getFullWhereClause();
         if (!originalWhereClause.isEmpty()) {
@@ -608,7 +608,7 @@ public class QueryOptimizationChecker {
      *
      * @param issues the list of optimization issues
      */
-    private void addColumnReorderingRecommendations(List<OptimizationIssue> issues) {
+    void addColumnReorderingRecommendations(List<OptimizationIssue> issues) {
         if (issues.isEmpty()) {
             return;
         }
@@ -648,8 +648,8 @@ public class QueryOptimizationChecker {
      * Helper method to add priority-specific recommendations to the StringBuilder.
      * Eliminates code duplication between high and medium priority processing.
      */
-    private void addPriorityRecommendations(StringBuilder recommendations, List<OptimizationIssue> issues, 
-                                          String priorityHeader, String reorderingTemplate, 
+    void addPriorityRecommendations(StringBuilder recommendations, List<OptimizationIssue> issues,
+                                          String priorityHeader, String reorderingTemplate,
                                           String indexCreateStatus, String indexHeader) {
         recommendations.append("    ").append(priorityHeader).append("\n");
         
@@ -676,13 +676,13 @@ public class QueryOptimizationChecker {
         }
     }
 
-    private String inferTableNameFromQuerySafe(String queryText, String repositoryClass) {
+    String inferTableNameFromQuerySafe(String queryText, String repositoryClass) {
         String t = inferTableNameFromQuery(queryText);
         if (t != null) return t;
         return inferTableNameFromRepositoryClassName(repositoryClass);
     }
 
-    private String inferTableNameFromQuery(String queryText) {
+    String inferTableNameFromQuery(String queryText) {
         if (queryText == null) {
             return null;
         }
@@ -700,7 +700,7 @@ public class QueryOptimizationChecker {
         return null;
     }
 
-    private String inferTableNameFromRepositoryClassName(String repositoryClass) {
+    String inferTableNameFromRepositoryClassName(String repositoryClass) {
         String simple = repositoryClass;
         int dot = simple.lastIndexOf('.');
         if (dot >= 0) simple = simple.substring(dot + 1);
@@ -892,7 +892,7 @@ public class QueryOptimizationChecker {
 
 
 
-    private String indent(String s, int spaces) {
+    String indent(String s, int spaces) {
         String pad = " ".repeat(Math.max(0, spaces));
         return java.util.Arrays.stream(s.split("\n"))
                 .map(line -> pad + line)
@@ -993,7 +993,7 @@ public class QueryOptimizationChecker {
      * @param spaces number of spaces to indent
      * @return indented XML content
      */
-    private String indentXml(String xml, int spaces) {
+    String indentXml(String xml, int spaces) {
         if (xml == null || xml.isEmpty()) {
             return xml;
         }
@@ -1087,5 +1087,14 @@ public class QueryOptimizationChecker {
             }
         }
         return set;
+    }
+
+    // Package-private getters for testing
+    LinkedHashSet<String> getSuggestedNewIndexes() {
+        return suggestedNewIndexes;
+    }
+
+    LinkedHashSet<String> getSuggestedMultiColumnIndexes() {
+        return suggestedMultiColumnIndexes;
     }
 }
