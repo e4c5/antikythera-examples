@@ -112,7 +112,7 @@ public class QueryOptimizationChecker {
                 analyzeRepository(fullyQualifiedName, typeWrapper);
                 repositoriesProcessed++;
                 i++;
-                if (i == 10) {
+                if (i == 1) {
                     break;
                 }
             }
@@ -315,9 +315,9 @@ public class QueryOptimizationChecker {
         } else {
             // Report optimization issues with severity-based prioritization
             if (quietMode) {
-                reportOptimizationIssuesQuiet(result, issues);
+                reportOptimizationIssuesQuiet(result);
             } else {
-                reportOptimizationIssues(result, issues);
+                reportOptimizationIssues(result);
             }
         }
     }
@@ -349,10 +349,10 @@ public class QueryOptimizationChecker {
      * Reports optimization issues with severity-based prioritization and enhanced recommendations.
      * 
      * @param result the analysis results
-     * @param issues the list of optimization issues to report
      */
-    void reportOptimizationIssues(QueryOptimizationResult result, List<OptimizationIssue> issues) {
+    void reportOptimizationIssues(QueryOptimizationResult result) {
         // Sort issues by severity (HIGH -> MEDIUM -> LOW) for prioritized reporting
+        List<OptimizationIssue> issues = result.getOptimizationIssues();
         List<OptimizationIssue> sortedIssues = issues.stream()
             .sorted((issue1, issue2) -> {
                 // Sort by severity priority: HIGH (0) -> MEDIUM (1) -> LOW (2)
@@ -402,7 +402,7 @@ public class QueryOptimizationChecker {
         addColumnReorderingRecommendations(sortedIssues);
 
         // Collect any index creation suggestions for consolidation at the end
-        collectIndexSuggestions(result, sortedIssues);
+        collectIndexSuggestions(result);
         
         System.out.println(); // Add blank line for readability
     }
@@ -490,17 +490,17 @@ public class QueryOptimizationChecker {
      * Reports optimization issues in quiet mode - only shows method signatures and queries changed.
      * 
      * @param result the analysis results
-     * @param issues the list of optimization issues to report
      */
-    void reportOptimizationIssuesQuiet(QueryOptimizationResult result, List<OptimizationIssue> issues) {
+    void reportOptimizationIssuesQuiet(QueryOptimizationResult result) {
         // Update global recommendation counters
+        List<OptimizationIssue> issues = result.getOptimizationIssues();
         int highCount = (int) issues.stream().filter(OptimizationIssue::isHighSeverity).count();
         int mediumCount = (int) issues.stream().filter(OptimizationIssue::isMediumSeverity).count();
         this.totalHighPriorityRecommendations += highCount;
         this.totalMediumPriorityRecommendations += mediumCount;
         
         // Collect any index creation suggestions for consolidation at the end
-        collectIndexSuggestions(result, issues);
+        collectIndexSuggestions(result);
         
         // Only print if there's an actual optimization (changed query)
         for (OptimizationIssue issue : issues) {
@@ -676,12 +676,6 @@ public class QueryOptimizationChecker {
         }
     }
 
-    String inferTableNameFromQuerySafe(String queryText, String repositoryClass) {
-        String t = inferTableNameFromQuery(queryText);
-        if (t != null) return t;
-        return inferTableNameFromRepositoryClassName(repositoryClass);
-    }
-
     String inferTableNameFromQuery(String queryText) {
         if (queryText == null) {
             return null;
@@ -730,12 +724,7 @@ public class QueryOptimizationChecker {
         return liquibaseGenerator.createDropIndexChangeset(indexName);
     }
 
-    void collectIndexSuggestions(QueryOptimizationResult result, List<OptimizationIssue> issues) {
-        if (issues.isEmpty() && result.getIndexSuggestions().isEmpty()) {
-            logger.debug("Skipping index collection - no issues and no index suggestions for query: {}", result.getMethodName());
-            return;
-        }
-        
+    void collectIndexSuggestions(QueryOptimizationResult result) {
         // Group columns by table - critical for JOIN queries where columns come from multiple tables
         Map<String, List<String>> columnsByTable = new HashMap<>();
         
@@ -744,14 +733,6 @@ public class QueryOptimizationChecker {
             for (WhereCondition condition : result.getWhereConditions()) {
                 if (condition.cardinality() != CardinalityLevel.LOW) {
                     String tableName = condition.tableName();
-                    if (tableName == null || tableName.isEmpty()) {
-                        // Fallback to inferring table name if not set in condition
-                        tableName = result.getQuery().getPrimaryTable();
-                        if (tableName == null || tableName.isEmpty()) {
-                            tableName = inferTableNameFromQuerySafe(result.getQuery().getQuery(), result.getQuery().getClassname());
-                        }
-                    }
-                    
                     columnsByTable.computeIfAbsent(tableName, k -> new ArrayList<>()).add(condition.columnName());
                 }
             }
