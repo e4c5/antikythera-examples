@@ -47,8 +47,8 @@ class QueryAnalysisEngineRefactoringTest {
         QueryOptimizationResult result = queryAnalysisEngine.analyzeQuery(repositoryQuery);
         
         assertNotNull(result);
-        assertNotNull(result.whereConditions());
-        assertNull(result.optimizationIssue());
+        assertNotNull(result.getWhereConditions());
+        assertNull(result.getOptimizationIssue());
     }
 
     @Test
@@ -60,8 +60,8 @@ class QueryAnalysisEngineRefactoringTest {
         QueryOptimizationResult result = queryAnalysisEngine.analyzeQuery(repositoryQuery);
         
         assertNotNull(result);
-        assertTrue(result.whereConditions().isEmpty());
-        assertNull(result.optimizationIssue());
+        assertTrue(result.getWhereConditions().isEmpty());
+        assertNull(result.getOptimizationIssue());
     }
 
     @Test

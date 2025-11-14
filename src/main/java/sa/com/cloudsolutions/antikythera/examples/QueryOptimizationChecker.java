@@ -192,7 +192,7 @@ public class QueryOptimizationChecker {
     void addWhereClauseColumnCardinality(QueryBatch batch, RepositoryQuery query) {
         // Use existing QueryAnalysisEngine to extract WHERE conditions from the actual query
         QueryOptimizationResult tempResult = analysisEngine.analyzeQuery(query);
-        List<WhereCondition> whereConditions = tempResult.whereConditions();
+        List<WhereCondition> whereConditions = tempResult.getWhereConditions();
 
         // Add cardinality information for each WHERE clause column
         for (WhereCondition condition : whereConditions) {
@@ -232,7 +232,7 @@ public class QueryOptimizationChecker {
         // Use QueryAnalysisEngine to extract WHERE conditions from the actual query
         // This is independent of LLM recommendations
         QueryOptimizationResult engineResult = analysisEngine.analyzeQuery(rawQuery);
-        List<WhereCondition> whereConditions = engineResult.whereConditions();
+        List<WhereCondition> whereConditions = engineResult.getWhereConditions();
 
         // Analyze indexes based on actual WHERE conditions, not LLM recommendations
         // Each condition now includes its own table name, which is critical for JOIN queries
@@ -296,7 +296,7 @@ public class QueryOptimizationChecker {
      * @param result the analysis results to report
      */
     void reportOptimizationResults(QueryOptimizationResult result) {
-        OptimizationIssue issue = result.optimizationIssue();
+        OptimizationIssue issue = result.getOptimizationIssue();
         
         if (issue == null) {
             // Enhanced confirmation reporting for already optimized queries
@@ -319,7 +319,7 @@ public class QueryOptimizationChecker {
      * @param result the analysis results for an optimized query
      */
     void reportOptimizedQuery(QueryOptimizationResult result) {
-        if (!result.whereConditions().isEmpty()) {
+        if (!result.getWhereConditions().isEmpty()) {
             WhereCondition firstCondition = result.getFirstCondition();
             String cardinalityInfo = firstCondition != null ? 
                 String.format(" (First condition uses %s cardinality column: %s)", 
@@ -327,7 +327,7 @@ public class QueryOptimizationChecker {
                              firstCondition.columnName()) : "";
             
             System.out.printf("✓ OPTIMIZED: %s.%s - Query is already optimized%s%n",
-                                            result.query().getClassname(),
+                                            result.getQuery().getClassname(),
                                             result.getMethodName(),
                                             cardinalityInfo);
             
@@ -343,7 +343,7 @@ public class QueryOptimizationChecker {
      */
     void reportOptimizationIssues(QueryOptimizationResult result) {
         // Sort issues by severity (HIGH -> MEDIUM -> LOW) for prioritized reporting
-        OptimizationIssue issue = result.optimizationIssue();
+        OptimizationIssue issue = result.getOptimizationIssue();
 
         if (issue == null) {
             return;
@@ -356,7 +356,7 @@ public class QueryOptimizationChecker {
         
         // Report header with summary
         System.out.printf("\n⚠ OPTIMIZATION NEEDED: %s.%s%n",
-                                        result.query().getClassname(),
+                                        result.getQuery().getClassname(),
                                         result.getMethodName());
         
         // Print the full WHERE clause and query information
@@ -365,9 +365,9 @@ public class QueryOptimizationChecker {
         System.out.println(formatOptimizationIssueEnhanced(issue, 1, result));
 
 
-        if (!result.indexSuggestions().isEmpty()) {
+        if (!result.getIndexSuggestions().isEmpty()) {
             System.out.println("    📋 Required Indexes:");
-            for (String indexRecommendation : result.indexSuggestions()) {
+            for (String indexRecommendation : result.getIndexSuggestions()) {
                 String[] parts = indexRecommendation.split("\\.", 2);
                 if (parts.length == 2) {
                     String table = parts[0];
@@ -424,9 +424,9 @@ public class QueryOptimizationChecker {
                                       issue.description()));
         
         // Show WHERE clause conditions if available
-        if (!result.whereConditions().isEmpty()) {
+        if (!result.getWhereConditions().isEmpty()) {
             formatted.append("\n    🔍 WHERE Clause Conditions:");
-            for (WhereCondition condition : result.whereConditions()) {
+            for (WhereCondition condition : result.getWhereConditions()) {
                 formatted.append(String.format("\n      • %s %s ? (%s cardinality, position %d)", 
                     condition.columnName(), 
                     condition.operator(), 
@@ -474,7 +474,7 @@ public class QueryOptimizationChecker {
      */
     void reportOptimizationIssuesQuiet(QueryOptimizationResult result) {
         // Update global recommendation counters
-        OptimizationIssue issue = result.optimizationIssue();
+        OptimizationIssue issue = result.getOptimizationIssue();
         if (issue == null) {
             return ;
         }
@@ -488,7 +488,7 @@ public class QueryOptimizationChecker {
         collectIndexSuggestions(result);
         
         if (issue.optimizedQuery() != null) {
-            System.out.printf("Repository: %s%n", result.query().getClassname());
+            System.out.printf("Repository: %s%n", result.getQuery().getClassname());
             System.out.printf("Method:     %s → %s%n",
                 issue.query().getMethodName(),
                 issue.optimizedQuery().getMethodName());
@@ -532,7 +532,7 @@ public class QueryOptimizationChecker {
      * @return the matching WhereCondition or null if not found
      */
     WhereCondition findConditionByColumn(QueryOptimizationResult result, String columnName) {
-        return result.whereConditions().stream()
+        return result.getWhereConditions().stream()
             .filter(condition -> columnName.equals(condition.columnName()))
             .findFirst()
             .orElse(null);
@@ -568,7 +568,7 @@ public class QueryOptimizationChecker {
             System.out.printf("  🔍 Original WHERE: %s%n", originalWhereClause);
         }
 
-        OptimizationIssue firstIssue = result.optimizationIssue();
+        OptimizationIssue firstIssue = result.getOptimizationIssue();
 
         if (firstIssue != null && firstIssue.optimizedQuery() != null) {
             // Use the existing QueryAnalysisEngine to analyze the optimized query
@@ -693,8 +693,8 @@ public class QueryOptimizationChecker {
         Map<String, List<String>> columnsByTable = new HashMap<>();
         
         // Collect columns from WHERE conditions, grouped by their table
-        if (!result.whereConditions().isEmpty()) {
-            for (WhereCondition condition : result.whereConditions()) {
+        if (!result.getWhereConditions().isEmpty()) {
+            for (WhereCondition condition : result.getWhereConditions()) {
                 if (condition.cardinality() != CardinalityLevel.LOW) {
                     String tableName = condition.tableName();
                     columnsByTable.computeIfAbsent(tableName, k -> new ArrayList<>()).add(condition.columnName());

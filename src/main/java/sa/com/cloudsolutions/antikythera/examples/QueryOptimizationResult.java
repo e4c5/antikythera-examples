@@ -11,8 +11,13 @@ import java.util.List;
  * Aggregates the results of query optimization analysis, including all identified
  * issues, WHERE clause conditions, and summary statistics.
  */
-public record QueryOptimizationResult(RepositoryQuery query, List<WhereCondition> whereConditions,
-                                      OptimizationIssue optimizationIssue, List<String> indexSuggestions) {
+public class QueryOptimizationResult {
+
+    private final RepositoryQuery query;
+    private final List<WhereCondition> whereConditions;
+    private final OptimizationIssue optimizationIssue;
+    private final List<String> indexSuggestions;
+
     /**
      * Creates a new QueryOptimizationResult instance.
      *
@@ -27,6 +32,12 @@ public record QueryOptimizationResult(RepositoryQuery query, List<WhereCondition
         this.optimizationIssue = optimizationIssue;
         this.indexSuggestions = indexSuggestions;
     }
+
+    // Accessors to preserve record-like API compatibility
+    public RepositoryQuery getQuery() { return query; }
+    public List<WhereCondition> getWhereConditions() { return whereConditions; }
+    public OptimizationIssue getOptimizationIssue() { return optimizationIssue; }
+    public List<String> getIndexSuggestions() { return indexSuggestions; }
 
     /**
      * Gets the method name that was analyzed.
@@ -66,7 +77,7 @@ public record QueryOptimizationResult(RepositoryQuery query, List<WhereCondition
     }
 
     public Callable getMethod() {
-        return query().getMethodDeclaration();
+        return query.getMethodDeclaration();
     }
 
     /**
