@@ -89,7 +89,7 @@ class GeminiAIServiceTest {
     }
 
     @Test
-    void testAnalyzeQueryBatch_SuccessfulResponse() throws IOException, InterruptedException {
+    void testAnalyzeQueryBatch_SuccessfulResponse() throws Exception {
         // Setup mock HTTP client and response
         try (MockedStatic<HttpClient> httpClientMock = mockStatic(HttpClient.class)) {
             HttpClient.Builder mockBuilder = mock(HttpClient.Builder.class);
@@ -151,7 +151,7 @@ class GeminiAIServiceTest {
     }
 
     @Test
-    void testAnalyzeQueryBatch_HttpError() throws IOException, InterruptedException {
+    void testAnalyzeQueryBatch_HttpError() throws Exception {
         try (MockedStatic<HttpClient> httpClientMock = mockStatic(HttpClient.class)) {
             HttpClient.Builder mockBuilder = mock(HttpClient.Builder.class);
             when(mockBuilder.connectTimeout(any())).thenReturn(mockBuilder);
@@ -263,7 +263,7 @@ class GeminiAIServiceTest {
     }
 
     @Test
-    void testParseRecommendations_InvalidJson() throws IOException {
+    void testParseRecommendations_InvalidJson() throws Exception {
         String invalidJson = "This is not valid JSON";
         QueryBatch batch = createTestQueryBatch();
         
@@ -274,7 +274,7 @@ class GeminiAIServiceTest {
     }
 
     @Test
-    void testParseRecommendations_ValidJson() throws IOException {
+    void testParseRecommendations_ValidJson() throws Exception {
         String validJson = "[{\"optimizedCodeElement\": \"User findByNameAndEmail(String name, String email);\", \"notes\": \"Reordered for better performance\"}]";
         QueryBatch batch = createTestQueryBatch();
         
@@ -289,29 +289,25 @@ class GeminiAIServiceTest {
     }
 
     /**
-     * Helper method to create a test QueryBatch using real repository sources.
+     * Helper method to create a test QueryBatch with properly mocked RepositoryQuery.
      */
-    private QueryBatch createTestQueryBatch() throws IOException {
-        CompilationUnit repoUnit = AntikytheraRunTime.getCompilationUnit(USER_REPOSITORY);
-        BaseRepositoryParser parser = BaseRepositoryParser.create(repoUnit);
-        parser.processTypes();
-        parser.buildQueries();
-        
+    private QueryBatch createTestQueryBatch() throws Exception {
         QueryBatch batch = new QueryBatch("UserRepository");
         
-        // Get a real query from the parsed repository
-        MethodDeclaration findByUsername = repoUnit.findAll(MethodDeclaration.class).stream()
-                .filter(m -> m.getNameAsString().equals("findByUsername"))
-                .findFirst()
-                .orElseThrow();
-        
-        Callable callable = new Callable(findByUsername, null);
-        RepositoryQuery query = parser.getQueryFromRepositoryMethod(callable);
-        
-        if (query != null) {
-            batch.addQuery(query);
-        }
-        
+        // Create a properly mocked RepositoryQuery with valid statement
+        RepositoryQuery mockQuery = mock(RepositoryQuery.class);
+        String sql = "SELECT * FROM users WHERE username = ?";
+        net.sf.jsqlparser.statement.Statement statement = net.sf.jsqlparser.parser.CCJSqlParserUtil.parse(sql);
+
+        when(mockQuery.getMethodDeclaration()).thenReturn(new Callable(md));
+        when(mockQuery.getStatement()).thenReturn(statement);
+        when(mockQuery.getQuery()).thenReturn(sql);
+        when(mockQuery.getMethodName()).thenReturn("findByUsername");
+        when(mockQuery.getPrimaryTable()).thenReturn("users");
+        when(mockQuery.getMethodParameters()).thenReturn(new ArrayList<>());
+
+        batch.addQuery(mockQuery);
+
         // Add column cardinalities
         Map<String, CardinalityLevel> cardinalities = new HashMap<>();
         cardinalities.put("username", CardinalityLevel.HIGH);
@@ -425,7 +421,7 @@ class GeminiAIServiceTest {
     }
 
     @Test
-    void testParseResponse_ValidResponse() throws IOException {
+    void testParseResponse_ValidResponse() throws Exception {
         String responseBody = """
             {
               "candidates": [
@@ -451,7 +447,7 @@ class GeminiAIServiceTest {
     }
 
     @Test
-    void testParseResponse_EmptyResponse() throws IOException {
+    void testParseResponse_EmptyResponse() throws Exception {
         String responseBody = """
             {
               "candidates": []
@@ -489,29 +485,24 @@ class GeminiAIServiceTest {
     }
 
     /**
-     * Helper method to create a simple test batch using real repository sources.
+     * Helper method to create a simple test batch with properly mocked RepositoryQuery.
      */
-    private QueryBatch createSimpleTestBatch() throws IOException {
-        CompilationUnit repoUnit = AntikytheraRunTime.getCompilationUnit(USER_REPOSITORY);
-        BaseRepositoryParser parser = BaseRepositoryParser.create(repoUnit);
-        parser.processTypes();
-        parser.buildQueries();
-        
+    private QueryBatch createSimpleTestBatch() throws Exception {
         QueryBatch batch = new QueryBatch("UserRepository");
         
-        // Get a simple query from the parsed repository
-        MethodDeclaration findByEmail = repoUnit.findAll(MethodDeclaration.class).stream()
-                .filter(m -> m.getNameAsString().equals("findByEmail"))
-                .findFirst()
-                .orElseThrow();
-        
-        Callable callable = new Callable(findByEmail, null);
-        RepositoryQuery query = parser.getQueryFromRepositoryMethod(callable);
-        
-        if (query != null) {
-            batch.addQuery(query);
-        }
-        
+        // Create a properly mocked RepositoryQuery with valid statement
+        RepositoryQuery mockQuery = mock(RepositoryQuery.class);
+        String sql = "SELECT * FROM users WHERE email = ?";
+        net.sf.jsqlparser.statement.Statement statement = net.sf.jsqlparser.parser.CCJSqlParserUtil.parse(sql);
+
+        when(mockQuery.getStatement()).thenReturn(statement);
+        when(mockQuery.getQuery()).thenReturn(sql);
+        when(mockQuery.getMethodName()).thenReturn("findByEmail");
+        when(mockQuery.getPrimaryTable()).thenReturn("users");
+        when(mockQuery.getMethodParameters()).thenReturn(new ArrayList<>());
+
+        batch.addQuery(mockQuery);
+
         Map<String, CardinalityLevel> cardinalities = new HashMap<>();
         cardinalities.put("email", CardinalityLevel.HIGH);
         batch.setColumnCardinalities(cardinalities);
