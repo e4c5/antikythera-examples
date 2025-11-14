@@ -117,15 +117,6 @@ class QueryOptimizationCheckerTest {
         assertNull(table4);
     }
 
-    @Test
-    void testInferTableNameFromQuerySafeFallback() {
-        String table2 = checker.inferTableNameFromQuerySafe(null, "UserAccountRepository");
-        assertEquals("user_account", table2);
-        
-        // Test with valid query text
-        String table3 = checker.inferTableNameFromQuerySafe("SELECT * FROM orders", "UserRepository");
-        assertEquals("orders", table3);
-    }
 
     @Test
     void testInferTableNameFromRepositoryClassName() {
@@ -306,12 +297,11 @@ class QueryOptimizationCheckerTest {
         when(mockCondition.cardinality()).thenReturn(CardinalityLevel.HIGH);
         when(mockResult.getWhereConditions()).thenReturn(Arrays.asList(mockCondition));
         
-        List<OptimizationIssue> issues = Arrays.asList(mockOptimizationIssue);
         when(mockOptimizationIssue.severity()).thenReturn(OptimizationIssue.Severity.HIGH);
         when(mockOptimizationIssue.recommendedColumnOrder()).thenReturn(Arrays.asList("email"));
         
         // Test the method
-        checker.collectIndexSuggestions(mockResult, issues);
+        checker.collectIndexSuggestions(mockResult);
         
         // Verify it doesn't throw exceptions
         assertTrue(true);
@@ -570,8 +560,6 @@ class QueryOptimizationCheckerTest {
         when(mockOptimizationIssue.recommendedFirstColumn()).thenReturn("email");
         when(mockOptimizationIssue.hasAIRecommendation()).thenReturn(false);
         
-        List<OptimizationIssue> issues = Arrays.asList(mockOptimizationIssue);
-        
         when(mockResult.getQuery()).thenReturn(mockRepositoryQuery);
         when(mockRepositoryQuery.getClassname()).thenReturn("UserRepository");
         when(mockResult.getMethodName()).thenReturn("findByEmail");
@@ -583,7 +571,7 @@ class QueryOptimizationCheckerTest {
         PrintStream originalOut = System.out;
         System.setOut(new PrintStream(baos));
         try {
-            checker.reportOptimizationIssues(mockResult, issues);
+            checker.reportOptimizationIssues(mockResult);
         } finally {
             System.setOut(originalOut);
         }
@@ -606,8 +594,6 @@ class QueryOptimizationCheckerTest {
         when(mockStatement.toString()).thenReturn("SELECT * FROM users WHERE id = ?");
         when(mockRepositoryQuery.getStatement()).thenReturn(mockStatement);
         
-        List<OptimizationIssue> issues = Arrays.asList(mockOptimizationIssue);
-        
         when(mockResult.getQuery()).thenReturn(mockRepositoryQuery);
         when(mockRepositoryQuery.getClassname()).thenReturn("UserRepository");
         
@@ -615,7 +601,7 @@ class QueryOptimizationCheckerTest {
         PrintStream originalOut = System.out;
         System.setOut(new PrintStream(baos));
         try {
-            checker.reportOptimizationIssuesQuiet(mockResult, issues);
+            checker.reportOptimizationIssuesQuiet(mockResult);
         } finally {
             System.setOut(originalOut);
         }
@@ -746,11 +732,9 @@ class QueryOptimizationCheckerTest {
             "AND oc.payer_contract_id = :payerContractId"
         );
         when(mockResult.getWhereConditions()).thenReturn(Arrays.asList(condition1, condition2, condition3));
-        
-        List<OptimizationIssue> issues = Collections.emptyList();
-        
+
         // Call the method
-        checker.collectIndexSuggestions(mockResult, issues);
+        checker.collectIndexSuggestions(mockResult);
         
         // Access the internal index suggestion sets
         LinkedHashSet<String> suggestedNewIndexes = checker.getSuggestedNewIndexes();
