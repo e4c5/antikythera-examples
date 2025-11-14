@@ -9,7 +9,6 @@ import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
 /**
@@ -48,8 +47,8 @@ class QueryAnalysisEngineRefactoringTest {
         QueryOptimizationResult result = queryAnalysisEngine.analyzeQuery(repositoryQuery);
         
         assertNotNull(result);
-        assertNotNull(result.getWhereConditions());
-        assertNotNull(result.getOptimizationIssues());
+        assertNotNull(result.whereConditions());
+        assertNull(result.optimizationIssue());
     }
 
     @Test
@@ -61,9 +60,8 @@ class QueryAnalysisEngineRefactoringTest {
         QueryOptimizationResult result = queryAnalysisEngine.analyzeQuery(repositoryQuery);
         
         assertNotNull(result);
-        // Should return empty result for queries without table names
-        assertTrue(result.getWhereConditions().isEmpty());
-        assertTrue(result.getOptimizationIssues().isEmpty());
+        assertTrue(result.whereConditions().isEmpty());
+        assertNull(result.optimizationIssue());
     }
 
     @Test

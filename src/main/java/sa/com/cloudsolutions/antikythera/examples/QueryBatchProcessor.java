@@ -28,10 +28,10 @@ public class QueryBatchProcessor {
      */
     private Map<String, CardinalityLevel> extractCardinalityInformation(QueryOptimizationResult result) {
         Map<String, CardinalityLevel> cardinalityData = new HashMap<>();
-        String tableName = result.getQuery().getPrimaryTable();
+        String tableName = result.query().getPrimaryTable();
         
         // Extract cardinality for WHERE clause columns
-        for (WhereCondition condition : result.getWhereConditions()) {
+        for (WhereCondition condition : result.whereConditions()) {
             String columnName = condition.columnName();
             CardinalityLevel cardinality = condition.cardinality();
             
@@ -72,7 +72,7 @@ public class QueryBatchProcessor {
         
         // Use the existing RepositoryQuery's method parameter analysis
         // to identify columns that are referenced in the query
-        RepositoryQuery query = result.getQuery();
+        RepositoryQuery query = result.query();
         
         // Extract columns from method parameters which map to query placeholders
         for (var parameter : query.getMethodParameters()) {

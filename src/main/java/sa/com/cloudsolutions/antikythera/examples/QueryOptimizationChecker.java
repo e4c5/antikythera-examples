@@ -197,7 +197,7 @@ public class QueryOptimizationChecker {
     void addWhereClauseColumnCardinality(QueryBatch batch, RepositoryQuery query) {
         // Use existing QueryAnalysisEngine to extract WHERE conditions from the actual query
         QueryOptimizationResult tempResult = analysisEngine.analyzeQuery(query);
-        List<WhereCondition> whereConditions = tempResult.getWhereConditions();
+        List<WhereCondition> whereConditions = tempResult.whereConditions();
 
         // Add cardinality information for each WHERE clause column
         for (WhereCondition condition : whereConditions) {
@@ -237,7 +237,7 @@ public class QueryOptimizationChecker {
         // Use QueryAnalysisEngine to extract WHERE conditions from the actual query
         // This is independent of LLM recommendations
         QueryOptimizationResult engineResult = analysisEngine.analyzeQuery(rawQuery);
-        List<WhereCondition> whereConditions = engineResult.getWhereConditions();
+        List<WhereCondition> whereConditions = engineResult.whereConditions();
 
         // Analyze indexes based on actual WHERE conditions, not LLM recommendations
         // Each condition now includes its own table name, which is critical for JOIN queries
@@ -269,11 +269,7 @@ public class QueryOptimizationChecker {
             llmRecommendation.optimizedQuery()
         );
 
-        // Create result with WHERE conditions and the enhanced optimization issue
-        List<OptimizationIssue> issues = new ArrayList<>();
-        issues.add(enhancedRecommendation);
-
-        return new QueryOptimizationResult(rawQuery, whereConditions, issues, requiredIndexes);
+        return new QueryOptimizationResult(rawQuery, whereConditions, enhancedRecommendation, requiredIndexes);
     }
 
     /**
@@ -305,9 +301,9 @@ public class QueryOptimizationChecker {
      * @param result the analysis results to report
      */
     void reportOptimizationResults(QueryOptimizationResult result) {
-        List<OptimizationIssue> issues = result.getOptimizationIssues();
+        OptimizationIssue issue = result.optimizationIssue();
         
-        if (issues.isEmpty()) {
+        if (issue == null) {
             // Enhanced confirmation reporting for already optimized queries
             if (!quietMode) {
                 reportOptimizedQuery(result);
@@ -328,7 +324,7 @@ public class QueryOptimizationChecker {
      * @param result the analysis results for an optimized query
      */
     void reportOptimizedQuery(QueryOptimizationResult result) {
-        if (!result.getWhereConditions().isEmpty()) {
+        if (!result.whereConditions().isEmpty()) {
             WhereCondition firstCondition = result.getFirstCondition();
             String cardinalityInfo = firstCondition != null ? 
                 String.format(" (First condition uses %s cardinality column: %s)", 
@@ -336,7 +332,7 @@ public class QueryOptimizationChecker {
                              firstCondition.columnName()) : "";
             
             System.out.printf("✓ OPTIMIZED: %s.%s - Query is already optimized%s%n",
-                                            result.getQuery().getClassname(),
+                                            result.query().getClassname(),
                                             result.getMethodName(),
                                             cardinalityInfo);
             
@@ -352,41 +348,31 @@ public class QueryOptimizationChecker {
      */
     void reportOptimizationIssues(QueryOptimizationResult result) {
         // Sort issues by severity (HIGH -> MEDIUM -> LOW) for prioritized reporting
-        List<OptimizationIssue> issues = result.getOptimizationIssues();
-        List<OptimizationIssue> sortedIssues = issues.stream()
-            .sorted((issue1, issue2) -> {
-                // Sort by severity priority: HIGH (0) -> MEDIUM (1) -> LOW (2)
-                int priority1 = getSeverityPriority(issue1.severity());
-                int priority2 = getSeverityPriority(issue2.severity());
-                return Integer.compare(priority1, priority2);
-            })
-            .toList();
+        OptimizationIssue issue = result.optimizationIssue();
 
+        if (issue == null) {
+            return;
+        }
         // Update global recommendation counters
-        int highCount = (int) issues.stream().filter(OptimizationIssue::isHighSeverity).count();
-        int mediumCount = (int) issues.stream().filter(OptimizationIssue::isMediumSeverity).count();
+        int highCount = issue.isHighSeverity() ? 1 : 0;
+        int mediumCount = issue.isMediumSeverity() ? 1 : 0;
         this.totalHighPriorityRecommendations += highCount;
         this.totalMediumPriorityRecommendations += mediumCount;
         
         // Report header with summary
         System.out.printf("\n⚠ OPTIMIZATION NEEDED: %s.%s (%d issue%s found)%n",
-                                        result.getQuery().getClassname(),
-                                        result.getMethodName(),
-                                        issues.size(),
-                                        issues.size() == 1 ? "" : "s");
+                                        result.query().getClassname(),
+                                        result.getMethodName());
         
         // Print the full WHERE clause and query information
         printQueryDetails(result);
         
-        // Report each issue with enhanced formatting
-        for (int i = 0; i < sortedIssues.size(); i++) {
-            OptimizationIssue issue = sortedIssues.get(i);
-            System.out.println(formatOptimizationIssueEnhanced(issue, i + 1, result));
-        }
+        System.out.println(formatOptimizationIssueEnhanced(issue, 1, result));
 
-        if (!result.getIndexSuggestions().isEmpty()) {
+
+        if (!result.indexSuggestions().isEmpty()) {
             System.out.println("    📋 Required Indexes:");
-            for (String indexRecommendation : result.getIndexSuggestions()) {
+            for (String indexRecommendation : result.indexSuggestions()) {
                 String[] parts = indexRecommendation.split("\\.", 2);
                 if (parts.length == 2) {
                     String table = parts[0];
@@ -399,7 +385,7 @@ public class QueryOptimizationChecker {
         }
 
         // Add specific recommendations for column reordering
-        addColumnReorderingRecommendations(sortedIssues);
+        addColumnReorderingRecommendations(issue);
 
         // Collect any index creation suggestions for consolidation at the end
         collectIndexSuggestions(result);
@@ -443,9 +429,9 @@ public class QueryOptimizationChecker {
                                       issue.description()));
         
         // Show WHERE clause conditions if available
-        if (!result.getWhereConditions().isEmpty()) {
+        if (!result.whereConditions().isEmpty()) {
             formatted.append("\n    🔍 WHERE Clause Conditions:");
-            for (WhereCondition condition : result.getWhereConditions()) {
+            for (WhereCondition condition : result.whereConditions()) {
                 formatted.append(String.format("\n      • %s %s ? (%s cardinality, position %d)", 
                     condition.columnName(), 
                     condition.operator(), 
@@ -493,37 +479,37 @@ public class QueryOptimizationChecker {
      */
     void reportOptimizationIssuesQuiet(QueryOptimizationResult result) {
         // Update global recommendation counters
-        List<OptimizationIssue> issues = result.getOptimizationIssues();
-        int highCount = (int) issues.stream().filter(OptimizationIssue::isHighSeverity).count();
-        int mediumCount = (int) issues.stream().filter(OptimizationIssue::isMediumSeverity).count();
+        OptimizationIssue issue = result.optimizationIssue();
+        if (issue == null) {
+            return ;
+        }
+
+        int highCount = issue.isHighSeverity() ? 1 : 0;
+        int mediumCount = issue.isMediumSeverity() ? 1 : 0;
         this.totalHighPriorityRecommendations += highCount;
         this.totalMediumPriorityRecommendations += mediumCount;
         
         // Collect any index creation suggestions for consolidation at the end
         collectIndexSuggestions(result);
         
-        // Only print if there's an actual optimization (changed query)
-        for (OptimizationIssue issue : issues) {
-            if (issue.optimizedQuery() != null) {
-                System.out.printf("Repository: %s%n", result.getQuery().getClassname());
-                System.out.printf("Method:     %s → %s%n", 
-                    issue.query().getMethodName(),
-                    issue.optimizedQuery().getMethodName());
-                System.out.println("\nOriginal Query:");
-                System.out.println("  " + issue.query().getStatement().toString());
-                System.out.println("\nOptimized Query:");
-                System.out.println("  " + issue.optimizedQuery().getStatement().toString());
-                
-                // Show parameter order change if applicable
-                if (issue.currentColumnOrder() != null && issue.recommendedColumnOrder() != null &&
-                    !issue.currentColumnOrder().equals(issue.recommendedColumnOrder())) {
-                    System.out.printf("\nParameter Order Change:%n");
-                    System.out.printf("  Before: %s%n", String.join(", ", issue.currentColumnOrder()));
-                    System.out.printf("  After:  %s%n", String.join(", ", issue.recommendedColumnOrder()));
-                }
-                System.out.println("=".repeat(80));
-                break; // Only show first optimization per method
+        if (issue.optimizedQuery() != null) {
+            System.out.printf("Repository: %s%n", result.query().getClassname());
+            System.out.printf("Method:     %s → %s%n",
+                issue.query().getMethodName(),
+                issue.optimizedQuery().getMethodName());
+            System.out.println("\nOriginal Query:");
+            System.out.println("  " + issue.query().getStatement().toString());
+            System.out.println("\nOptimized Query:");
+            System.out.println("  " + issue.optimizedQuery().getStatement().toString());
+
+            // Show parameter order change if applicable
+            if (issue.currentColumnOrder() != null && issue.recommendedColumnOrder() != null &&
+                !issue.currentColumnOrder().equals(issue.recommendedColumnOrder())) {
+                System.out.printf("\nParameter Order Change:%n");
+                System.out.printf("  Before: %s%n", String.join(", ", issue.currentColumnOrder()));
+                System.out.printf("  After:  %s%n", String.join(", ", issue.recommendedColumnOrder()));
             }
+            System.out.println("=".repeat(80));
         }
     }
     
@@ -551,7 +537,7 @@ public class QueryOptimizationChecker {
      * @return the matching WhereCondition or null if not found
      */
     WhereCondition findConditionByColumn(QueryOptimizationResult result, String columnName) {
-        return result.getWhereConditions().stream()
+        return result.whereConditions().stream()
             .filter(condition -> columnName.equals(condition.columnName()))
             .findFirst()
             .orElse(null);
@@ -586,17 +572,15 @@ public class QueryOptimizationChecker {
         if (!originalWhereClause.isEmpty()) {
             System.out.printf("  🔍 Original WHERE: %s%n", originalWhereClause);
         }
-        
-        // Print optimized WHERE clause if optimization issues exist
-        if (result.hasOptimizationIssues()) {
-            OptimizationIssue firstIssue = result.getOptimizationIssues().get(0);
-            if (firstIssue.optimizedQuery() != null) {
-                // Use the existing QueryAnalysisEngine to analyze the optimized query
-                QueryOptimizationResult optimizedResult = analysisEngine.analyzeQuery(firstIssue.optimizedQuery());
-                String optimizedWhereClause = optimizedResult.getFullWhereClause();
-                if (!optimizedWhereClause.isEmpty() && !optimizedWhereClause.equals(originalWhereClause)) {
-                    System.out.printf("  ✨ Optimized WHERE: %s%n", optimizedWhereClause);
-                }
+
+        OptimizationIssue firstIssue = result.optimizationIssue();
+
+        if (firstIssue != null && firstIssue.optimizedQuery() != null) {
+            // Use the existing QueryAnalysisEngine to analyze the optimized query
+            QueryOptimizationResult optimizedResult = analysisEngine.analyzeQuery(firstIssue.optimizedQuery());
+            String optimizedWhereClause = optimizedResult.getFullWhereClause();
+            if (!optimizedWhereClause.isEmpty() && !optimizedWhereClause.equals(originalWhereClause)) {
+                System.out.printf("  ✨ Optimized WHERE: %s%n", optimizedWhereClause);
             }
         }
     }
@@ -606,35 +590,23 @@ public class QueryOptimizationChecker {
      * Adds specific recommendations for column reordering in WHERE clauses.
      * Enhanced to handle AI recommendations and required indexes.
      *
-     * @param issues the list of optimization issues
+     * @param issue the list of optimization issues
      */
-    void addColumnReorderingRecommendations(List<OptimizationIssue> issues) {
-        if (issues.isEmpty()) {
+    void addColumnReorderingRecommendations(OptimizationIssue issue) {
+        if (issue == null) {
             return;
         }
-        // Group recommendations by priority
-        List<OptimizationIssue> highPriorityIssues = issues.stream()
-            .filter(OptimizationIssue::isHighSeverity)
-            .toList();
-        
-        List<OptimizationIssue> mediumPriorityIssues = issues.stream()
-            .filter(OptimizationIssue::isMediumSeverity)
-            .toList();
 
         StringBuilder recommendations = new StringBuilder();
 
-        // High priority recommendations
-        if (!highPriorityIssues.isEmpty()) {
-            addPriorityRecommendations(recommendations, highPriorityIssues, "🔴 HIGH PRIORITY:", 
-                "Move '%s' condition to the beginning of WHERE clause", 
-                "⚠ CREATE NEEDED", "Required indexes:");
+        if (issue.isHighSeverity()) {
+            addPriorityRecommendations(recommendations, issue, "🔴 HIGH PRIORITY:",
+                "Move '%s' condition to the beginning of WHERE clause");
         }
         
-        // Medium priority recommendations
-        if (!mediumPriorityIssues.isEmpty()) {
-            addPriorityRecommendations(recommendations, mediumPriorityIssues, "🟡 MEDIUM PRIORITY:", 
-                "Consider reordering: place '%s' before '%s' in WHERE clause", 
-                "💡 CONSIDER CREATING", "Suggested indexes:");
+        if (issue.isMediumSeverity()) {
+            addPriorityRecommendations(recommendations, issue, "🟡 MEDIUM PRIORITY:",
+                "Consider reordering: place '%s' before '%s' in WHERE clause");
         }
 
         // Only print if we have recommendations
@@ -648,31 +620,28 @@ public class QueryOptimizationChecker {
      * Helper method to add priority-specific recommendations to the StringBuilder.
      * Eliminates code duplication between high and medium priority processing.
      */
-    void addPriorityRecommendations(StringBuilder recommendations, List<OptimizationIssue> issues,
-                                          String priorityHeader, String reorderingTemplate,
-                                          String indexCreateStatus, String indexHeader) {
+    void addPriorityRecommendations(StringBuilder recommendations, OptimizationIssue issue,
+                                          String priorityHeader, String reorderingTemplate) {
         recommendations.append("    ").append(priorityHeader).append("\n");
         
-        for (OptimizationIssue issue : issues) {
-            // Skip reordering recommendation when the recommended column is already first
-            if (issue.recommendedFirstColumn().equals(issue.currentFirstColumn())) {
-                continue;
-            }
-            
-            // Add reordering recommendation
-            if (reorderingTemplate.contains("%s") && reorderingTemplate.contains("before")) {
-                // Medium priority template with two parameters
-                recommendations.append(String.format("      • " + reorderingTemplate + "%n",
-                    issue.recommendedFirstColumn(), issue.currentFirstColumn()));
-            } else {
-                // High priority template with one parameter
-                recommendations.append(String.format("      • " + reorderingTemplate + "%n",
-                    issue.recommendedFirstColumn()));
-                recommendations.append(String.format("        Replace: WHERE %s = ? AND %s = ?%n",
-                    issue.currentFirstColumn(), issue.recommendedFirstColumn()));
-                recommendations.append(String.format("        With:    WHERE %s = ? AND %s = ?%n",
-                    issue.recommendedFirstColumn(), issue.currentFirstColumn()));
-            }
+        // Skip reordering recommendation when the recommended column is already first
+        if (issue.recommendedFirstColumn().equals(issue.currentFirstColumn())) {
+            return;
+        }
+
+        // Add reordering recommendation
+        if (reorderingTemplate.contains("%s") && reorderingTemplate.contains("before")) {
+            // Medium priority template with two parameters
+            recommendations.append(String.format("      • " + reorderingTemplate + "%n",
+                issue.recommendedFirstColumn(), issue.currentFirstColumn()));
+        } else {
+            // High priority template with one parameter
+            recommendations.append(String.format("      • " + reorderingTemplate + "%n",
+                issue.recommendedFirstColumn()));
+            recommendations.append(String.format("        Replace: WHERE %s = ? AND %s = ?%n",
+                issue.currentFirstColumn(), issue.recommendedFirstColumn()));
+            recommendations.append(String.format("        With:    WHERE %s = ? AND %s = ?%n",
+                issue.recommendedFirstColumn(), issue.currentFirstColumn()));
         }
     }
 
@@ -729,8 +698,8 @@ public class QueryOptimizationChecker {
         Map<String, List<String>> columnsByTable = new HashMap<>();
         
         // Collect columns from WHERE conditions, grouped by their table
-        if (!result.getWhereConditions().isEmpty()) {
-            for (WhereCondition condition : result.getWhereConditions()) {
+        if (!result.whereConditions().isEmpty()) {
+            for (WhereCondition condition : result.whereConditions()) {
                 if (condition.cardinality() != CardinalityLevel.LOW) {
                     String tableName = condition.tableName();
                     columnsByTable.computeIfAbsent(tableName, k -> new ArrayList<>()).add(condition.columnName());
