@@ -1,7 +1,7 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
-import net.sf.jsqlparser.expression.BinaryExpression;
 import net.sf.jsqlparser.expression.Expression;
+import net.sf.jsqlparser.expression.ExpressionVisitorAdapter;
 import net.sf.jsqlparser.expression.JdbcNamedParameter;
 import net.sf.jsqlparser.expression.JdbcParameter;
 import net.sf.jsqlparser.expression.operators.conditional.AndExpression;
@@ -19,18 +19,18 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Proper expression condition extractor that uses a cleaner implementation
- * compared to OptimizationAnalysisVisitor. While it doesn't use JSQLParser's
- * ExpressionVisitorAdapter (due to complexity/compatibility issues with the library),
- * it provides a well-structured, maintainable approach to extracting WHERE conditions.
+ * Proper expression condition extractor that properly extends JSQLParser's ExpressionVisitorAdapter.
+ * This implementation follows the visitor pattern correctly by overriding visit methods for each
+ * expression type, allowing JSQLParser to dispatch to the appropriate handler.
  *
  * This class improves upon OptimizationAnalysisVisitor by:
+ * - Properly using the visitor pattern (not instanceof checks)
  * - Better separation of concerns
  * - More comprehensive operator support
  * - Cleaner method organization
  * - Enhanced documentation
  */
-public class ExpressionConditionExtractor {
+public class ExpressionConditionExtractor extends ExpressionVisitorAdapter<Void> {
 
     private static final Logger logger = LoggerFactory.getLogger(ExpressionConditionExtractor.class);
 
@@ -46,7 +46,7 @@ public class ExpressionConditionExtractor {
 
     /**
      * Extracts WHERE conditions from the given expression.
-     * This is the main entry point.
+     * This is the main entry point that triggers the visitor pattern.
      */
     public List<WhereCondition> extractConditions(Expression whereExpression) {
         conditions.clear();
@@ -54,43 +54,93 @@ public class ExpressionConditionExtractor {
 
         if (whereExpression != null) {
             logger.debug("Extracting conditions from expression type: {}", whereExpression.getClass().getSimpleName());
-            visitExpression(whereExpression);
+            whereExpression.accept(this, null);
         }
 
         logger.debug("Extracted {} WHERE conditions", conditions.size());
         return new ArrayList<>(conditions);
     }
 
-    /**
-     * Recursively visits expressions to extract conditions.
-     * Uses instanceof checks for robustness and clarity.
-     */
-    private void visitExpression(Expression expression) {
-        if (expression instanceof AndExpression andExpr) {
-            // Process left side first (maintains order for optimization analysis)
-            visitExpression(andExpr.getLeftExpression());
-            visitExpression(andExpr.getRightExpression());
-        } else if (expression instanceof OrExpression orExpr) {
-            // For OR expressions, both sides are equally important for optimization
-            visitExpression(orExpr.getLeftExpression());
-            visitExpression(orExpr.getRightExpression());
-        } else if (expression instanceof ComparisonOperator comparison) {
-            extractConditionFromComparison(comparison);
-        } else if (expression instanceof Between between) {
-            extractConditionFromBetween(between);
-        } else if (expression instanceof InExpression inExpr) {
-            extractConditionFromIn(inExpr);
-        } else if (expression instanceof IsNullExpression isNull) {
-            extractConditionFromIsNull(isNull);
-        } else if (expression instanceof LikeExpression likeExpr) {
-            extractConditionFromLike(likeExpr);
-        } else if (expression instanceof BinaryExpression binaryExpr) {
-            // Handle other binary expressions that might contain conditions
-            visitExpression(binaryExpr.getLeftExpression());
-            visitExpression(binaryExpr.getRightExpression());
-        } else {
-            logger.debug("Unhandled expression type in WHERE clause: {}", expression.getClass().getSimpleName());
-        }
+    // Visitor pattern implementations for logical operators
+
+    @Override
+    public <S> Void visit(AndExpression andExpr, S context) {
+        // Process left side first (maintains order for optimization analysis)
+        andExpr.getLeftExpression().accept(this, context);
+        andExpr.getRightExpression().accept(this, context);
+        return null;
+    }
+
+    @Override
+    public <S> Void visit(OrExpression orExpr, S context) {
+        // For OR expressions, both sides are equally important for optimization
+        orExpr.getLeftExpression().accept(this, context);
+        orExpr.getRightExpression().accept(this, context);
+        return null;
+    }
+
+    // Visitor pattern implementations for comparison operators
+
+    @Override
+    public <S> Void visit(EqualsTo equalsTo, S context) {
+        extractConditionFromComparison(equalsTo);
+        return null;
+    }
+
+    @Override
+    public <S> Void visit(NotEqualsTo notEqualsTo, S context) {
+        extractConditionFromComparison(notEqualsTo);
+        return null;
+    }
+
+    @Override
+    public <S> Void visit(GreaterThan greaterThan, S context) {
+        extractConditionFromComparison(greaterThan);
+        return null;
+    }
+
+    @Override
+    public <S> Void visit(GreaterThanEquals greaterThanEquals, S context) {
+        extractConditionFromComparison(greaterThanEquals);
+        return null;
+    }
+
+    @Override
+    public <S> Void visit(MinorThan minorThan, S context) {
+        extractConditionFromComparison(minorThan);
+        return null;
+    }
+
+    @Override
+    public <S> Void visit(MinorThanEquals minorThanEquals, S context) {
+        extractConditionFromComparison(minorThanEquals);
+        return null;
+    }
+
+    // Visitor pattern implementations for special operators
+
+    @Override
+    public <S> Void visit(Between between, S context) {
+        extractConditionFromBetween(between);
+        return null;
+    }
+
+    @Override
+    public <S> Void visit(InExpression inExpr, S context) {
+        extractConditionFromIn(inExpr);
+        return null;
+    }
+
+    @Override
+    public <S> Void visit(IsNullExpression isNull, S context) {
+        extractConditionFromIsNull(isNull);
+        return null;
+    }
+
+    @Override
+    public <S> Void visit(LikeExpression likeExpr, S context) {
+        extractConditionFromLike(likeExpr);
+        return null;
     }
 
     // Extraction methods for different expression types
