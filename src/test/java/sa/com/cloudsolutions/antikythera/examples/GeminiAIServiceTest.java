@@ -234,39 +234,6 @@ class GeminiAIServiceTest {
     }
 
     @Test
-    void testDetermineSeverity_High() {
-        String notes = "High priority optimization needed";
-        List<String> currentOrder = Arrays.asList("email", "name");
-        List<String> recommendedOrder = Arrays.asList("name", "email");
-
-        OptimizationIssue.Severity result = geminiAIService.determineSeverity(notes, currentOrder, recommendedOrder);
-
-        assertEquals(OptimizationIssue.Severity.HIGH, result);
-    }
-
-    @Test
-    void testDetermineSeverity_Medium() {
-        String notes = "Medium priority optimization";
-        List<String> currentOrder = Arrays.asList("email", "name");
-        List<String> recommendedOrder = Arrays.asList("name", "email");
-
-        OptimizationIssue.Severity result = geminiAIService.determineSeverity(notes, currentOrder, recommendedOrder);
-
-        assertEquals(OptimizationIssue.Severity.MEDIUM, result);
-    }
-
-    @Test
-    void testDetermineSeverity_Low() {
-        String notes = "Minor optimization";
-        List<String> currentOrder = Arrays.asList("email", "name");
-        List<String> recommendedOrder = Arrays.asList("email", "name"); // Same order
-
-        OptimizationIssue.Severity result = geminiAIService.determineSeverity(notes, currentOrder, recommendedOrder);
-
-        assertEquals(OptimizationIssue.Severity.LOW, result);
-    }
-
-    @Test
     void testParseRecommendations_InvalidJson() throws Exception {
         String invalidJson = "This is not valid JSON";
         QueryBatch batch = createTestQueryBatch();

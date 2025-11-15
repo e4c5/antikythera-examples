@@ -82,24 +82,6 @@ class QueryOptimizationCheckerTest {
     }
 
     @Test
-    void testSeverityPriorityOrdering()  {
-        int pHigh = checker.getSeverityPriority(OptimizationIssue.Severity.HIGH);
-        int pMed = checker.getSeverityPriority(OptimizationIssue.Severity.MEDIUM);
-        int pLow = checker.getSeverityPriority(OptimizationIssue.Severity.LOW);
-        assertTrue(pHigh < pMed && pMed < pLow);
-    }
-
-    @Test
-    void testSeverityIconMapping() {
-        String iHigh = checker.getSeverityIcon(OptimizationIssue.Severity.HIGH);
-        String iMed = checker.getSeverityIcon(OptimizationIssue.Severity.MEDIUM);
-        String iLow = checker.getSeverityIcon(OptimizationIssue.Severity.LOW);
-        assertEquals("🔴", iHigh);
-        assertEquals("🟡", iMed);
-        assertEquals("🟢", iLow);
-    }
-
-    @Test
     void testInferTableNameFromQuery() {
         String table1 = checker.inferTableNameFromQuery("SELECT * FROM public.users u WHERE u.id = ?");
         assertEquals("users", table1);
@@ -195,26 +177,6 @@ class QueryOptimizationCheckerTest {
         assertEquals("", result3);
     }
 
-    @Test
-    void testPrintConsolidatedIndexActions() {
-        LinkedHashSet<String> suggestedSet = checker.getSuggestedNewIndexes();
-        suggestedSet.add("users|email");
-        suggestedSet.add("orders|user_id");
-
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        PrintStream originalOut = System.out;
-        System.setOut(new PrintStream(baos));
-        try {
-            checker.printConsolidatedIndexActions();
-        } finally {
-            System.setOut(originalOut);
-        }
-        String out = baos.toString();
-        assertTrue(out.contains("SUGGESTED SINGLE-COLUMN INDEXES"));
-        assertTrue(checker.getTotalIndexCreateRecommendations() >= 2);
-        assertTrue(checker.getTotalIndexDropRecommendations() >= 0);
-    }
-
 
     @Test
     void testCreateRawQueryBatch() {
@@ -274,16 +236,6 @@ class QueryOptimizationCheckerTest {
     }
 
     @Test
-    void testGetterMethods() {
-        assertEquals(0, checker.getTotalQueriesAnalyzed());
-        assertEquals(0, checker.getTotalHighPriorityRecommendations());
-        assertEquals(0, checker.getTotalMediumPriorityRecommendations());
-        assertEquals(0, checker.getTotalIndexCreateRecommendations());
-        assertEquals(0, checker.getTotalIndexDropRecommendations());
-        assertNotNull(checker.getCumulativeTokenUsage());
-    }
-
-    @Test
     void testCollectIndexSuggestions() {
         // Create mock objects
         when(mockResult.getIndexSuggestions()).thenReturn(Arrays.asList("users.email"));
@@ -297,7 +249,6 @@ class QueryOptimizationCheckerTest {
         when(mockCondition.cardinality()).thenReturn(CardinalityLevel.HIGH);
         when(mockResult.getWhereConditions()).thenReturn(Arrays.asList(mockCondition));
         
-        when(mockOptimizationIssue.severity()).thenReturn(OptimizationIssue.Severity.HIGH);
         when(mockOptimizationIssue.recommendedColumnOrder()).thenReturn(Arrays.asList("email"));
         
         // Test the method
@@ -329,7 +280,6 @@ class QueryOptimizationCheckerTest {
         when(mockOptimizationIssue.currentColumnOrder()).thenReturn(Arrays.asList("id"));
         when(mockOptimizationIssue.recommendedColumnOrder()).thenReturn(Arrays.asList("email"));
         when(mockOptimizationIssue.description()).thenReturn("Test optimization");
-        when(mockOptimizationIssue.severity()).thenReturn(OptimizationIssue.Severity.HIGH);
         when(mockOptimizationIssue.aiExplanation()).thenReturn("AI explanation");
         when(mockOptimizationIssue.optimizedQuery()).thenReturn(null);
         
@@ -370,24 +320,6 @@ class QueryOptimizationCheckerTest {
         TokenUsage usage = checker.getCumulativeTokenUsage();
         assertNotNull(usage);
         assertEquals(0, usage.getTotalTokens()); // Should start at 0
-    }
-
-    @Test
-    void testMultiColumnIndexSuggestions() {
-        LinkedHashSet<String> multiColumnSet = checker.getSuggestedMultiColumnIndexes();
-
-        multiColumnSet.add("users|email,name,status");
-        
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        PrintStream originalOut = System.out;
-        System.setOut(new PrintStream(baos));
-        try {
-            checker.printConsolidatedIndexActions();
-        } finally {
-            System.setOut(originalOut);
-        }
-        String out = baos.toString();
-        assertTrue(out.contains("MULTI-COLUMN INDEXES"));
     }
 
     @Test
@@ -480,39 +412,6 @@ class QueryOptimizationCheckerTest {
     }
 
     @Test
-    void testAddColumnReorderingRecommendations() {
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        PrintStream originalOut = System.out;
-        System.setOut(new PrintStream(baos));
-        try {
-            checker.addColumnReorderingRecommendations(null);
-        } finally {
-            System.setOut(originalOut);
-        }
-        
-        // Should handle empty list gracefully
-        assertTrue(true);
-        
-        // Test with issues
-        when(mockOptimizationIssue.isHighSeverity()).thenReturn(true);
-        when(mockOptimizationIssue.isMediumSeverity()).thenReturn(false);
-        when(mockOptimizationIssue.recommendedFirstColumn()).thenReturn("email");
-        when(mockOptimizationIssue.currentFirstColumn()).thenReturn("id");
-        List<OptimizationIssue> issues = Arrays.asList(mockOptimizationIssue);
-        
-        baos = new ByteArrayOutputStream();
-        System.setOut(new PrintStream(baos));
-        try {
-            checker.addColumnReorderingRecommendations(null);
-        } finally {
-            System.setOut(originalOut);
-        }
-        
-        // Should not throw exception
-        assertTrue(true);
-    }
-
-    @Test
     void testAddPriorityRecommendations() {
         StringBuilder recommendations = new StringBuilder();
         
@@ -527,7 +426,6 @@ class QueryOptimizationCheckerTest {
 
     @Test
     void testFormatOptimizationIssueEnhanced() {
-        when(mockOptimizationIssue.severity()).thenReturn(OptimizationIssue.Severity.HIGH);
         when(mockOptimizationIssue.description()).thenReturn("Test optimization issue");
         when(mockOptimizationIssue.currentFirstColumn()).thenReturn("id");
         when(mockOptimizationIssue.recommendedFirstColumn()).thenReturn("email");
@@ -545,9 +443,6 @@ class QueryOptimizationCheckerTest {
 
     @Test
     void testReportOptimizationIssues() {
-        when(mockOptimizationIssue.severity()).thenReturn(OptimizationIssue.Severity.HIGH);
-        when(mockOptimizationIssue.isHighSeverity()).thenReturn(true);
-        when(mockOptimizationIssue.isMediumSeverity()).thenReturn(false);
         when(mockOptimizationIssue.description()).thenReturn("Test issue");
         when(mockOptimizationIssue.currentFirstColumn()).thenReturn("id");
         when(mockOptimizationIssue.recommendedFirstColumn()).thenReturn("email");
@@ -575,8 +470,6 @@ class QueryOptimizationCheckerTest {
 
     @Test
     void testReportOptimizationIssuesQuiet() {
-        when(mockOptimizationIssue.isHighSeverity()).thenReturn(true);
-        when(mockOptimizationIssue.isMediumSeverity()).thenReturn(false);
         when(mockOptimizationIssue.optimizedQuery()).thenReturn(mockRepositoryQuery);
         when(mockOptimizationIssue.query()).thenReturn(mockRepositoryQuery);
         when(mockOptimizationIssue.currentColumnOrder()).thenReturn(Arrays.asList("id"));
@@ -664,17 +557,6 @@ class QueryOptimizationCheckerTest {
         
         // Note: Testing with null inputs would cause NPE in the current implementation
         // This indicates the methods should have null checks added
-    }
-
-    @Test
-    void testCounterIncrements() {
-        // Test that counters are properly incremented
-        int initialHigh = checker.getTotalHighPriorityRecommendations();
-        int initialMedium = checker.getTotalMediumPriorityRecommendations();
-
-        // These should start at 0
-        assertEquals(0, initialHigh);
-        assertEquals(0, initialMedium);
     }
 
     @Test

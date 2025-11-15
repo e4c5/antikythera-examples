@@ -1,8 +1,6 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.BeforeEach;
-
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -49,19 +47,6 @@ class CoverageImprovementTest {
         // Test valueOf
         for (CardinalityLevel level : levels) {
             assertEquals(level, CardinalityLevel.valueOf(level.name()));
-        }
-    }
-
-    @Test
-    void testOptimizationIssueSeverityValues() {
-        // Test OptimizationIssue.Severity enum values
-        OptimizationIssue.Severity[] severities = OptimizationIssue.Severity.values();
-        assertNotNull(severities);
-        assertTrue(severities.length > 0);
-        
-        // Test valueOf
-        for (OptimizationIssue.Severity severity : severities) {
-            assertEquals(severity, OptimizationIssue.Severity.valueOf(severity.name()));
         }
     }
 
