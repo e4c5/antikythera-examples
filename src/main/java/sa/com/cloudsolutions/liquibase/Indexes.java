@@ -33,7 +33,7 @@ public class Indexes {
      *
      * @param type PRIMARY_KEY, UNIQUE_CONSTRAINT, UNIQUE_INDEX, INDEX
      */
-        public record IndexInfo(String type, String name, List<String> columns) {
+    public record IndexInfo(String type, String name, List<String> columns) {
         @Override
             public String toString() {
                 return type + ";" + name + ";" + String.join(",", columns);
@@ -120,14 +120,14 @@ public class Indexes {
         handleCreateTable(doc, result);
         handleAddColumn(doc, result);
 
-        // Raw <sql> blocks: parse CREATE INDEX statements expressed as SQL (PostgreSQL/Oracle/etc)
-        handleSqlElements(doc, result);
-
         // includes (<include>)
         handleIncludes(file, visited, doc, result);
 
 
         handleIncludeAll(file, visited, doc, result);
+
+        // Raw <sql> blocks: process after includes so DROP statements can remove previously added indexes
+        handleSqlElements(doc, result);
 
         handleDropIndex(doc, result);
 
@@ -521,7 +521,8 @@ public class Indexes {
         for (Map.Entry<String, List<Index>> e : map.entrySet()) {
             List<Index> list = e.getValue();
             if (list == null) continue;
-            list.removeIf(i -> ("INDEX".equals(i.type) || UNIQUE_INDEX.equals(i.type)) && name.equals(i.name));
+            String target = name.toLowerCase();
+            list.removeIf(i -> ("INDEX".equals(i.type) || UNIQUE_INDEX.equals(i.type)) && i.name != null && i.name.equalsIgnoreCase(target));
             if (list.isEmpty()) emptyTables.add(e.getKey());
         }
         for (String t : emptyTables) map.remove(t);
@@ -552,7 +553,8 @@ public class Indexes {
         if (isBlank(table) || isBlank(name)) return;
         List<Index> list = map.get(table);
         if (list == null) return;
-        list.removeIf(i -> ("INDEX".equals(i.type) || UNIQUE_INDEX.equals(i.type)) && name.equals(i.name));
+        String target = name.toLowerCase();
+        list.removeIf(i -> ("INDEX".equals(i.type) || UNIQUE_INDEX.equals(i.type)) && i.name != null && i.name.equalsIgnoreCase(target));
         if (list.isEmpty()) map.remove(table);
     }
 
@@ -569,7 +571,8 @@ public class Indexes {
         List<Index> list = map.get(table);
         if (list == null) return;
         if (!isBlank(name)) {
-            list.removeIf(i -> UNIQUE_CONSTRAINT.equals(i.type) && name.equals(i.name));
+            String target = name.toLowerCase();
+            list.removeIf(i -> UNIQUE_CONSTRAINT.equals(i.type) && i.name != null && i.name.equalsIgnoreCase(target));
         } else if (cols != null && !cols.isEmpty()) {
             Set<String> target = new HashSet<>(cols.stream().map(String::toLowerCase).collect(Collectors.toSet()));
             list.removeIf(i -> UNIQUE_CONSTRAINT.equals(i.type) && sameColumnsIgnoreCase(i.columns, target));
@@ -581,7 +584,8 @@ public class Indexes {
         List<Index> list = map.get(table);
         if (list == null) return;
         if (!isBlank(name)) {
-            list.removeIf(i -> PRIMARY_KEY.equals(i.type) && name.equals(i.name));
+            String target = name.toLowerCase();
+            list.removeIf(i -> PRIMARY_KEY.equals(i.type) && i.name != null && i.name.equalsIgnoreCase(target));
         } else {
             list.removeIf(i -> PRIMARY_KEY.equals(i.type));
         }
