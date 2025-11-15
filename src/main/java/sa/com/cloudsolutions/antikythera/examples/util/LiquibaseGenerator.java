@@ -362,7 +362,7 @@ public class LiquibaseGenerator {
             int idx = masterText.lastIndexOf("</databaseChangeLog>");
 
             String updated = masterText.substring(0, idx) + includeTag + "\n" + masterText.substring(idx);
-            try (PrintWriter writer = new PrintWriter(fileName)) {
+            try (PrintWriter writer = new PrintWriter(masterFile.toFile())) {
                 writer.println(updated);
             }
         }
