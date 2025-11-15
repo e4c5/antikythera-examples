@@ -69,8 +69,9 @@ public class QueryOptimizationResult {
     @Override
     public String toString() {
         return String.format("repositoryClass='%s', methodName='%s', " +
-                        "whereConditions=%d, optimizationIssues=%d, isOptimized=%s",
-                query.getClassname(), getMethodName(), whereConditions.size());
+                        "whereConditions=%d, optimizationIssues=%d",
+                query.getClassname(), getMethodName(),
+                whereConditions == null ? 0 : whereConditions.size());
     }
 
     public Callable getMethod() {
