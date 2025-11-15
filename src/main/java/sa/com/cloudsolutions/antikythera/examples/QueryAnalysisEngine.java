@@ -30,17 +30,16 @@ public class QueryAnalysisEngine {
         if (statement == null) {
             return handleDerivedQuery(repositoryQuery);
         }
+        List<WhereCondition> whereConditions = QueryOptimizationExtractor.extractWhereConditions(repositoryQuery);
 
         // Extract table name for cardinality analysis
         String tableName = repositoryQuery.getPrimaryTable();
         if (tableName == null || tableName.isEmpty()) {
-            return createEmptyResult(repositoryQuery);
+            return new QueryOptimizationResult(repositoryQuery, whereConditions);
         }
 
-        // Extract WHERE clause conditions using the parser infrastructure
-        List<WhereCondition> whereConditions = QueryOptimizationExtractor.extractWhereConditions(repositoryQuery);
 
-        return new QueryOptimizationResult(repositoryQuery, whereConditions, null, List.of());
+        return new QueryOptimizationResult(repositoryQuery, whereConditions);
     }
 
     /**
@@ -65,13 +64,9 @@ public class QueryAnalysisEngine {
                     whereConditions.add(condition);
                 }
             }
-
-            /**
-             * TODO Analyze the inferred conditions
-             */
         }
         
-        return new QueryOptimizationResult(repositoryQuery, whereConditions, null, List.of());
+        return new QueryOptimizationResult(repositoryQuery, whereConditions);
     }
 
     /**
@@ -161,21 +156,5 @@ public class QueryAnalysisEngine {
         }
         
         return details.toString();
-    }
-    
-    /**
-     * Creates an empty result for cases where analysis cannot be performed.
-     */
-    private QueryOptimizationResult createEmptyResult(RepositoryQuery query) {
-        return new QueryOptimizationResult(query, List.of(), null, List.of());
-    }
-
-    /**
-     * Validates that the engine is properly configured and ready for analysis.
-     * 
-     * @return true if the engine is ready, false otherwise
-     */
-    public boolean isReady() {
-        return CardinalityAnalyzer.getIndexMap() != null;
     }
 }
