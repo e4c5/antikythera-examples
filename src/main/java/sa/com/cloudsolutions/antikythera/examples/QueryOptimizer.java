@@ -520,18 +520,14 @@ public class QueryOptimizer extends QueryOptimizationChecker{
 
         // Print execution summary
         int queries = checker.getTotalQueriesAnalyzed();
-        int high = checker.getTotalHighPriorityRecommendations();
-        int medium = checker.getTotalMediumPriorityRecommendations();
+        int high = checker.getTotalRecommendations();
         int createCount = checker.getTotalIndexCreateRecommendations();
         int dropCount = checker.getTotalIndexDropRecommendations();
         System.out.printf(
-                "%nSUMMARY: Analyzed %d quer%s. Recommendations given: %d high priorit%s, %d medium priorit%s. Index actions: %d creation%s, %d drop%s.",
+                "%nSUMMARY: Analyzed %d quer%s. Recommendations given: %d. Index actions: %d creation%s, %d drop%s.",
                 queries,
                 queries == 1 ? "y" : "ies",
                 high,
-                high == 1 ? "y" : "ies",
-                medium,
-                medium == 1 ? "y" : "ies",
                 createCount,
                 createCount == 1 ? "" : "s",
                 dropCount,
@@ -557,10 +553,8 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         System.out.println("📊 Detailed statistics logged to: query-optimization-stats.csv");
         
         // Exit with non-zero if at least 1 high and at least 10 medium priority recommendations
-        if (high >= 1 && medium >= 10) {
+        if (high >= 1 ) {
             System.exit(1);
-        } else {
-            System.exit(0);
         }
     }
 }

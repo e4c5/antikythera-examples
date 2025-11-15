@@ -410,19 +410,16 @@ public class GeminiAIService {
                     currentColumnOrder,
                     recommendedColumnOrder, // Same as current since no optimization needed
                     "Where clause is already optimized",
-                    OptimizationIssue.Severity.LOW, // Low severity since no action needed
                     notes,
                     null
             );
         }
-        OptimizationIssue.Severity severity = determineSeverity(notes, currentColumnOrder, recommendedColumnOrder);
 
         return new OptimizationIssue(
                 originalQuery,
                 currentColumnOrder,
                 recommendedColumnOrder,
                 notes,
-                severity,
                 notes,
                 optimizedQuery
         );
@@ -547,19 +544,6 @@ public class GeminiAIService {
             clonedList.add((T) node.clone());
         }
         return clonedList;
-    }
-
-    /**
-     * Determines the severity of the optimization issue.
-     */
-    OptimizationIssue.Severity determineSeverity(String notes, List<String> currentOrder, List<String> recommendedOrder) {
-        if (notes.toLowerCase().contains("high") || notes.toLowerCase().contains("primary key")) {
-            return OptimizationIssue.Severity.HIGH;
-        } else if (notes.toLowerCase().contains("medium") || !currentOrder.equals(recommendedOrder)) {
-            return OptimizationIssue.Severity.MEDIUM;
-        } else {
-            return OptimizationIssue.Severity.LOW;
-        }
     }
 
     /**
