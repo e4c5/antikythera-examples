@@ -42,32 +42,6 @@ public record OptimizationIssue(RepositoryQuery query, List<String> currentColum
         return (recommendedColumnOrder != null && !recommendedColumnOrder.isEmpty()) ? recommendedColumnOrder.get(0) : "";
     }
 
-    /**
-     * Gets a formatted string representation suitable for reporting.
-     *
-     * @return formatted issue report
-     */
-    public String getFormattedReport() {
-        StringBuilder report = new StringBuilder();
-        report.append(String.format("%s.%s%n",
-                query.getMethodDeclaration().getClassOrInterfaceDeclaration().getFullyQualifiedName(),
-                query.getMethodDeclaration().getNameAsString()));
-        report.append(String.format("  Issue: %s%n", description));
-        
-        if (currentColumnOrder != null && !currentColumnOrder.isEmpty()) {
-            report.append(String.format("  Current column order: %s%n", String.join(", ", currentColumnOrder)));
-        }
-        
-        if (recommendedColumnOrder != null && !recommendedColumnOrder.isEmpty()) {
-            report.append(String.format("  Recommended column order: %s%n", String.join(", ", recommendedColumnOrder)));
-        }
-
-        if (hasAIRecommendation()) {
-            report.append(String.format("  AI Explanation: %s%n", aiExplanation));
-        }
-
-        return report.toString();
-    }
     @Override
     public String toString() {
         return String.format("%s.%s : currentColumnOrder=%s, recommendedColumnOrder=%s",
