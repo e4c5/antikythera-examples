@@ -337,6 +337,19 @@ public class QueryOptimizationChecker {
         }
     }
 
+    private OptimizationIssue reportNumbers(QueryOptimizationResult result) {
+        OptimizationIssue issue = result.getOptimizationIssue();
+
+        if (issue != null) {
+            // Update global recommendation counters
+            int highCount = issue.isHighSeverity() ? 1 : 0;
+            int mediumCount = issue.isMediumSeverity() ? 1 : 0;
+            this.totalHighPriorityRecommendations += highCount;
+            this.totalMediumPriorityRecommendations += mediumCount;
+        }
+        return issue;
+    }
+
     /**
      * Reports optimization issues with severity-based prioritization and enhanced recommendations.
      *
@@ -344,16 +357,7 @@ public class QueryOptimizationChecker {
      */
     void reportOptimizationIssues(QueryOptimizationResult result) {
         // Sort issues by severity (HIGH -> MEDIUM -> LOW) for prioritized reporting
-        OptimizationIssue issue = result.getOptimizationIssue();
-
-        if (issue == null) {
-            return;
-        }
-        // Update global recommendation counters
-        int highCount = issue.isHighSeverity() ? 1 : 0;
-        int mediumCount = issue.isMediumSeverity() ? 1 : 0;
-        this.totalHighPriorityRecommendations += highCount;
-        this.totalMediumPriorityRecommendations += mediumCount;
+        OptimizationIssue issue = reportNumbers(result);
 
         // Report header with summary
         System.out.printf("\n⚠ OPTIMIZATION NEEDED: %s.%s%n",
@@ -472,16 +476,7 @@ public class QueryOptimizationChecker {
      */
     void reportOptimizationIssuesQuiet(QueryOptimizationResult result) {
         // Update global recommendation counters
-        OptimizationIssue issue = result.getOptimizationIssue();
-        if (issue == null) {
-            return ;
-        }
-
-        int highCount = issue.isHighSeverity() ? 1 : 0;
-        int mediumCount = issue.isMediumSeverity() ? 1 : 0;
-        this.totalHighPriorityRecommendations += highCount;
-        this.totalMediumPriorityRecommendations += mediumCount;
-
+        OptimizationIssue issue = reportNumbers(result);
         // Collect any index creation suggestions for consolidation at the end
         collectIndexSuggestions(result);
 
