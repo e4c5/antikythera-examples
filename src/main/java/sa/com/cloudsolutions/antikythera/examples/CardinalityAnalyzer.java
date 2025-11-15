@@ -13,8 +13,8 @@ import java.util.Set;
  * Determines whether columns are high, medium, or low cardinality to support query optimization.
  *
  * This analysis does not consider the keys defined with in the entity. When liquibase is used for
- * Schema migrations, what matters is the definitions in the liequibase xml files rather than the
- * entitie.
+ * Schema migrations, what matters is the definitions in the liquibase xml files rather than the
+ * entities.
  */
 public class CardinalityAnalyzer {
     
