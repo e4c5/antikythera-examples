@@ -304,11 +304,11 @@ public class Indexes {
 
     private static void handleUniqueConstraints(Document doc, String addUniqueConstraint, String name, Map<String, List<Index>> result, String uniqueConstraint) {
         for (Element el : elementsByLocalName(doc, addUniqueConstraint)) {
-            String name = firstNonEmpty(el.getAttribute("constraintName"), el.getAttribute(name));
+            String constraintName = firstNonEmpty(el.getAttribute("constraintName"), el.getAttribute(name));
             String table = firstNonEmpty(el.getAttribute("tableName"), el.getAttribute("table"));
             List<String> cols = splitColumns(el.getAttribute("columnNames"));
             if (!isBlank(table) && !cols.isEmpty()) {
-                add(result, table, new Index(uniqueConstraint, orUnknown(name), cols));
+                add(result, table, new Index(uniqueConstraint, orUnknown(constraintName), cols));
             }
         }
     }
@@ -341,6 +341,7 @@ public class Indexes {
                         if (st == null) continue;
                         String s = st.toString();
                         processCreateIndexSql(result, s);
+                        processDropSql(result, s);
                     }
                     continue;
                 }
@@ -351,6 +352,7 @@ public class Indexes {
                 String s = part.trim();
                 if (s.isEmpty()) continue;
                 processCreateIndexSql(result, s);
+                processDropSql(result, s);
             }
         }
     }
@@ -445,6 +447,84 @@ public class Indexes {
         int dot = tableName.lastIndexOf('.');
         if (dot >= 0) tableName = tableName.substring(dot + 1);
         add(result, tableName, new Index(isUnique ? UNIQUE_INDEX : "INDEX", orUnknown(indexName), cols));
+    }
+
+    /**
+     * Parse and apply raw SQL DROP statements affecting indexes/constraints.
+     * Supports patterns:
+     * - DROP INDEX [CONCURRENTLY] [IF EXISTS] indexName
+     * - ALTER TABLE <table> DROP CONSTRAINT [IF EXISTS] <name>
+     * - ALTER TABLE <table> DROP PRIMARY KEY
+     */
+    private static void processDropSql(Map<String, List<Index>> result, String sql) {
+        if (isBlank(sql)) return;
+        String normalized = sql.trim();
+        if (normalized.endsWith(";")) normalized = normalized.substring(0, normalized.length() - 1);
+        normalized = normalized.replace('\n', ' ').replace('\r', ' ');
+        String upper = normalized.toUpperCase();
+
+        // Handle DROP INDEX ...
+        if (upper.startsWith("DROP") && upper.contains("INDEX")) {
+            String cleaned = normalized
+                    .replaceAll("(?i)\\bCONCURRENTLY\\b", " ")
+                    .replaceAll("(?i)\\bIF\\s+EXISTS\\b", " ")
+                    .replaceAll("\\s+", " ").trim();
+            // Pattern: DROP INDEX indexName
+            Matcher m = Pattern.compile("(?i)^DROP\\s+INDEX\\s+([\"`\\w.]+)").matcher(cleaned);
+            if (m.find()) {
+                String rawName = unquote(m.group(1));
+                // For fully qualified names like schema.index, take the last token
+                int dot = rawName.lastIndexOf('.');
+                String idxName = dot >= 0 ? rawName.substring(dot + 1) : rawName;
+                removeIndexByNameAnyTable(result, idxName);
+            }
+            return;
+        }
+
+        // Handle ALTER TABLE ... DROP ...
+        if (upper.startsWith("ALTER TABLE")) {
+            String cleaned = normalized.replaceAll("(?i)\\bIF\\s+EXISTS\\b", " ")
+                    .replaceAll("\\s+", " ").trim();
+            // Extract table
+            Matcher tm = Pattern.compile("(?i)^ALTER\\s+TABLE\\s+([\"`\\w.]+)\\s+(.*)$").matcher(cleaned);
+            if (tm.find()) {
+                String tableName = unquote(tm.group(1));
+                int dot = tableName.lastIndexOf('.');
+                if (dot >= 0) tableName = tableName.substring(dot + 1);
+                String rest = tm.group(2).trim();
+
+                // ... DROP PRIMARY KEY
+                Matcher dpk = Pattern.compile("(?i)^DROP\\s+PRIMARY\\s+KEY(.*)$").matcher(rest);
+                if (dpk.find()) {
+                    // Some dialects may specify USING INDEX <name>, but removal by table is fine
+                    removePrimaryKey(result, tableName, null);
+                    return;
+                }
+                // ... DROP CONSTRAINT name
+                Matcher dc = Pattern.compile("(?i)^DROP\\s+CONSTRAINT\\s+([\"`\\w.]+)(.*)$").matcher(rest);
+                if (dc.find()) {
+                    String rawName = unquote(dc.group(1));
+                    int d2 = rawName.lastIndexOf('.');
+                    String consName = d2 >= 0 ? rawName.substring(d2 + 1) : rawName;
+                    // Try both unique constraint and primary key by this name on the table
+                    removeUniqueConstraint(result, tableName, consName, null);
+                    removePrimaryKey(result, tableName, consName);
+                    return;
+                }
+            }
+        }
+    }
+
+    private static void removeIndexByNameAnyTable(Map<String, List<Index>> map, String name) {
+        if (isBlank(name) || map.isEmpty()) return;
+        List<String> emptyTables = new ArrayList<>();
+        for (Map.Entry<String, List<Index>> e : map.entrySet()) {
+            List<Index> list = e.getValue();
+            if (list == null) continue;
+            list.removeIf(i -> ("INDEX".equals(i.type) || UNIQUE_INDEX.equals(i.type)) && name.equals(i.name));
+            if (list.isEmpty()) emptyTables.add(e.getKey());
+        }
+        for (String t : emptyTables) map.remove(t);
     }
 
     private static String unquote(String s) {
