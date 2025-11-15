@@ -411,7 +411,6 @@ public class QueryOptimizationChecker {
      * AI explanations, and required indexes.
      * 
      * @param issue the optimization issue to format
-     * @param issueNumber the issue number for display
      * @param result the full analysis result for additional context
      * @return formatted string representation of the issue
      */
@@ -915,7 +914,7 @@ public class QueryOptimizationChecker {
         LiquibaseGenerator.WriteResult result = liquibaseGenerator.writeChangesetToFile(liquibaseXmlPath, allChangesets);
 
         if (result.wasWritten() && result.getChangesFile() != null) {
-            logger.info("Generated Liquibase changes file: {} with {} index recommendations ({} multi-column, {} single-column)",
+            logger.debug("Generated Liquibase changes file: {} with {} index recommendations ({} multi-column, {} single-column)",
                        result.getChangesFile().getName(), totalRecommendations, multiColumnCount, singleColumnCount);
         }
     }

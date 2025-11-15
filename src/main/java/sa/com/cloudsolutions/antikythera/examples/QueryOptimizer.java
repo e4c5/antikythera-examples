@@ -78,7 +78,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
                 if (optimizedQuery != null) {
                     if (QueryType.HQL.equals(optimizedQuery.getQueryType())) {
                         updateAnnotationValue(issue.query().getMethodDeclaration().asMethodDeclaration(),
-                                "Query",  optimizedQuery.getQuery());
+                                "Query",  optimizedQuery.getOriginalQuery());
                     }
                     else {
                         updateAnnotationValue(issue.query().getMethodDeclaration().asMethodDeclaration(),
