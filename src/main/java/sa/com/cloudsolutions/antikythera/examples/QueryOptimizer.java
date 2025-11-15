@@ -515,10 +515,6 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         }
         checker.analyze();
 
-        // Print consolidated index actions at end of analysis (skip in quiet mode)
-        if (!quietMode) {
-            checker.printConsolidatedIndexActions();
-        }
         // Generate Liquibase file with suggested changes and include in master
         checker.generateLiquibaseChangesFile();
 
