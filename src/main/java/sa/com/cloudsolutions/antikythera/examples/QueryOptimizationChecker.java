@@ -733,105 +733,75 @@ public class QueryOptimizationChecker {
     }
 
     public void printConsolidatedIndexActions() {
-        // Calculate actual index counts (excluding covered ones) - do this first
-        int multiColumnCount = suggestedMultiColumnIndexes.size();
-        int singleColumnCount = 0;
-        
-        // Count single-column indexes that aren't covered by composites
-        for (String key : suggestedNewIndexes) {
-            String[] parts = key.split("\\|", 2);
-            String table = parts.length > 0 ? parts[0] : "";
-            String column = parts.length > 1 ? parts[1] : "";
-            
-            if (!isCoveredByComposite(table, column)) {
-                singleColumnCount++;
-            }
-        }
-        
-        // Set the total count that will be used in summary
-        totalIndexCreateRecommendations = multiColumnCount + singleColumnCount;
-        
-        // Print multi-column indexes first (these are preferred)
-        if (!suggestedMultiColumnIndexes.isEmpty()) {
-            System.out.println("\n📦 SUGGESTED MULTI-COLUMN INDEXES (Optimized for Query Performance):");
-            for (String key : suggestedMultiColumnIndexes) {
-                String[] parts = key.split("\\|", 2);
-                String table = parts.length > 0 ? parts[0] : TABLE_NAME_TAG;
-                String columnsStr = parts.length > 1 ? parts[1] : COLUMN_NAME_TAG;
-                LinkedHashSet<String> columns = new LinkedHashSet<>(List.of(columnsStr.split(",")));
-                
-                // Use new multi-column index changeset builder
-                String snippet = buildLiquibaseMultiColumnIndexChangeSet(table, columns);
-                
-                // Add context about the recommendation
-                System.out.printf("\n  Multi-column index for %s (%s):%n", table, String.join(", ", columns));
-                System.out.println("    Note: First column is covered by this composite index - no separate index needed");
-                System.out.println(indent(snippet, 2));
-            }
-        }
-        
-        // Print single-column indexes
-        if (!suggestedNewIndexes.isEmpty()) {
-            System.out.println("\n📦 SUGGESTED SINGLE-COLUMN INDEXES (AI-Enhanced + Cardinality Analysis):");
-            for (String key : suggestedNewIndexes) {
-                String[] parts = key.split("\\|", 2);
-                String table = parts.length > 0 ? parts[0] : TABLE_NAME_TAG;
-                String column = parts.length > 1 ? parts[1] : COLUMN_NAME_TAG;
-                
-                // Check if this column is already covered by a multi-column index
-                boolean coveredByComposite = isCoveredByComposite(table, column);
-                
-                if (coveredByComposite) {
-                    System.out.printf("\n  ⏭️  Skipping %s.%s - already covered by multi-column index%n", table, column);
-                    continue;
+        GeneratedChangesets generated = generateAllChangesets();
+        totalIndexCreateRecommendations = generated.totalCreateCount;
+        totalIndexDropRecommendations = generated.dropCount;
+
+        // Report create recommendations
+        if (generated.totalCreateCount > 0) {
+            if (generated.multiColumnCount > 0) {
+                System.out.println("\n📦 SUGGESTED MULTI-COLUMN INDEXES (Optimized for Query Performance):");
+                for (String key : suggestedMultiColumnIndexes) {
+                    String[] parts = key.split("\\|", 2);
+                    String table = parts.length > 0 ? parts[0] : TABLE_NAME_TAG;
+                    String columnsStr = parts.length > 1 ? parts[1] : COLUMN_NAME_TAG;
+                    LinkedHashSet<String> columns = new LinkedHashSet<>(List.of(columnsStr.split(",")));
+                    String snippet = buildLiquibaseMultiColumnIndexChangeSet(table, columns);
+                    System.out.printf("\n  Multi-column index for %s (%s):%n", table, String.join(", ", columns));
+                    System.out.println("    Note: First column is covered by this composite index - no separate index needed");
+                    System.out.println(indent(snippet, 2));
                 }
-                
-                // Use existing buildLiquibaseNonLockingIndexChangeSet logic
-                String snippet = buildLiquibaseNonLockingIndexChangeSet(table, column);
-                
-                // Add context about the recommendation source
-                System.out.printf("\n  Index for %s.%s:%n", table, column);
-                System.out.println(indent(snippet, 2));
             }
-        }
-        
-        if (totalIndexCreateRecommendations == 0) {
-            System.out.println("\n📦 No new index recommendations found.");
+            if (!suggestedNewIndexes.isEmpty()) {
+                System.out.println("\n📦 SUGGESTED SINGLE-COLUMN INDEXES (AI-Enhanced + Cardinality Analysis):");
+                for (String key : suggestedNewIndexes) {
+                    String[] parts = key.split("\\|", 2);
+                    String table = parts.length > 0 ? parts[0] : TABLE_NAME_TAG;
+                    String column = parts.length > 1 ? parts[1] : COLUMN_NAME_TAG;
+                    boolean coveredByComposite = isCoveredByComposite(table, column);
+                    if (coveredByComposite) {
+                        System.out.printf("\n  ⏭️  Skipping %s.%s - already covered by multi-column index%n", table, column);
+                        continue;
+                    }
+                    String snippet = buildLiquibaseNonLockingIndexChangeSet(table, column);
+                    System.out.printf("\n  Index for %s.%s:%n", table, column);
+                    System.out.println(indent(snippet, 2));
+                }
+            }
+            System.out.printf("\n  💡 Total index creation recommendations: %d (%d multi-column, %d single-column)%n",
+                    totalIndexCreateRecommendations, generated.multiColumnCount, generated.singleColumnCount);
         } else {
-            System.out.printf("\n  💡 Total index creation recommendations: %d (%d multi-column, %d single-column)%n", 
-                             totalIndexCreateRecommendations, multiColumnCount, singleColumnCount);
+            System.out.println("\n📦 No index creation recommendations found.");
         }
 
-        // Analyze existing indexes to suggest drops for low-cardinality leading columns
-        java.util.LinkedHashSet<String> dropCandidates = new java.util.LinkedHashSet<>();
-        java.util.Map<String, java.util.Set<Indexes.IndexInfo>> map = CardinalityAnalyzer.getIndexMap();
-        for (var entry : map.entrySet()) {
-            String table = entry.getKey();
-            for (var idx : entry.getValue()) {
-                if ("INDEX".equals(idx.type()) && idx.columns() != null && !idx.columns().isEmpty()) {
-                    String first = idx.columns().getFirst();
-                    CardinalityLevel card = CardinalityAnalyzer.analyzeColumnCardinality(table, first);
-                    if (card == CardinalityLevel.LOW && !idx.name().isEmpty()) {
-                        dropCandidates.add(idx.name());
+        // Report drop recommendations
+        if (totalIndexDropRecommendations > 0) {
+            System.out.println("\n🗑 SUGGESTED INDEX DROPS (leading low-cardinality columns):");
+            // Reconstruct drop candidates (for printing detail) – relies on same logic as generation
+            java.util.LinkedHashSet<String> dropCandidates = new java.util.LinkedHashSet<>();
+            java.util.Map<String, java.util.Set<Indexes.IndexInfo>> map = CardinalityAnalyzer.getIndexMap();
+            if (map != null) {
+                for (var entry : map.entrySet()) {
+                    String table = entry.getKey();
+                    for (var idx : entry.getValue()) {
+                        if ("INDEX".equals(idx.type()) && idx.columns() != null && !idx.columns().isEmpty()) {
+                            String first = idx.columns().getFirst();
+                            CardinalityLevel card = CardinalityAnalyzer.analyzeColumnCardinality(table, first);
+                            if (card == CardinalityLevel.LOW && !idx.name().isEmpty()) {
+                                dropCandidates.add(idx.name());
+                            }
+                        }
                     }
                 }
             }
-        }
-
-        if (!dropCandidates.isEmpty()) {
-            System.out.println("\n🗑 SUGGESTED INDEX DROPS (leading low-cardinality columns):");
-            int dcount = 0;
             for (String idxName : dropCandidates) {
                 String snippet = buildLiquibaseDropIndexChangeSet(idxName);
-                System.out.println(String.format("\n  Drop index %s:", idxName));
+                System.out.printf("\n  Drop index %s:%n", idxName);
                 System.out.println(indent(snippet, 2));
-                dcount++;
             }
-            totalIndexDropRecommendations = dcount;
-            
-            System.out.println(String.format("\n  💡 Total index drop recommendations: %d", dcount));
+            System.out.printf("\n  💡 Total index drop recommendations: %d%n", totalIndexDropRecommendations);
         } else {
-            totalIndexDropRecommendations = 0;
+            System.out.println("\n🗑 No index drop recommendations found.");
         }
     }
 
@@ -858,63 +828,128 @@ public class QueryOptimizationChecker {
      * Uses the consolidated LiquibaseGenerator utility for changeset creation and file operations.
      */
     public void generateLiquibaseChangesFile() throws IOException {
-        if (suggestedNewIndexes.isEmpty() && suggestedMultiColumnIndexes.isEmpty()) {
+        // Generate changesets for both create and drop operations
+        GeneratedChangesets generated = generateAllChangesets();
+
+        if (generated.changesets.isEmpty()) {
             return;
         }
 
-        List<String> changesets = new ArrayList<>();
-        changesets.add("    <!-- AI-Enhanced Query Optimization Index Recommendations -->");
-        changesets.add("    <!-- Generated by QueryOptimizationChecker with multi-column index support -->");
-
-        int multiColumnCount = 0;
-        int singleColumnCount = 0;
-
-        // Add multi-column indexes first
-        for (String key : suggestedMultiColumnIndexes) {
-            String[] parts = key.split("\\|", 2);
-            String table = parts.length > 0 ? parts[0] : TABLE_NAME_TAG;
-            String columnsStr = parts.length > 1 ? parts[1] : COLUMN_NAME_TAG;
-            LinkedHashSet<String> columns = new LinkedHashSet<>(List.of(columnsStr.split(",")));
-
-            String changeSet = buildLiquibaseMultiColumnIndexChangeSet(table, columns);
-
-            changesets.add("\n    <!-- Multi-column index recommendation for " + table +
-                          " (" + String.join(", ", columns) + ") -->");
-            changesets.add("    <!-- Note: First column is covered - no separate index needed -->");
-            changesets.add(indentXml(changeSet, 4));
-            multiColumnCount++;
-        }
-
-        // Add single-column indexes (excluding those covered by multi-column indexes)
-        for (String key : suggestedNewIndexes) {
-            String[] parts = key.split("\\|", 2);
-            String table = parts.length > 0 ? parts[0] : TABLE_NAME_TAG;
-            String column = parts.length > 1 ? parts[1] : COLUMN_NAME_TAG;
-
-            if (isCoveredByComposite(table, column)) {
-                changesets.add("\n    <!-- Skipping " + table + "." + column +
-                              " - covered by multi-column index -->");
-                continue;
-            }
-
-            String changeSet = buildLiquibaseNonLockingIndexChangeSet(table, column);
-            changesets.add(indentXml(changeSet, 4));
-            singleColumnCount++;
-        }
-
-        // Add summary comment
-        int totalRecommendations = multiColumnCount + singleColumnCount;
-        changesets.add("\n    <!-- Summary: " + totalRecommendations + " total index recommendations " +
-                      "(" + multiColumnCount + " multi-column, " + singleColumnCount + " single-column) -->");
-
         // Use LiquibaseGenerator to write the changeset file
-        String allChangesets = String.join("\n", changesets);
+        String allChangesets = String.join("\n", generated.changesets);
         LiquibaseGenerator.WriteResult result = liquibaseGenerator.writeChangesetToFile(liquibaseXmlPath, allChangesets);
 
         if (result.wasWritten() && result.getChangesFile() != null) {
-            logger.debug("Generated Liquibase changes file: {} with {} index recommendations ({} multi-column, {} single-column)",
-                       result.getChangesFile().getName(), totalRecommendations, multiColumnCount, singleColumnCount);
+            logger.debug("Generated Liquibase changes file: {} with {} index create recommendations ({} multi-column, {} single-column) and {} drop recommendations",
+                       result.getChangesFile().getName(), generated.totalCreateCount, generated.multiColumnCount,
+                       generated.singleColumnCount, generated.dropCount);
         }
+    }
+
+    /**
+     * Holds the results of generating all changesets.
+     */
+    static class GeneratedChangesets {
+        List<String> changesets = new ArrayList<>();
+        int multiColumnCount = 0;
+        int singleColumnCount = 0;
+        int totalCreateCount = 0;
+        int dropCount = 0;
+    }
+
+    /**
+     * Generates all Liquibase changesets (create and drop) as a consolidated list.
+     * This method is used by both the file writer and the console printer to avoid duplication.
+     *
+     * @return GeneratedChangesets containing all changesets and counts
+     */
+    GeneratedChangesets generateAllChangesets() {
+        GeneratedChangesets result = new GeneratedChangesets();
+
+        // Always start with a header (even if only drops will be suggested)
+        result.changesets.add("    <!-- AI-Enhanced Query Optimization Index Recommendations -->");
+        result.changesets.add("    <!-- Generated by QueryOptimizationChecker with multi-column index + drop support -->");
+
+        // Add multi-column indexes first (only if present)
+        if (!suggestedMultiColumnIndexes.isEmpty()) {
+            for (String key : suggestedMultiColumnIndexes) {
+                String[] parts = key.split("\\|", 2);
+                String table = parts.length > 0 ? parts[0] : TABLE_NAME_TAG;
+                String columnsStr = parts.length > 1 ? parts[1] : COLUMN_NAME_TAG;
+                LinkedHashSet<String> columns = new LinkedHashSet<>(List.of(columnsStr.split(",")));
+
+                String changeSet = buildLiquibaseMultiColumnIndexChangeSet(table, columns);
+
+                result.changesets.add("\n    <!-- Multi-column index recommendation for " + table +
+                        " (" + String.join(", ", columns) + ") -->");
+                result.changesets.add("    <!-- Note: First column is covered - no separate index needed -->");
+                result.changesets.add(indentXml(changeSet, 4));
+                result.multiColumnCount++;
+            }
+        }
+
+        // Add single-column indexes (excluding those covered by multi-column indexes)
+        if (!suggestedNewIndexes.isEmpty()) {
+            for (String key : suggestedNewIndexes) {
+                String[] parts = key.split("\\|", 2);
+                String table = parts.length > 0 ? parts[0] : TABLE_NAME_TAG;
+                String column = parts.length > 1 ? parts[1] : COLUMN_NAME_TAG;
+
+                if (isCoveredByComposite(table, column)) {
+                    result.changesets.add("\n    <!-- Skipping " + table + "." + column +
+                            " - covered by multi-column index -->");
+                    continue;
+                }
+
+                String changeSet = buildLiquibaseNonLockingIndexChangeSet(table, column);
+                result.changesets.add(indentXml(changeSet, 4));
+                result.singleColumnCount++;
+            }
+        }
+
+        result.totalCreateCount = result.multiColumnCount + result.singleColumnCount;
+
+        // Add create index summary comment (or note no create recommendations)
+        if (result.totalCreateCount > 0) {
+            result.changesets.add("\n    <!-- Summary: " + result.totalCreateCount + " total index create recommendations " +
+                    "(" + result.multiColumnCount + " multi-column, " + result.singleColumnCount + " single-column) -->");
+        } else {
+            result.changesets.add("\n    <!-- Summary: No index create recommendations -->");
+        }
+
+        // Analyze existing indexes to suggest drops for low-cardinality leading columns (always perform)
+        java.util.LinkedHashSet<String> dropCandidates = new java.util.LinkedHashSet<>();
+        java.util.Map<String, java.util.Set<Indexes.IndexInfo>> map = CardinalityAnalyzer.getIndexMap();
+        if (map != null) {
+            for (var entry : map.entrySet()) {
+                String table = entry.getKey();
+                for (var idx : entry.getValue()) {
+                    if ("INDEX".equals(idx.type()) && idx.columns() != null && !idx.columns().isEmpty()) {
+                        String first = idx.columns().getFirst();
+                        CardinalityLevel card = CardinalityAnalyzer.analyzeColumnCardinality(table, first);
+                        if (card == CardinalityLevel.LOW && !idx.name().isEmpty()) {
+                            dropCandidates.add(idx.name());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Add drop index changesets even if there are no create suggestions
+        if (!dropCandidates.isEmpty()) {
+            result.changesets.add("\n    <!-- Index Drop Recommendations (leading low-cardinality columns) -->");
+            for (String idxName : dropCandidates) {
+                String changeSet = buildLiquibaseDropIndexChangeSet(idxName);
+                result.changesets.add("\n    <!-- Drop index " + idxName + " -->");
+                result.changesets.add(indentXml(changeSet, 4));
+                result.dropCount++;
+            }
+            result.changesets.add("\n    <!-- Summary: " + result.dropCount + " total index drop recommendations -->");
+        } else {
+            result.changesets.add("\n    <!-- Summary: No index drop recommendations -->");
+        }
+
+        return result;
     }
 
     boolean isCoveredByComposite(String table, String column) {
