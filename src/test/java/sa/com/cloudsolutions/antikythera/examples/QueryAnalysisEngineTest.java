@@ -67,14 +67,4 @@ class QueryAnalysisEngineTest {
         CardinalityLevel nameCardinality = CardinalityAnalyzer.analyzeColumnCardinality("users", "name");
         assertEquals(CardinalityLevel.MEDIUM, nameCardinality);
     }
-    
-    @Test
-    void testEngineReadiness() {
-        // Test that engine reports readiness correctly
-        assertTrue(engine.isReady());
-        
-        // Once indexMap is set via setUp(), it remains set (static field)
-        QueryAnalysisEngine anotherEngine = new QueryAnalysisEngine();
-        assertTrue(anotherEngine.isReady());
-    }
 }

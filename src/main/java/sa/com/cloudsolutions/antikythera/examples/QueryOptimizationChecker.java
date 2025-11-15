@@ -264,7 +264,10 @@ public class QueryOptimizationChecker {
             llmRecommendation.optimizedQuery()
         );
 
-        return new QueryOptimizationResult(rawQuery, whereConditions, enhancedRecommendation, requiredIndexes);
+        QueryOptimizationResult result = new QueryOptimizationResult(rawQuery, whereConditions);
+        result.setIndexSuggestions(requiredIndexes);
+        result.setOptimizationIssue(enhancedRecommendation);
+        return result;
     }
 
     /**

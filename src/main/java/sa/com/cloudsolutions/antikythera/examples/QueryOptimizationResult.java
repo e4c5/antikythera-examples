@@ -15,22 +15,19 @@ public class QueryOptimizationResult {
 
     private final RepositoryQuery query;
     private final List<WhereCondition> whereConditions;
-    private final OptimizationIssue optimizationIssue;
-    private final List<String> indexSuggestions;
+    private OptimizationIssue optimizationIssue;
+    private List<String> indexSuggestions;
 
     /**
      * Creates a new QueryOptimizationResult instance.
      *
      * @param query             the full query that was analyzed
      * @param whereConditions   the list of WHERE clause conditions found in the query
-     * @param optimizationIssue the issue identified
      */
-    public QueryOptimizationResult(RepositoryQuery query, List<WhereCondition> whereConditions,
-                                   OptimizationIssue optimizationIssue, List<String> indexSuggestions) {
+    public QueryOptimizationResult(RepositoryQuery query, List<WhereCondition> whereConditions) {
         this.query = query;
         this.whereConditions = new ArrayList<>(whereConditions != null ? whereConditions : Collections.emptyList());
-        this.optimizationIssue = optimizationIssue;
-        this.indexSuggestions = indexSuggestions;
+        this.indexSuggestions = List.of();
     }
 
     // Accessors to preserve record-like API compatibility
@@ -113,5 +110,13 @@ public class QueryOptimizationResult {
         }
 
         return whereClause.toString();
+    }
+
+    public void setIndexSuggestions(List<String> indexSuggestions) {
+        this.indexSuggestions = indexSuggestions;
+    }
+
+    public void setOptimizationIssue(OptimizationIssue optimizationIssue) {
+        this.optimizationIssue = optimizationIssue;
     }
 }
