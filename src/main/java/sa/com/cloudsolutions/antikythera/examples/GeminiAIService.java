@@ -439,7 +439,7 @@ public class GeminiAIService {
             return columns;
         }
 
-        List<WhereCondition> whereConditions = QueryOptimizationExtractor.extractWhereConditions(repositoryQuery);
+        List<WhereCondition> whereConditions = QueryOptimizationExtractor.extractWhereConditions(repositoryQuery.getStatement());
 
         // Extract column names in the order they appear in WHERE clause
         for (WhereCondition condition : whereConditions) {

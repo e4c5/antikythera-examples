@@ -15,18 +15,18 @@ public class QueryOptimizationExtractor {
     private QueryOptimizationExtractor() {
         /* use this as a utility class */
     }
+
     /**
      * Extracts WHERE conditions from a RepositoryQuery using the existing parser infrastructure.
      * This is the main method that replaces QueryAnalysisEngine.extractWhereConditions().
      *
      * Enhanced to handle SELECT, UPDATE, DELETE statements, and their subqueries recursively.
      */
-    public static List<WhereCondition> extractWhereConditions(RepositoryQuery repositoryQuery) {
-        Statement statement = repositoryQuery.getStatement();
+    public static List<WhereCondition> extractWhereConditions(Statement statement) {
         List<WhereCondition> allConditions = new ArrayList<>();
 
         // Use StatementVisitorAdapter to handle different statement types
-        WhereClauseCollector collector = new WhereClauseCollector(repositoryQuery, allConditions);
+        WhereClauseCollector collector = new WhereClauseCollector(allConditions);
         statement.accept(collector, null);
 
         return allConditions;

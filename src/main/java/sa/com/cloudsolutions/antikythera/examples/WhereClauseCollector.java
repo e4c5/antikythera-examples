@@ -18,11 +18,9 @@ import java.util.List;
  * Handles SELECT, UPDATE, DELETE statements, and their subqueries.
  */
 class WhereClauseCollector extends StatementVisitorAdapter<Void> {
-    private final RepositoryQuery repositoryQuery;
     private final List<WhereCondition> conditions;
 
-    public WhereClauseCollector(RepositoryQuery repositoryQuery, List<WhereCondition> conditions) {
-        this.repositoryQuery = repositoryQuery;
+    public WhereClauseCollector(List<WhereCondition> conditions) {
         this.conditions = conditions;
     }
 
@@ -30,9 +28,8 @@ class WhereClauseCollector extends StatementVisitorAdapter<Void> {
      * Extracts conditions from a WHERE expression using the improved extractor.
      * Now uses ExpressionConditionExtractor which provides better structure than OptimizationAnalysisVisitor.
      */
-    public List<WhereCondition> extractConditionsFromExpression(Expression whereExpression,
-                                                                RepositoryQuery repositoryQuery) {
-        ExpressionConditionExtractor extractor = new ExpressionConditionExtractor(repositoryQuery);
+    public List<WhereCondition> extractConditionsFromExpression(Expression whereExpression) {
+        ExpressionConditionExtractor extractor = new ExpressionConditionExtractor();
 
         return extractor.extractConditions(whereExpression);
     }
@@ -61,7 +58,7 @@ class WhereClauseCollector extends StatementVisitorAdapter<Void> {
 
     private void extractConditions(Expression whereClause, FromItem update1) {
         if (whereClause != null) {
-            List<WhereCondition> updateConditions = extractConditionsFromExpression(whereClause, repositoryQuery);
+            List<WhereCondition> updateConditions = extractConditionsFromExpression(whereClause);
             conditions.addAll(updateConditions);
         }
 
@@ -74,7 +71,7 @@ class WhereClauseCollector extends StatementVisitorAdapter<Void> {
     public <S> Void visit(Delete delete, S context) {
         Expression whereClause = delete.getWhere();
         if (whereClause != null) {
-            List<WhereCondition> deleteConditions = extractConditionsFromExpression(whereClause, repositoryQuery);
+            List<WhereCondition> deleteConditions = extractConditionsFromExpression(whereClause);
             conditions.addAll(deleteConditions);
         }
 
@@ -102,7 +99,7 @@ class WhereClauseCollector extends StatementVisitorAdapter<Void> {
                 // Also check ON conditions in joins
                 if (join.getOnExpressions() != null) {
                     for (Expression onExpr : join.getOnExpressions()) {
-                        List<WhereCondition> joinConditions = extractConditionsFromExpression(onExpr, repositoryQuery);
+                        List<WhereCondition> joinConditions = extractConditionsFromExpression(onExpr);
                         conditions.addAll(joinConditions);
                     }
                 }

@@ -1,6 +1,9 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
+import net.sf.jsqlparser.JSQLParserException;
+import net.sf.jsqlparser.parser.CCJSqlParserUtil;
 import net.sf.jsqlparser.statement.Statement;
+import sa.com.cloudsolutions.antikythera.exception.AntikytheraException;
 import sa.com.cloudsolutions.antikythera.generator.QueryMethodParameter;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
 import sa.com.cloudsolutions.antikythera.parser.converter.ConversionResult;
@@ -29,9 +32,25 @@ public class QueryAnalysisEngine {
         if (statement == null) {
             return handleDerivedQuery(repositoryQuery);
         }
-        List<WhereCondition> whereConditions = QueryOptimizationExtractor.extractWhereConditions(repositoryQuery);
-        ConversionResult conversionResult = repositoryQuery.getConversionResult();
 
+        ConversionResult conversionResult = repositoryQuery.getConversionResult();
+        List<WhereCondition> whereConditions;
+        if (conversionResult != null && conversionResult.getNativeSql() != null) {
+            try {
+                Statement st = CCJSqlParserUtil.parse(conversionResult.getNativeSql());
+                whereConditions = QueryOptimizationExtractor.extractWhereConditions(st);
+            } catch (JSQLParserException jsqe) {
+                throw new AntikytheraException(jsqe);
+            }
+        }
+        else {
+            whereConditions = QueryOptimizationExtractor.extractWhereConditions(repositoryQuery.getStatement());
+        }
+        updateWhereConditions(whereConditions, conversionResult);
+        return new QueryOptimizationResult(repositoryQuery, whereConditions);
+    }
+
+    private static void updateWhereConditions(List<WhereCondition> whereConditions, ConversionResult conversionResult) {
         for (WhereCondition condition : whereConditions) {
             if (conversionResult != null) {
                 String entity = conversionResult.getMetaData().getEntityForAlias(condition.tableName());
@@ -47,7 +66,6 @@ public class QueryAnalysisEngine {
                 ));
             }
         }
-        return new QueryOptimizationResult(repositoryQuery, whereConditions);
     }
 
     /**
@@ -68,7 +86,7 @@ public class QueryAnalysisEngine {
                 String columnName = param.getColumnName();
                 if (columnName != null && !columnName.isEmpty()) {
                     CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(tableName, columnName);
-                    WhereCondition condition = new WhereCondition(tableName, columnName, "=", i, param);
+                    WhereCondition condition = new WhereCondition(tableName, columnName, "=", i);
                     condition.setCardinality(cardinality);
                     whereConditions.add(condition);
                 }

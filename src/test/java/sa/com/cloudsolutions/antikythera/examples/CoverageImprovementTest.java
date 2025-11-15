@@ -69,7 +69,7 @@ class CoverageImprovementTest {
     void testWhereConditionInstantiation() {
         // Test WhereCondition constructor and methods
         assertDoesNotThrow(() -> {
-            WhereCondition condition = new WhereCondition("table", "column", "=", 1, null);
+            WhereCondition condition = new WhereCondition("table", "column", "=", 1);
             assertNotNull(condition);
         });
     }

@@ -237,7 +237,7 @@ public class QueryOptimizationChecker {
         List<String> requiredIndexes = new ArrayList<>();
 
         for (WhereCondition condition : whereConditions) {
-            String tableName = condition.tableName(); // Use table from condition (supports JOINs)
+            String tableName = condition.tableName() == null ? rawQuery.getPrimaryTable() : condition.getTableName(); // Use table from condition (supports JOINs)
             String columnName = condition.columnName();
             CardinalityLevel cardinality = condition.cardinality();
 
@@ -691,7 +691,7 @@ public class QueryOptimizationChecker {
 
         for (WhereCondition condition : result.getWhereConditions()) {
             if (condition.cardinality() != CardinalityLevel.LOW) {
-                String tableName = condition.tableName();
+                String tableName = condition.tableName() == null ? result.getQuery().getPrimaryTable() : condition.getTableName();
                 columnsByTable.computeIfAbsent(tableName, k -> new ArrayList<>()).add(condition.columnName());
             }
         }

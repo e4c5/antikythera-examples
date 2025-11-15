@@ -47,7 +47,7 @@ class ExpressionConditionExtractorTest {
         Expression whereExpr = plainSelect.getWhere();
 
         // Test the extractor directly
-        ExpressionConditionExtractor extractor = new ExpressionConditionExtractor(mockQuery);
+        ExpressionConditionExtractor extractor = new ExpressionConditionExtractor();
         List<WhereCondition> conditions = extractor.extractConditions(whereExpr);
 
         assertNotNull(conditions);
@@ -68,7 +68,7 @@ class ExpressionConditionExtractorTest {
         Expression whereExpr = deleteStmt.getWhere();
 
         // Test the extractor directly
-        ExpressionConditionExtractor extractor = new ExpressionConditionExtractor(mockQuery);
+        ExpressionConditionExtractor extractor = new ExpressionConditionExtractor();
         List<WhereCondition> conditions = extractor.extractConditions(whereExpr);
 
         assertNotNull(conditions);
