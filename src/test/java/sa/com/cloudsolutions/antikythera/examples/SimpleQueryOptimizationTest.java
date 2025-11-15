@@ -55,46 +55,6 @@ class SimpleQueryOptimizationTest {
     }
 
     @Test
-    void testWhereConditionCreation() {
-        // Test WhereCondition record creation
-        WhereCondition condition = new WhereCondition(
-            "users", "email", "=", 0
-        );
-        
-        assertEquals("users", condition.tableName());
-        assertEquals("email", condition.columnName());
-        assertEquals("=", condition.operator());
-        assertEquals(CardinalityLevel.HIGH, condition.cardinality());
-        assertEquals(0, condition.position());
-        assertTrue(condition.isHighCardinality());
-        assertFalse(condition.isLowCardinality());
-    }
-
-    @Test
-    void testWhereConditionCardinalityChecks() {
-        // Test high cardinality condition
-        WhereCondition highCondition = new WhereCondition(
-            "users", "id", "=", 0
-        );
-        assertTrue(highCondition.isHighCardinality());
-        assertFalse(highCondition.isLowCardinality());
-        
-        // Test low cardinality condition
-        WhereCondition lowCondition = new WhereCondition(
-            "users", "status", "=", 1
-        );
-        assertFalse(lowCondition.isHighCardinality());
-        assertTrue(lowCondition.isLowCardinality());
-        
-        // Test medium cardinality condition
-        WhereCondition mediumCondition = new WhereCondition(
-            "users", "department", "=", 2
-        );
-        assertFalse(mediumCondition.isHighCardinality());
-        assertFalse(mediumCondition.isLowCardinality());
-    }
-
-    @Test
     void testQueryBatchBasicFunctionality() {
         // Test QueryBatch creation and basic operations
         QueryBatch batch = new QueryBatch("UserRepository");

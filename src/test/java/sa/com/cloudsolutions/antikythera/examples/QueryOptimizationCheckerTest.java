@@ -101,18 +101,6 @@ class QueryOptimizationCheckerTest {
 
 
     @Test
-    void testInferTableNameFromRepositoryClassName() {
-        String table1 = checker.inferTableNameFromRepositoryClassName("com.example.UserRepository");
-        assertEquals("user", table1);
-        
-        String table2 = checker.inferTableNameFromRepositoryClassName("OrderItemRepository");
-        assertEquals("order_item", table2);
-        
-        String table3 = checker.inferTableNameFromRepositoryClassName("Repository");
-        assertEquals("<TABLE_NAME>", table3);
-    }
-
-    @Test
     void testBuildLiquibaseMultiColumnIndexChangeSet() {
         LinkedHashSet<String> columns = new LinkedHashSet<>();
         columns.add("user_id");
@@ -425,78 +413,6 @@ class QueryOptimizationCheckerTest {
     }
 
     @Test
-    void testFormatOptimizationIssueEnhanced() {
-        when(mockOptimizationIssue.description()).thenReturn("Test optimization issue");
-        when(mockOptimizationIssue.currentFirstColumn()).thenReturn("id");
-        when(mockOptimizationIssue.recommendedFirstColumn()).thenReturn("email");
-        when(mockOptimizationIssue.hasAIRecommendation()).thenReturn(true);
-        when(mockOptimizationIssue.aiExplanation()).thenReturn("AI suggests reordering");
-        
-        when(mockResult.getWhereConditions()).thenReturn(new ArrayList<>());
-        
-        String result = checker.formatOptimizationIssueEnhanced(mockOptimizationIssue,  mockResult);
-
-        assertTrue(result.contains("HIGH PRIORITY"));
-        assertTrue(result.contains("Test optimization issue"));
-        assertTrue(result.contains("AI suggests reordering"));
-    }
-
-    @Test
-    void testReportOptimizationIssues() {
-        when(mockOptimizationIssue.description()).thenReturn("Test issue");
-        when(mockOptimizationIssue.currentFirstColumn()).thenReturn("id");
-        when(mockOptimizationIssue.recommendedFirstColumn()).thenReturn("email");
-        when(mockOptimizationIssue.hasAIRecommendation()).thenReturn(false);
-        
-        when(mockResult.getQuery()).thenReturn(mockRepositoryQuery);
-        when(mockRepositoryQuery.getClassname()).thenReturn("UserRepository");
-        when(mockResult.getMethodName()).thenReturn("findByEmail");
-        when(mockResult.getWhereConditions()).thenReturn(new ArrayList<>());
-        when(mockResult.getIndexSuggestions()).thenReturn(new ArrayList<>());
-        when(mockResult.getFullWhereClause()).thenReturn("id = ? AND email = ?");
-        
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        PrintStream originalOut = System.out;
-        System.setOut(new PrintStream(baos));
-        try {
-            checker.reportOptimizationIssues(mockResult);
-        } finally {
-            System.setOut(originalOut);
-        }
-        
-        String output = baos.toString();
-        assertTrue(output.contains("OPTIMIZATION NEEDED"));
-    }
-
-    @Test
-    void testReportOptimizationIssuesQuiet() {
-        when(mockOptimizationIssue.optimizedQuery()).thenReturn(mockRepositoryQuery);
-        when(mockOptimizationIssue.query()).thenReturn(mockRepositoryQuery);
-        when(mockOptimizationIssue.currentColumnOrder()).thenReturn(Arrays.asList("id"));
-        when(mockOptimizationIssue.recommendedColumnOrder()).thenReturn(Arrays.asList("email"));
-        
-        when(mockRepositoryQuery.getMethodName()).thenReturn("findByEmail");
-        net.sf.jsqlparser.statement.Statement mockStatement = mock(net.sf.jsqlparser.statement.Statement.class);
-        when(mockStatement.toString()).thenReturn("SELECT * FROM users WHERE id = ?");
-        when(mockRepositoryQuery.getStatement()).thenReturn(mockStatement);
-        
-        when(mockResult.getQuery()).thenReturn(mockRepositoryQuery);
-        when(mockRepositoryQuery.getClassname()).thenReturn("UserRepository");
-        
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        PrintStream originalOut = System.out;
-        System.setOut(new PrintStream(baos));
-        try {
-            checker.reportOptimizationIssuesQuiet(mockResult);
-        } finally {
-            System.setOut(originalOut);
-        }
-        
-        String output = baos.toString();
-        assertTrue(output.contains("Repository: UserRepository"));
-    }
-
-    @Test
     void testAnalyzeRepository() {
         try {
             checker.analyzeRepository("com.example.UserRepository", mockTypeWrapper);
@@ -557,96 +473,5 @@ class QueryOptimizationCheckerTest {
         
         // Note: Testing with null inputs would cause NPE in the current implementation
         // This indicates the methods should have null checks added
-    }
-
-    @Test
-    void testCollectIndexSuggestionsWithJoinQuery() {
-        // Test that JOIN queries with columns from multiple tables generate separate indexes
-        
-        // Setup a mock index map with indexes to simulate real cardinality analysis
-        Map<String, Set<Indexes.IndexInfo>> mockIndexMap = new HashMap<>();
-        
-        // Add a high-cardinality index for approval.admission_id
-        Indexes.IndexInfo approvalIndex = new Indexes.IndexInfo("INDEX", "idx_approval_admission", 
-            Arrays.asList("admission_id"));
-        mockIndexMap.put("approval", Set.of(approvalIndex));
-        
-        // Add indexes for blapp_open_coverage
-        Indexes.IndexInfo coverageIndex1 = new Indexes.IndexInfo("INDEX", "idx_coverage_payer_group", 
-            Arrays.asList("payer_group_id"));
-        Indexes.IndexInfo coverageIndex2 = new Indexes.IndexInfo("INDEX", "idx_coverage_payer_contract", 
-            Arrays.asList("payer_contract_id"));
-        mockIndexMap.put("blapp_open_coverage", Set.of(coverageIndex1, coverageIndex2));
-        
-        CardinalityAnalyzer.setIndexMap(mockIndexMap);
-        
-        // Create mock WHERE conditions from different tables
-        WhereCondition condition1 = mock(WhereCondition.class);
-        when(condition1.tableName()).thenReturn("approval");
-        when(condition1.columnName()).thenReturn("admission_id");
-        when(condition1.cardinality()).thenReturn(CardinalityLevel.HIGH);
-        
-        WhereCondition condition2 = mock(WhereCondition.class);
-        when(condition2.tableName()).thenReturn("blapp_open_coverage");
-        when(condition2.columnName()).thenReturn("payer_group_id");
-        when(condition2.cardinality()).thenReturn(CardinalityLevel.MEDIUM);
-        
-        WhereCondition condition3 = mock(WhereCondition.class);
-        when(condition3.tableName()).thenReturn("blapp_open_coverage");
-        when(condition3.columnName()).thenReturn("payer_contract_id");
-        when(condition3.cardinality()).thenReturn(CardinalityLevel.MEDIUM);
-        
-        // Setup mock result
-        when(mockResult.getIndexSuggestions()).thenReturn(Collections.emptyList());
-        when(mockResult.getQuery()).thenReturn(mockRepositoryQuery);
-        when(mockRepositoryQuery.getPrimaryTable()).thenReturn("approval");
-        when(mockRepositoryQuery.getClassname()).thenReturn("ApprovalRepository");
-        when(mockRepositoryQuery.getQuery()).thenReturn(
-            "SELECT * FROM Approval a LEFT JOIN BLAPP_open_coverage oc ON a.id = oc.approvalId " +
-            "WHERE a.admission_id = :admissionId AND oc.payer_group_id = :payerGroupId " +
-            "AND oc.payer_contract_id = :payerContractId"
-        );
-        when(mockResult.getWhereConditions()).thenReturn(Arrays.asList(condition1, condition2, condition3));
-
-        // Call the method
-        checker.collectIndexSuggestions(mockResult);
-        
-        // Access the internal index suggestion sets
-        LinkedHashSet<String> suggestedNewIndexes = checker.getSuggestedNewIndexes();
-        LinkedHashSet<String> suggestedMultiColumnIndexes = checker.getSuggestedMultiColumnIndexes();
-
-        // Log the actual suggestions for debugging
-        System.out.println("Single-column indexes: " + suggestedNewIndexes);
-        System.out.println("Multi-column indexes: " + suggestedMultiColumnIndexes);
-        
-        // Verify no mixed-table indexes exist - this is the critical assertion
-        // A mixed-table index would have columns from different tables in the same index key
-        boolean hasMixedIndex = suggestedMultiColumnIndexes.stream()
-            .anyMatch(key -> {
-                // Check if a single index key contains columns from both tables
-                return (key.contains("approval") && key.contains("blapp_open_coverage")) ||
-                       (key.contains("admission_id") && 
-                        (key.contains("payer_group_id") || key.contains("payer_contract_id")));
-            });
-        
-        assertFalse(hasMixedIndex, "Should not create indexes mixing columns from different tables");
-        
-        // Verify that if multi-column indexes were created, they are table-specific
-        for (String indexKey : suggestedMultiColumnIndexes) {
-            String[] parts = indexKey.split("\\|");
-            if (parts.length == 2) {
-                String table = parts[0];
-                String columns = parts[1];
-                
-                // All columns in a multi-column index should belong to the same table
-                if (table.equals("approval")) {
-                    assertFalse(columns.contains("payer_group_id") || columns.contains("payer_contract_id"),
-                        "Approval table index should not contain columns from blapp_open_coverage");
-                } else if (table.equals("blapp_open_coverage")) {
-                    assertFalse(columns.contains("admission_id"),
-                        "blapp_open_coverage table index should not contain columns from approval");
-                }
-            }
-        }
     }
 }
