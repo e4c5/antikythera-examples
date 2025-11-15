@@ -35,17 +35,12 @@ public class QueryOptimizationChecker {
     protected final GeminiAIService aiService;
     protected final LiquibaseGenerator liquibaseGenerator;
 
-    // Aggregated counters for summary and exit code logic
-    protected int totalQueriesAnalyzed = 0;
     protected int totalRecommendations = 0;
 
     // Aggregated, de-duplicated suggestions for new indexes (key format: table|column)
     protected final LinkedHashSet<String> suggestedNewIndexes = new LinkedHashSet<>();
     // Multi-column index suggestions (key format: table|column1,column2,...)
     protected final LinkedHashSet<String> suggestedMultiColumnIndexes = new LinkedHashSet<>();
-    // Counters for consolidated index actions
-    protected int totalIndexCreateRecommendations = 0;
-    protected int totalIndexDropRecommendations = 0;
 
     protected final List<QueryOptimizationResult> results = new ArrayList<>();
 
@@ -124,6 +119,7 @@ public class QueryOptimizationChecker {
      * @param typeWrapper the TypeWrapper representing the repository
      */
     protected void analyzeRepository(String fullyQualifiedName, TypeWrapper typeWrapper) throws IOException, ReflectiveOperationException, InterruptedException {
+        OptimizationStatsLogger.initialize(fullyQualifiedName);
         repositoryParser.compile(AbstractCompiler.classToPath(fullyQualifiedName));
         repositoryParser.processTypes();
         repositoryParser.buildQueries();
@@ -622,12 +618,6 @@ public class QueryOptimizationChecker {
                 .reduce((a,b) -> a + "\n" + b)
                 .orElse(pad + s);
     }
-
-    // Summary getters
-    public int getTotalQueriesAnalyzed() { return totalQueriesAnalyzed; }
-    public int getTotalRecommendations() { return totalRecommendations; }
-    public int getTotalIndexCreateRecommendations() { return totalIndexCreateRecommendations; }
-    public int getTotalIndexDropRecommendations() { return totalIndexDropRecommendations; }
     public TokenUsage getCumulativeTokenUsage() { return cumulativeTokenUsage; }
 
     /**
@@ -636,32 +626,21 @@ public class QueryOptimizationChecker {
      */
     public void generateLiquibaseChangesFile() throws IOException {
         // Generate changesets for both create and drop operations
-        GeneratedChangesets generated = generateAllChangesets();
+        List<String> generated = generateAllChangesets();
 
-        if (generated.changesets.isEmpty()) {
+        if (generated.isEmpty()) {
             return;
         }
 
         // Use LiquibaseGenerator to write the changeset file
-        String allChangesets = String.join("\n", generated.changesets);
+        String allChangesets = String.join("\n", generated);
         LiquibaseGenerator.WriteResult result = liquibaseGenerator.writeChangesetToFile(liquibaseXmlPath, allChangesets);
 
         if (result.wasWritten() && result.getChangesFile() != null) {
-            logger.debug("Generated Liquibase changes file: {} with {} index create recommendations ({} multi-column, {} single-column) and {} drop recommendations",
-                    result.getChangesFile().getName(), generated.totalCreateCount, generated.multiColumnCount,
-                    generated.singleColumnCount, generated.dropCount);
+            logger.debug("Generated Liquibase changes file: {} with {} index create recommendations and {} drop recommendations",
+                    result.getChangesFile().getName(), OptimizationStatsLogger.getTotalIndexesGenerated(),
+                    OptimizationStatsLogger.getTotalIndexesDropped());
         }
-    }
-
-    /**
-     * Holds the results of generating all changesets.
-     */
-    static class GeneratedChangesets {
-        List<String> changesets = new ArrayList<>();
-        int multiColumnCount = 0;
-        int singleColumnCount = 0;
-        int totalCreateCount = 0;
-        int dropCount = 0;
     }
 
     /**
@@ -670,8 +649,8 @@ public class QueryOptimizationChecker {
      *
      * @return GeneratedChangesets containing all changesets and counts
      */
-    GeneratedChangesets generateAllChangesets() {
-        GeneratedChangesets result = new GeneratedChangesets();
+    List<String> generateAllChangesets() {
+        List<String> result = new ArrayList<>();
 
         for (String key : suggestedMultiColumnIndexes) {
             String[] parts = key.split("\\|", 2);
@@ -679,9 +658,7 @@ public class QueryOptimizationChecker {
             String columnsStr = parts[1];
             LinkedHashSet<String> columns = new LinkedHashSet<>(List.of(columnsStr.split(",")));
             String changeSet = buildLiquibaseMultiColumnIndexChangeSet(table, columns);
-
-            result.changesets.add(indentXml(changeSet, 4));
-            result.multiColumnCount++;
+            result.add(indentXml(changeSet, 4));
         }
 
         for (String key : suggestedNewIndexes) {
@@ -692,18 +669,14 @@ public class QueryOptimizationChecker {
             if (!isCoveredByComposite(table, column)) {
 
                 String changeSet = buildLiquibaseNonLockingIndexChangeSet(table, column);
-                result.changesets.add(indentXml(changeSet, 4));
-                result.singleColumnCount++;
+                result.add(indentXml(changeSet, 4));
             }
         }
-        result.totalCreateCount = result.multiColumnCount + result.singleColumnCount;
+        int totalIndexCreateRecommendations = OptimizationStatsLogger.updateIndexesGenerated(result.size());
 
         // Add create index summary comment (or note no create recommendations)
-        if (result.totalCreateCount > 0) {
-            result.changesets.add("\n    <!-- Summary: " + result.totalCreateCount + " total index create recommendations " +
-                    "(" + result.multiColumnCount + " multi-column, " + result.singleColumnCount + " single-column) -->");
-        } else {
-            result.changesets.add("\n    <!-- Summary: No index create recommendations -->");
+        if (totalIndexCreateRecommendations > 0) {
+            result.add("\n    <!-- Summary: " + totalIndexCreateRecommendations + " total index create recommendations -->");
         }
 
         // Analyze existing indexes to suggest drops for low-cardinality leading columns (always perform)
@@ -726,18 +699,19 @@ public class QueryOptimizationChecker {
 
         // Add drop index changesets even if there are no create suggestions
         if (!dropCandidates.isEmpty()) {
-            result.changesets.add("\n    <!-- Index Drop Recommendations (leading low-cardinality columns) -->");
+            if (result.isEmpty()) {
+                result.add("\n    <!-- Summary: No index create recommendations -->");
+            }
+
+            result.add("\n    <!-- Index Drop Recommendations (leading low-cardinality columns) -->");
             for (String idxName : dropCandidates) {
                 String changeSet = buildLiquibaseDropIndexChangeSet(idxName);
-                result.changesets.add("\n    <!-- Drop index " + idxName + " -->");
-                result.changesets.add(indentXml(changeSet, 4));
-                result.dropCount++;
+                result.add("\n    <!-- Drop index " + idxName + " -->");
+                result.add(indentXml(changeSet, 4));
             }
-            result.changesets.add("\n    <!-- Summary: " + result.dropCount + " total index drop recommendations -->");
-        } else {
-            result.changesets.add("\n    <!-- Summary: No index drop recommendations -->");
+            OptimizationStatsLogger.updateIndexesDropped(dropCandidates.size());
+            result.add("\n    <!-- Summary: " + dropCandidates.size() + " total index drop recommendations -->");
         }
-
         return result;
     }
 
@@ -789,7 +763,6 @@ public class QueryOptimizationChecker {
 
 
     public static void main(String[] args) throws Exception {
-        long s = System.currentTimeMillis();
         Settings.loadConfigMap();
         AbstractCompiler.preProcess();
 
@@ -805,33 +778,11 @@ public class QueryOptimizationChecker {
         // Generate Liquibase file with suggested changes and include in master
         checker.generateLiquibaseChangesFile();
 
-        // Print execution summary
-        int queries = checker.getTotalQueriesAnalyzed();
-        int high = checker.getTotalRecommendations();
-
-        int createCount = checker.getTotalIndexCreateRecommendations();
-        int dropCount = checker.getTotalIndexDropRecommendations();
         TokenUsage totalTokenUsage = checker.getCumulativeTokenUsage();
+        OptimizationStatsLogger.printSummary(System.out);
 
-        System.out.println(String.format("\nSUMMARY: Analyzed %d quer%s. Recommendations given: %d. Index actions: %d creation%s, %d drop%s.",
-                queries,
-                queries == 1 ? "y" : "ies",
-                high,
-                createCount,
-                createCount == 1 ? "" : "s",
-                dropCount,
-                dropCount == 1 ? "" : "s"));
-
-        // Add token usage reporting to summary
         if (totalTokenUsage.getTotalTokens() > 0) {
-            System.out.println(String.format("🤖 AI Service Usage: %s", totalTokenUsage.getFormattedReport()));
-        }
-
-        System.out.println("Time taken " + (System.currentTimeMillis() - s) + " ms.");
-        if (high >= 1 ) {
-            System.exit(1);
-        } else {
-            System.exit(0);
+            System.out.printf("🤖 AI Service Usage: %s%n", totalTokenUsage.getFormattedReport());
         }
     }
 

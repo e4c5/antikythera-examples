@@ -34,18 +34,6 @@ import java.util.Set;
 
 @SuppressWarnings("java:S106")
 public class QueryOptimizer extends QueryOptimizationChecker{
-    
-    // Track previous index count to calculate delta per repository
-    private int previousIndexCount = 0;
-    
-    // Aggregate statistics across all repositories
-    private int totalRepositoriesProcessed = 0;
-    private int totalQueryAnnotationsChanged = 0;
-    private int totalMethodSignaturesChanged = 0;
-    private int totalMethodCallsUpdated = 0;
-    private int totalDependentClassesModified = 0;
-    private int totalFilesModified = 0;
-    
     /**
      * Creates a new QueryOptimizationChecker that uses RepositoryParser for comprehensive query analysis.
      *
@@ -61,12 +49,9 @@ public class QueryOptimizer extends QueryOptimizationChecker{
     @Override
     protected void analyzeRepository(String fullyQualifiedName, TypeWrapper typeWrapper) throws IOException, ReflectiveOperationException, InterruptedException {
         System.out.println(fullyQualifiedName);
-        // Create stats tracker for this repository
-        OptimizationStatsLogger.RepositoryStats stats = OptimizationStatsLogger.createStats(fullyQualifiedName);
-
         super.analyzeRepository(fullyQualifiedName, typeWrapper);
-        
-        stats.setQueriesAnalyzed(results.size());
+
+        OptimizationStatsLogger.updateQueriesAnalyzed(results.size());
         
         List<QueryOptimizationResult> updates = new ArrayList<>();
         boolean repositoryFileModified = false;
@@ -84,7 +69,8 @@ public class QueryOptimizer extends QueryOptimizationChecker{
                         updateAnnotationValue(issue.query().getMethodDeclaration().asMethodDeclaration(),
                                 "Query",optimizedQuery.getStatement().toString());
                     }
-                    stats.incrementQueryAnnotationsChanged();
+
+                    OptimizationStatsLogger.updateQueryAnnotationsChanged(1);
 
                     // Check if method name changed (indicating signature should change)
                     boolean methodNameChanged = !issue.query().getMethodName().equals(optimizedQuery.getMethodName());
@@ -101,7 +87,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
 
                     // Track method signature changes
                     if (methodNameChanged || parametersReordered) {
-                        stats.incrementMethodSignaturesChanged();
+                        OptimizationStatsLogger.updateMethodSignaturesChanged(1);
                     }
                     updates.add(result);
                 }
@@ -116,35 +102,17 @@ public class QueryOptimizer extends QueryOptimizationChecker{
             }
         }
 
-        updateStats(fullyQualifiedName, updates, stats, repositoryFileModified);
+        updateStats(fullyQualifiedName, updates, repositoryFileModified);
     }
 
-    private void updateStats(String fullyQualifiedName, List<QueryOptimizationResult> updates, OptimizationStatsLogger.RepositoryStats stats, boolean repositoryFileModified) throws IOException {
+    private void updateStats(String fullyQualifiedName, List<QueryOptimizationResult> updates, boolean repositoryFileModified) throws IOException {
         // Apply signature updates and track dependent class changes
-        MethodCallUpdateStats callStats = applySignatureUpdatesToUsagesWithStats(updates, fullyQualifiedName);
-        stats.setMethodCallsUpdated(callStats.methodCallsUpdated);
-        stats.setDependentClassesModified(callStats.dependentClassesModified);
-
-        // Track Liquibase indexes generated for this repository only (delta from previous count)
-        int currentIndexCount = suggestedNewIndexes.size();
-        int indexesGeneratedForThisRepository = currentIndexCount - previousIndexCount;
-        stats.setLiquibaseIndexesGenerated(indexesGeneratedForThisRepository);
-        previousIndexCount = currentIndexCount;
-
-        // Accumulate aggregate statistics
-        totalRepositoriesProcessed++;
-        totalQueryAnnotationsChanged += stats.getQueryAnnotationsChanged();
-        totalMethodSignaturesChanged += stats.getMethodSignaturesChanged();
-        totalMethodCallsUpdated += stats.getMethodCallsUpdated();
-        totalDependentClassesModified += stats.getDependentClassesModified();
+        applySignatureUpdatesToUsagesWithStats(updates, fullyQualifiedName);
 
         // Track files modified (repository file + dependent classes)
         if (repositoryFileModified) {
-            totalFilesModified++; // Repository file was actually modified
+            OptimizationStatsLogger.updateDependentClassesChanged(1);
         }
-        totalFilesModified += stats.getDependentClassesModified();
-
-        OptimizationStatsLogger.logStats(stats);
     }
 
     /**
@@ -258,16 +226,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         
         return false;
     }
-    
 
-    /**
-     * Statistics for method call updates across dependent classes.
-     */
-    public static class MethodCallUpdateStats {
-        public int methodCallsUpdated = 0;
-        public int dependentClassesModified = 0;
-    }
-    
     /**
      * Apply recorded signature updates to usage sites in classes that @Autowired the given repository.
      * This reorders call arguments to match the new parameter order. Only same-arity calls are modified.
@@ -282,10 +241,8 @@ public class QueryOptimizer extends QueryOptimizationChecker{
      * 
      * @param updates the optimization results with signature changes
      * @param fullyQualifiedName the repository class name
-     * @return statistics about method calls updated and classes modified
      */
-    public MethodCallUpdateStats applySignatureUpdatesToUsagesWithStats(List<QueryOptimizationResult> updates, String fullyQualifiedName) throws FileNotFoundException {
-        MethodCallUpdateStats stats = new MethodCallUpdateStats();
+    public void applySignatureUpdatesToUsagesWithStats(List<QueryOptimizationResult> updates, String fullyQualifiedName) throws FileNotFoundException {
         Map<String, String> fields = Fields.getFieldDependencies(fullyQualifiedName);
         
         if (fields != null) {
@@ -299,18 +256,14 @@ public class QueryOptimizer extends QueryOptimizationChecker{
                     typeWrapper.getType().accept(visitor, updates);
                     
                     if (visitor.modified) {
-                        boolean fileWasWritten = writeFile(className);
-                        // Only count as modified if the file was actually written (content changed)
-                        if (fileWasWritten) {
-                            stats.dependentClassesModified++;
-                            stats.methodCallsUpdated += visitor.methodCallsUpdated;
+                        if (writeFile(className)) {
+                            OptimizationStatsLogger.updateDependentClassesChanged(1);
+                            OptimizationStatsLogger.updateMethodCallsChanged(visitor.methodCallsUpdated);
                         }
                     }
                 }
             }
         }
-        
-        return stats;
     }
 
     /**
@@ -518,43 +471,11 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         // Generate Liquibase file with suggested changes and include in master
         checker.generateLiquibaseChangesFile();
 
-        // Print execution summary
-        int queries = checker.getTotalQueriesAnalyzed();
-        int high = checker.getTotalRecommendations();
-        int createCount = checker.getTotalIndexCreateRecommendations();
-        int dropCount = checker.getTotalIndexDropRecommendations();
-        System.out.printf(
-                "%nSUMMARY: Analyzed %d quer%s. Recommendations given: %d. Index actions: %d creation%s, %d drop%s.",
-                queries,
-                queries == 1 ? "y" : "ies",
-                high,
-                createCount,
-                createCount == 1 ? "" : "s",
-                dropCount,
-                dropCount == 1 ? "" : "s"
-        );
-        
-        // Print overall code modification statistics
-        System.out.println("\n" + "=".repeat(80));
-        System.out.println("📝 CODE MODIFICATION SUMMARY");
-        System.out.println("=".repeat(80));
-        System.out.printf("Repositories processed:      %d%n", checker.totalRepositoriesProcessed);
-        System.out.printf("Files modified:              %d%n", checker.totalFilesModified);
-        System.out.printf("@Query annotations changed:  %d%n", checker.totalQueryAnnotationsChanged);
-        System.out.printf("Method signatures changed:   %d%n", checker.totalMethodSignaturesChanged);
-        System.out.printf("Method calls updated:        %d%n", checker.totalMethodCallsUpdated);
-        System.out.printf("Dependent classes modified:  %d%n", checker.totalDependentClassesModified);
-        System.out.printf("Liquibase indexes generated: %d%n", createCount);
-        System.out.println("=".repeat(80));
+        OptimizationStatsLogger.printSummary(System.out);
 
         if (!quietMode) {
             System.out.println("\nTime taken " + (System.currentTimeMillis() - s) + " ms.");
         }
         System.out.println("📊 Detailed statistics logged to: query-optimization-stats.csv");
-        
-        // Exit with non-zero if at least 1 high and at least 10 medium priority recommendations
-        if (high >= 1 ) {
-            System.exit(1);
-        }
     }
 }
