@@ -898,8 +898,6 @@ public class QueryOptimizationChecker {
             }
 
             String changeSet = buildLiquibaseNonLockingIndexChangeSet(table, column);
-
-            changesets.add("\n    <!-- Single-column index recommendation for " + table + "." + column + " -->");
             changesets.add(indentXml(changeSet, 4));
             singleColumnCount++;
         }
