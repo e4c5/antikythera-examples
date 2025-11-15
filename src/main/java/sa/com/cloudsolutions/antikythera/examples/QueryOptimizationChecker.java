@@ -28,6 +28,9 @@ import java.util.Set;
 public class QueryOptimizationChecker {
 
     protected static final Logger logger = LoggerFactory.getLogger(QueryOptimizationChecker.class);
+    public static final String TABLE_NAME_TAG = "<TABLE_NAME>";
+    public static final String COLUMN_NAME_TAG = "<COLUMN_NAME>";
+
     protected final RepositoryParser repositoryParser;
     protected final QueryAnalysisEngine analysisEngine;
     protected final File liquibaseXmlPath;
@@ -48,16 +51,16 @@ public class QueryOptimizationChecker {
     protected int totalIndexDropRecommendations = 0;
 
     protected final List<QueryOptimizationResult> results = new ArrayList<>();
-    
+
     // Token usage tracking for AI service
     protected final TokenUsage cumulativeTokenUsage = new TokenUsage();
-    
+
     // Quiet mode flag - suppresses detailed output, shows only changes
     protected static boolean quietMode = false;
 
     /**
      * Creates a new QueryOptimizationChecker that uses RepositoryParser for comprehensive query analysis.
-     * 
+     *
      * @param liquibaseXmlPath path to the Liquibase XML file for database metadata
      * @throws Exception if initialization fails
      */
@@ -65,12 +68,12 @@ public class QueryOptimizationChecker {
         this.liquibaseXmlPath = liquibaseXmlPath;
         // Load database metadata for cardinality analysis
         Map<String, Set<Indexes.IndexInfo>> indexMap = Indexes.load(liquibaseXmlPath);
-        
+
         // Initialize components
         CardinalityAnalyzer.setIndexMap(indexMap);
         this.analysisEngine = new QueryAnalysisEngine();
         this.repositoryParser = new RepositoryParser();
-        
+
         // Initialize AI service components
         this.aiService = new GeminiAIService();
         Map<String, Object> aiConfig = (Map<String, Object>) Settings.getProperty("ai_service");
@@ -84,7 +87,7 @@ public class QueryOptimizationChecker {
 
     /**
      * Analyzes all JPA repositories using RepositoryParser to extract and analyze queries.
-     * 
+     *
      */
     public void analyze() throws IOException, ReflectiveOperationException, InterruptedException {
         Map<String, TypeWrapper> resolvedTypes = AntikytheraRunTime.getResolvedTypes();
@@ -96,11 +99,11 @@ public class QueryOptimizationChecker {
 
             if (RepositoryAnalyzer.isJpaRepository(typeWrapper)) {
                 results.clear(); // Clear results for each repository
-                
+
                 System.out.println("\n" + "=".repeat(80));
                 System.out.printf("Analyzing Repository: %s%n", fullyQualifiedName);
                 System.out.println("=".repeat(80));
-                    
+
                 analyzeRepository(fullyQualifiedName, typeWrapper);
                 repositoriesProcessed++;
                 i++;
@@ -109,7 +112,7 @@ public class QueryOptimizationChecker {
                 }
             }
         }
-        
+
         System.out.printf("\n✅ Successfully analyzed %d out of %d repositories%n", repositoriesProcessed, i);
     }
 
@@ -234,12 +237,12 @@ public class QueryOptimizationChecker {
         // Analyze indexes based on actual WHERE conditions, not LLM recommendations
         // Each condition now includes its own table name, which is critical for JOIN queries
         List<String> requiredIndexes = new ArrayList<>();
-        
+
         for (WhereCondition condition : whereConditions) {
             String tableName = condition.tableName(); // Use table from condition (supports JOINs)
             String columnName = condition.columnName();
             CardinalityLevel cardinality = condition.cardinality();
-            
+
             // Check if index is needed for this column
             if (cardinality != null && cardinality != CardinalityLevel.LOW) {
                 if (!hasOptimalIndexForColumn(tableName, columnName)) {
@@ -252,13 +255,13 @@ public class QueryOptimizationChecker {
 
         // Create enhanced optimization issue with index analysis
         OptimizationIssue enhancedRecommendation = new OptimizationIssue(
-            llmRecommendation.query(),
-            llmRecommendation.currentColumnOrder(),
-            llmRecommendation.recommendedColumnOrder(),
-            llmRecommendation.description(),
-            llmRecommendation.severity(),
-            llmRecommendation.aiExplanation(),
-            llmRecommendation.optimizedQuery()
+                llmRecommendation.query(),
+                llmRecommendation.currentColumnOrder(),
+                llmRecommendation.recommendedColumnOrder(),
+                llmRecommendation.description(),
+                llmRecommendation.severity(),
+                llmRecommendation.aiExplanation(),
+                llmRecommendation.optimizedQuery()
         );
 
         QueryOptimizationResult result = new QueryOptimizationResult(rawQuery, whereConditions);
@@ -292,12 +295,12 @@ public class QueryOptimizationChecker {
      * Reports the optimization analysis results with enhanced formatting and severity-based prioritization.
      * Enhanced to include repository class name and method name from Callable objects,
      * specific recommendations for column reordering, and confirmation reporting for optimized queries.
-     * 
+     *
      * @param result the analysis results to report
      */
     void reportOptimizationResults(QueryOptimizationResult result) {
         OptimizationIssue issue = result.getOptimizationIssue();
-        
+
         if (issue == null) {
             // Enhanced confirmation reporting for already optimized queries
             if (!quietMode) {
@@ -312,33 +315,33 @@ public class QueryOptimizationChecker {
             }
         }
     }
-    
+
     /**
      * Reports confirmation for already optimized queries with cardinality information.
-     * 
+     *
      * @param result the analysis results for an optimized query
      */
     void reportOptimizedQuery(QueryOptimizationResult result) {
         if (!result.getWhereConditions().isEmpty()) {
             WhereCondition firstCondition = result.getFirstCondition();
-            String cardinalityInfo = firstCondition != null ? 
-                String.format(" (First condition uses %s cardinality column: %s)", 
-                             firstCondition.cardinality().toString().toLowerCase(),
-                             firstCondition.columnName()) : "";
-            
+            String cardinalityInfo = firstCondition != null ?
+                    String.format(" (First condition uses %s cardinality column: %s)",
+                            firstCondition.cardinality().toString().toLowerCase(),
+                            firstCondition.columnName()) : "";
+
             System.out.printf("✓ OPTIMIZED: %s.%s - Query is already optimized%s%n",
-                                            result.getQuery().getClassname(),
-                                            result.getMethodName(),
-                                            cardinalityInfo);
-            
+                    result.getQuery().getClassname(),
+                    result.getMethodName(),
+                    cardinalityInfo);
+
             // Print the full WHERE clause and query information
             printQueryDetails(result);
         }
     }
-    
+
     /**
      * Reports optimization issues with severity-based prioritization and enhanced recommendations.
-     * 
+     *
      * @param result the analysis results
      */
     void reportOptimizationIssues(QueryOptimizationResult result) {
@@ -353,15 +356,15 @@ public class QueryOptimizationChecker {
         int mediumCount = issue.isMediumSeverity() ? 1 : 0;
         this.totalHighPriorityRecommendations += highCount;
         this.totalMediumPriorityRecommendations += mediumCount;
-        
+
         // Report header with summary
         System.out.printf("\n⚠ OPTIMIZATION NEEDED: %s.%s%n",
-                                        result.getQuery().getClassname(),
-                                        result.getMethodName());
-        
+                result.getQuery().getClassname(),
+                result.getMethodName());
+
         // Print the full WHERE clause and query information
         printQueryDetails(result);
-        
+
         System.out.println(formatOptimizationIssueEnhanced(issue, result));
 
 
@@ -384,13 +387,13 @@ public class QueryOptimizationChecker {
 
         // Collect any index creation suggestions for consolidation at the end
         collectIndexSuggestions(result);
-        
+
         System.out.println(); // Add blank line for readability
     }
-    
+
     /**
      * Gets the priority value for severity-based sorting (lower number = higher priority).
-     * 
+     *
      * @param severity the severity level
      * @return priority value for sorting
      */
@@ -402,56 +405,56 @@ public class QueryOptimizationChecker {
             default -> 3;
         };
     }
-    
+
     /**
      * Formats an optimization issue with enhanced display including cardinality information,
      * AI explanations, and required indexes.
-     * 
+     *
      * @param issue the optimization issue to format
      * @param result the full analysis result for additional context
      * @return formatted string representation of the issue
      */
     String formatOptimizationIssueEnhanced(OptimizationIssue issue, QueryOptimizationResult result) {
         StringBuilder formatted = new StringBuilder();
-        
+
         // Issue header with severity indicator
         String severityIcon = getSeverityIcon(issue.severity());
         formatted.append(String.format("  %s [%s PRIORITY]: %s",
-                                      severityIcon, issue.severity(),
-                                      issue.description()));
-        
+                severityIcon, issue.severity(),
+                issue.description()));
+
         // Show WHERE clause conditions if available
         if (!result.getWhereConditions().isEmpty()) {
             formatted.append("\n    🔍 WHERE Clause Conditions:");
             for (WhereCondition condition : result.getWhereConditions()) {
-                formatted.append(String.format("\n      • %s %s ? (%s cardinality, position %d)", 
-                    condition.columnName(), 
-                    condition.operator(), 
-                    condition.cardinality().toString().toLowerCase(),
-                    condition.position() + 1));
+                formatted.append(String.format("\n      • %s %s ? (%s cardinality, position %d)",
+                        condition.columnName(),
+                        condition.operator(),
+                        condition.cardinality().toString().toLowerCase(),
+                        condition.position() + 1));
             }
         }
-        
+
         // Current vs recommended with cardinality information
         WhereCondition currentCondition = findConditionByColumn(result, issue.currentFirstColumn());
         WhereCondition recommendedCondition = findConditionByColumn(result, issue.recommendedFirstColumn());
-        
-        formatted.append(String.format("\n    Current first condition: %s", 
-                                      formatConditionWithCardinality(issue.currentFirstColumn(), currentCondition)));
-        formatted.append(String.format("\n    Recommended first condition: %s", 
-                                      formatConditionWithCardinality(issue.recommendedFirstColumn(), recommendedCondition)));
-        
+
+        formatted.append(String.format("\n    Current first condition: %s",
+                formatConditionWithCardinality(issue.currentFirstColumn(), currentCondition)));
+        formatted.append(String.format("\n    Recommended first condition: %s",
+                formatConditionWithCardinality(issue.recommendedFirstColumn(), recommendedCondition)));
+
         // AI explanation
         if (issue.hasAIRecommendation()) {
             formatted.append(String.format("\n    🤖 AI Explanation: %s", issue.aiExplanation()));
         }
-        
+
         return formatted.toString();
     }
-    
+
     /**
      * Gets the appropriate icon for the severity level.
-     * 
+     *
      * @param severity the severity level
      * @return icon string for the severity
      */
@@ -463,10 +466,10 @@ public class QueryOptimizationChecker {
             default -> "⚪";
         };
     }
-    
+
     /**
      * Reports optimization issues in quiet mode - only shows method signatures and queries changed.
-     * 
+     *
      * @param result the analysis results
      */
     void reportOptimizationIssuesQuiet(QueryOptimizationResult result) {
@@ -480,15 +483,15 @@ public class QueryOptimizationChecker {
         int mediumCount = issue.isMediumSeverity() ? 1 : 0;
         this.totalHighPriorityRecommendations += highCount;
         this.totalMediumPriorityRecommendations += mediumCount;
-        
+
         // Collect any index creation suggestions for consolidation at the end
         collectIndexSuggestions(result);
-        
+
         if (issue.optimizedQuery() != null) {
             System.out.printf("Repository: %s%n", result.getQuery().getClassname());
             System.out.printf("Method:     %s → %s%n",
-                issue.query().getMethodName(),
-                issue.optimizedQuery().getMethodName());
+                    issue.query().getMethodName(),
+                    issue.optimizedQuery().getMethodName());
             System.out.println("\nOriginal Query:");
             System.out.println("  " + issue.query().getStatement().toString());
             System.out.println("\nOptimized Query:");
@@ -496,7 +499,7 @@ public class QueryOptimizationChecker {
 
             // Show parameter order change if applicable
             if (issue.currentColumnOrder() != null && issue.recommendedColumnOrder() != null &&
-                !issue.currentColumnOrder().equals(issue.recommendedColumnOrder())) {
+                    !issue.currentColumnOrder().equals(issue.recommendedColumnOrder())) {
                 System.out.printf("\nParameter Order Change:%n");
                 System.out.printf("  Before: %s%n", String.join(", ", issue.currentColumnOrder()));
                 System.out.printf("  After:  %s%n", String.join(", ", issue.recommendedColumnOrder()));
@@ -504,7 +507,7 @@ public class QueryOptimizationChecker {
             System.out.println("=".repeat(80));
         }
     }
-    
+
     /**
      * Enables or disables quiet mode.
      * @param enabled true to enable quiet mode, false for normal output
@@ -512,7 +515,7 @@ public class QueryOptimizationChecker {
     public static void setQuietMode(boolean enabled) {
         quietMode = enabled;
     }
-    
+
     /**
      * Checks if quiet mode is enabled.
      * @return true if quiet mode is enabled
@@ -520,42 +523,42 @@ public class QueryOptimizationChecker {
     public static boolean isQuietMode() {
         return quietMode;
     }
-    
+
     /**
      * Finds a WHERE condition by column name from the analysis result.
-     * 
+     *
      * @param result the analysis result
      * @param columnName the column name to find
      * @return the matching WhereCondition or null if not found
      */
     WhereCondition findConditionByColumn(QueryOptimizationResult result, String columnName) {
         return result.getWhereConditions().stream()
-            .filter(condition -> columnName.equals(condition.columnName()))
-            .findFirst()
-            .orElse(null);
+                .filter(condition -> columnName.equals(condition.columnName()))
+                .findFirst()
+                .orElse(null);
     }
-    
+
     /**
      * Formats a condition with cardinality information for enhanced reporting.
-     * 
+     *
      * @param columnName the column name
      * @param condition the WhereCondition object (may be null)
      * @return formatted string with cardinality information
      */
     String formatConditionWithCardinality(String columnName, WhereCondition condition) {
         if (condition != null) {
-            return String.format("%s (%s cardinality)", columnName, 
-                               condition.cardinality().toString().toLowerCase());
+            return String.format("%s (%s cardinality)", columnName,
+                    condition.cardinality().toString().toLowerCase());
         } else {
             return columnName + " (cardinality unknown)";
         }
     }
-    
+
     /**
      * Prints the WHERE clause details for a query optimization result.
      * Shows the original WHERE clause and optimized WHERE clause when available.
      * This method eliminates code duplication between reportOptimizedQuery and reportOptimizationIssues.
-     * 
+     *
      * @param result the query optimization result to print details for
      */
     void printQueryDetails(QueryOptimizationResult result) {
@@ -577,7 +580,7 @@ public class QueryOptimizationChecker {
         }
     }
 
-    
+
     /**
      * Adds specific recommendations for column reordering in WHERE clauses.
      * Enhanced to handle AI recommendations and required indexes.
@@ -593,12 +596,12 @@ public class QueryOptimizationChecker {
 
         if (issue.isHighSeverity()) {
             addPriorityRecommendations(recommendations, issue, "🔴 HIGH PRIORITY:",
-                "Move '%s' condition to the beginning of WHERE clause");
+                    "Move '%s' condition to the beginning of WHERE clause");
         }
-        
+
         if (issue.isMediumSeverity()) {
             addPriorityRecommendations(recommendations, issue, "🟡 MEDIUM PRIORITY:",
-                "Consider reordering: place '%s' before '%s' in WHERE clause");
+                    "Consider reordering: place '%s' before '%s' in WHERE clause");
         }
 
         // Only print if we have recommendations
@@ -613,9 +616,9 @@ public class QueryOptimizationChecker {
      * Eliminates code duplication between high and medium priority processing.
      */
     void addPriorityRecommendations(StringBuilder recommendations, OptimizationIssue issue,
-                                          String priorityHeader, String reorderingTemplate) {
+                                    String priorityHeader, String reorderingTemplate) {
         recommendations.append("    ").append(priorityHeader).append("\n");
-        
+
         // Skip reordering recommendation when the recommended column is already first
         if (issue.recommendedFirstColumn().equals(issue.currentFirstColumn())) {
             return;
@@ -625,15 +628,15 @@ public class QueryOptimizationChecker {
         if (reorderingTemplate.contains("%s") && reorderingTemplate.contains("before")) {
             // Medium priority template with two parameters
             recommendations.append(String.format("      • " + reorderingTemplate + "%n",
-                issue.recommendedFirstColumn(), issue.currentFirstColumn()));
+                    issue.recommendedFirstColumn(), issue.currentFirstColumn()));
         } else {
             // High priority template with one parameter
             recommendations.append(String.format("      • " + reorderingTemplate + "%n",
-                issue.recommendedFirstColumn()));
+                    issue.recommendedFirstColumn()));
             recommendations.append(String.format("        Replace: WHERE %s = ? AND %s = ?%n",
-                issue.currentFirstColumn(), issue.recommendedFirstColumn()));
+                    issue.currentFirstColumn(), issue.recommendedFirstColumn()));
             recommendations.append(String.format("        With:    WHERE %s = ? AND %s = ?%n",
-                issue.recommendedFirstColumn(), issue.currentFirstColumn()));
+                    issue.recommendedFirstColumn(), issue.currentFirstColumn()));
         }
     }
 
@@ -661,7 +664,8 @@ public class QueryOptimizationChecker {
         if (dot >= 0) simple = simple.substring(dot + 1);
         if (simple.endsWith("Repository")) simple = simple.substring(0, simple.length() - "Repository".length());
         // convert CamelCase to snake_case
-        return simple.replaceAll("(?<!^)([A-Z])", "_$1").toLowerCase();
+        String snake = simple.replaceAll("(?<!^)([A-Z])", "_$1").toLowerCase();
+        return snake.isEmpty() ? TABLE_NAME_TAG : snake;
     }
 
     String buildLiquibaseNonLockingIndexChangeSet(String tableName, String columnName) {
@@ -671,7 +675,7 @@ public class QueryOptimizationChecker {
     /**
      * Builds a Liquibase changeset for creating a multi-column index.
      * Uses the consolidated LiquibaseGenerator utility.
-     * 
+     *
      * @param tableName the table name
      * @param columns list of column names in index order
      * @return XML changeset string
@@ -688,10 +692,13 @@ public class QueryOptimizationChecker {
         // Group columns by table - critical for JOIN queries where columns come from multiple tables
         Map<String, List<String>> columnsByTable = new HashMap<>();
 
-        for (WhereCondition condition : result.getWhereConditions()) {
-            if (condition.cardinality() != CardinalityLevel.LOW) {
-                String tableName = condition.tableName();
-                columnsByTable.computeIfAbsent(tableName, k -> new ArrayList<>()).add(condition.columnName());
+        // Collect columns from WHERE conditions, grouped by their table
+        if (!result.getWhereConditions().isEmpty()) {
+            for (WhereCondition condition : result.getWhereConditions()) {
+                if (condition.cardinality() != CardinalityLevel.LOW) {
+                    String tableName = condition.tableName();
+                    columnsByTable.computeIfAbsent(tableName, k -> new ArrayList<>()).add(condition.columnName());
+                }
             }
         }
 
@@ -699,7 +706,7 @@ public class QueryOptimizationChecker {
         for (Map.Entry<String, List<String>> entry : columnsByTable.entrySet()) {
             String table = entry.getKey();
             List<String> columnsForTable = entry.getValue();
-            
+
             // Filter out columns that already have indexes and low-cardinality columns
             List<String> filteredColumns = new ArrayList<>();
             for (String column : columnsForTable) {
@@ -708,7 +715,7 @@ public class QueryOptimizationChecker {
                     filteredColumns.add(column);
                 }
             }
-            
+
             if (filteredColumns.size() > 1) {
                 // Create multi-column index for this specific table
                 String key = (table + "|" + String.join(",", filteredColumns)).toLowerCase();
@@ -725,156 +732,80 @@ public class QueryOptimizationChecker {
         }
     }
 
-    /**
-     * Holds the results of generating all changesets.
-     */
-    static class GeneratedChangesets {
-        List<String> changesets = new ArrayList<>();
-        int multiColumnCount = 0;
-        int singleColumnCount = 0;
-        int totalCreateCount = 0;
-        int dropCount = 0;
-        LinkedHashSet<String> dropCandidates = new LinkedHashSet<>();
-        List<IndexRecommendation> recommendations = new ArrayList<>(); // unified list for printing
-        List<DropRecommendation> dropRecommendations = new ArrayList<>();
-    }
-
-    /**
-     * @param columns single-column will be size 1
-     */
-    record IndexRecommendation(Type type, String table, List<String> columns, String snippet,
-                               boolean coveredByComposite) {
-            enum Type {MULTI_COLUMN, SINGLE_COLUMN}
-    }
-
-    record DropRecommendation(String indexName, String snippet) {
-    }
-
-    /**
-     * Generates all Liquibase changesets (create and drop) as a consolidated list.
-     * This method is used by both the file writer and the console printer to avoid duplication.
-     *
-     * @return GeneratedChangesets containing all changesets and counts
-     */
-    GeneratedChangesets generateAllChangesets() {
-        GeneratedChangesets result = new GeneratedChangesets();
-        // Multi-column indexes
-        for (String key : suggestedMultiColumnIndexes) {
-            String[] parts = key.split("\\|", 2);
-            String table = parts[0];
-            String columnsStr = parts[1];
-            List<String> columns = List.of(columnsStr.split(","));
-            String changeSet = buildLiquibaseMultiColumnIndexChangeSet(table, new LinkedHashSet<>(columns));
-            result.changesets.add("\n    <!-- Multi-column index recommendation for " + table + " (" + String.join(", ", columns) + ") -->");
-            result.changesets.add("    <!-- Note: First column is covered - no separate index needed -->");
-            result.changesets.add(indentXml(changeSet, 4));
-            result.multiColumnCount++;
-            result.recommendations.add(new IndexRecommendation(IndexRecommendation.Type.MULTI_COLUMN, table, columns, changeSet, false));
-        }
-        // Single-column indexes
-        for (String key : suggestedNewIndexes) {
-            String[] parts = key.split("\\|", 2);
-
-            String table = parts[0];
-            String column = parts[1];
-            String changeSet = buildLiquibaseNonLockingIndexChangeSet(table, column);
-            result.changesets.add(indentXml(changeSet, 4));
-            result.singleColumnCount++;
-            result.recommendations.add(new IndexRecommendation(IndexRecommendation.Type.SINGLE_COLUMN, table, List.of(column), changeSet, false));
-        }
-        result.totalCreateCount = result.multiColumnCount + result.singleColumnCount;
-
-        // Drops
-        result.dropCandidates = collectDropCandidates();
-        for (String idxName : result.dropCandidates) {
-            String changeSet = buildLiquibaseDropIndexChangeSet(idxName);
-            result.changesets.add("\n    <!-- Drop index " + idxName + " -->");
-            result.changesets.add(indentXml(changeSet, 4));
-            result.dropRecommendations.add(new DropRecommendation(idxName, changeSet));
-        }
-        return result;
-    }
-
-    // Helper to determine if single-column index is covered by composite (first column of any multi index)
-    boolean isCoveredByComposite(String table, String column) {
-        if (table == null || column == null) return false;
-        return suggestedMultiColumnIndexes.stream().anyMatch(key -> {
-            String[] parts = key.split("\\|", 2);
-            if (parts.length != 2) return false;
-            if (!parts[0].equals(table)) return false;
-            String[] cols = parts[1].split(",");
-            return cols.length > 0 && cols[0].equals(column);
-        });
-    }
-
-    LinkedHashSet<String> collectDropCandidates() {
-        LinkedHashSet<String> dropCandidates = new LinkedHashSet<>();
-        Map<String, Set<Indexes.IndexInfo>> map = CardinalityAnalyzer.getIndexMap();
-        if (map == null) return dropCandidates;
-        for (var entry : map.entrySet()) {
-            String table = entry.getKey();
-            for (var idx : entry.getValue()) {
-                if ("INDEX".equals(idx.type()) && idx.columns() != null && !idx.columns().isEmpty()) {
-                    String first = idx.columns().getFirst();
-                    CardinalityLevel card = CardinalityAnalyzer.analyzeColumnCardinality(table, first);
-                    if (card == CardinalityLevel.LOW && !idx.name().isEmpty()) {
-                        dropCandidates.add(idx.name());
-                    }
-                }
-            }
-        }
-        return dropCandidates;
-    }
-
-    private void printIndexCreationRecommendations(GeneratedChangesets generated) {
-        if (generated.totalCreateCount == 0) {
-            System.out.println("\n📦 No index creation recommendations found.");
-            return;
-        }
-        // Print multi first, then single, using unified list.
-        System.out.println("\n📦 INDEX CREATION RECOMMENDATIONS:");
-        for (IndexRecommendation rec : generated.recommendations) {
-            if (rec.type == IndexRecommendation.Type.MULTI_COLUMN) {
-                System.out.printf("\n  Multi-column index for %s (%s):%n", rec.table, String.join(", ", rec.columns));
-                System.out.println("    Note: First column is covered by this composite index - no separate index needed");
-                System.out.println(indent(rec.snippet, 2));
-            }
-        }
-        for (IndexRecommendation rec : generated.recommendations) {
-            if (rec.type == IndexRecommendation.Type.SINGLE_COLUMN) {
-                String col = rec.columns.getFirst();
-                if (rec.coveredByComposite) {
-                    System.out.printf("\n  ⏭️  Skipping %s.%s - already covered by multi-column index%n", rec.table, col);
-                } else {
-                    System.out.printf("\n  Index for %s.%s:%n", rec.table, col);
-                    System.out.println(indent(rec.snippet, 2));
-                }
-            }
-        }
-        System.out.printf("\n  💡 Total index creation recommendations: %d (%d multi-column, %d single-column)%n",
-                generated.totalCreateCount, generated.multiColumnCount, generated.singleColumnCount);
-    }
-
-    private void printIndexDropRecommendations(GeneratedChangesets generated) {
-        if (generated.dropCount == 0) {
-            System.out.println("\n🗑 No index drop recommendations found.");
-            return;
-        }
-        System.out.println("\n🗑 SUGGESTED INDEX DROPS (leading low-cardinality columns):");
-        for (DropRecommendation drop : generated.dropRecommendations) {
-            System.out.printf("\n  Drop index %s:%n", drop.indexName);
-            System.out.println(indent(drop.snippet, 2));
-        }
-        System.out.printf("\n  💡 Total index drop recommendations: %d%n", generated.dropCount);
-    }
-
     public void printConsolidatedIndexActions() {
         GeneratedChangesets generated = generateAllChangesets();
         totalIndexCreateRecommendations = generated.totalCreateCount;
         totalIndexDropRecommendations = generated.dropCount;
-        printIndexCreationRecommendations(generated);
-        printIndexDropRecommendations(generated);
+
+        // Report create recommendations
+        if (generated.totalCreateCount > 0) {
+            if (generated.multiColumnCount > 0) {
+                System.out.println("\n📦 SUGGESTED MULTI-COLUMN INDEXES (Optimized for Query Performance):");
+                for (String key : suggestedMultiColumnIndexes) {
+                    String[] parts = key.split("\\|", 2);
+                    String table = parts.length > 0 ? parts[0] : TABLE_NAME_TAG;
+                    String columnsStr = parts.length > 1 ? parts[1] : COLUMN_NAME_TAG;
+                    LinkedHashSet<String> columns = new LinkedHashSet<>(List.of(columnsStr.split(",")));
+                    String snippet = buildLiquibaseMultiColumnIndexChangeSet(table, columns);
+                    System.out.printf("\n  Multi-column index for %s (%s):%n", table, String.join(", ", columns));
+                    System.out.println("    Note: First column is covered by this composite index - no separate index needed");
+                    System.out.println(indent(snippet, 2));
+                }
+            }
+            if (!suggestedNewIndexes.isEmpty()) {
+                System.out.println("\n📦 SUGGESTED SINGLE-COLUMN INDEXES (AI-Enhanced + Cardinality Analysis):");
+                for (String key : suggestedNewIndexes) {
+                    String[] parts = key.split("\\|", 2);
+                    String table = parts.length > 0 ? parts[0] : TABLE_NAME_TAG;
+                    String column = parts.length > 1 ? parts[1] : COLUMN_NAME_TAG;
+                    boolean coveredByComposite = isCoveredByComposite(table, column);
+                    if (coveredByComposite) {
+                        System.out.printf("\n  ⏭️  Skipping %s.%s - already covered by multi-column index%n", table, column);
+                        continue;
+                    }
+                    String snippet = buildLiquibaseNonLockingIndexChangeSet(table, column);
+                    System.out.printf("\n  Index for %s.%s:%n", table, column);
+                    System.out.println(indent(snippet, 2));
+                }
+            }
+            System.out.printf("\n  💡 Total index creation recommendations: %d (%d multi-column, %d single-column)%n",
+                    totalIndexCreateRecommendations, generated.multiColumnCount, generated.singleColumnCount);
+        } else {
+            System.out.println("\n📦 No index creation recommendations found.");
+        }
+
+        // Report drop recommendations
+        if (totalIndexDropRecommendations > 0) {
+            System.out.println("\n🗑 SUGGESTED INDEX DROPS (leading low-cardinality columns):");
+            // Reconstruct drop candidates (for printing detail) – relies on same logic as generation
+            java.util.LinkedHashSet<String> dropCandidates = new java.util.LinkedHashSet<>();
+            java.util.Map<String, java.util.Set<Indexes.IndexInfo>> map = CardinalityAnalyzer.getIndexMap();
+            if (map != null) {
+                for (var entry : map.entrySet()) {
+                    String table = entry.getKey();
+                    for (var idx : entry.getValue()) {
+                        if ("INDEX".equals(idx.type()) && idx.columns() != null && !idx.columns().isEmpty()) {
+                            String first = idx.columns().getFirst();
+                            CardinalityLevel card = CardinalityAnalyzer.analyzeColumnCardinality(table, first);
+                            if (card == CardinalityLevel.LOW && !idx.name().isEmpty()) {
+                                dropCandidates.add(idx.name());
+                            }
+                        }
+                    }
+                }
+            }
+            for (String idxName : dropCandidates) {
+                String snippet = buildLiquibaseDropIndexChangeSet(idxName);
+                System.out.printf("\n  Drop index %s:%n", idxName);
+                System.out.println(indent(snippet, 2));
+            }
+            System.out.printf("\n  💡 Total index drop recommendations: %d%n", totalIndexDropRecommendations);
+        } else {
+            System.out.println("\n🗑 No index drop recommendations found.");
+        }
     }
+
+
 
     String indent(String s, int spaces) {
         String pad = " ".repeat(Math.max(0, spaces));
@@ -910,15 +841,132 @@ public class QueryOptimizationChecker {
 
         if (result.wasWritten() && result.getChangesFile() != null) {
             logger.debug("Generated Liquibase changes file: {} with {} index create recommendations ({} multi-column, {} single-column) and {} drop recommendations",
-                       result.getChangesFile().getName(), generated.totalCreateCount, generated.multiColumnCount,
-                       generated.singleColumnCount, generated.dropCount);
+                    result.getChangesFile().getName(), generated.totalCreateCount, generated.multiColumnCount,
+                    generated.singleColumnCount, generated.dropCount);
         }
     }
 
+    /**
+     * Holds the results of generating all changesets.
+     */
+    static class GeneratedChangesets {
+        List<String> changesets = new ArrayList<>();
+        int multiColumnCount = 0;
+        int singleColumnCount = 0;
+        int totalCreateCount = 0;
+        int dropCount = 0;
+    }
+
+    /**
+     * Generates all Liquibase changesets (create and drop) as a consolidated list.
+     * This method is used by both the file writer and the console printer to avoid duplication.
+     *
+     * @return GeneratedChangesets containing all changesets and counts
+     */
+    GeneratedChangesets generateAllChangesets() {
+        GeneratedChangesets result = new GeneratedChangesets();
+
+        // Always start with a header (even if only drops will be suggested)
+        result.changesets.add("    <!-- AI-Enhanced Query Optimization Index Recommendations -->");
+        result.changesets.add("    <!-- Generated by QueryOptimizationChecker with multi-column index + drop support -->");
+
+        // Add multi-column indexes first (only if present)
+        if (!suggestedMultiColumnIndexes.isEmpty()) {
+            for (String key : suggestedMultiColumnIndexes) {
+                String[] parts = key.split("\\|", 2);
+                String table = parts.length > 0 ? parts[0] : TABLE_NAME_TAG;
+                String columnsStr = parts.length > 1 ? parts[1] : COLUMN_NAME_TAG;
+                LinkedHashSet<String> columns = new LinkedHashSet<>(List.of(columnsStr.split(",")));
+
+                String changeSet = buildLiquibaseMultiColumnIndexChangeSet(table, columns);
+
+                result.changesets.add("\n    <!-- Multi-column index recommendation for " + table +
+                        " (" + String.join(", ", columns) + ") -->");
+                result.changesets.add("    <!-- Note: First column is covered - no separate index needed -->");
+                result.changesets.add(indentXml(changeSet, 4));
+                result.multiColumnCount++;
+            }
+        }
+
+        // Add single-column indexes (excluding those covered by multi-column indexes)
+        if (!suggestedNewIndexes.isEmpty()) {
+            for (String key : suggestedNewIndexes) {
+                String[] parts = key.split("\\|", 2);
+                String table = parts.length > 0 ? parts[0] : TABLE_NAME_TAG;
+                String column = parts.length > 1 ? parts[1] : COLUMN_NAME_TAG;
+
+                if (isCoveredByComposite(table, column)) {
+                    result.changesets.add("\n    <!-- Skipping " + table + "." + column +
+                            " - covered by multi-column index -->");
+                    continue;
+                }
+
+                String changeSet = buildLiquibaseNonLockingIndexChangeSet(table, column);
+                result.changesets.add(indentXml(changeSet, 4));
+                result.singleColumnCount++;
+            }
+        }
+
+        result.totalCreateCount = result.multiColumnCount + result.singleColumnCount;
+
+        // Add create index summary comment (or note no create recommendations)
+        if (result.totalCreateCount > 0) {
+            result.changesets.add("\n    <!-- Summary: " + result.totalCreateCount + " total index create recommendations " +
+                    "(" + result.multiColumnCount + " multi-column, " + result.singleColumnCount + " single-column) -->");
+        } else {
+            result.changesets.add("\n    <!-- Summary: No index create recommendations -->");
+        }
+
+        // Analyze existing indexes to suggest drops for low-cardinality leading columns (always perform)
+        java.util.LinkedHashSet<String> dropCandidates = new java.util.LinkedHashSet<>();
+        java.util.Map<String, java.util.Set<Indexes.IndexInfo>> map = CardinalityAnalyzer.getIndexMap();
+        if (map != null) {
+            for (var entry : map.entrySet()) {
+                String table = entry.getKey();
+                for (var idx : entry.getValue()) {
+                    if ("INDEX".equals(idx.type()) && idx.columns() != null && !idx.columns().isEmpty()) {
+                        String first = idx.columns().getFirst();
+                        CardinalityLevel card = CardinalityAnalyzer.analyzeColumnCardinality(table, first);
+                        if (card == CardinalityLevel.LOW && !idx.name().isEmpty()) {
+                            dropCandidates.add(idx.name());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Add drop index changesets even if there are no create suggestions
+        if (!dropCandidates.isEmpty()) {
+            result.changesets.add("\n    <!-- Index Drop Recommendations (leading low-cardinality columns) -->");
+            for (String idxName : dropCandidates) {
+                String changeSet = buildLiquibaseDropIndexChangeSet(idxName);
+                result.changesets.add("\n    <!-- Drop index " + idxName + " -->");
+                result.changesets.add(indentXml(changeSet, 4));
+                result.dropCount++;
+            }
+            result.changesets.add("\n    <!-- Summary: " + result.dropCount + " total index drop recommendations -->");
+        } else {
+            result.changesets.add("\n    <!-- Summary: No index drop recommendations -->");
+        }
+
+        return result;
+    }
+
+    boolean isCoveredByComposite(String table, String column) {
+        return suggestedMultiColumnIndexes.stream()
+                .anyMatch(mcKey -> {
+                    String[] mcParts = mcKey.split("\\|", 2);
+                    if (mcParts.length == 2 && mcParts[0].equals(table)) {
+                        String[] cols = mcParts[1].split(",");
+                        return cols.length > 0 && cols[0].equals(column);
+                    }
+                    return false;
+                });
+    }
 
     /**
      * Indents XML content by the specified number of spaces.
-     * 
+     *
      * @param xml the XML content to indent
      * @param spaces number of spaces to indent
      * @return indented XML content
@@ -929,9 +977,9 @@ public class QueryOptimizationChecker {
         }
         String indent = " ".repeat(spaces);
         return xml.lines()
-                  .map(line -> line.isEmpty() ? line : indent + line)
-                  .reduce((a, b) -> a + "\n" + b)
-                  .orElse(xml);
+                .map(line -> line.isEmpty() ? line : indent + line)
+                .reduce((a, b) -> a + "\n" + b)
+                .orElse(xml);
     }
 
     protected static File getLiquibasePath() {
@@ -977,7 +1025,7 @@ public class QueryOptimizationChecker {
         int createCount = checker.getTotalIndexCreateRecommendations();
         int dropCount = checker.getTotalIndexDropRecommendations();
         TokenUsage totalTokenUsage = checker.getCumulativeTokenUsage();
-        
+
         System.out.println(String.format("\nSUMMARY: Analyzed %d quer%s. Recommendations given: %d high priorit%s, %d medium priorit%s. Index actions: %d creation%s, %d drop%s.",
                 queries,
                 queries == 1 ? "y" : "ies",
@@ -992,7 +1040,7 @@ public class QueryOptimizationChecker {
 
         // Add token usage reporting to summary
         if (totalTokenUsage.getTotalTokens() > 0) {
-            System.out.printf("🤖 AI Service Usage: %s", totalTokenUsage.getFormattedReport());
+            System.out.println(String.format("🤖 AI Service Usage: %s", totalTokenUsage.getFormattedReport()));
         }
 
         System.out.println("Time taken " + (System.currentTimeMillis() - s) + " ms.");
