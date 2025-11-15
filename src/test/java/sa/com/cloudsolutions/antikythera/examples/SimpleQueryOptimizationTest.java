@@ -58,7 +58,7 @@ class SimpleQueryOptimizationTest {
     void testWhereConditionCreation() {
         // Test WhereCondition record creation
         WhereCondition condition = new WhereCondition(
-            "users", "email", "=", CardinalityLevel.HIGH, 0, null
+            "users", "email", "=", 0, null
         );
         
         assertEquals("users", condition.tableName());
@@ -74,21 +74,21 @@ class SimpleQueryOptimizationTest {
     void testWhereConditionCardinalityChecks() {
         // Test high cardinality condition
         WhereCondition highCondition = new WhereCondition(
-            "users", "id", "=", CardinalityLevel.HIGH, 0, null
+            "users", "id", "=", 0, null
         );
         assertTrue(highCondition.isHighCardinality());
         assertFalse(highCondition.isLowCardinality());
         
         // Test low cardinality condition
         WhereCondition lowCondition = new WhereCondition(
-            "users", "status", "=", CardinalityLevel.LOW, 1, null
+            "users", "status", "=", 1, null
         );
         assertFalse(lowCondition.isHighCardinality());
         assertTrue(lowCondition.isLowCardinality());
         
         // Test medium cardinality condition
         WhereCondition mediumCondition = new WhereCondition(
-            "users", "department", "=", CardinalityLevel.MEDIUM, 2, null
+            "users", "department", "=", 2, null
         );
         assertFalse(mediumCondition.isHighCardinality());
         assertFalse(mediumCondition.isLowCardinality());
