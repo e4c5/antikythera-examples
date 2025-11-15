@@ -67,7 +67,7 @@ public class QueryOptimizationChecker {
     public QueryOptimizationChecker(File liquibaseXmlPath) throws Exception {
         this.liquibaseXmlPath = liquibaseXmlPath;
         // Load database metadata for cardinality analysis
-        Map<String, List<Indexes.IndexInfo>> indexMap = Indexes.load(liquibaseXmlPath);
+        Map<String, Set<Indexes.IndexInfo>> indexMap = Indexes.load(liquibaseXmlPath);
         
         // Initialize components
         CardinalityAnalyzer.setIndexMap(indexMap);
@@ -284,7 +284,7 @@ public class QueryOptimizationChecker {
         }
 
         // Get the index map from cardinality analyzer to do more detailed analysis
-        Map<String, List<Indexes.IndexInfo>> indexMap = CardinalityAnalyzer.getIndexMap();
+        Map<String, Set<Indexes.IndexInfo>> indexMap = CardinalityAnalyzer.getIndexMap();
         indexMap.get(tableName);
 
         return false;
@@ -804,7 +804,7 @@ public class QueryOptimizationChecker {
 
         // Analyze existing indexes to suggest drops for low-cardinality leading columns
         java.util.LinkedHashSet<String> dropCandidates = new java.util.LinkedHashSet<>();
-        java.util.Map<String, java.util.List<sa.com.cloudsolutions.liquibase.Indexes.IndexInfo>> map = CardinalityAnalyzer.getIndexMap();
+        java.util.Map<String, java.util.Set<Indexes.IndexInfo>> map = CardinalityAnalyzer.getIndexMap();
         for (var entry : map.entrySet()) {
             String table = entry.getKey();
             for (var idx : entry.getValue()) {

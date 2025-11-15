@@ -19,7 +19,7 @@ class QueryAnalysisEngineTest {
     @BeforeEach
     void setUp() {
         // Create a real CardinalityAnalyzer with test data
-        Map<String, List<Indexes.IndexInfo>> indexMap = new HashMap<>();
+        Map<String, Set<Indexes.IndexInfo>> indexMap = new HashMap<>();
         setupTestIndexes(indexMap);
         CardinalityAnalyzer.setIndexMap(indexMap);
         engine = new QueryAnalysisEngine();
@@ -28,9 +28,9 @@ class QueryAnalysisEngineTest {
     /**
      * Sets up test index configurations for various scenarios.
      */
-    private void setupTestIndexes(Map<String, List<Indexes.IndexInfo>> indexMap) {
+    private void setupTestIndexes(Map<String, Set<Indexes.IndexInfo>> indexMap) {
         // Users table with various index types
-        List<Indexes.IndexInfo> userIndexes = new ArrayList<>();
+        Set<Indexes.IndexInfo> userIndexes = new HashSet<>();
         
         // Primary key index
         Indexes.IndexInfo primaryKey = new Indexes.IndexInfo("PRIMARY_KEY", "pk_users", Arrays.asList("user_id"));

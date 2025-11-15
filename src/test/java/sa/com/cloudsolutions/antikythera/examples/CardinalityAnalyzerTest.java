@@ -13,7 +13,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Tests cardinality analysis based on database metadata from Liquibase IndexInfo data.
  */
 class CardinalityAnalyzerTest {
-    private Map<String, List<Indexes.IndexInfo>> indexMap;
+    private Map<String, Set<Indexes.IndexInfo>> indexMap;
 
     @BeforeEach
     void setUp() {
@@ -27,7 +27,7 @@ class CardinalityAnalyzerTest {
      */
     private void setupTestIndexes() {
         // Users table with various index types
-        List<Indexes.IndexInfo> userIndexes = new ArrayList<>();
+        Set<Indexes.IndexInfo> userIndexes = new HashSet<>();
 
         // Primary key index
         Indexes.IndexInfo primaryKey = new Indexes.IndexInfo("PRIMARY_KEY", "pk_users", Arrays.asList("user_id"));
@@ -48,7 +48,7 @@ class CardinalityAnalyzerTest {
         indexMap.put("users", userIndexes);
 
         // Orders table with composite indexes
-        List<Indexes.IndexInfo> orderIndexes = new ArrayList<>();
+        Set<Indexes.IndexInfo> orderIndexes = new HashSet<>();
 
         // Primary key
         Indexes.IndexInfo orderPrimaryKey = new Indexes.IndexInfo("PRIMARY_KEY", "pk_orders", Arrays.asList("order_id"));
@@ -61,7 +61,7 @@ class CardinalityAnalyzerTest {
         indexMap.put("orders", orderIndexes);
 
         // Products table with minimal indexes
-        List<Indexes.IndexInfo> productIndexes = new ArrayList<>();
+        Set<Indexes.IndexInfo> productIndexes = new HashSet<>();
 
         Indexes.IndexInfo productPrimaryKey = new Indexes.IndexInfo("PRIMARY_KEY", "pk_products", Arrays.asList("product_id"));
         productIndexes.add(productPrimaryKey);
@@ -209,7 +209,7 @@ class CardinalityAnalyzerTest {
     @Test
     void testCardinalityPriority_PrimaryKeyOverUnique() {
         // Add a unique constraint on user_id to test priority
-        List<Indexes.IndexInfo> userIndexes = indexMap.get("users");
+        Set<Indexes.IndexInfo> userIndexes = indexMap.get("users");
         Indexes.IndexInfo uniqueUserId = new Indexes.IndexInfo("UNIQUE_CONSTRAINT", "uk_users_user_id", Arrays.asList("user_id"));
         userIndexes.add(uniqueUserId);
 
@@ -222,7 +222,7 @@ class CardinalityAnalyzerTest {
     @Test
     void testCardinalityPriority_UniqueOverRegularIndex() {
         // Add a regular index on email to test priority
-        List<Indexes.IndexInfo> userIndexes = indexMap.get("users");
+        Set<Indexes.IndexInfo> userIndexes = indexMap.get("users");
         Indexes.IndexInfo emailIndex = new Indexes.IndexInfo("INDEX", "idx_users_email", Arrays.asList("email"));
         userIndexes.add(emailIndex);
 
@@ -235,7 +235,7 @@ class CardinalityAnalyzerTest {
     @Test
     void testCardinalityPriority_BooleanOverIndex() {
         // Add a regular index on a boolean-named column
-        List<Indexes.IndexInfo> userIndexes = indexMap.get("users");
+        Set<Indexes.IndexInfo> userIndexes = indexMap.get("users");
         Indexes.IndexInfo activeIndex = new Indexes.IndexInfo("INDEX", "idx_users_is_active", Arrays.asList("is_active"));
         userIndexes.add(activeIndex);
 

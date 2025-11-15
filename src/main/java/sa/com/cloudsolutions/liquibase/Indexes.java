@@ -29,13 +29,26 @@ public class Indexes {
         public String toString() {
             return type + ";" + name + ";" + String.join(",", columns);
         }
+        // Explicit equals to honor ordered column list
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof IndexInfo other)) return false;
+            return Objects.equals(this.type, other.type)
+                    && Objects.equals(this.name, other.name)
+                    && Objects.equals(this.columns, other.columns); // order-sensitive
+        }
+        @Override
+        public int hashCode() {
+            return Objects.hash(type, name, columns);
+        }
     }
 
     /**
      * Load Liquibase indexes from the given XML and return a table->indexes map.
      * The map value is a list of IndexInfo entries in declaration order (after includes and drops applied).
      */
-    public static Map<String, List<IndexInfo>> load(File liquibaseXml) throws Exception {
+    public static Map<String, Set<IndexInfo>> load(File liquibaseXml) throws Exception {
         return parseLiquibaseFile(liquibaseXml);
     }
 
@@ -50,11 +63,11 @@ public class Indexes {
             System.exit(2);
         }
 
-        Map<String, List<IndexInfo>> byTable = parseLiquibaseFile(file);
+        Map<String, Set<IndexInfo>> byTable = parseLiquibaseFile(file);
         // Display table-based with indentation: PK, UNIQUE, and other indexes
         byTable.keySet().stream().sorted().forEach(table -> {
             System.out.println(table);
-            List<IndexInfo> indexes = byTable.get(table);
+            Set<IndexInfo> indexes = byTable.get(table);
             // PK
             indexes.stream().filter(i -> PRIMARY_KEY.equals(i.type))
                 .forEach(i -> System.out.println("  PK: " + i));
@@ -68,15 +81,15 @@ public class Indexes {
 
     }
 
-    private static Map<String, List<IndexInfo>> parseLiquibaseFile(File file) throws Exception {
-        Map<String, List<IndexInfo>> result = new LinkedHashMap<>();
+    private static Map<String, Set<IndexInfo>> parseLiquibaseFile(File file) throws Exception {
+        Map<String, Set<IndexInfo>> result = new LinkedHashMap<>();
         Set<String> visited = new HashSet<>();
         parseLiquibaseFileInto(file, visited, result);
         return result;
     }
 
     // Mutating parser to allow includes to modify existing state
-    private static void parseLiquibaseFileInto(File file, Set<String> visited, Map<String, List<IndexInfo>> result) throws Exception {
+    private static void parseLiquibaseFileInto(File file, Set<String> visited, Map<String, Set<IndexInfo>> result) throws Exception {
         String canonical = file.getCanonicalPath();
         if (visited.contains(canonical)) {
             return; // already processed (prevent circular includes)
@@ -98,7 +111,7 @@ public class Indexes {
         }
     }
 
-    private static void processTopLevelElement(Element el, File currentFile, Set<String> visited, Map<String, List<IndexInfo>> result) throws Exception {
+    private static void processTopLevelElement(Element el, File currentFile, Set<String> visited, Map<String, Set<IndexInfo>> result) throws Exception {
         String ln = localName(el);
         if ("include".equalsIgnoreCase(ln)) {
             handleIncludeElement(el, currentFile, visited, result);
@@ -113,10 +126,10 @@ public class Indexes {
             return;
         }
         // Allow index-related tags at root level (rare but possible)
-        processIndexRelatedElement(el, result, currentFile, visited);
+        processIndexRelatedElement(el, result);
     }
 
-    private static void processChangeSet(Element changeSetEl, File currentFile, Set<String> visited, Map<String, List<IndexInfo>> result) throws Exception {
+    private static void processChangeSet(Element changeSetEl, File currentFile, Set<String> visited, Map<String, Set<IndexInfo>> result) throws Exception {
         NodeList nodes = changeSetEl.getChildNodes();
         for (int i = 0; i < nodes.getLength(); i++) {
             Node n = nodes.item(i);
@@ -128,13 +141,13 @@ public class Indexes {
                 } else if ("includeAll".equalsIgnoreCase(ln)) {
                     handleIncludeAllElement(el, currentFile, visited, result);
                 } else {
-                    processIndexRelatedElement(el, result, currentFile, visited);
+                    processIndexRelatedElement(el, result);
                 }
             }
         }
     }
 
-    private static void processIndexRelatedElement(Element el, Map<String, List<IndexInfo>> result, File currentFile, Set<String> visited) {
+    private static void processIndexRelatedElement(Element el, Map<String, Set<IndexInfo>> result) {
         String ln = localName(el);
         switch (ln.toLowerCase()) {
             case "createindex" -> handleCreateIndexElement(el, result);
@@ -153,7 +166,7 @@ public class Indexes {
     }
 
     // --- Include handling (inline to preserve ordering) ---
-    private static void handleIncludeElement(Element el, File currentFile, Set<String> visited, Map<String, List<IndexInfo>> result) throws Exception {
+    private static void handleIncludeElement(Element el, File currentFile, Set<String> visited, Map<String, Set<IndexInfo>> result) throws Exception {
         String ref = firstNonEmpty(el.getAttribute("file"), el.getAttribute("path"));
         if (isBlank(ref)) return;
         File child = resolveRelative(currentFile, ref);
@@ -181,7 +194,7 @@ public class Indexes {
         parseLiquibaseFileInto(child, visited, result);
     }
 
-    private static void handleIncludeAllElement(Element el, File currentFile, Set<String> visited, Map<String, List<IndexInfo>> result) throws Exception {
+    private static void handleIncludeAllElement(Element el, File currentFile, Set<String> visited, Map<String, Set<IndexInfo>> result) throws Exception {
         String dir = firstNonEmpty(el.getAttribute("path"), el.getAttribute("relativePath"));
         if (isBlank(dir)) return;
         File baseDir = resolveRelative(currentFile, dir);
@@ -214,7 +227,7 @@ public class Indexes {
     }
 
     // --- Element handlers ---
-    private static void handleCreateIndexElement(Element el, Map<String, List<IndexInfo>> result) {
+    private static void handleCreateIndexElement(Element el, Map<String, Set<IndexInfo>> result) {
         String name = firstNonEmpty(el.getAttribute("indexName"), el.getAttribute("name"));
         String table = firstNonEmpty(el.getAttribute("tableName"), el.getAttribute("table"));
         boolean unique = "true".equalsIgnoreCase(el.getAttribute("unique"));
@@ -224,7 +237,7 @@ public class Indexes {
         }
     }
 
-    private static void handleAddUniqueConstraintElement(Element el, Map<String, List<IndexInfo>> result) {
+    private static void handleAddUniqueConstraintElement(Element el, Map<String, Set<IndexInfo>> result) {
         String constraintName = firstNonEmpty(el.getAttribute("constraintName"), el.getAttribute("name"));
         String table = firstNonEmpty(el.getAttribute("tableName"), el.getAttribute("table"));
         List<String> cols = splitColumnsPreserveOrder(el.getAttribute("columnNames"));
@@ -233,7 +246,7 @@ public class Indexes {
         }
     }
 
-    private static void handleAddPrimaryKeyElement(Element el, Map<String, List<IndexInfo>> result) {
+    private static void handleAddPrimaryKeyElement(Element el, Map<String, Set<IndexInfo>> result) {
         String pkName = firstNonEmpty(el.getAttribute("constraintName"), el.getAttribute("pkName"));
         String table = firstNonEmpty(el.getAttribute("tableName"), el.getAttribute("table"));
         List<String> cols = splitColumnsPreserveOrder(el.getAttribute("columnNames"));
@@ -242,13 +255,13 @@ public class Indexes {
         }
     }
 
-    private static void handleCreateTableElement(Element el, Map<String, List<IndexInfo>> result) {
+    private static void handleCreateTableElement(Element el, Map<String, Set<IndexInfo>> result) {
         String table = firstNonEmpty(el.getAttribute("tableName"), el.getAttribute("table"));
         if (isBlank(table)) return;
         NodeList columns = el.getElementsByTagName("column");
         List<String> pkCols = new ArrayList<>();
         String pkName = null;
-        List<IndexInfo> uniquesInline = new ArrayList<>();
+        Set<IndexInfo> uniquesInline = new HashSet<>();
         for (int i = 0; i < columns.getLength(); i++) {
             Node n = columns.item(i);
             if (n instanceof Element colEl) {
@@ -272,7 +285,7 @@ public class Indexes {
         for (IndexInfo idx : uniquesInline) add(result, table, idx);
     }
 
-    private static void handleAddColumnElement(Element el, Map<String, List<IndexInfo>> result) {
+    private static void handleAddColumnElement(Element el, Map<String, Set<IndexInfo>> result) {
         String table = firstNonEmpty(el.getAttribute("tableName"), el.getAttribute("table"));
         if (isBlank(table)) return;
         NodeList columns = el.getElementsByTagName("column");
@@ -292,7 +305,7 @@ public class Indexes {
         }
     }
 
-    private static void handleDropIndexElement(Element el, Map<String, List<IndexInfo>> result) {
+    private static void handleDropIndexElement(Element el, Map<String, Set<IndexInfo>> result) {
         String name = firstNonEmpty(el.getAttribute("indexName"), el.getAttribute("name"));
         String table = firstNonEmpty(el.getAttribute("tableName"), el.getAttribute("table"));
         List<String> cols = splitColumnsPreserveOrder(el.getAttribute("columnNames"));
@@ -303,7 +316,7 @@ public class Indexes {
         }
     }
 
-    private static void handleDropUniqueConstraintElement(Element el, Map<String, List<IndexInfo>> result) {
+    private static void handleDropUniqueConstraintElement(Element el, Map<String, Set<IndexInfo>> result) {
         String name = firstNonEmpty(el.getAttribute("constraintName"), el.getAttribute("name"));
         String table = firstNonEmpty(el.getAttribute("tableName"), el.getAttribute("table"));
         List<String> cols = splitColumnsPreserveOrder(el.getAttribute("columnNames"));
@@ -312,7 +325,7 @@ public class Indexes {
         }
     }
 
-    private static void handleDropPrimaryKeyElement(Element el, Map<String, List<IndexInfo>> result) {
+    private static void handleDropPrimaryKeyElement(Element el, Map<String, Set<IndexInfo>> result) {
         String name = firstNonEmpty(el.getAttribute("constraintName"), el.getAttribute("pkName"));
         String table = firstNonEmpty(el.getAttribute("tableName"), el.getAttribute("table"));
         if (!isBlank(table)) {
@@ -320,7 +333,7 @@ public class Indexes {
         }
     }
 
-    private static void handleSqlElement(Element el, Map<String, List<IndexInfo>> result) {
+    private static void handleSqlElement(Element el, Map<String, Set<IndexInfo>> result) {
         if (isInRollback(el)) return;
         String sqlText = el.getTextContent();
         if (isBlank(sqlText)) return;
@@ -368,7 +381,7 @@ public class Indexes {
      * Parse a single SQL statement text and add index info if it is a CREATE INDEX.
      * Supports vendor-specific options like CONCURRENTLY (PostgreSQL), ONLINE (Oracle), and IF NOT EXISTS.
      */
-    private static void processCreateIndexSql(Map<String, List<IndexInfo>> result, String sql) {
+    private static void processCreateIndexSql(Map<String, Set<IndexInfo>> result, String sql) {
         if (isBlank(sql)) return;
         String normalized = sql.trim();
         if (normalized.endsWith(";")) normalized = normalized.substring(0, normalized.length() - 1);
@@ -426,7 +439,7 @@ public class Indexes {
     /**
      * Parse and apply raw SQL DROP statements affecting indexes/constraints.
      */
-    private static void processDropSql(Map<String, List<IndexInfo>> result, String sql) {
+    private static void processDropSql(Map<String, Set<IndexInfo>> result, String sql) {
         if (isBlank(sql)) return;
         String normalized = sql.trim();
         if (normalized.endsWith(";")) normalized = normalized.substring(0, normalized.length() - 1);
@@ -475,11 +488,11 @@ public class Indexes {
     }
 
     // --- Removal helpers (order-sensitive column handling) ---
-    private static void removeIndexByNameAnyTable(Map<String, List<IndexInfo>> map, String name) {
+    private static void removeIndexByNameAnyTable(Map<String, Set<IndexInfo>> map, String name) {
         if (isBlank(name) || map.isEmpty()) return;
         List<String> emptyTables = new ArrayList<>();
-        for (Map.Entry<String, List<IndexInfo>> e : map.entrySet()) {
-            List<IndexInfo> list = e.getValue();
+        for (Map.Entry<String, Set<IndexInfo>> e : map.entrySet()) {
+            Set<IndexInfo> list = e.getValue();
             if (list == null) continue;
             String target = name.toLowerCase();
             list.removeIf(i -> ("INDEX".equals(i.type) || UNIQUE_INDEX.equals(i.type)) && i.name != null && i.name.equalsIgnoreCase(target));
@@ -488,30 +501,30 @@ public class Indexes {
         for (String t : emptyTables) map.remove(t);
     }
 
-    private static void add(Map<String, List<IndexInfo>> map, String table, IndexInfo index) {
-        map.computeIfAbsent(table, k -> new ArrayList<>()).add(index);
+    private static void add(Map<String, Set<IndexInfo>> map, String table, IndexInfo index) {
+        map.computeIfAbsent(table, k -> new HashSet<>()).add(index);
     }
 
-    private static void removeIndexByName(Map<String, List<IndexInfo>> map, String table, String name) {
+    private static void removeIndexByName(Map<String, Set<IndexInfo>> map, String table, String name) {
         if (isBlank(table) || isBlank(name)) return;
-        List<IndexInfo> list = map.get(table);
+        Set<IndexInfo> list = map.get(table);
         if (list == null) return;
         String target = name.toLowerCase();
         list.removeIf(i -> ("INDEX".equals(i.type) || UNIQUE_INDEX.equals(i.type)) && i.name != null && i.name.equalsIgnoreCase(target));
         if (list.isEmpty()) map.remove(table);
     }
 
-    private static void removeIndexByColumnsOrdered(Map<String, List<IndexInfo>> map, String table, List<String> cols) {
+    private static void removeIndexByColumnsOrdered(Map<String, Set<IndexInfo>> map, String table, List<String> cols) {
         if (isBlank(table) || cols == null || cols.isEmpty()) return;
-        List<IndexInfo> list = map.get(table);
+        Set<IndexInfo> list = map.get(table);
         if (list == null) return;
         List<String> target = cols.stream().map(String::toLowerCase).toList();
         list.removeIf(i -> ("INDEX".equals(i.type) || UNIQUE_INDEX.equals(i.type)) && orderedColumnsMatch(i.columns, target));
         if (list.isEmpty()) map.remove(table);
     }
 
-    private static void removeUniqueConstraint(Map<String, List<IndexInfo>> map, String table, String name, List<String> cols) {
-        List<IndexInfo> list = map.get(table);
+    private static void removeUniqueConstraint(Map<String, Set<IndexInfo>> map, String table, String name, List<String> cols) {
+        Set<IndexInfo> list = map.get(table);
         if (list == null) return;
         if (!isBlank(name)) {
             String target = name.toLowerCase();
@@ -523,8 +536,8 @@ public class Indexes {
         if (list.isEmpty()) map.remove(table);
     }
 
-    private static void removePrimaryKey(Map<String, List<IndexInfo>> map, String table, String name) {
-        List<IndexInfo> list = map.get(table);
+    private static void removePrimaryKey(Map<String, Set<IndexInfo>> map, String table, String name) {
+        Set<IndexInfo> list = map.get(table);
         if (list == null) return;
         if (!isBlank(name)) {
             String target = name.toLowerCase();
