@@ -15,6 +15,12 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+// JSQLParser (already used in the project)
+import net.sf.jsqlparser.parser.CCJSqlParserUtil;
+import net.sf.jsqlparser.statement.Statement;
 
 public class Indexes {
 
@@ -107,128 +113,66 @@ public class Indexes {
 
         Map<String, List<Index>> result = new LinkedHashMap<>();
 
-        // createIndex
-        for (Element el : elementsByLocalName(doc, "createIndex")) {
-            String name = firstNonEmpty(el.getAttribute("indexName"), el.getAttribute("name"));
+        handleCreateIndex(doc, result);
+        handleUniqueConstraints(doc, "addUniqueConstraint", "name", result, UNIQUE_CONSTRAINT);
+        handleUniqueConstraints(doc, "addPrimaryKey", "pkName", result, PRIMARY_KEY);
+
+        handleCreateTable(doc, result);
+        handleAddColumn(doc, result);
+
+        // Raw <sql> blocks: parse CREATE INDEX statements expressed as SQL (PostgreSQL/Oracle/etc)
+        handleSqlElements(doc, result);
+
+        // includes (<include>)
+        handleIncludes(file, visited, doc, result);
+
+
+        handleIncludeAll(file, visited, doc, result);
+
+        handleDropIndex(doc, result);
+
+        handleDropUniques(doc, result);
+
+        handleDropPrimary(doc, result);
+
+        return result;
+    }
+
+    private static void handleDropPrimary(Document doc, Map<String, List<Index>> result) {
+        for (Element el : elementsByLocalName(doc, "dropPrimaryKey")) {
+            String name = firstNonEmpty(el.getAttribute("constraintName"), el.getAttribute("pkName"));
             String table = firstNonEmpty(el.getAttribute("tableName"), el.getAttribute("table"));
-            boolean unique = "true".equalsIgnoreCase(el.getAttribute("unique"));
-            List<String> cols = extractColumns(el);
-            if (!isBlank(table) && !cols.isEmpty()) {
-                add(result, table, new Index(unique ? UNIQUE_INDEX : "INDEX", orUnknown(name), cols));
+            if (!isBlank(table)) {
+                removePrimaryKey(result, table, name);
             }
         }
+    }
 
-        // addUniqueConstraint
-        for (Element el : elementsByLocalName(doc, "addUniqueConstraint")) {
+    private static void handleDropUniques(Document doc, Map<String, List<Index>> result) {
+        for (Element el : elementsByLocalName(doc, "dropUniqueConstraint")) {
             String name = firstNonEmpty(el.getAttribute("constraintName"), el.getAttribute("name"));
             String table = firstNonEmpty(el.getAttribute("tableName"), el.getAttribute("table"));
             List<String> cols = splitColumns(el.getAttribute("columnNames"));
-            if (!isBlank(table) && !cols.isEmpty()) {
-                add(result, table, new Index(UNIQUE_CONSTRAINT, orUnknown(name), cols));
+            if (!isBlank(table)) {
+                removeUniqueConstraint(result, table, name, cols);
             }
         }
+    }
 
-        // addPrimaryKey
-        for (Element el : elementsByLocalName(doc, "addPrimaryKey")) {
-            String name = firstNonEmpty(el.getAttribute("constraintName"), el.getAttribute("pkName"));
+    private static void handleDropIndex(Document doc, Map<String, List<Index>> result) {
+        for (Element el : elementsByLocalName(doc, "dropIndex")) {
+            String name = firstNonEmpty(el.getAttribute("indexName"), el.getAttribute("name"));
             String table = firstNonEmpty(el.getAttribute("tableName"), el.getAttribute("table"));
             List<String> cols = splitColumns(el.getAttribute("columnNames"));
-            if (!isBlank(table) && !cols.isEmpty()) {
-                add(result, table, new Index(PRIMARY_KEY, orUnknown(name), cols));
+            if (!isBlank(name)) {
+                removeIndexByName(result, table, name);
+            } else if (!isBlank(table) && !cols.isEmpty()) {
+                removeIndexByColumns(result, table, cols);
             }
         }
+    }
 
-        // createTable with inline constraints
-        for (Element el : elementsByLocalName(doc, "createTable")) {
-            String table = firstNonEmpty(el.getAttribute("tableName"), el.getAttribute("table"));
-            if (isBlank(table)) continue;
-            NodeList columns = el.getElementsByTagName("column");
-            List<String> pkCols = new ArrayList<>();
-            String pkName = null;
-            List<Index> uniquesInline = new ArrayList<>();
-            for (int i = 0; i < columns.getLength(); i++) {
-                Node n = columns.item(i);
-                if (n instanceof Element colEl) {
-                    String colName = firstNonEmpty(colEl.getAttribute("name"), textOfFirstChild(colEl, "name"));
-                    NodeList constraintsList = colEl.getElementsByTagName("constraints");
-                    if (constraintsList.getLength() > 0) {
-                        Element c = (Element) constraintsList.item(0);
-                        // primary key
-                        if ("true".equalsIgnoreCase(c.getAttribute("primaryKey"))) {
-                            pkCols.add(colName);
-                            String n1 = c.getAttribute("primaryKeyName");
-                            if (!isBlank(n1)) pkName = n1;
-                        }
-                        // unique
-                        if ("true".equalsIgnoreCase(c.getAttribute("unique"))) {
-                            String uniqueName = c.getAttribute("uniqueConstraintName");
-                            uniquesInline.add(new Index(UNIQUE_CONSTRAINT, orUnknown(uniqueName), List.of(colName)));
-                        }
-                    }
-                }
-            }
-            if (!pkCols.isEmpty()) {
-                add(result, table, new Index(PRIMARY_KEY, orUnknown(pkName), pkCols));
-            }
-            for (Index idx : uniquesInline) add(result, table, idx);
-        }
-
-        // addColumn with inline constraints
-        for (Element el : elementsByLocalName(doc, "addColumn")) {
-            String table = firstNonEmpty(el.getAttribute("tableName"), el.getAttribute("table"));
-            if (isBlank(table)) continue;
-            NodeList columns = el.getElementsByTagName("column");
-            for (int i = 0; i < columns.getLength(); i++) {
-                Node n = columns.item(i);
-                if (n instanceof Element colEl) {
-                    String colName = firstNonEmpty(colEl.getAttribute("name"), textOfFirstChild(colEl, "name"));
-                    NodeList constraintsList = colEl.getElementsByTagName("constraints");
-                    if (constraintsList.getLength() > 0) {
-                        Element c = (Element) constraintsList.item(0);
-                        if ("true".equalsIgnoreCase(c.getAttribute("unique"))) {
-                            String uniqueName = c.getAttribute("uniqueConstraintName");
-                            if (isBlank(uniqueName)) uniqueName = null;
-                            // Unique per column
-                            List<String> cols = new ArrayList<>();
-                            cols.add(colName);
-                            add(result, table, new Index(UNIQUE_CONSTRAINT, orUnknown(uniqueName), cols));
-                        }
-                    }
-                }
-            }
-        }
-
-        // includes (<include>)
-        for (Element el : elementsByLocalName(doc, "include")) {
-            String ref = firstNonEmpty(el.getAttribute("file"), el.getAttribute("path"));
-            if (isBlank(ref)) continue;
-            File child = resolveRelative(file, ref);
-            if (!child.exists()) {
-                // Fallback: try again after stripping 'db/changelog/' (and Windows variant) from the path
-                String stripped = ref;
-                if (ref.contains("db/changelog/")) {
-                    stripped = ref.replace("db/changelog/", "");
-                } else if (ref.contains("db\\changelog\\")) {
-                    stripped = ref.replace("db\\changelog\\", "");
-                }
-                if (!Objects.equals(stripped, ref)) {
-                    File retry = resolveRelative(file, stripped);
-                    if (retry.exists()) {
-                        child = retry;
-                    } else {
-                        System.err.println("Warning: included file not found (after fallback): " + child.getPath() + " | retried: " + retry.getPath());
-                        continue;
-                    }
-                } else {
-                    System.err.println("Warning: included file not found: " + child.getPath());
-                    continue;
-                }
-            }
-            Map<String, List<Index>> childMap = parseLiquibaseFile(child, visited);
-            merge(result, childMap);
-        }
-
-        // includeAll
+    private static void handleIncludeAll(File file, Set<String> visited, Document doc, Map<String, List<Index>> result) throws Exception {
         for (Element el : elementsByLocalName(doc, "includeAll")) {
             String dir = firstNonEmpty(el.getAttribute("path"), el.getAttribute("relativePath"));
             if (isBlank(dir)) continue;
@@ -262,37 +206,255 @@ public class Indexes {
                 merge(result, childMap);
             }
         }
+    }
 
-        // Handle drops (processed after additions and includes in this file)
-        for (Element el : elementsByLocalName(doc, "dropIndex")) {
+    private static void handleIncludes(File file, Set<String> visited, Document doc, Map<String, List<Index>> result) throws Exception {
+        for (Element el : elementsByLocalName(doc, "include")) {
+            String ref = firstNonEmpty(el.getAttribute("file"), el.getAttribute("path"));
+            if (isBlank(ref)) continue;
+            File child = resolveRelative(file, ref);
+            if (!child.exists()) {
+                // Fallback: try again after stripping 'db/changelog/' (and Windows variant) from the path
+                String stripped = ref;
+                if (ref.contains("db/changelog/")) {
+                    stripped = ref.replace("db/changelog/", "");
+                } else if (ref.contains("db\\changelog\\")) {
+                    stripped = ref.replace("db\\changelog\\", "");
+                }
+                if (!Objects.equals(stripped, ref)) {
+                    File retry = resolveRelative(file, stripped);
+                    if (retry.exists()) {
+                        child = retry;
+                    } else {
+                        System.err.println("Warning: included file not found (after fallback): " + child.getPath() + " | retried: " + retry.getPath());
+                        continue;
+                    }
+                } else {
+                    System.err.println("Warning: included file not found: " + child.getPath());
+                    continue;
+                }
+            }
+            Map<String, List<Index>> childMap = parseLiquibaseFile(child, visited);
+            merge(result, childMap);
+        }
+    }
+
+    private static void handleAddColumn(Document doc, Map<String, List<Index>> result) {
+        // addColumn with inline constraints
+        for (Element el : elementsByLocalName(doc, "addColumn")) {
+            String table = firstNonEmpty(el.getAttribute("tableName"), el.getAttribute("table"));
+            if (isBlank(table)) continue;
+            NodeList columns = el.getElementsByTagName("column");
+            for (int i = 0; i < columns.getLength(); i++) {
+                Node n = columns.item(i);
+                if (n instanceof Element colEl) {
+                    String colName = firstNonEmpty(colEl.getAttribute("name"), textOfFirstChild(colEl, "name"));
+                    NodeList constraintsList = colEl.getElementsByTagName("constraints");
+                    if (constraintsList.getLength() > 0) {
+                        Element c = (Element) constraintsList.item(0);
+                        if ("true".equalsIgnoreCase(c.getAttribute("unique"))) {
+                            String uniqueName = c.getAttribute("uniqueConstraintName");
+                            if (isBlank(uniqueName)) uniqueName = null;
+                            // Unique per column
+                            List<String> cols = new ArrayList<>();
+                            cols.add(colName);
+                            add(result, table, new Index(UNIQUE_CONSTRAINT, orUnknown(uniqueName), cols));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private static void handleCreateTable(Document doc, Map<String, List<Index>> result) {
+        for (Element el : elementsByLocalName(doc, "createTable")) {
+            String table = firstNonEmpty(el.getAttribute("tableName"), el.getAttribute("table"));
+            if (isBlank(table)) continue;
+            NodeList columns = el.getElementsByTagName("column");
+            List<String> pkCols = new ArrayList<>();
+            String pkName = null;
+            List<Index> uniquesInline = new ArrayList<>();
+            for (int i = 0; i < columns.getLength(); i++) {
+                Node n = columns.item(i);
+                if (n instanceof Element colEl) {
+                    String colName = firstNonEmpty(colEl.getAttribute("name"), textOfFirstChild(colEl, "name"));
+                    NodeList constraintsList = colEl.getElementsByTagName("constraints");
+                    if (constraintsList.getLength() > 0) {
+                        Element c = (Element) constraintsList.item(0);
+                        // primary key
+                        if ("true".equalsIgnoreCase(c.getAttribute("primaryKey"))) {
+                            pkCols.add(colName);
+                            String n1 = c.getAttribute("primaryKeyName");
+                            if (!isBlank(n1)) pkName = n1;
+                        }
+                        // unique
+                        if ("true".equalsIgnoreCase(c.getAttribute("unique"))) {
+                            String uniqueName = c.getAttribute("uniqueConstraintName");
+                            uniquesInline.add(new Index(UNIQUE_CONSTRAINT, orUnknown(uniqueName), List.of(colName)));
+                        }
+                    }
+                }
+            }
+            if (!pkCols.isEmpty()) {
+                add(result, table, new Index(PRIMARY_KEY, orUnknown(pkName), pkCols));
+            }
+            for (Index idx : uniquesInline) add(result, table, idx);
+        }
+    }
+
+    private static void handleUniqueConstraints(Document doc, String addUniqueConstraint, String name, Map<String, List<Index>> result, String uniqueConstraint) {
+        for (Element el : elementsByLocalName(doc, addUniqueConstraint)) {
+            String name = firstNonEmpty(el.getAttribute("constraintName"), el.getAttribute(name));
+            String table = firstNonEmpty(el.getAttribute("tableName"), el.getAttribute("table"));
+            List<String> cols = splitColumns(el.getAttribute("columnNames"));
+            if (!isBlank(table) && !cols.isEmpty()) {
+                add(result, table, new Index(uniqueConstraint, orUnknown(name), cols));
+            }
+        }
+    }
+
+    private static void handleCreateIndex(Document doc, Map<String, List<Index>> result) {
+        for (Element el : elementsByLocalName(doc, "createIndex")) {
             String name = firstNonEmpty(el.getAttribute("indexName"), el.getAttribute("name"));
             String table = firstNonEmpty(el.getAttribute("tableName"), el.getAttribute("table"));
-            List<String> cols = splitColumns(el.getAttribute("columnNames"));
-            if (!isBlank(name)) {
-                removeIndexByName(result, table, name);
-            } else if (!isBlank(table) && !cols.isEmpty()) {
-                removeIndexByColumns(result, table, cols);
+            boolean unique = "true".equalsIgnoreCase(el.getAttribute("unique"));
+            List<String> cols = extractColumns(el);
+            if (!isBlank(table) && !cols.isEmpty()) {
+                add(result, table, new Index(unique ? UNIQUE_INDEX : "INDEX", orUnknown(name), cols));
             }
         }
+    }
 
-        for (Element el : elementsByLocalName(doc, "dropUniqueConstraint")) {
-            String name = firstNonEmpty(el.getAttribute("constraintName"), el.getAttribute("name"));
-            String table = firstNonEmpty(el.getAttribute("tableName"), el.getAttribute("table"));
-            List<String> cols = splitColumns(el.getAttribute("columnNames"));
-            if (!isBlank(table)) {
-                removeUniqueConstraint(result, table, name, cols);
+    /**
+     * Handle all <sql> elements in the document: split into statements and process create-index statements.
+     * Skips any <sql> that appears under a <rollback> block.
+     */
+    private static void handleSqlElements(Document doc, Map<String, List<Index>> result) {
+        for (Element el : elementsByLocalName(doc, "sql")) {
+            if (isInRollback(el)) continue;
+            String sqlText = el.getTextContent();
+            if (isBlank(sqlText)) continue;
+            try {
+                net.sf.jsqlparser.statement.Statements stmts = CCJSqlParserUtil.parseStatements(sqlText);
+                if (stmts != null && stmts.getStatements() != null && !stmts.getStatements().isEmpty()) {
+                    for (Statement st : stmts.getStatements()) {
+                        if (st == null) continue;
+                        String s = st.toString();
+                        processCreateIndexSql(result, s);
+                    }
+                    continue;
+                }
+            } catch (Exception ignore) {
+                // Fall back to manual splitting below
+            }
+            for (String part : sqlText.split(";")) {
+                String s = part.trim();
+                if (s.isEmpty()) continue;
+                processCreateIndexSql(result, s);
             }
         }
+    }
 
-        for (Element el : elementsByLocalName(doc, "dropPrimaryKey")) {
-            String name = firstNonEmpty(el.getAttribute("constraintName"), el.getAttribute("pkName"));
-            String table = firstNonEmpty(el.getAttribute("tableName"), el.getAttribute("table"));
-            if (!isBlank(table)) {
-                removePrimaryKey(result, table, name);
+    /**
+     * Return true if the provided node is under a <rollback> element.
+     */
+    private static boolean isInRollback(Node node) {
+        Node p = node;
+        while (p != null) {
+            if (p instanceof Element pe) {
+                String ln = pe.getLocalName();
+                String nn = pe.getNodeName();
+                if ("rollback".equalsIgnoreCase(nn) || "rollback".equalsIgnoreCase(ln)) {
+                    return true;
+                }
+            }
+            p = p.getParentNode();
+        }
+        return false;
+    }
+
+    /**
+     * Parse a single SQL statement text and add index info if it is a CREATE INDEX.
+     * Supports vendor-specific options like CONCURRENTLY (PostgreSQL), ONLINE (Oracle), and IF NOT EXISTS.
+     */
+    private static void processCreateIndexSql(Map<String, List<Index>> result, String sql) {
+        if (isBlank(sql)) return;
+        String normalized = sql.trim();
+        // Remove trailing semicolon
+        if (normalized.endsWith(";")) normalized = normalized.substring(0, normalized.length() - 1);
+        // Strip line breaks for regex simplicity
+        normalized = normalized.replace('\n', ' ').replace('\r', ' ');
+        // Quick guard
+        if (!normalized.toUpperCase().startsWith("CREATE")) return;
+        if (!normalized.toUpperCase().contains("INDEX")) return;
+
+        // Remove vendor-specific noise that can confuse simple regex
+        String cleaned = normalized
+                .replaceAll("(?i)\\bCONCURRENTLY\\b", " ")
+                .replaceAll("(?i)\\bONLINE\\b", " ")
+                .replaceAll("(?i)\\bIF\\s+NOT\\s+EXISTS\\b", " ")
+                .replaceAll("\\s+", " ").trim();
+
+        // Pattern: CREATE [UNIQUE] INDEX indexName ON tableName (col1 [ASC|DESC], col2, ...)
+        Pattern p = Pattern.compile(
+                "(?i)^CREATE\\s+(UNIQUE\\s+)?INDEX\\s+([\"`\\w.]+)\\s+ON\\s+([\"`\\w.]+)\\s*\\((.*?)\\)"
+        );
+        Matcher m = p.matcher(cleaned);
+        if (!m.find()) {
+            // As a fallback, try using JSQLParser to normalize then retry regex
+            try {
+                Statement st = CCJSqlParserUtil.parse(cleaned);
+                String s2 = st.toString();
+                m = p.matcher(s2);
+                if (!m.find()) return;
+            } catch (Exception ignore) {
+                return;
             }
         }
+        boolean isUnique = m.group(1) != null && !m.group(1).isBlank();
+        String indexName = unquote(m.group(2));
+        String tableName = unquote(m.group(3));
+        String colsCsv = m.group(4);
+        if (isBlank(tableName) || isBlank(colsCsv)) return;
 
-        return result;
+        List<String> cols = Arrays.stream(colsCsv.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .map(c -> {
+                    // Remove ordering and other column-level options
+                    String base = c.replaceAll("(?i)\\bASC\\b|\\bDESC\\b", "");
+                    // Remove function wrappers or expressions: keep identifier when it's simple
+                    // For safety, take content before first space after removing ASC/DESC
+                    base = base.trim();
+                    int sp = base.indexOf(' ');
+                    if (sp > 0) base = base.substring(0, sp);
+                    base = base.trim();
+                    // Remove quotes
+                    base = unquote(base);
+                    // Remove table qualifier if present
+                    int dot = base.lastIndexOf('.')
+                            ;
+                    if (dot >= 0) base = base.substring(dot + 1);
+                    return base;
+                })
+                .filter(s -> !s.isEmpty())
+                .toList();
+
+        if (cols.isEmpty()) return;
+        // Remove schema from table if qualified
+        int dot = tableName.lastIndexOf('.');
+        if (dot >= 0) tableName = tableName.substring(dot + 1);
+        add(result, tableName, new Index(isUnique ? UNIQUE_INDEX : "INDEX", orUnknown(indexName), cols));
+    }
+
+    private static String unquote(String s) {
+        if (s == null) return null;
+        s = s.trim();
+        // Remove surrounding quotes `name`, "name"
+        if ((s.startsWith("\"") && s.endsWith("\"")) || (s.startsWith("`") && s.endsWith("`"))) {
+            return s.substring(1, s.length() - 1);
+        }
+        return s;
     }
 
     private static void add(Map<String, List<Index>> map, String table, Index index) {
