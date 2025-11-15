@@ -3,11 +3,12 @@ package sa.com.cloudsolutions.antikythera.examples.util;
 import com.github.javaparser.JavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
-import com.github.javaparser.ast.body.MethodDeclaration;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
+import sa.com.cloudsolutions.antikythera.parser.BaseRepositoryParser;
 
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -42,7 +43,7 @@ class RepositoryAnalyzerTest {
         
         TypeWrapper typeWrapper = new TypeWrapper(jpaRepo);
         
-        assertTrue(RepositoryAnalyzer.isJpaRepository(typeWrapper));
+        assertTrue(BaseRepositoryParser.isJpaRepository(typeWrapper));
     }
 
     @Test
@@ -63,7 +64,7 @@ class RepositoryAnalyzerTest {
         
         TypeWrapper typeWrapper = new TypeWrapper(customRepo);
         
-        assertTrue(RepositoryAnalyzer.isJpaRepository(typeWrapper));
+        assertTrue(BaseRepositoryParser.isJpaRepository(typeWrapper));
     }
 
     @Test
@@ -82,7 +83,7 @@ class RepositoryAnalyzerTest {
         
         TypeWrapper typeWrapper = new TypeWrapper(regularInterface);
         
-        assertFalse(RepositoryAnalyzer.isJpaRepository(typeWrapper));
+        assertFalse(BaseRepositoryParser.isJpaRepository(typeWrapper));
     }
 
     @Test
@@ -103,6 +104,6 @@ class RepositoryAnalyzerTest {
         
         TypeWrapper typeWrapper = new TypeWrapper(crudRepo);
         
-        assertTrue(RepositoryAnalyzer.isJpaRepository(typeWrapper));
+        assertTrue(BaseRepositoryParser.isJpaRepository(typeWrapper));
     }
 }

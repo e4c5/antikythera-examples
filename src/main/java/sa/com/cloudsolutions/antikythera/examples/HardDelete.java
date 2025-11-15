@@ -7,11 +7,11 @@ import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
-import sa.com.cloudsolutions.antikythera.examples.util.RepositoryAnalyzer;
 import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
+import sa.com.cloudsolutions.antikythera.parser.BaseRepositoryParser;
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -78,7 +78,7 @@ public class HardDelete {
             super.visit(field, cu);
             VariableDeclarator vdecl = field.getVariable(0);
             TypeWrapper wrapper = AbstractCompiler.findType(cu, vdecl.getTypeAsString());
-            if (RepositoryAnalyzer.isJpaRepository(wrapper)) {
+            if (BaseRepositoryParser.isJpaRepository(wrapper)) {
                 repoVars.put(vdecl.getNameAsString(), wrapper.getFullyQualifiedName());
             }
         }
