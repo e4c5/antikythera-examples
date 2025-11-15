@@ -5,10 +5,10 @@ import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.examples.util.LiquibaseGenerator;
-import sa.com.cloudsolutions.antikythera.examples.util.RepositoryAnalyzer;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
 import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
+import sa.com.cloudsolutions.antikythera.parser.BaseRepositoryParser;
 import sa.com.cloudsolutions.antikythera.parser.RepositoryParser;
 import sa.com.cloudsolutions.liquibase.Indexes;
 
@@ -94,7 +94,7 @@ public class QueryOptimizationChecker {
             String fullyQualifiedName = entry.getKey();
             TypeWrapper typeWrapper = entry.getValue();
 
-            if (RepositoryAnalyzer.isJpaRepository(typeWrapper)) {
+            if (BaseRepositoryParser.isJpaRepository(typeWrapper)) {
                 results.clear(); // Clear results for each repository
 
                 System.out.println("\n" + "=".repeat(80));
