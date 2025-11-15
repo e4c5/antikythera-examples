@@ -8,35 +8,11 @@ import java.util.List;
  * about the problem and recommended improvements.
  */
 public record OptimizationIssue(RepositoryQuery query, List<String> currentColumnOrder,
-                                List<String> recommendedColumnOrder, String description,
-                                Severity severity, String aiExplanation,
+                                List<String> recommendedColumnOrder, String description, String aiExplanation,
                                 RepositoryQuery optimizedQuery) {
 
     public OptimizationIssue() {
-        this(null, null, null , null , null , null , null);
-    }
-
-    /**
-     * Severity levels for optimization issues based on potential performance impact.
-     */
-    public enum Severity {
-        /**
-         * High severity: Low-cardinality column first with high-cardinality alternatives available.
-         * This represents the most significant performance impact.
-         */
-        HIGH,
-
-        /**
-         * Medium severity: Suboptimal ordering of high cardinality columns.
-         * Performance improvement is possible but less critical.
-         */
-        MEDIUM,
-
-        /**
-         * Low severity: Minor optimization opportunities.
-         * Small potential performance gains.
-         */
-        LOW
+        this(null, null, null , null , null , null);
     }
 
     /**
@@ -73,7 +49,7 @@ public record OptimizationIssue(RepositoryQuery query, List<String> currentColum
      */
     public String getFormattedReport() {
         StringBuilder report = new StringBuilder();
-        report.append(String.format("[%s] %s.%s%n", severity,
+        report.append(String.format("%s.%s%n",
                 query.getMethodDeclaration().getClassOrInterfaceDeclaration().getFullyQualifiedName(),
                 query.getMethodDeclaration().getNameAsString()));
         report.append(String.format("  Issue: %s%n", description));
@@ -92,39 +68,11 @@ public record OptimizationIssue(RepositoryQuery query, List<String> currentColum
 
         return report.toString();
     }
-
-    /**
-     * Checks if this is a high severity issue.
-     *
-     * @return true if severity is HIGH, false otherwise
-     */
-    public boolean isHighSeverity() {
-        return severity == Severity.HIGH;
-    }
-
-    /**
-     * Checks if this is a medium severity issue.
-     *
-     * @return true if severity is MEDIUM, false otherwise
-     */
-    public boolean isMediumSeverity() {
-        return severity == Severity.MEDIUM;
-    }
-
-    /**
-     * Checks if this is a low severity issue.
-     *
-     * @return true if severity is LOW, false otherwise
-     */
-    public boolean isLowSeverity() {
-        return severity == Severity.LOW;
-    }
-
     @Override
     public String toString() {
-        return String.format("%s.%s : currentColumnOrder=%s, recommendedColumnOrder=%s, severity=%s",
+        return String.format("%s.%s : currentColumnOrder=%s, recommendedColumnOrder=%s",
                 query.getMethodDeclaration().getClassOrInterfaceDeclaration().getFullyQualifiedName(),
                 query.getMethodDeclaration(), currentColumnOrder,
-                recommendedColumnOrder, severity);
+                recommendedColumnOrder);
     }
 }

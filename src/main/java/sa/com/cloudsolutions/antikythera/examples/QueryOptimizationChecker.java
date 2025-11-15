@@ -37,8 +37,7 @@ public class QueryOptimizationChecker {
 
     // Aggregated counters for summary and exit code logic
     protected int totalQueriesAnalyzed = 0;
-    protected int totalHighPriorityRecommendations = 0;
-    protected int totalMediumPriorityRecommendations = 0;
+    protected int totalRecommendations = 0;
 
     // Aggregated, de-duplicated suggestions for new indexes (key format: table|column)
     protected final LinkedHashSet<String> suggestedNewIndexes = new LinkedHashSet<>();
@@ -257,7 +256,6 @@ public class QueryOptimizationChecker {
                 llmRecommendation.currentColumnOrder(),
                 llmRecommendation.recommendedColumnOrder(),
                 llmRecommendation.description(),
-                llmRecommendation.severity(),
                 llmRecommendation.aiExplanation(),
                 llmRecommendation.optimizedQuery()
         );
@@ -341,11 +339,7 @@ public class QueryOptimizationChecker {
         OptimizationIssue issue = result.getOptimizationIssue();
 
         if (issue != null) {
-            // Update global recommendation counters
-            int highCount = issue.isHighSeverity() ? 1 : 0;
-            int mediumCount = issue.isMediumSeverity() ? 1 : 0;
-            this.totalHighPriorityRecommendations += highCount;
-            this.totalMediumPriorityRecommendations += mediumCount;
+           totalRecommendations++;
         }
         return issue;
     }
@@ -384,28 +378,14 @@ public class QueryOptimizationChecker {
             }
         }
 
-        // Add specific recommendations for column reordering
-        addColumnReorderingRecommendations(issue);
+        if (issue != null) {
+            System.out.println("  📋 RECOMMENDED ACTIONS:");
+        }
 
         // Collect any index creation suggestions for consolidation at the end
         collectIndexSuggestions(result);
 
         System.out.println(); // Add blank line for readability
-    }
-
-    /**
-     * Gets the priority value for severity-based sorting (lower number = higher priority).
-     *
-     * @param severity the severity level
-     * @return priority value for sorting
-     */
-    int getSeverityPriority(OptimizationIssue.Severity severity) {
-        return switch (severity) {
-            case HIGH -> 0;
-            case MEDIUM -> 1;
-            case LOW -> 2;
-            default -> 3;
-        };
     }
 
     /**
@@ -418,12 +398,6 @@ public class QueryOptimizationChecker {
      */
     String formatOptimizationIssueEnhanced(OptimizationIssue issue, QueryOptimizationResult result) {
         StringBuilder formatted = new StringBuilder();
-
-        // Issue header with severity indicator
-        String severityIcon = getSeverityIcon(issue.severity());
-        formatted.append(String.format("  %s [%s PRIORITY]: %s",
-                severityIcon, issue.severity(),
-                issue.description()));
 
         // Show WHERE clause conditions if available
         if (!result.getWhereConditions().isEmpty()) {
@@ -452,21 +426,6 @@ public class QueryOptimizationChecker {
         }
 
         return formatted.toString();
-    }
-
-    /**
-     * Gets the appropriate icon for the severity level.
-     *
-     * @param severity the severity level
-     * @return icon string for the severity
-     */
-    String getSeverityIcon(OptimizationIssue.Severity severity) {
-        return switch (severity) {
-            case HIGH -> "🔴";
-            case MEDIUM -> "🟡";
-            case LOW -> "🟢";
-            default -> "⚪";
-        };
     }
 
     /**
@@ -570,37 +529,6 @@ public class QueryOptimizationChecker {
             if (!optimizedWhereClause.isEmpty() && !optimizedWhereClause.equals(originalWhereClause)) {
                 System.out.printf("  ✨ Optimized WHERE: %s%n", optimizedWhereClause);
             }
-        }
-    }
-
-
-    /**
-     * Adds specific recommendations for column reordering in WHERE clauses.
-     * Enhanced to handle AI recommendations and required indexes.
-     *
-     * @param issue the list of optimization issues
-     */
-    void addColumnReorderingRecommendations(OptimizationIssue issue) {
-        if (issue == null) {
-            return;
-        }
-
-        StringBuilder recommendations = new StringBuilder();
-
-        if (issue.isHighSeverity()) {
-            addPriorityRecommendations(recommendations, issue, "🔴 HIGH PRIORITY:",
-                    "Move '%s' condition to the beginning of WHERE clause");
-        }
-
-        if (issue.isMediumSeverity()) {
-            addPriorityRecommendations(recommendations, issue, "🟡 MEDIUM PRIORITY:",
-                    "Consider reordering: place '%s' before '%s' in WHERE clause");
-        }
-
-        // Only print if we have recommendations
-        if (!recommendations.isEmpty()) {
-            System.out.println("  📋 RECOMMENDED ACTIONS:");
-            System.out.print(recommendations);
         }
     }
 
@@ -731,8 +659,7 @@ public class QueryOptimizationChecker {
 
     // Summary getters
     public int getTotalQueriesAnalyzed() { return totalQueriesAnalyzed; }
-    public int getTotalHighPriorityRecommendations() { return totalHighPriorityRecommendations; }
-    public int getTotalMediumPriorityRecommendations() { return totalMediumPriorityRecommendations; }
+    public int getTotalRecommendations() { return totalRecommendations; }
     public int getTotalIndexCreateRecommendations() { return totalIndexCreateRecommendations; }
     public int getTotalIndexDropRecommendations() { return totalIndexDropRecommendations; }
     public TokenUsage getCumulativeTokenUsage() { return cumulativeTokenUsage; }
@@ -914,19 +841,16 @@ public class QueryOptimizationChecker {
 
         // Print execution summary
         int queries = checker.getTotalQueriesAnalyzed();
-        int high = checker.getTotalHighPriorityRecommendations();
-        int medium = checker.getTotalMediumPriorityRecommendations();
+        int high = checker.getTotalRecommendations();
+
         int createCount = checker.getTotalIndexCreateRecommendations();
         int dropCount = checker.getTotalIndexDropRecommendations();
         TokenUsage totalTokenUsage = checker.getCumulativeTokenUsage();
 
-        System.out.println(String.format("\nSUMMARY: Analyzed %d quer%s. Recommendations given: %d high priorit%s, %d medium priorit%s. Index actions: %d creation%s, %d drop%s.",
+        System.out.println(String.format("\nSUMMARY: Analyzed %d quer%s. Recommendations given: %d. Index actions: %d creation%s, %d drop%s.",
                 queries,
                 queries == 1 ? "y" : "ies",
                 high,
-                high == 1 ? "y" : "ies",
-                medium,
-                medium == 1 ? "y" : "ies",
                 createCount,
                 createCount == 1 ? "" : "s",
                 dropCount,
@@ -938,8 +862,7 @@ public class QueryOptimizationChecker {
         }
 
         System.out.println("Time taken " + (System.currentTimeMillis() - s) + " ms.");
-        // Exit with non-zero if at least 1 high and at least 10 medium priority recommendations
-        if (high >= 1 && medium >= 10) {
+        if (high >= 1 ) {
             System.exit(1);
         } else {
             System.exit(0);
