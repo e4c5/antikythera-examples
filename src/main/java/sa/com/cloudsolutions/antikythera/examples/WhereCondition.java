@@ -1,6 +1,4 @@
 package sa.com.cloudsolutions.antikythera.examples;
-
-import sa.com.cloudsolutions.antikythera.generator.QueryMethodParameter;
 import java.util.Objects;
 
 /**
@@ -16,18 +14,15 @@ public final class WhereCondition {
     private final String operator;
     private CardinalityLevel cardinality;
     private final int position;
-    private final QueryMethodParameter parameter;
 
     public WhereCondition(String tableName,
                           String columnName,
                           String operator,
-                          int position,
-                          QueryMethodParameter parameter) {
+                          int position) {
         this.tableName = tableName;
         this.columnName = columnName;
         this.operator = operator;
         this.position = position;
-        this.parameter = parameter;
     }
 
     public String getTableName() {
@@ -50,17 +45,12 @@ public final class WhereCondition {
         return position;
     }
 
-    public QueryMethodParameter getParameter() {
-        return parameter;
-    }
-
     // Backward-compatible record-style accessors for existing code/tests
     public String tableName() { return getTableName(); }
     public String columnName() { return getColumnName(); }
     public String operator() { return getOperator(); }
     public CardinalityLevel cardinality() { return getCardinality(); }
     public int position() { return getPosition(); }
-    public QueryMethodParameter parameter() { return getParameter(); }
 
     /**
      * Checks if this condition uses a high cardinality column.
@@ -89,13 +79,12 @@ public final class WhereCondition {
                 Objects.equals(tableName, that.tableName) &&
                 Objects.equals(columnName, that.columnName) &&
                 Objects.equals(operator, that.operator) &&
-                cardinality == that.cardinality &&
-                Objects.equals(parameter, that.parameter);
+                cardinality == that.cardinality;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(tableName, columnName, operator, cardinality, position, parameter);
+        return Objects.hash(tableName, columnName, operator, cardinality, position);
     }
 
     @Override
@@ -106,7 +95,6 @@ public final class WhereCondition {
                 ", operator='" + operator + '\'' +
                 ", cardinality=" + cardinality +
                 ", position=" + position +
-                ", parameter=" + parameter +
                 '}';
     }
 

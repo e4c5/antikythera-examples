@@ -6,15 +6,9 @@ import net.sf.jsqlparser.statement.Statement;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
-import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
-import sa.com.cloudsolutions.liquibase.Indexes;
 
-import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -50,7 +44,7 @@ class QueryOptimizationExtractorTest {
         when(mockRepositoryQuery.getStatement()).thenReturn(statement);
         when(mockRepositoryQuery.getQuery()).thenReturn(sql);
 
-        List<WhereCondition> conditions = QueryOptimizationExtractor.extractWhereConditions(mockRepositoryQuery);
+        List<WhereCondition> conditions = QueryOptimizationExtractor.extractWhereConditions(mockRepositoryQuery.getStatement());
 
         assertNotNull(conditions);
         assertEquals(2, conditions.size(), "Should extract 2 WHERE conditions");
@@ -75,7 +69,7 @@ class QueryOptimizationExtractorTest {
         when(mockRepositoryQuery.getStatement()).thenReturn(statement);
         when(mockRepositoryQuery.getQuery()).thenReturn(sql);
 
-        List<WhereCondition> conditions = QueryOptimizationExtractor.extractWhereConditions(mockRepositoryQuery);
+        List<WhereCondition> conditions = QueryOptimizationExtractor.extractWhereConditions(mockRepositoryQuery.getStatement());
 
         assertNotNull(conditions);
         // Should extract the IN condition from outer query
@@ -96,7 +90,7 @@ class QueryOptimizationExtractorTest {
         when(mockRepositoryQuery.getStatement()).thenReturn(statement);
         when(mockRepositoryQuery.getQuery()).thenReturn(sql);
 
-        List<WhereCondition> conditions = QueryOptimizationExtractor.extractWhereConditions(mockRepositoryQuery);
+        List<WhereCondition> conditions = QueryOptimizationExtractor.extractWhereConditions(mockRepositoryQuery.getStatement());
 
         assertNotNull(conditions);
         assertFalse(conditions.isEmpty(), "Should extract conditions from WHERE and JOIN ON clauses");
@@ -121,7 +115,7 @@ class QueryOptimizationExtractorTest {
         when(mockRepositoryQuery.getStatement()).thenReturn(statement);
         when(mockRepositoryQuery.getQuery()).thenReturn(sql);
 
-        List<WhereCondition> conditions = QueryOptimizationExtractor.extractWhereConditions(mockRepositoryQuery);
+        List<WhereCondition> conditions = QueryOptimizationExtractor.extractWhereConditions(mockRepositoryQuery.getStatement());
 
         assertNotNull(conditions);
         assertEquals(2, conditions.size(), "Should extract 2 WHERE conditions from UPDATE");
@@ -145,7 +139,7 @@ class QueryOptimizationExtractorTest {
         when(mockRepositoryQuery.getStatement()).thenReturn(statement);
         when(mockRepositoryQuery.getQuery()).thenReturn(sql);
 
-        List<WhereCondition> conditions = QueryOptimizationExtractor.extractWhereConditions(mockRepositoryQuery);
+        List<WhereCondition> conditions = QueryOptimizationExtractor.extractWhereConditions(mockRepositoryQuery.getStatement());
 
         assertNotNull(conditions);
         assertEquals(2, conditions.size(), "Should extract 2 WHERE conditions from DELETE");
@@ -172,7 +166,7 @@ class QueryOptimizationExtractorTest {
         when(mockRepositoryQuery.getStatement()).thenReturn(statement);
         when(mockRepositoryQuery.getQuery()).thenReturn(sql);
 
-        List<WhereCondition> conditions = QueryOptimizationExtractor.extractWhereConditions(mockRepositoryQuery);
+        List<WhereCondition> conditions = QueryOptimizationExtractor.extractWhereConditions(mockRepositoryQuery.getStatement());
 
         assertNotNull(conditions);
         // Should extract the IN conditions from outer query
@@ -194,7 +188,7 @@ class QueryOptimizationExtractorTest {
         when(mockRepositoryQuery.getStatement()).thenReturn(statement);
         when(mockRepositoryQuery.getQuery()).thenReturn(sql);
 
-        List<WhereCondition> conditions = QueryOptimizationExtractor.extractWhereConditions(mockRepositoryQuery);
+        List<WhereCondition> conditions = QueryOptimizationExtractor.extractWhereConditions(mockRepositoryQuery.getStatement());
 
         assertNotNull(conditions);
         assertEquals(1, conditions.size(), "Should extract 1 BETWEEN condition");
@@ -213,7 +207,7 @@ class QueryOptimizationExtractorTest {
         when(mockRepositoryQuery.getStatement()).thenReturn(statement);
         when(mockRepositoryQuery.getQuery()).thenReturn(sql);
 
-        List<WhereCondition> conditions = QueryOptimizationExtractor.extractWhereConditions(mockRepositoryQuery);
+        List<WhereCondition> conditions = QueryOptimizationExtractor.extractWhereConditions(mockRepositoryQuery.getStatement());
 
         assertNotNull(conditions);
         assertEquals(2, conditions.size(), "Should extract both conditions from OR expression");
@@ -236,7 +230,7 @@ class QueryOptimizationExtractorTest {
         when(mockRepositoryQuery.getStatement()).thenReturn(statement);
         when(mockRepositoryQuery.getQuery()).thenReturn(sql);
 
-        List<WhereCondition> conditions = QueryOptimizationExtractor.extractWhereConditions(mockRepositoryQuery);
+        List<WhereCondition> conditions = QueryOptimizationExtractor.extractWhereConditions(mockRepositoryQuery.getStatement());
 
         assertNotNull(conditions);
         assertEquals(1, conditions.size(), "Should extract 1 IS NULL condition");
@@ -255,7 +249,7 @@ class QueryOptimizationExtractorTest {
         when(mockRepositoryQuery.getStatement()).thenReturn(statement);
         when(mockRepositoryQuery.getQuery()).thenReturn(sql);
 
-        List<WhereCondition> conditions = QueryOptimizationExtractor.extractWhereConditions(mockRepositoryQuery);
+        List<WhereCondition> conditions = QueryOptimizationExtractor.extractWhereConditions(mockRepositoryQuery.getStatement());
 
         assertNotNull(conditions);
         assertEquals(0, conditions.size(), "Should extract no conditions from query without WHERE");

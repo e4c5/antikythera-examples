@@ -7,10 +7,9 @@ import net.sf.jsqlparser.expression.operators.conditional.OrExpression;
 import net.sf.jsqlparser.expression.operators.relational.*;
 import net.sf.jsqlparser.schema.Column;
 import net.sf.jsqlparser.schema.Table;
+import net.sf.jsqlparser.statement.Statement;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import sa.com.cloudsolutions.antikythera.generator.QueryMethodParameter;
-import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -32,14 +31,10 @@ public class ExpressionConditionExtractor extends ExpressionVisitorAdapter<Void>
     private static final Logger logger = LoggerFactory.getLogger(ExpressionConditionExtractor.class);
 
     private final List<WhereCondition> conditions;
-    private final RepositoryQuery repositoryQuery;
-    private final String primaryTable;
     private int positionCounter;
 
-    public ExpressionConditionExtractor(RepositoryQuery repositoryQuery) {
-        this.repositoryQuery = repositoryQuery;
+    public ExpressionConditionExtractor() {
         this.conditions = new ArrayList<>();
-        this.primaryTable = repositoryQuery.getPrimaryTable();
         this.positionCounter = 0;
     }
 
@@ -144,33 +139,33 @@ public class ExpressionConditionExtractor extends ExpressionVisitorAdapter<Void>
 
     private void extractConditionFromComparison(ComparisonOperator comparison) {
         if (comparison.getLeftExpression() instanceof Column column) {
-            createAndAddCondition(column, comparison.getStringExpression(), comparison.getRightExpression());
+            createAndAddCondition(column, comparison.getStringExpression());
         }
     }
 
     private void extractConditionFromBetween(Between between) {
         if (between.getLeftExpression() instanceof Column column) {
-            createAndAddCondition(column, "BETWEEN", between.getBetweenExpressionStart());
+            createAndAddCondition(column, "BETWEEN");
         }
     }
 
     private void extractConditionFromIn(InExpression inExpr) {
         if (inExpr.getLeftExpression() instanceof Column column) {
-            createAndAddCondition(column, "IN", inExpr.getRightExpression());
+            createAndAddCondition(column, "IN");
         }
     }
 
     private void extractConditionFromIsNull(IsNullExpression isNull) {
         if (isNull.getLeftExpression() instanceof Column column) {
             String operator = isNull.isNot() ? "IS NOT NULL" : "IS NULL";
-            createAndAddCondition(column, operator, null);
+            createAndAddCondition(column, operator);
         }
     }
 
     private void extractConditionFromLike(LikeExpression likeExpr) {
         if (likeExpr.getLeftExpression() instanceof Column column) {
             String operator = likeExpr.isNot() ? "NOT LIKE" : "LIKE";
-            createAndAddCondition(column, operator, likeExpr.getRightExpression());
+            createAndAddCondition(column, operator);
         }
     }
 
@@ -179,14 +174,13 @@ public class ExpressionConditionExtractor extends ExpressionVisitorAdapter<Void>
      * Encapsulates the common logic of extracting table/column names,
      * mapping parameters, analyzing cardinality, and adding to the list.
      */
-    private void createAndAddCondition(Column column, String operator, Expression rightExpression) {
+    private void createAndAddCondition(Column column, String operator) {
         String columnName = getColumnName(column);
         String tableName = getTableName(column);
 
-        QueryMethodParameter parameter = mapParameter(columnName, rightExpression);
 
         WhereCondition condition = new WhereCondition(
-            tableName, columnName, operator,  positionCounter++, parameter
+            tableName, columnName, operator,  positionCounter++
         );
         conditions.add(condition);
 
@@ -214,29 +208,7 @@ public class ExpressionConditionExtractor extends ExpressionVisitorAdapter<Void>
             // For now, use as-is; EntityMappingResolver can help resolve if needed
             return table.getName();
         }
-        return primaryTable;
-    }
-
-    /**
-     * Maps a column to its corresponding method parameter.
-     * Looks for parameters that already have the column name mapped,
-     * without modifying the RepositoryQuery state.
-     */
-    private QueryMethodParameter mapParameter(String columnName, Expression rightExpression) {
-        if (rightExpression == null) {
-            return null;
-        }
-
-        List<QueryMethodParameter> params = repositoryQuery.getMethodParameters();
-        if (params == null || params.isEmpty()) {
-            return null;
-        }
-
-        // Find parameter that already has this column name mapped
-        return params.stream()
-            .filter(p -> columnName.equals(p.getColumnName()))
-            .findFirst()
-            .orElse(null);
+        return null;
     }
 }
 
