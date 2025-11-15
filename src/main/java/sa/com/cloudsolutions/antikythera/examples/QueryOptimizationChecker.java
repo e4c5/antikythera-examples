@@ -363,7 +363,6 @@ public class QueryOptimizationChecker {
 
         System.out.println(formatOptimizationIssueEnhanced(issue, result));
 
-
         if (!result.getIndexSuggestions().isEmpty()) {
             System.out.println("    📋 Required Indexes:");
             for (String indexRecommendation : result.getIndexSuggestions()) {
@@ -376,10 +375,6 @@ public class QueryOptimizationChecker {
                     System.out.printf("      • %s.%s [%s]\n", table, column, status);
                 }
             }
-        }
-
-        if (issue != null) {
-            System.out.println("  📋 RECOMMENDED ACTIONS:");
         }
 
         // Collect any index creation suggestions for consolidation at the end
@@ -529,35 +524,6 @@ public class QueryOptimizationChecker {
             if (!optimizedWhereClause.isEmpty() && !optimizedWhereClause.equals(originalWhereClause)) {
                 System.out.printf("  ✨ Optimized WHERE: %s%n", optimizedWhereClause);
             }
-        }
-    }
-
-    /**
-     * Helper method to add priority-specific recommendations to the StringBuilder.
-     * Eliminates code duplication between high and medium priority processing.
-     */
-    void addPriorityRecommendations(StringBuilder recommendations, OptimizationIssue issue,
-                                    String priorityHeader, String reorderingTemplate) {
-        recommendations.append("    ").append(priorityHeader).append("\n");
-
-        // Skip reordering recommendation when the recommended column is already first
-        if (issue.recommendedFirstColumn().equals(issue.currentFirstColumn())) {
-            return;
-        }
-
-        // Add reordering recommendation
-        if (reorderingTemplate.contains("%s") && reorderingTemplate.contains("before")) {
-            // Medium priority template with two parameters
-            recommendations.append(String.format("      • " + reorderingTemplate + "%n",
-                    issue.recommendedFirstColumn(), issue.currentFirstColumn()));
-        } else {
-            // High priority template with one parameter
-            recommendations.append(String.format("      • " + reorderingTemplate + "%n",
-                    issue.recommendedFirstColumn()));
-            recommendations.append(String.format("        Replace: WHERE %s = ? AND %s = ?%n",
-                    issue.currentFirstColumn(), issue.recommendedFirstColumn()));
-            recommendations.append(String.format("        With:    WHERE %s = ? AND %s = ?%n",
-                    issue.recommendedFirstColumn(), issue.currentFirstColumn()));
         }
     }
 
