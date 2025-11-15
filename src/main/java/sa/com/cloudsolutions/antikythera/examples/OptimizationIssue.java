@@ -2,7 +2,6 @@ package sa.com.cloudsolutions.antikythera.examples;
 
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
 import java.util.List;
-import java.util.Collections;
 
 /**
  * Represents an identified query optimization issue with detailed information

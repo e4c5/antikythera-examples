@@ -10,7 +10,6 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -23,21 +22,17 @@ public class Indexes {
     public static final String UNIQUE_INDEX = "UNIQUE_INDEX";
     public static final String PRIMARY_KEY = "PRIMARY_KEY";
 
-    /** Simple DTO to expose index information to callers. */
-    public static class IndexInfo {
-        public final String type; // PRIMARY_KEY, UNIQUE_CONSTRAINT, UNIQUE_INDEX, INDEX
-        public final String name;
-        public final List<String> columns;
-        public IndexInfo(String type, String name, List<String> columns) {
-            this.type = type;
-            this.name = name;
-            this.columns = columns;
-        }
+    /**
+     * Simple DTO to expose index information to callers.
+     *
+     * @param type PRIMARY_KEY, UNIQUE_CONSTRAINT, UNIQUE_INDEX, INDEX
+     */
+        public record IndexInfo(String type, String name, List<String> columns) {
         @Override
-        public String toString() {
-            return type + ";" + name + ";" + String.join(",", columns);
+            public String toString() {
+                return type + ";" + name + ";" + String.join(",", columns);
+            }
         }
-    }
     /**
      * @param type PRIMARY_KEY, UNIQUE_CONSTRAINT, UNIQUE_INDEX, INDEX
      */
@@ -64,7 +59,7 @@ public class Indexes {
         return out;
     }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         if (args == null || args.length != 1) {
             System.err.println("Usage: java sa.com.cloudsolutions.liquibase.Indexes <path-to-liquibase-xml>");
             System.exit(1);
@@ -75,26 +70,22 @@ public class Indexes {
             System.exit(2);
         }
 
-        try {
-            Map<String, List<Index>> byTable = parseLiquibaseFile(file);
-            // Display table-based with indentation: PK, UNIQUE, and other indexes
-            byTable.keySet().stream().sorted().forEach(table -> {
-                System.out.println(table);
-                List<Index> indexes = byTable.get(table);
-                // PK
-                indexes.stream().filter(i -> PRIMARY_KEY.equals(i.type))
-                        .forEach(i -> System.out.println("  PK: " + i.display()));
-                // UNIQUE (constraints or unique indexes)
-                indexes.stream().filter(i -> UNIQUE_CONSTRAINT.equals(i.type) || UNIQUE_INDEX.equals(i.type))
-                        .forEach(i -> System.out.println("  UNIQUE: " + i.display()));
-                // Other indexes
-                indexes.stream().filter(i -> "INDEX".equals(i.type))
-                        .forEach(i -> System.out.println("  INDEX: " + i.display()));
-            });
-        } catch (Exception e) {
-            System.err.println("Error processing file: " + e.getMessage());
-            System.exit(3);
-        }
+        Map<String, List<Index>> byTable = parseLiquibaseFile(file);
+        // Display table-based with indentation: PK, UNIQUE, and other indexes
+        byTable.keySet().stream().sorted().forEach(table -> {
+            System.out.println(table);
+            List<Index> indexes = byTable.get(table);
+            // PK
+            indexes.stream().filter(i -> PRIMARY_KEY.equals(i.type))
+                    .forEach(i -> System.out.println("  PK: " + i.display()));
+            // UNIQUE (constraints or unique indexes)
+            indexes.stream().filter(i -> UNIQUE_CONSTRAINT.equals(i.type) || UNIQUE_INDEX.equals(i.type))
+                    .forEach(i -> System.out.println("  UNIQUE: " + i.display()));
+            // Other indexes
+            indexes.stream().filter(i -> "INDEX".equals(i.type))
+                    .forEach(i -> System.out.println("  INDEX: " + i.display()));
+        });
+
     }
 
     private static Map<String, List<Index>> parseLiquibaseFile(File file) throws Exception {

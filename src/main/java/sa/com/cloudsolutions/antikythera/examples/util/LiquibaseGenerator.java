@@ -1,5 +1,7 @@
 package sa.com.cloudsolutions.antikythera.examples.util;
 
+import sa.com.cloudsolutions.antikythera.configuration.Settings;
+
 import java.io.File;
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -20,10 +22,6 @@ import java.util.stream.Collectors;
  * - QueryOptimizationChecker.buildLiquibaseDropIndexChangeSet()
  */
 public class LiquibaseGenerator {
-    
-    private static final String TABLE_NAME_TAG = "<TABLE_NAME>";
-    private static final String COLUMN_NAME_TAG = "<COLUMN_NAME>";
-    
     /**
      * Supported database dialects for Liquibase generation.
      */
@@ -106,7 +104,6 @@ public class LiquibaseGenerator {
      */
     public String createMultiColumnIndexChangeset(String tableName, List<String> columns) {
         if (columns == null || columns.isEmpty()) return "";
-        if (tableName == null || tableName.isEmpty()) tableName = TABLE_NAME_TAG;
         
         String indexName = generateIndexName(tableName, columns);
         return createIndexChangesetInternal(tableName, columns, indexName);
@@ -201,7 +198,8 @@ public class LiquibaseGenerator {
         writer.close();
 
         // Update master file to include the new changeset file
-        updateMasterFile(masterPath, fileName);
+        updateMasterFile(masterPath,
+                outputFile.toAbsolutePath().toString().replace(Settings.getBasePath() + "src/main/resources/",""));
         
         return new WriteResult(outputFile.toFile(), true);
     }
