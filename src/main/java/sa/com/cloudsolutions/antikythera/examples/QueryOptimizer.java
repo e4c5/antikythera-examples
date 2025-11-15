@@ -332,19 +332,19 @@ public class QueryOptimizer extends QueryOptimizationChecker{
     }
 
     static class NameChangeVisitor extends ModifierVisitor<List<QueryOptimizationResult>> {
-        String fielName;
+        String fieldName;
         boolean modified;
         int methodCallsUpdated = 0;
         
         NameChangeVisitor(String fieldName) {
-            this.fielName = fieldName;
+            this.fieldName = fieldName;
         }
 
         @Override
         public MethodCallExpr visit(MethodCallExpr mce, List<QueryOptimizationResult> updates) {
             super.visit(mce, updates);
             Optional<Expression> scope = mce.getScope();
-            if (scope.isPresent() && scope.get() instanceof NameExpr fe && fe.getNameAsString().equals(fielName) && !updates.isEmpty()) {
+            if (scope.isPresent() && scope.get() instanceof NameExpr fe && fe.getNameAsString().equals(fieldName) && !updates.isEmpty()) {
                 // Loop through ALL updates to find matching method
                 for (QueryOptimizationResult update : updates) {
                     // Check if this call matches the current update's method name
@@ -478,5 +478,8 @@ public class QueryOptimizer extends QueryOptimizationChecker{
             System.out.println("\nTime taken " + (System.currentTimeMillis() - s) + " ms.");
         }
         System.out.println("📊 Detailed statistics logged to: query-optimization-stats.csv");
+
+        // Explicitly exit to ensure JVM shuts down (HttpClient may have non-daemon threads)
+        System.exit(0);
     }
 }
