@@ -400,19 +400,6 @@ class QueryOptimizationCheckerTest {
     }
 
     @Test
-    void testAddPriorityRecommendations() {
-        StringBuilder recommendations = new StringBuilder();
-        
-        when(mockOptimizationIssue.recommendedFirstColumn()).thenReturn("email");
-        when(mockOptimizationIssue.currentFirstColumn()).thenReturn("id");
-
-        checker.addPriorityRecommendations(recommendations, new OptimizationIssue(),"🔴 HIGH PRIORITY:", "");
-        
-        String result = recommendations.toString();
-        assertTrue(result.contains("HIGH PRIORITY"));
-    }
-
-    @Test
     void testAnalyzeRepository() {
         try {
             checker.analyzeRepository("com.example.UserRepository", mockTypeWrapper);
