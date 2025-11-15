@@ -71,14 +71,6 @@ public class OptimizationStatsLogger {
             current = new Stats(repo);
             total = new Stats("");
         } else {
-            total.dependentClassesModified += current.dependentClassesModified;
-            total.methodSignaturesChanged += current.methodSignaturesChanged;
-            total.methodCallsChanged += current.methodCallsChanged;
-            total.queryAnnotationsChanged += current.queryAnnotationsChanged;
-            total.queriesAnalyzed += current.queriesAnalyzed;
-            total.liquibaseIndexesGenerated += current.liquibaseIndexesGenerated;
-            total.liquibaseIndexesDropped += current.liquibaseIndexesDropped;
-
             try {
                 Path csvPath = Paths.get(CSV_FILENAME);
                 FileWriter fw = new FileWriter(CSV_FILENAME, true);
@@ -106,39 +98,40 @@ public class OptimizationStatsLogger {
             totalRepositoriesProcessed++;
         }
     }
-    public static int updateQueriesAnalyzed(int queriesAnalyzed) {
+    public static void updateQueriesAnalyzed(int queriesAnalyzed) {
         current.queriesAnalyzed += queriesAnalyzed;
-        return current.queriesAnalyzed;
+        total.queriesAnalyzed += current.queriesAnalyzed;
     }
 
-    public static int updateQueryAnnotationsChanged(int i) {
+    public static void updateQueryAnnotationsChanged(int i) {
         current.queryAnnotationsChanged += i;
-        return current.queryAnnotationsChanged;
+        total.queryAnnotationsChanged += current.queryAnnotationsChanged;
     }
 
-    public static int updateMethodSignaturesChanged(int i) {
+    public static void updateMethodSignaturesChanged(int i) {
         current.methodSignaturesChanged += i;
-        return current.methodSignaturesChanged;
+        total.methodSignaturesChanged += current.methodSignaturesChanged;
     }
 
-    public static int updateMethodCallsChanged(int i) {
+    public static void updateMethodCallsChanged(int i) {
         current.methodCallsChanged += i;
-        return current.methodCallsChanged;
+        total.methodCallsChanged += current.methodCallsChanged;
     }
 
-    public static int updateDependentClassesChanged(int i) {
+    public static void updateDependentClassesChanged(int i) {
         current.dependentClassesModified += i;
-        return current.dependentClassesModified;
+        total.dependentClassesModified += current.dependentClassesModified;
     }
 
     public static int updateIndexesGenerated(int i) {
         current.liquibaseIndexesGenerated += i;
+        total.liquibaseIndexesGenerated += current.liquibaseIndexesGenerated;
         return current.liquibaseIndexesGenerated;
     }
 
-    public static int updateIndexesDropped(int i) {
+    public static void updateIndexesDropped(int i) {
         current.liquibaseIndexesDropped += i;
-        return current.liquibaseIndexesDropped;
+        total.liquibaseIndexesDropped += current.liquibaseIndexesDropped;
     }
 
     public static int getTotalIndexesGenerated() {

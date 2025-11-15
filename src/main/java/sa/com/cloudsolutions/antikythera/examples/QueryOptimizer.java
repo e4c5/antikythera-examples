@@ -471,6 +471,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         // Generate Liquibase file with suggested changes and include in master
         checker.generateLiquibaseChangesFile();
 
+        OptimizationStatsLogger.initialize("");
         OptimizationStatsLogger.printSummary(System.out);
 
         if (!quietMode) {
