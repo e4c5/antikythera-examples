@@ -3,12 +3,16 @@ package sa.com.cloudsolutions.antikythera.examples;
 import net.sf.jsqlparser.statement.Statement;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import sa.com.cloudsolutions.antikythera.exception.AntikytheraException;
 import sa.com.cloudsolutions.antikythera.generator.QueryMethodParameter;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
+import sa.com.cloudsolutions.antikythera.parser.converter.ConversionResult;
+import sa.com.cloudsolutions.antikythera.parser.converter.EntityMappingResolver;
 
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Enhanced engine that analyzes repository queries using RepositoryQuery's parsing capabilities
@@ -31,14 +35,23 @@ public class QueryAnalysisEngine {
             return handleDerivedQuery(repositoryQuery);
         }
         List<WhereCondition> whereConditions = QueryOptimizationExtractor.extractWhereConditions(repositoryQuery);
+        ConversionResult conversionResult = repositoryQuery.getConversionResult();
 
-        // Extract table name for cardinality analysis
-        String tableName = repositoryQuery.getPrimaryTable();
-        if (tableName == null || tableName.isEmpty()) {
-            return new QueryOptimizationResult(repositoryQuery, whereConditions);
+        for (WhereCondition condition : whereConditions) {
+            if (conversionResult != null) {
+                String entity = conversionResult.getMetaData().getEntityForAlias(condition.tableName());
+                String tableName = EntityMappingResolver.getTableNameForEntity(entity == null ? condition.tableName() : entity);
+
+                CardinalityLevel cardinalityLevel = CardinalityAnalyzer.analyzeColumnCardinality(tableName, condition.columnName());
+                condition.setTableName(tableName);
+                condition.setCardinality(cardinalityLevel);
+            }
+            else {
+                condition.setCardinality(CardinalityAnalyzer.analyzeColumnCardinality(
+                        condition.tableName(), condition.columnName()
+                ));
+            }
         }
-
-
         return new QueryOptimizationResult(repositoryQuery, whereConditions);
     }
 
@@ -60,7 +73,8 @@ public class QueryAnalysisEngine {
                 String columnName = param.getColumnName();
                 if (columnName != null && !columnName.isEmpty()) {
                     CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(tableName, columnName);
-                    WhereCondition condition = new WhereCondition(tableName, columnName, "=", cardinality, i, param);
+                    WhereCondition condition = new WhereCondition(tableName, columnName, "=", i, param);
+                    condition.setCardinality(cardinality);
                     whereConditions.add(condition);
                 }
             }

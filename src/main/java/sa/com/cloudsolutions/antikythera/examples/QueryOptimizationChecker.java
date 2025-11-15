@@ -365,7 +365,7 @@ public class QueryOptimizationChecker {
         // Print the full WHERE clause and query information
         printQueryDetails(result);
         
-        System.out.println(formatOptimizationIssueEnhanced(issue, 1, result));
+        System.out.println(formatOptimizationIssueEnhanced(issue, result));
 
 
         if (!result.getIndexSuggestions().isEmpty()) {
@@ -415,15 +415,13 @@ public class QueryOptimizationChecker {
      * @param result the full analysis result for additional context
      * @return formatted string representation of the issue
      */
-    String formatOptimizationIssueEnhanced(OptimizationIssue issue, int issueNumber,
-                                                  QueryOptimizationResult result) {
+    String formatOptimizationIssueEnhanced(OptimizationIssue issue, QueryOptimizationResult result) {
         StringBuilder formatted = new StringBuilder();
         
         // Issue header with severity indicator
         String severityIcon = getSeverityIcon(issue.severity());
-        formatted.append(String.format("  %s Issue #%d [%s PRIORITY]: %s", 
-                                      severityIcon, issueNumber, 
-                                      issue.severity().toString(),
+        formatted.append(String.format("  %s [%s PRIORITY]: %s",
+                                      severityIcon, issue.severity(),
                                       issue.description()));
         
         // Show WHERE clause conditions if available

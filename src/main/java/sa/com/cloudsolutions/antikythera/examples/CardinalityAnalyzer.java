@@ -11,6 +11,10 @@ import java.util.Set;
 /**
  * Analyzes column cardinality based on database metadata from Liquibase IndexInfo data.
  * Determines whether columns are high, medium, or low cardinality to support query optimization.
+ *
+ * This analysis does not consider the keys defined with in the entity. When liquibase is used for
+ * Schema migrations, what matters is the definitions in the liequibase xml files rather than the
+ * entitie.
  */
 public class CardinalityAnalyzer {
     

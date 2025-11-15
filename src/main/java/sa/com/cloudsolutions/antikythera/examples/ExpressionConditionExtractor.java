@@ -52,11 +52,9 @@ public class ExpressionConditionExtractor extends ExpressionVisitorAdapter<Void>
         positionCounter = 0;
 
         if (whereExpression != null) {
-            logger.debug("Extracting conditions from expression type: {}", whereExpression.getClass().getSimpleName());
             whereExpression.accept(this, null);
         }
 
-        logger.debug("Extracted {} WHERE conditions", conditions.size());
         return new ArrayList<>(conditions);
     }
 
@@ -185,14 +183,10 @@ public class ExpressionConditionExtractor extends ExpressionVisitorAdapter<Void>
         String columnName = getColumnName(column);
         String tableName = getTableName(column);
 
-        // Leverage RepositoryQuery's existing parameter mapping
         QueryMethodParameter parameter = mapParameter(columnName, rightExpression);
 
-        // Use CardinalityAnalyzer for cardinality determination
-        CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(tableName, columnName);
-
         WhereCondition condition = new WhereCondition(
-            tableName, columnName, operator, cardinality, positionCounter++, parameter
+            tableName, columnName, operator,  positionCounter++, parameter
         );
         conditions.add(condition);
 

@@ -536,7 +536,7 @@ class QueryOptimizationCheckerTest {
         
         when(mockResult.getWhereConditions()).thenReturn(new ArrayList<>());
         
-        String result = checker.formatOptimizationIssueEnhanced(mockOptimizationIssue, 1, mockResult);
+        String result = checker.formatOptimizationIssueEnhanced(mockOptimizationIssue,  mockResult);
 
         assertTrue(result.contains("HIGH PRIORITY"));
         assertTrue(result.contains("Test optimization issue"));
