@@ -682,19 +682,19 @@ class QueryOptimizationCheckerTest {
         // Test that JOIN queries with columns from multiple tables generate separate indexes
         
         // Setup a mock index map with indexes to simulate real cardinality analysis
-        Map<String, List<Indexes.IndexInfo>> mockIndexMap = new HashMap<>();
+        Map<String, Set<Indexes.IndexInfo>> mockIndexMap = new HashMap<>();
         
         // Add a high-cardinality index for approval.admission_id
         Indexes.IndexInfo approvalIndex = new Indexes.IndexInfo("INDEX", "idx_approval_admission", 
             Arrays.asList("admission_id"));
-        mockIndexMap.put("approval", Arrays.asList(approvalIndex));
+        mockIndexMap.put("approval", Set.of(approvalIndex));
         
         // Add indexes for blapp_open_coverage
         Indexes.IndexInfo coverageIndex1 = new Indexes.IndexInfo("INDEX", "idx_coverage_payer_group", 
             Arrays.asList("payer_group_id"));
         Indexes.IndexInfo coverageIndex2 = new Indexes.IndexInfo("INDEX", "idx_coverage_payer_contract", 
             Arrays.asList("payer_contract_id"));
-        mockIndexMap.put("blapp_open_coverage", Arrays.asList(coverageIndex1, coverageIndex2));
+        mockIndexMap.put("blapp_open_coverage", Set.of(coverageIndex1, coverageIndex2));
         
         CardinalityAnalyzer.setIndexMap(mockIndexMap);
         

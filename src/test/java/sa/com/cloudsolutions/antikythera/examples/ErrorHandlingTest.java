@@ -45,10 +45,10 @@ class ErrorHandlingTest {
     }
     
     private void setupCardinalityAnalyzer() {
-        Map<String, List<Indexes.IndexInfo>> indexMap = new HashMap<>();
+        Map<String, Set<Indexes.IndexInfo>> indexMap = new HashMap<>();
         
         // Setup minimal test data
-        List<Indexes.IndexInfo> userIndexes = new ArrayList<>();
+        Set<Indexes.IndexInfo> userIndexes = new HashSet<>();
         Indexes.IndexInfo primaryKey = new Indexes.IndexInfo("PRIMARY_KEY", "pk_users", Arrays.asList("user_id"));
         userIndexes.add(primaryKey);
         

@@ -18,7 +18,7 @@ import java.util.Set;
  */
 public class CardinalityAnalyzer {
     
-    private static Map<String, List<Indexes.IndexInfo>> indexMap;
+    private static Map<String, Set<Indexes.IndexInfo>> indexMap;
     // Optional map of table -> (column -> data type) for accurate low-cardinality detection
     private static final Map<String, Map<String, ColumnDataType>> columnTypeMap = new HashMap<>();
 
@@ -26,7 +26,7 @@ public class CardinalityAnalyzer {
     private static Set<String> userDefinedLow = Collections.emptySet();
     private static Set<String> userDefinedHigh = Collections.emptySet();
 
-    public static Map<String, List<Indexes.IndexInfo>> getIndexMap() {
+    public static Map<String, Set<Indexes.IndexInfo>> getIndexMap() {
         return indexMap;
     }
 
@@ -39,7 +39,7 @@ public class CardinalityAnalyzer {
         OTHER
     }
 
-    public static void setIndexMap(Map<String, List<Indexes.IndexInfo>> indexMap) {
+    public static void setIndexMap(Map<String, Set<Indexes.IndexInfo>> indexMap) {
         CardinalityAnalyzer.indexMap = indexMap;
     }
     /**
@@ -127,7 +127,7 @@ public class CardinalityAnalyzer {
         if (indexMap == null) {
             return false;
         }
-        List<Indexes.IndexInfo> indexes = indexMap.get(tableName);
+        Set<Indexes.IndexInfo> indexes = indexMap.get(tableName);
         if (indexes == null) {
             return false;
         }
@@ -169,7 +169,7 @@ public class CardinalityAnalyzer {
      * @return true if the column has a unique constraint, false otherwise
      */
     public static boolean hasUniqueConstraint(String tableName, String columnName) {
-        List<Indexes.IndexInfo> indexes = indexMap.get(tableName);
+        Set<Indexes.IndexInfo> indexes = indexMap.get(tableName);
         if (indexes == null) {
             return false;
         }
@@ -191,7 +191,7 @@ public class CardinalityAnalyzer {
     public static boolean hasIndexWithLeadingColumn(String tableName, String columnName) {
         String t = tableName.toLowerCase();
         String c = columnName.toLowerCase();
-        List<Indexes.IndexInfo> indexes = indexMap.get(t);
+        Set<Indexes.IndexInfo> indexes = indexMap.get(t);
         if (indexes == null) return false;
         for (Indexes.IndexInfo idx : indexes) {
             if (idx.columns() == null || idx.columns().isEmpty()) continue;
