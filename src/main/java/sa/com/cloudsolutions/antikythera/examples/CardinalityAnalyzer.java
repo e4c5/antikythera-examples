@@ -133,8 +133,8 @@ public class CardinalityAnalyzer {
         }
 
         return indexes.stream()
-                .filter(index -> "PRIMARY_KEY".equals(index.type))
-                .flatMap(index -> index.columns.stream())
+                .filter(index -> "PRIMARY_KEY".equals(index.type()))
+                .flatMap(index -> index.columns().stream())
                 .anyMatch(col -> col.toLowerCase().equals(columnName));
     }
     
@@ -175,8 +175,8 @@ public class CardinalityAnalyzer {
         }
         
         return indexes.stream()
-                .filter(index -> "UNIQUE_CONSTRAINT".equals(index.type) || "UNIQUE_INDEX".equals(index.type))
-                .flatMap(index -> index.columns.stream())
+                .filter(index -> "UNIQUE_CONSTRAINT".equals(index.type()) || "UNIQUE_INDEX".equals(index.type()))
+                .flatMap(index -> index.columns().stream())
                 .anyMatch(col -> col.toLowerCase().equals(columnName));
     }
 
@@ -194,8 +194,8 @@ public class CardinalityAnalyzer {
         List<Indexes.IndexInfo> indexes = indexMap.get(t);
         if (indexes == null) return false;
         for (Indexes.IndexInfo idx : indexes) {
-            if (idx.columns == null || idx.columns.isEmpty()) continue;
-            String first = idx.columns.getFirst();
+            if (idx.columns() == null || idx.columns().isEmpty()) continue;
+            String first = idx.columns().getFirst();
             if (first != null && first.equalsIgnoreCase(c)) {
                 return true;
             }

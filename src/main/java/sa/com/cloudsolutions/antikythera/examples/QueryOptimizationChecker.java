@@ -808,11 +808,11 @@ public class QueryOptimizationChecker {
         for (var entry : map.entrySet()) {
             String table = entry.getKey();
             for (var idx : entry.getValue()) {
-                if ("INDEX".equals(idx.type) && idx.columns != null && !idx.columns.isEmpty()) {
-                    String first = idx.columns.getFirst();
+                if ("INDEX".equals(idx.type()) && idx.columns() != null && !idx.columns().isEmpty()) {
+                    String first = idx.columns().getFirst();
                     CardinalityLevel card = CardinalityAnalyzer.analyzeColumnCardinality(table, first);
-                    if (card == CardinalityLevel.LOW && !idx.name.isEmpty()) {
-                        dropCandidates.add(idx.name);
+                    if (card == CardinalityLevel.LOW && !idx.name().isEmpty()) {
+                        dropCandidates.add(idx.name());
                     }
                 }
             }
