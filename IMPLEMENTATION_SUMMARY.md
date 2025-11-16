@@ -22,8 +22,29 @@ Implemented a clean separation that provides:
 2. Ability to extract JOIN ON conditions separately (new facility)
 3. Convenience method to extract both in a single call
 4. Full backward compatibility with existing code
+5. **Code reuse through inheritance to eliminate duplication**
 
 ## Implementation Details
+
+### Code Reuse Through Inheritance
+
+To eliminate code duplication, a base class was created:
+
+#### BaseConditionExtractor<T>
+An abstract base class that contains all common visitor pattern implementations:
+```java
+public abstract class BaseConditionExtractor<T> extends ExpressionVisitorAdapter<Void> {
+    // Common visitor methods for all comparison operators
+    // Common helper methods: getColumnName(), getTableName()
+    // Abstract method: handleComparison() - implemented by subclasses
+}
+```
+
+**Benefits:**
+- All comparison operator visitors (=, !=, >, <, >=, <=) in one place
+- Common AndExpression handling
+- Shared helper methods reduce code duplication
+- Easier maintenance - changes only in one location
 
 ### New Classes Created
 
@@ -46,20 +67,37 @@ public final class JoinCondition {
 - WHERE conditions filter rows, JOIN conditions relate tables
 - Type safety prevents mixing the two
 
-#### 2. JoinConditionExtractor.java
+#### 2. BaseConditionExtractor.java
+Abstract base class with common visitor pattern implementations:
+```java
+public abstract class BaseConditionExtractor<T> extends ExpressionVisitorAdapter<Void> {
+    // Common visitor methods for comparison operators
+    protected abstract void handleComparison(ComparisonOperator comparison);
+    // Common helper methods
+    protected String getColumnName(Column column);
+    protected String getTableName(Column column);
+}
+```
+
+**Benefits:**
+- Eliminates 29 lines of duplicate code (8.3% reduction)
+- Single source of truth for common operations
+- Type-safe generic parameter for condition type
+
+#### 3. JoinConditionExtractor.java
 Visitor pattern implementation to extract JOIN ON conditions:
 ```java
-public class JoinConditionExtractor extends ExpressionVisitorAdapter<Void> {
+public class JoinConditionExtractor extends BaseConditionExtractor<JoinCondition> {
     // Extracts conditions from JOIN ON expressions
     // Properly handles column-to-column comparisons
-    // Supports all comparison operators (=, !=, >, <, >=, <=)
+    // Extends base class for common functionality
 }
 ```
 
 **Key features:**
-- Extends JSQLParser's `ExpressionVisitorAdapter`
-- Handles `AND` expressions in JOIN conditions
+- Extends BaseConditionExtractor for code reuse
 - Only extracts comparisons with columns on both sides
+- **Reduced from 135 to 65 lines (-52% reduction)**
 
 ### Modified Classes
 
@@ -81,7 +119,25 @@ private final List<JoinCondition> joinConditions;
 - `extractWhereConditionsFromExpression()` for WHERE clauses
 - `extractJoinConditionsFromExpression()` for JOIN clauses
 
-#### 4. QueryOptimizationExtractor.java
+#### 4. ExpressionConditionExtractor.java (Refactored)
+**Before:** Standalone class with all visitor methods (214 lines)
+
+**After:** Extends BaseConditionExtractor (141 lines)
+```java
+public class ExpressionConditionExtractor extends BaseConditionExtractor<WhereCondition> {
+    // WHERE-specific operators: BETWEEN, IN, IS NULL, LIKE, OR
+    // Implements handleComparison() for WHERE logic
+    // Reuses base class for common comparison operators
+}
+```
+
+**Key changes:**
+- Extends BaseConditionExtractor for code reuse
+- Only implements WHERE-specific operators (BETWEEN, IN, IS NULL, LIKE, OR)
+- **Reduced from 214 to 141 lines (-34% reduction)**
+- Shares comparison operator handling with JoinConditionExtractor
+
+#### 5. QueryOptimizationExtractor.java
 **New public API methods:**
 
 ```java
@@ -177,17 +233,27 @@ List<JoinCondition> joinList = result.getJoinConditions();
 
 ## Files Changed
 
-### New Files
-- `src/main/java/.../JoinCondition.java` (103 lines)
-- `src/main/java/.../JoinConditionExtractor.java` (135 lines)
-- `src/test/java/.../WhereAndJoinSeparationTest.java` (242 lines)
+### New Files (6)
+- `src/main/java/.../JoinCondition.java` (101 lines)
+- `src/main/java/.../BaseConditionExtractor.java` (114 lines) **[New for code reuse]**
+- `src/main/java/.../JoinConditionExtractor.java` (65 lines) **[Reduced from 135]**
+- `src/test/java/.../WhereAndJoinSeparationTest.java` (185 lines)
 - `src/main/java/.../ConditionExtractionExample.java` (107 lines)
+- `IMPLEMENTATION_SUMMARY.md` (this file)
 
-### Modified Files
+### Modified Files (4)
 - `src/main/java/.../WhereClauseCollector.java` (refactored ~70 lines)
+- `src/main/java/.../ExpressionConditionExtractor.java` (141 lines) **[Reduced from 214]**
 - `src/main/java/.../QueryOptimizationExtractor.java` (added ~50 lines)
 - `src/test/java/.../QueryOptimizationExtractorTest.java` (updated 1 test)
 - `README.md` (added architecture overview and usage examples)
+
+### Code Reduction Summary
+- **JoinConditionExtractor**: 135 → 65 lines (-70 lines, -52%)
+- **ExpressionConditionExtractor**: 214 → 141 lines (-73 lines, -34%)
+- **New BaseConditionExtractor**: +114 lines
+- **Net reduction**: -29 lines (-8.3% overall)
+- **Benefit**: Common code now maintained in one place
 
 ## Testing Strategy
 
@@ -212,6 +278,8 @@ Note: Due to missing antikythera dependency in Maven Central, tests may need loc
 - ✅ Test coverage comprehensive
 - ✅ Documentation complete
 - ✅ Working example provided
+- ✅ **Code duplication eliminated through inheritance**
+- ✅ **29 lines of duplicate code removed**
 
 ## Next Steps for Users
 
