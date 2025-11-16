@@ -14,24 +14,36 @@ import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
 import java.util.List;
 
 /**
- * StatementVisitorAdapter that recursively collects WHERE clauses from various SQL statements.
- * Handles SELECT, UPDATE, DELETE statements, and their subqueries.
+ * StatementVisitorAdapter that recursively collects WHERE clauses and JOIN ON conditions
+ * from various SQL statements. Handles SELECT, UPDATE, DELETE statements, and their subqueries.
+ * 
+ * Updated to separate WHERE conditions from JOIN ON conditions for more precise query analysis.
  */
 class WhereClauseCollector extends StatementVisitorAdapter<Void> {
-    private final List<WhereCondition> conditions;
+    private final List<WhereCondition> whereConditions;
+    private final List<JoinCondition> joinConditions;
 
-    public WhereClauseCollector(List<WhereCondition> conditions) {
-        this.conditions = conditions;
+    public WhereClauseCollector(List<WhereCondition> whereConditions, List<JoinCondition> joinConditions) {
+        this.whereConditions = whereConditions;
+        this.joinConditions = joinConditions;
     }
 
     /**
-     * Extracts conditions from a WHERE expression using the improved extractor.
+     * Extracts WHERE conditions from a WHERE expression using the improved extractor.
      * Now uses ExpressionConditionExtractor which provides better structure than OptimizationAnalysisVisitor.
      */
-    public List<WhereCondition> extractConditionsFromExpression(Expression whereExpression) {
+    public List<WhereCondition> extractWhereConditionsFromExpression(Expression whereExpression) {
         ExpressionConditionExtractor extractor = new ExpressionConditionExtractor();
-
         return extractor.extractConditions(whereExpression);
+    }
+
+    /**
+     * Extracts JOIN ON conditions from an ON expression.
+     * Uses JoinConditionExtractor to properly identify column-to-column comparisons.
+     */
+    public List<JoinCondition> extractJoinConditionsFromExpression(Expression onExpression) {
+        JoinConditionExtractor extractor = new JoinConditionExtractor();
+        return extractor.extractConditions(onExpression);
     }
 
     @Override
@@ -45,25 +57,25 @@ class WhereClauseCollector extends StatementVisitorAdapter<Void> {
 
     @Override
     public <S> Void visit(Update update, S context) {
-        extractConditions(update.getWhere(), update.getFromItem());
+        extractWhereConditions(update.getWhere(), update.getFromItem());
 
         // Process joins if present
         if (update.getJoins() != null) {
             for (Join join : update.getJoins()) {
-                processFromItem(join.getRightItem());
+                processJoin(join);
             }
         }
         return null;
     }
 
-    private void extractConditions(Expression whereClause, FromItem update1) {
+    private void extractWhereConditions(Expression whereClause, FromItem fromItem) {
         if (whereClause != null) {
-            List<WhereCondition> updateConditions = extractConditionsFromExpression(whereClause);
-            conditions.addAll(updateConditions);
+            List<WhereCondition> conditions = extractWhereConditionsFromExpression(whereClause);
+            whereConditions.addAll(conditions);
         }
 
-        if (update1 != null) {
-            processFromItem(update1);
+        if (fromItem != null) {
+            processFromItem(fromItem);
         }
     }
 
@@ -71,13 +83,13 @@ class WhereClauseCollector extends StatementVisitorAdapter<Void> {
     public <S> Void visit(Delete delete, S context) {
         Expression whereClause = delete.getWhere();
         if (whereClause != null) {
-            List<WhereCondition> deleteConditions = extractConditionsFromExpression(whereClause);
-            conditions.addAll(deleteConditions);
+            List<WhereCondition> conditions = extractWhereConditionsFromExpression(whereClause);
+            whereConditions.addAll(conditions);
         }
 
         if (delete.getJoins() != null) {
             for (Join join : delete.getJoins()) {
-                processFromItem(join.getRightItem());
+                processJoin(join);
             }
         }
         return null;
@@ -89,20 +101,28 @@ class WhereClauseCollector extends StatementVisitorAdapter<Void> {
      */
     private void processPlainSelect(PlainSelect plainSelect) {
         // Process WHERE clause
-        extractConditions(plainSelect.getWhere(), plainSelect.getFromItem());
+        extractWhereConditions(plainSelect.getWhere(), plainSelect.getFromItem());
 
-        // Process JOINs for subqueries and ON conditions
+        // Process JOINs - both subqueries and ON conditions
         if (plainSelect.getJoins() != null) {
             for (Join join : plainSelect.getJoins()) {
-                processFromItem(join.getRightItem());
+                processJoin(join);
+            }
+        }
+    }
 
-                // Also check ON conditions in joins
-                if (join.getOnExpressions() != null) {
-                    for (Expression onExpr : join.getOnExpressions()) {
-                        List<WhereCondition> joinConditions = extractConditionsFromExpression(onExpr);
-                        conditions.addAll(joinConditions);
-                    }
-                }
+    /**
+     * Processes a JOIN, extracting ON conditions separately from WHERE conditions.
+     */
+    private void processJoin(Join join) {
+        // Process any subqueries in the join's right item
+        processFromItem(join.getRightItem());
+
+        // Extract JOIN ON conditions separately
+        if (join.getOnExpressions() != null) {
+            for (Expression onExpr : join.getOnExpressions()) {
+                List<JoinCondition> conditions = extractJoinConditionsFromExpression(onExpr);
+                joinConditions.addAll(conditions);
             }
         }
     }
