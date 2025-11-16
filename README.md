@@ -6,6 +6,16 @@ This project contains examples and tools for the Antikythera test generation fra
 
 The project has been refactored to eliminate code duplication and improve maintainability through consolidated utility components:
 
+### Query Analysis Components
+
+- **QueryOptimizationExtractor**: Core utility for extracting SQL conditions from queries
+  - `extractWhereConditions()`: Extracts conditions from WHERE clauses only (excluding JOIN ON conditions)
+  - `extractJoinConditions()`: Extracts conditions from JOIN ON clauses only (new facility)
+  - `extractAllConditions()`: Convenience method to extract both WHERE and JOIN conditions separately
+- **WhereClauseCollector**: Visitor pattern implementation that separates WHERE and JOIN ON conditions
+- **JoinCondition**: Model representing JOIN ON conditions with left/right table and column details
+- **WhereCondition**: Model representing WHERE clause conditions
+
 ### Utility Components
 
 - **FileOperationsManager**: Centralized file I/O operations with UTF-8 encoding and atomic operations
@@ -55,6 +65,31 @@ Troubleshooting
 - Caches: If IntelliJ still doesn’t link sources, try File > Invalidate Caches / Restart.
 
 ## Usage Examples
+
+### Query Condition Extraction
+
+The project provides facilities to extract WHERE and JOIN conditions separately from SQL queries:
+
+```java
+// Parse a SQL query
+Statement statement = CCJSqlParserUtil.parse(
+    "SELECT * FROM orders o JOIN customers c ON o.customer_id = c.id WHERE o.status = ?"
+);
+
+// Extract only WHERE conditions (excluding JOIN ON)
+List<WhereCondition> whereConditions = QueryOptimizationExtractor.extractWhereConditions(statement);
+// Returns: [WhereCondition(tableName=o, columnName=status, operator==, position=0)]
+
+// Extract only JOIN ON conditions (excluding WHERE)
+List<JoinCondition> joinConditions = QueryOptimizationExtractor.extractJoinConditions(statement);
+// Returns: [JoinCondition(leftTable=o, leftColumn=customer_id, rightTable=c, rightColumn=id, operator==)]
+
+// Extract both separately in one call
+QueryOptimizationExtractor.ConditionExtractionResult result = 
+    QueryOptimizationExtractor.extractAllConditions(statement);
+List<WhereCondition> whereList = result.getWhereConditions();
+List<JoinCondition> joinList = result.getJoinConditions();
+```
 
 ### Using Utility Components
 
