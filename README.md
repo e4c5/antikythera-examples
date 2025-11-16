@@ -1,10 +1,10 @@
 # antikythera-examples
 
-This project contains examples and tools for the Antikythera test generation framework, including query optimization tools, code analysis utilities, and consolidated infrastructure components.
+This project contains examples and tools for the Antikythera test generation framework, focusing on JPA repository query analysis and optimization.
 
 ## Architecture Overview
 
-The project has been refactored to eliminate code duplication and improve maintainability through consolidated utility components:
+The project provides a comprehensive query optimization system that analyzes Spring Data JPA repositories, uses AI to suggest optimizations, and can automatically apply those optimizations to your codebase.
 
 ### Query Analysis Components
 
@@ -16,18 +16,20 @@ The project has been refactored to eliminate code duplication and improve mainta
 - **JoinCondition**: Model representing JOIN ON conditions with left/right table and column details
 - **WhereCondition**: Model representing WHERE clause conditions
 
-### Utility Components
+### Core Query Optimization Tools
 
-- **FileOperationsManager**: Centralized file I/O operations with UTF-8 encoding and atomic operations
-- **GitOperationsManager**: Git repository operations with retry logic and error handling  
-- **LiquibaseGenerator**: Liquibase changeset generation with multi-database support
-- **RepositoryAnalyzer**: JPA repository analysis and query method extraction
+- **QueryOptimizationChecker**: Analyzes JPA repository queries for optimization opportunities (read-only analysis)
+- **QueryOptimizer**: Extends QueryOptimizationChecker to apply query optimizations and update code automatically
+- **QueryAnalysisEngine**: Core optimization rule engine for analyzing WHERE clause conditions
+- **CardinalityAnalyzer**: Classifies column cardinality (HIGH/MEDIUM/LOW) based on database metadata
+- **GeminiAIService**: AI service integration for intelligent query optimization recommendations
+- **Fields**: Static dependency analysis utility for tracking repository usage across the codebase
 
-### Main Tools
+### Supporting Components
 
-- **QueryOptimizationChecker**: Analyzes JPA repository queries for optimization opportunities
-- **QueryOptimizer**: Applies query optimizations and updates code automatically
-- **RepoProcessor**: Batch processes multiple repositories for analysis
+- **QueryOptimizationResult**: Aggregates analysis results including WHERE conditions and optimization issues
+- **OptimizationStatsLogger**: Tracks and logs detailed statistics about code modifications
+- **LiquibaseGenerator**: Generates Liquibase changesets for index creation and drops
 - **HardDelete**: Detects hard delete operations in repository methods
 - **UsageFinder**: Finds collection usage patterns in entity classes
 
@@ -46,7 +48,7 @@ Option A (recommended): Open antikythera as a module in the same IntelliJ window
 
 Option B: Attach your local source folder to the library JAR
 - Open File > Project Structure… > Libraries.
-- Locate the antikythera library (sa.com.cloudsolutions:antikythera:0.1.1) that this project depends on.
+- Locate the antikythera library (sa.com.cloudsolutions:antikythera:0.1.2) that this project depends on.
 - Click "Attach Sources…" and select the local source root directory of the antikythera project.
 - Apply and close. IntelliJ will show the library with attached sources, enabling navigation and Step Into during debugging.
 
@@ -90,84 +92,90 @@ QueryOptimizationExtractor.ConditionExtractionResult result =
 List<WhereCondition> whereList = result.getWhereConditions();
 List<JoinCondition> joinList = result.getJoinConditions();
 ```
-
-### Using Utility Components
-
-#### FileOperationsManager
-```java
-// Read file content
-String content = FileOperationsManager.readFileContent(Paths.get("example.txt"));
-
-// Write file with atomic operation
-FileOperationsManager.atomicWriteFileContent(Paths.get("output.txt"), content);
-
-// Append to file
-FileOperationsManager.appendToFile(Paths.get("log.txt"), "New log entry\n");
-```
-
-#### GitOperationsManager
-```java
-// Find and checkout development branch
-String branch = GitOperationsManager.findAndCheckoutBranch(repoPath, "develop", "main");
-
-// Check repository status
-String status = GitOperationsManager.getRepositoryStatus(repoPath);
-
-// Pull latest changes
-GitOperationsManager.pullLatest(repoPath);
-```
-
-#### LiquibaseGenerator
-```java
-// Create single-column index
-String changeset = generator.createIndexChangeset("users", "email");
-
-// Create multi-column index
-String multiIndex = generator.createMultiColumnIndexChangeset("orders", 
-    List.of("customer_id", "order_date"));
-
-// Write to Liquibase file
-LiquibaseGenerator.WriteResult result = generator.writeChangesetToFile(
-    masterFile, changeset);
-```
-
-#### RepositoryAnalyzer
-```java
-// Check if TypeWrapper is JPA repository
-boolean isRepo = RepositoryAnalyzer.isJpaRepository(typeWrapper);
-
-// Extract repository methods
-List<RepositoryMethod> methods = RepositoryAnalyzer.extractRepositoryMethods(repository);
-
-// Analyze repository metadata
-RepositoryMetadata metadata = RepositoryAnalyzer.analyzeRepository(fqn, typeWrapper);
-```
-
 ### Running Query Optimization Tools
 
 #### Query Analysis (Read-only)
+
+Analyzes queries and provides recommendations without modifying code:
+
 ```bash
-java -cp target/classes sa.com.cloudsolutions.antikythera.examples.QueryOptimizationChecker
+mvn exec:java -Dexec.mainClass="sa.com.cloudsolutions.antikythera.examples.QueryOptimizationChecker"
+```
+
+With cardinality overrides:
+```bash
+mvn exec:java -Dexec.mainClass="sa.com.cloudsolutions.antikythera.examples.QueryOptimizationChecker" \
+  -Dexec.args="--low-cardinality=is_active,is_deleted --high-cardinality=email"
 ```
 
 #### Query Optimization (Modifies code)
+
+Analyzes queries and automatically applies optimizations to your code:
+
 ```bash
-java -cp target/classes sa.com.cloudsolutions.antikythera.examples.QueryOptimizer
+mvn exec:java -Dexec.mainClass="sa.com.cloudsolutions.antikythera.examples.QueryOptimizer"
 ```
 
-#### Batch Repository Processing
+Quiet mode (only shows changes made):
 ```bash
-java -cp target/classes sa.com.cloudsolutions.antikythera.examples.RepoProcessor /path/to/projects
+mvn exec:java -Dexec.mainClass="sa.com.cloudsolutions.antikythera.examples.QueryOptimizer" \
+  -Dexec.args="--quiet"
 ```
 
-## Migration Guide
+## Configuration
 
-The refactoring consolidated similar functionality into utility components. If you have custom code that used the old patterns:
+The query optimization system requires configuration in `generator.yml`:
 
-1. **File Operations**: Replace direct `Files.readString()` calls with `FileOperationsManager.readFileContent()`
-2. **Git Operations**: Replace custom git command execution with `GitOperationsManager` methods
-3. **Liquibase Generation**: Use `LiquibaseGenerator` instead of custom XML building
-4. **Repository Analysis**: Use `RepositoryAnalyzer.isJpaRepository()` for consistent detection
+```yaml
+variables:
+  projects_folder: ${HOME}/your-projects
+  m2_folder: ${HOME}/.m2/repository
+
+base_path: ${projects_folder}/your-project/
+
+ai_service:
+  provider: "gemini"
+  model: "gemini-2.5-flash-lite-preview-09-2025"
+  api_endpoint: "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+  api_key: "${GEMINI_API_KEY}"
+  timeout_seconds: 90
+  max_retries: 2
+  queries_per_request: 40
+  track_usage: true
+  cost_per_1k_tokens: 0.00015
+```
+
+**Required:**
+- Set `base_path` to your project root
+- Set `GEMINI_API_KEY` environment variable
+- Ensure Liquibase changelog exists at `<base_path>/src/main/resources/db/changelog/db.changelog-master.xml`
+
+## Key Features
+
+### AI-Powered Query Optimization
+
+The system uses an LLM-first approach:
+1. Collects all repository queries
+2. Sends queries to Gemini AI with cardinality context
+3. Receives optimization recommendations and rewritten queries
+4. Performs programmatic index analysis
+5. Generates Liquibase changesets for required indexes
+
+### Automatic Code Modification (QueryOptimizer)
+
+When using `QueryOptimizer`, the system automatically:
+- Updates `@Query` annotations with optimized SQL
+- Reorders method parameters to match optimized query conditions
+- Updates all method call sites in dependent classes
+- Uses JavaParser's LexicalPreservingPrinter to maintain code formatting
+- Tracks detailed statistics about all modifications
+
+### Cardinality Analysis
+
+The system classifies columns into three cardinality levels:
+- **HIGH**: Primary keys, unique constraints
+- **MEDIUM**: Indexed columns
+- **LOW**: Boolean/enum columns, columns with naming patterns like `is_*`, `has_*`, `*_flag`
 
 Notes
-- No repository changes are required for any of the approaches above. The pom already declares dependencies explicitly so IntelliJ resolves them reliably. 
+- No repository changes are required for any of the development approaches above. The pom already declares dependencies explicitly so IntelliJ resolves them reliably. 

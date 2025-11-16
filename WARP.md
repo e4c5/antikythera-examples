@@ -40,21 +40,21 @@ mvn package
 
 ### Main Executables
 
-**Query Optimizer** - Analyzes repositories and suggests query optimizations:
+**Query Optimization Checker** - Analyzes repositories without modifying code:
+```bash
+mvn exec:java -Dexec.mainClass="sa.com.cloudsolutions.antikythera.examples.QueryOptimizationChecker" \
+  -Dexec.args="--low-cardinality=col1,col2 --high-cardinality=col3,col4"
+```
+
+**Query Optimizer** - Analyzes and automatically modifies code:
 ```bash
 mvn exec:java -Dexec.mainClass="sa.com.cloudsolutions.antikythera.examples.QueryOptimizer" \
-  -Dexec.args="--low-cardinality=col1,col2 --high-cardinality=col3,col4"
+  -Dexec.args="--quiet"
 ```
 
 **Hard Delete Finder** - Detects hard delete operations in code:
 ```bash
 mvn exec:java -Dexec.mainClass="sa.com.cloudsolutions.antikythera.examples.HardDelete"
-```
-
-**Repository Processor** - Batch processes multiple repositories:
-```bash
-mvn exec:java -Dexec.mainClass="sa.com.cloudsolutions.antikythera.examples.RepoProcessor" \
-  -Dexec.args="/path/to/repos/root"
 ```
 
 **Usage Finder** - Finds collection usage patterns:
@@ -87,7 +87,7 @@ The query optimization pipeline follows this flow:
    - Analyzes condition ordering based on cardinality
    - Identifies optimization opportunities (e.g., low cardinality column appearing first)
 
-5. **AI-Enhanced Optimization** (`GeminiAIService` + `QueryBatchProcessor`)
+5. **AI-Enhanced Optimization** (`GeminiAIService` + `QueryBatch`)
    - Batches queries per repository for efficient AI processing
    - Sends queries with cardinality context to Gemini API
    - Receives optimization recommendations and rewritten queries
@@ -99,9 +99,10 @@ The query optimization pipeline follows this flow:
    - Updates call sites across dependent classes using `Fields` dependency map
    - Uses JavaParser's `LexicalPreservingPrinter` to maintain formatting
 
-7. **Liquibase Generation** (`LiquibaseChangesWriter`)
+7. **Liquibase Generation** (`LiquibaseGenerator`)
    - Generates Liquibase changeset XML for suggested indexes
    - Consolidates duplicate index suggestions across queries
+   - Supports both single-column and multi-column indexes
 
 ### Key Components
 
@@ -138,7 +139,6 @@ The query optimization pipeline follows this flow:
 2. Initializes `CardinalityAnalyzer` with database metadata
 3. Creates `QueryAnalysisEngine` for programmatic analysis
 4. Configures `GeminiAIService` with settings from `generator.yml`
-5. Sets up `QueryBatchProcessor` for batching queries
 
 #### Analysis Workflow (`analyze()` method)
 
@@ -171,10 +171,8 @@ The query optimization pipeline follows this flow:
   - Required index suggestions (de-duplicated)
 
 **Step 5: Reporting (`reportOptimizationResults()`)**
-- Sorts issues by severity: HIGH → MEDIUM → LOW
-- Updates global counters: `totalHighPriorityRecommendations`, `totalMediumPriorityRecommendations`
+- Updates global counters: `totalRecommendations`
 - Prints detailed reports with:
-  - Severity icons (🔴 HIGH, 🟡 MEDIUM, 🟢 LOW)
   - Current vs recommended column order
   - Cardinality information for each column
   - AI explanations from LLM
@@ -182,7 +180,7 @@ The query optimization pipeline follows this flow:
 
 #### Consolidated Reporting
 
-**Index Suggestions (`printConsolidatedIndexActions()`)**:
+**Index Suggestions (`generateAllChangesets()`)**:
 - De-duplicates index recommendations across all queries using `LinkedHashSet<String>`
 - Key format: `table|column` (lowercase)
 - Generates Liquibase changesets with:
@@ -198,7 +196,7 @@ The query optimization pipeline follows this flow:
 - Generates Liquibase `DROP INDEX` changesets
 
 **Exit Code Logic**:
-- Exits with code 1 if: `high >= 1 AND medium >= 10`
+- Exits with code 1 if: `totalRecommendations >= 1`
 - Useful for CI/CD pipeline integration
 
 ### QueryOptimizer: Analysis + Code Modification
@@ -208,36 +206,34 @@ The query optimization pipeline follows this flow:
 #### Additional Initialization
 - Calls `Fields.buildDependencies()` to map repository usage across codebase
 - Builds dependency graph: repository → classes that @Autowire it → field names
+- Calls `EntityMappingResolver.build()` to build entity mapping information
 
 #### Extended Analysis Workflow
 
 **After parent analysis** (`analyzeRepository()` override):
 
-1. **Setup Lexical Preservation**
-   - Calls `LexicalPreservingPrinter.setup()` on the CompilationUnit
-   - Preserves original formatting, indentation, and comments
-
-2. **Annotation Updates (`updateAnnotationValue()`)**
+1. **Annotation Updates (`updateAnnotationValue()`)**
    - For each non-optimized query with an optimized version:
    - Locates `@Query` annotation on method
    - Handles both styles:
      - Single-member: `@Query("SELECT ...")`
      - Normal: `@Query(value = "SELECT ...")`
-   - Clones annotation to preserve formatting
    - Replaces query string with optimized SQL
    - Uses AST node replacement, not string manipulation
 
-3. **Method Name Updates**
-   - If parameter order changes, method must be renamed
+2. **Parameter Reordering (`reorderMethodParameters()`)**
+   - Reorders method parameters to match optimized WHERE clause column order
+   - Only applies if parameter count matches column count
+   - Preserves parameter types while changing order
    - Example: `findByNameAndId(name, id)` → `findByIdAndName(id, name)`
-   - Prevents breaking changes at call sites
 
-4. **Propagate Changes to Usage Sites (`applySignatureUpdatesToUsages()`)**
+3. **Propagate Changes to Usage Sites (`applySignatureUpdatesToUsages()`)**
    - Uses `Fields.getFieldDependencies()` to find all classes using this repository
    - For each dependent class:
      - Creates `NameChangeVisitor` with the repository field name
      - Visits all method calls on that field
      - Updates method names if signature changed
+     - Reorders call arguments to match new parameter order
    - Example flow:
      ```
      // Repository:
@@ -247,14 +243,16 @@ The query optimization pipeline follows this flow:
      
      // Service class:
      @Autowired UserRepo userRepo;
-     userRepo.findByActiveAndId(...) → userRepo.findByIdAndActive(...)
+     userRepo.findByActiveAndId(active, id) → userRepo.findByIdAndActive(id, active)
      ```
 
-5. **File Writing (`writeFile()`)**
+4. **File Writing (`writeFile()`)**
    - Only writes if content actually changed (prevents timestamp churn)
    - Compares generated content with original file
    - Uses UTF-8 encoding
    - Writes both repository and dependent classes
+   - Attempts to use `LexicalPreservingPrinter` for whitespace preservation
+   - Falls back to default printer if LexicalPreservingPrinter fails
 
 #### Safety Mechanisms
 
@@ -286,17 +284,18 @@ The query optimization pipeline follows this flow:
 
 **Use QueryOptimizer when**:
 - You trust the AI recommendations
-- Performing bulk optimization across many repositories
-- You want automated refactoring with the `RepoProcessor`
+- Performing bulk optimization across repositories
+- You want automated refactoring
 - You need both code changes AND index changes
 
 ### Common Pitfalls
 
-1. **Repository Limit**: Current implementation only processes first JPA repository found (line 92 has `break`)
+1. **Repository Limit**: Current implementation only processes first JPA repository found (line 108 has `break`)
 2. **Liquibase Path**: Must be at `<base_path>/src/main/resources/db/changelog/db.changelog-master.xml`
 3. **GEMINI_API_KEY**: Must be set in environment or `generator.yml`
 4. **Fields Dependency**: QueryOptimizer requires `Fields.buildDependencies()` which scans entire codebase
 5. **Call Site Updates**: Only updates direct method calls on repository fields, not indirect invocations
+6. **LexicalPreservingPrinter**: May fall back to default formatting for complex AST modifications (e.g., parameter reordering)
 
 ## Configuration
 
@@ -337,7 +336,7 @@ Typical path: `<project>/src/main/resources/db/changelog/db.changelog-master.xml
 
 ### Working with Antikythera Library
 
-This project depends on `sa.com.cloudsolutions:antikythera:0.1.1`. To debug Antikythera code:
+This project depends on `sa.com.cloudsolutions:antikythera:0.1.2`. To debug Antikythera code:
 
 **Option A (Recommended)**: Open as module in IntelliJ
 1. File > New > Module from Existing Sources…
@@ -347,17 +346,17 @@ This project depends on `sa.com.cloudsolutions:antikythera:0.1.1`. To debug Anti
 
 **Option B**: Attach sources to library JAR
 1. File > Project Structure > Libraries
-2. Locate `sa.com.cloudsolutions:antikythera:0.1.1`
+2. Locate `sa.com.cloudsolutions:antikythera:0.1.2`
 3. Click "Attach Sources…" and select Antikythera source directory
 
 ### Adding New Analysis Rules
 
 To add a new query optimization rule:
 
-1. Update `QueryAnalysisEngine.analyzeConditionOrdering()` with new detection logic
-2. Create `OptimizationIssue` with appropriate severity (HIGH/MEDIUM)
-3. Add corresponding test in `QueryAnalysisEngineTest` or `QueryOrderingTest`
-4. If using AI, update prompt in `src/main/resources/ai-prompts/query-optimization-system-prompt.txt`
+1. Update `QueryAnalysisEngine.analyzeQuery()` with new detection logic
+2. Create `OptimizationIssue` with appropriate information
+3. Add corresponding test in `QueryAnalysisEngineTest`
+4. If using AI, update prompt in `src/main/resources/ai-prompts/query-optimization-system-prompt.md`
 
 ### Adding New Cardinality Classifications
 
@@ -379,10 +378,11 @@ To extend cardinality detection:
 **Core Libraries:**
 - JDK 21 (required)
 - Maven 3.8+
-- Antikythera 0.1.1 (main framework)
+- Antikythera 0.1.2 (main framework)
 - JavaParser 3.26.2 (AST parsing and modification)
 - JSQLParser 5.3 (SQL parsing)
 - SLF4J 2.0.13 (logging)
+- ANTLR4 Runtime 4.13.1 (HQL parsing)
 
 **AI Integration:**
 - Gemini API (via REST)
@@ -396,13 +396,22 @@ To extend cardinality detection:
 
 **Analysis Report**: Console output with:
 - Query-by-query optimization recommendations
-- Severity levels (HIGH, MEDIUM)
+- AI explanations for each recommendation
 - Token usage and cost estimates
 - Consolidated index suggestions
 
-**Liquibase Changeset**: Generated XML file with CREATE INDEX statements for suggested indexes
+**Liquibase Changeset**: Generated XML file with CREATE INDEX and DROP INDEX statements
 
 **Modified Source Files**: When using `QueryOptimizer`, Java files are updated in place with:
 - Rewritten `@Query` annotation values
-- Renamed methods (if parameter order changes)
-- Updated call sites in dependent classes
+- Reordered method parameters (if column order changes)
+- Updated call sites in dependent classes with reordered arguments
+
+**Statistics Log**: CSV file (`query-optimization-stats.csv`) with detailed metrics:
+- Repository name
+- Queries analyzed
+- @Query annotations changed
+- Method signatures changed
+- Method calls updated
+- Dependent classes modified
+- Liquibase indexes generated
