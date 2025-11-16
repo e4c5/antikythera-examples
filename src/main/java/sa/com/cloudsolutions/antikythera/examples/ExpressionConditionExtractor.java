@@ -1,15 +1,9 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
 import net.sf.jsqlparser.expression.Expression;
-import net.sf.jsqlparser.expression.ExpressionVisitorAdapter;
-import net.sf.jsqlparser.expression.operators.conditional.AndExpression;
 import net.sf.jsqlparser.expression.operators.conditional.OrExpression;
 import net.sf.jsqlparser.expression.operators.relational.*;
 import net.sf.jsqlparser.schema.Column;
-import net.sf.jsqlparser.schema.Table;
-import net.sf.jsqlparser.statement.Statement;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -25,17 +19,16 @@ import java.util.List;
  * - More comprehensive operator support
  * - Cleaner method organization
  * - Enhanced documentation
+ * 
+ * Extends BaseConditionExtractor to reuse common visitor pattern implementations.
  */
-public class ExpressionConditionExtractor extends ExpressionVisitorAdapter<Void> {
-
-    private static final Logger logger = LoggerFactory.getLogger(ExpressionConditionExtractor.class);
+public class ExpressionConditionExtractor extends BaseConditionExtractor<WhereCondition> {
 
     private final List<WhereCondition> conditions;
-    private int positionCounter;
 
     public ExpressionConditionExtractor() {
+        super();
         this.conditions = new ArrayList<>();
-        this.positionCounter = 0;
     }
 
     /**
@@ -44,7 +37,7 @@ public class ExpressionConditionExtractor extends ExpressionVisitorAdapter<Void>
      */
     public List<WhereCondition> extractConditions(Expression whereExpression) {
         conditions.clear();
-        positionCounter = 0;
+        resetState();
 
         if (whereExpression != null) {
             whereExpression.accept(this, null);
@@ -53,14 +46,7 @@ public class ExpressionConditionExtractor extends ExpressionVisitorAdapter<Void>
         return new ArrayList<>(conditions);
     }
 
-    // Visitor pattern implementations for logical operators
-
-    @Override
-    public <S> Void visit(AndExpression andExpr, S context) {
-        andExpr.getLeftExpression().accept(this, context);
-        andExpr.getRightExpression().accept(this, context);
-        return null;
-    }
+    // OR expression handling (specific to WHERE conditions)
 
     @Override
     public <S> Void visit(OrExpression orExpr, S context) {
@@ -70,45 +56,7 @@ public class ExpressionConditionExtractor extends ExpressionVisitorAdapter<Void>
         return null;
     }
 
-    // Visitor pattern implementations for comparison operators
-
-    @Override
-    public <S> Void visit(EqualsTo equalsTo, S context) {
-        extractConditionFromComparison(equalsTo);
-        return null;
-    }
-
-    @Override
-    public <S> Void visit(NotEqualsTo notEqualsTo, S context) {
-        extractConditionFromComparison(notEqualsTo);
-        return null;
-    }
-
-    @Override
-    public <S> Void visit(GreaterThan greaterThan, S context) {
-        extractConditionFromComparison(greaterThan);
-        return null;
-    }
-
-    @Override
-    public <S> Void visit(GreaterThanEquals greaterThanEquals, S context) {
-        extractConditionFromComparison(greaterThanEquals);
-        return null;
-    }
-
-    @Override
-    public <S> Void visit(MinorThan minorThan, S context) {
-        extractConditionFromComparison(minorThan);
-        return null;
-    }
-
-    @Override
-    public <S> Void visit(MinorThanEquals minorThanEquals, S context) {
-        extractConditionFromComparison(minorThanEquals);
-        return null;
-    }
-
-    // Visitor pattern implementations for special operators
+    // Visitor pattern implementations for special operators (WHERE-specific)
 
     @Override
     public <S> Void visit(Between between, S context) {
@@ -118,7 +66,7 @@ public class ExpressionConditionExtractor extends ExpressionVisitorAdapter<Void>
 
     @Override
     public <S> Void visit(InExpression inExpr, S context) {
-        logger.debug("Visiting InExpression: {}", inExpr);
+        getLogger().debug("Visiting InExpression: {}", inExpr);
         extractConditionFromIn(inExpr);
         return null;
     }
@@ -135,13 +83,17 @@ public class ExpressionConditionExtractor extends ExpressionVisitorAdapter<Void>
         return null;
     }
 
-    // Extraction methods - simplified by delegating common logic to createAndAddCondition
-
-    private void extractConditionFromComparison(ComparisonOperator comparison) {
+    /**
+     * Handles comparison operators by extracting WHERE conditions.
+     */
+    @Override
+    protected void handleComparison(ComparisonOperator comparison) {
         if (comparison.getLeftExpression() instanceof Column column) {
             createAndAddCondition(column, comparison.getStringExpression());
         }
     }
+
+    // Extraction methods for special operators
 
     private void extractConditionFromBetween(Between between) {
         if (between.getLeftExpression() instanceof Column column) {
@@ -178,37 +130,12 @@ public class ExpressionConditionExtractor extends ExpressionVisitorAdapter<Void>
         String columnName = getColumnName(column);
         String tableName = getTableName(column);
 
-
         WhereCondition condition = new WhereCondition(
-            tableName, columnName, operator,  positionCounter++
+            tableName, columnName, operator, positionCounter++
         );
         conditions.add(condition);
 
-        logger.debug("Extracted {} condition on {}.{}", operator, tableName, columnName);
-    }
-
-    // Core helper methods leveraging JSQLParser and Antikythera infrastructure
-
-    /**
-     * Gets the clean column name from a Column object.
-     * JSQLParser's Column.getColumnName() returns just the column name without qualifiers.
-     */
-    private String getColumnName(Column column) {
-        return column.getColumnName();
-    }
-
-    /**
-     * Gets the table name for a column, using the table qualifier if present,
-     * otherwise falling back to the primary table from RepositoryQuery.
-     */
-    private String getTableName(Column column) {
-        Table table = column.getTable();
-        if (table != null && table.getName() != null) {
-            // Column has table qualifier - could be alias or actual table
-            // For now, use as-is; EntityMappingResolver can help resolve if needed
-            return table.getName();
-        }
-        return null;
+        getLogger().debug("Extracted {} condition on {}.{}", operator, tableName, columnName);
     }
 }
 
