@@ -9,7 +9,6 @@ import net.sf.jsqlparser.statement.select.ParenthesedSelect;
 import net.sf.jsqlparser.statement.select.PlainSelect;
 import net.sf.jsqlparser.statement.select.Select;
 import net.sf.jsqlparser.statement.update.Update;
-import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
 
 import java.util.List;
 
