@@ -84,26 +84,32 @@ class QueryOptimizationExtractorTest {
     @Test
     void testSelectWithJoin() throws JSQLParserException {
         // Test SELECT with JOIN and ON conditions
+        // Updated: This test now verifies that WHERE and JOIN conditions are SEPARATED
         RepositoryQuery mockRepositoryQuery = createMockRepositoryQuery();
         String sql = "SELECT * FROM orders o JOIN customers c ON o.customer_id = c.id WHERE o.status = ?";
         Statement statement = CCJSqlParserUtil.parse(sql);
         when(mockRepositoryQuery.getStatement()).thenReturn(statement);
         when(mockRepositoryQuery.getQuery()).thenReturn(sql);
 
-        List<WhereCondition> conditions = QueryOptimizationExtractor.extractWhereConditions(mockRepositoryQuery.getStatement());
+        // Extract WHERE conditions only (should not include JOIN ON)
+        List<WhereCondition> whereConditions = QueryOptimizationExtractor.extractWhereConditions(mockRepositoryQuery.getStatement());
 
-        assertNotNull(conditions);
-        assertFalse(conditions.isEmpty(), "Should extract conditions from WHERE and JOIN ON clauses");
+        assertNotNull(whereConditions);
+        assertEquals(1, whereConditions.size(), "Should extract only WHERE conditions, not JOIN ON");
 
-        // Verify we got the WHERE condition
-        boolean hasWhereCondition = conditions.stream()
+        // Verify we got ONLY the WHERE condition (status), not the JOIN condition
+        boolean hasWhereCondition = whereConditions.stream()
                 .anyMatch(c -> "status".equals(c.columnName()));
         assertTrue(hasWhereCondition, "Should have status condition from WHERE clause");
         
-        // Verify we got the JOIN ON condition
-        boolean hasJoinCondition = conditions.stream()
+        // Verify JOIN conditions are NOT included in WHERE conditions
+        boolean hasJoinCondition = whereConditions.stream()
                 .anyMatch(c -> "customer_id".equals(c.columnName()) || "id".equals(c.columnName()));
-        assertTrue(hasJoinCondition, "Should have condition from JOIN ON clause");
+        assertFalse(hasJoinCondition, "Should NOT have JOIN ON conditions in WHERE conditions list");
+        
+        // Now verify JOIN conditions can be extracted separately
+        List<JoinCondition> joinConditions = QueryOptimizationExtractor.extractJoinConditions(statement);
+        assertEquals(1, joinConditions.size(), "Should have 1 JOIN ON condition");
     }
 
     @Test
