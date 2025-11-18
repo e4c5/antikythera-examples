@@ -123,10 +123,12 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         // Apply signature updates and track dependent class changes
         MethodCallUpdateStats callStats = applySignatureUpdatesToUsagesWithStats(updates, fullyQualifiedName);
         stats.setMethodCallsUpdated(callStats.methodCallsUpdated);
-        stats.setDependentClassesModified(callStats.dependentClassesModified);
+        // Include the repository itself if it was modified so the CSV reflects total classes changed
+        int classesModified = callStats.dependentClassesModified + (repositoryFileModified ? 1 : 0);
+        stats.setDependentClassesModified(classesModified);
 
         // Track Liquibase indexes generated for this repository only (delta from previous count)
-        int currentIndexCount = suggestedNewIndexes.size();
+        int currentIndexCount = suggestedNewIndexes.size() + suggestedMultiColumnIndexes.size();
         int indexesGeneratedForThisRepository = currentIndexCount - previousIndexCount;
         stats.setLiquibaseIndexesGenerated(indexesGeneratedForThisRepository);
         previousIndexCount = currentIndexCount;
@@ -138,10 +140,7 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         totalMethodCallsUpdated += stats.getMethodCallsUpdated();
         totalDependentClassesModified += stats.getDependentClassesModified();
 
-        // Track files modified (repository file + dependent classes)
-        if (repositoryFileModified) {
-            totalFilesModified++; // Repository file was actually modified
-        }
+        // Track files modified: now stats.getDependentClassesModified() already includes repository file (if changed)
         totalFilesModified += stats.getDependentClassesModified();
 
         OptimizationStatsLogger.logStats(stats);
