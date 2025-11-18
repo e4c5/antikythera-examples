@@ -1,5 +1,7 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
+import sa.com.cloudsolutions.antikythera.configuration.Settings;
+
 import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -18,6 +20,19 @@ public class OptimizationStatsLogger {
     private static final String CSV_FILENAME = "query-optimization-stats.csv";
     private static final String CSV_HEADER = "timestamp,repository_class,queries_analyzed,query_annotations_changed,method_signatures_changed,method_calls_updated,dependent_classes_modified,liquibase_indexes_generated";
     
+    /**
+     * Gets the CSV filename from Settings or falls back to the default constant.
+     *
+     * @return the CSV filename to use
+     */
+    private static String getCsvFilename() {
+        Object filename = Settings.getProperty("optimization_stats_csv");
+        if (filename instanceof String s && !s.isEmpty()) {
+            return s;
+        }
+        return CSV_FILENAME;
+    }
+
     /**
      * Statistics for a single repository optimization run.
      */
@@ -68,7 +83,7 @@ public class OptimizationStatsLogger {
      * @throws IOException if file writing fails
      */
     public static void logStats(RepositoryStats stats) throws IOException {
-        Path csvPath = Paths.get(CSV_FILENAME);
+        Path csvPath = Paths.get(getCsvFilename());
         boolean fileExists = Files.exists(csvPath);
         
         try (FileWriter writer = new FileWriter(csvPath.toFile(), true)) {
@@ -79,7 +94,7 @@ public class OptimizationStatsLogger {
             
             // Write stats row
             String timestamp = LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
-            String row = String.format("%s,%s,%d,%d,%d,%d,%d,%d\n",
+            String row = String.format("%s,%s,%d,%d,%d,%d,%d,%d%n",
                     timestamp,
                     stats.getRepositoryClass(),
                     stats.getQueriesAnalyzed(),
