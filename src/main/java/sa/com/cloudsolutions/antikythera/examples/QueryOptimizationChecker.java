@@ -87,7 +87,6 @@ public class QueryOptimizationChecker {
         int repositoriesProcessed = 0;
         for (Map.Entry<String, TypeWrapper> entry : resolvedTypes.entrySet()) {
             String fullyQualifiedName = entry.getKey();
-            if (!fullyQualifiedName.contains("ProcedureRequestRepository")) continue;
 
             TypeWrapper typeWrapper = entry.getValue();
 
@@ -100,10 +99,6 @@ public class QueryOptimizationChecker {
 
                 analyzeRepository(fullyQualifiedName, typeWrapper);
                 repositoriesProcessed++;
-                i++;
-                if (i == 5) {
-                    break;
-                }
             }
         }
 

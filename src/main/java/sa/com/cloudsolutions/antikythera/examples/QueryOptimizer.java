@@ -75,8 +75,6 @@ public class QueryOptimizer extends QueryOptimizationChecker{
                             issue.query().getMethodDeclaration().asMethodDeclaration(),
                             "Query", queryValue);
 
-                    OptimizationStatsLogger.updateQueryAnnotationsChanged(1);
-
                     // Check if method name changed (indicating signature should change)
                     boolean methodNameChanged = !issue.query().getMethodName().equals(optimizedQuery.getMethodName());
 
@@ -192,7 +190,10 @@ public class QueryOptimizer extends QueryOptimizationChecker{
                         .filter(p -> p.getName().asString().equals("value"))
                         .findFirst();
 
-                valuePair.ifPresent(memberValuePair -> memberValuePair.setValue(newValueExpr));
+                valuePair.ifPresent(memberValuePair -> {
+                    memberValuePair.setValue(newValueExpr);
+                    OptimizationStatsLogger.updateQueryAnnotationsChanged(1);
+                });
             }
         }
     }

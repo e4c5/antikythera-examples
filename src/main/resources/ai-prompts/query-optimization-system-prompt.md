@@ -192,3 +192,4 @@ Output:
 "optimizedCodeElement": "@Query(\"SELECT a FROM AccessRule a JOIN a.accessUser au WHERE au.userId = :userId AND a.action = 'restricted' AND au.tenantId = :tenantId AND au.restaurant = :restuarant\") List<AccessRule> getRestrictedRules(@Param(\"userId\") final String userId, @Param(\"tenantId\") Long tenantId, @Param(\"restaurant\") Long restaurant);",
 "notes": "Reordered predicates in the HQL/JPQL WHERE clause for optimal performance."
 }`
+
