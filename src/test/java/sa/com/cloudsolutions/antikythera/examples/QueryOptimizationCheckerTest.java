@@ -167,12 +167,12 @@ class QueryOptimizationCheckerTest {
 
 
     @Test
-    void testCreateRawQueryBatch() {
+    void testCreateQueryBatch() {
         List<RepositoryQuery> queries = new ArrayList<>();
         when(mockRepositoryQuery.getMethodName()).thenReturn("findByEmail");
         queries.add(mockRepositoryQuery);
         
-        QueryBatch result = checker.createRawQueryBatch("TestRepository", queries);
+        QueryBatch result = checker.createQueryBatch("TestRepository", queries);
         
         assertNotNull(result);
         // QueryBatch doesn't have getRepositoryName method, check toString instead

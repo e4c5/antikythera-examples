@@ -1,7 +1,6 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
 import net.sf.jsqlparser.statement.Statement;
-import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
 
 import java.util.ArrayList;
 import java.util.List;
