@@ -37,11 +37,7 @@ class ErrorHandlingTest {
         MockitoAnnotations.openMocks(this);
         setupCardinalityAnalyzer();
         engine = new QueryAnalysisEngine();
-
-        // Default stubbing to avoid NPEs in QueryAnalysisEngine when method metadata is accessed
-        if (mockRepositoryQuery != null) {
-            stubMethodMeta(mockRepositoryQuery, "UserRepository", "findAll");
-        }
+        stubMethodMeta(mockRepositoryQuery, "UserRepository", "findAll");
     }
     
     private void setupCardinalityAnalyzer() {

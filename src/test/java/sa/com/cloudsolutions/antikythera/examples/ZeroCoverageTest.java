@@ -1,12 +1,6 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
-
-import java.io.File;
-import java.nio.file.Path;
-import java.nio.file.Files;
-import java.io.IOException;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -15,10 +9,6 @@ import static org.junit.jupiter.api.Assertions.*;
  * Focus on basic instantiation and simple method calls.
  */
 class ZeroCoverageTest {
-
-    @TempDir
-    Path tempDir;
-
 
     @Test
     void testLoggerInstantiation() {

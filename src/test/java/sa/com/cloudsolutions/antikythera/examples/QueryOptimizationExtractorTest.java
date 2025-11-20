@@ -24,7 +24,7 @@ import static org.mockito.Mockito.when;
 class QueryOptimizationExtractorTest {
 
     @BeforeAll
-    static void setUp() throws IOException {
+    static void setUp()  {
         CardinalityAnalyzer.setIndexMap(new HashMap<>());
     }
 

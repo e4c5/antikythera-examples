@@ -45,7 +45,7 @@ class GeminiAIServiceTest {
     private HttpResponse<String> mockHttpResponse;
 
     @BeforeAll
-    static void setUpAll() throws IOException, ReflectiveOperationException {
+    static void setUpAll() throws IOException {
         Settings.loadConfigMap(new File("src/test/resources/generator.yml"));
         AbstractCompiler.reset();
         AbstractCompiler.preProcess();

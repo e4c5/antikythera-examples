@@ -14,7 +14,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Performance benchmarking tests to ensure refactored components
  * maintain or improve performance compared to original implementations.
  */
-public class PerformanceBenchmarkTest {
+class PerformanceBenchmarkTest {
     private LiquibaseGenerator liquibaseGenerator;
     
     private static final int BENCHMARK_ITERATIONS = 100;

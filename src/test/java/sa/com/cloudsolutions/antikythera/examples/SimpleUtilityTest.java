@@ -8,52 +8,6 @@ import static org.junit.jupiter.api.Assertions.*;
  * Tests basic string manipulation and validation logic.
  */
 class SimpleUtilityTest {
-
-    @Test
-    void testStringValidation() {
-        // Test basic string validation logic that might be used in the classes
-        
-        // Test null and empty strings
-        assertNull(null);
-        assertEquals("", "");
-        assertNotEquals("", null);
-        
-        // Test string contains logic (similar to collection detection)
-        String testString = "List<User> users";
-        assertTrue(testString.contains("List"));
-        assertTrue(testString.contains("User"));
-        assertFalse(testString.contains("Set"));
-        
-        // Test case sensitivity
-        assertFalse(testString.toLowerCase().contains("LIST"));
-        assertTrue(testString.toLowerCase().contains("list"));
-    }
-
-    @Test
-    void testCollectionTypeDetection() {
-        // Test collection type detection logic (similar to UsageFinder)
-        
-        String listType = "List<String>";
-        String setType = "Set<User>";
-        String mapType = "Map<String, Object>";
-        String regularType = "String";
-        
-        // Test List detection
-        assertTrue(isCollectionType(listType));
-        assertTrue(listType.contains("List"));
-        
-        // Test Set detection
-        assertTrue(isCollectionType(setType));
-        assertTrue(setType.contains("Set"));
-        
-        // Test Map detection
-        assertTrue(isCollectionType(mapType));
-        assertTrue(mapType.contains("Map"));
-        
-        // Test non-collection type
-        assertFalse(isCollectionType(regularType));
-    }
-
     @Test
     void testTableNameInference() {
         // Test table name inference logic (similar to QueryOptimizationChecker)
@@ -128,12 +82,6 @@ class SimpleUtilityTest {
         // Test edge cases
         assertEquals("", updateProjectPath("", "project", "repo"));
         assertEquals("/project/repo/", updateProjectPath("/", "project", "repo"));
-    }
-
-    // Helper methods that simulate the logic from the actual classes
-
-    private boolean isCollectionType(String type) {
-        return type.contains("List") || type.contains("Set") || type.contains("Map");
     }
 
     private String convertRepositoryNameToTableName(String repositoryName) {

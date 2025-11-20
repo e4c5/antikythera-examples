@@ -173,11 +173,10 @@ class QueryOptimizerTest {
     @Test
     void testUpdateAnnotationValue_withComplexMultiLineQuery() {
         // Test case 7: Complex multi-line query with various SQL clauses
-        String complexQuery = "SELECT u.id, u.name, u.email\n" +
-                            "FROM users u\n" +
-                            "JOIN orders o ON u.id = o.user_id\n" +
-                            "WHERE u.status = ? AND o.total > ?\n" +
-                            "ORDER BY u.name";
+        String complexQuery = """
+                            SELECT u.id, u.name, u.email
+                            FROM users u JOIN orders o ON u.id = o.user_id
+                            WHERE u.status = ? AND o.total > ? ORDER BY u.name""";
 
         MethodDeclaration method = StaticJavaParser.parseMethodDeclaration(
             "@Query(\"old query\") List<User> findUsers();"

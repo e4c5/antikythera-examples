@@ -6,7 +6,6 @@ import net.sf.jsqlparser.statement.Statement;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
-import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 
@@ -19,7 +18,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class WhereAndJoinSeparationTest {
 
     @BeforeAll
-    static void setUp() throws IOException {
+    static void setUp()  {
         CardinalityAnalyzer.setIndexMap(new HashMap<>());
     }
 

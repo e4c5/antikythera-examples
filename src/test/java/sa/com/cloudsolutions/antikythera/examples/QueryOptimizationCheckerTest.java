@@ -194,14 +194,6 @@ class QueryOptimizationCheckerTest {
     }
 
     @Test
-    void testHasOptimalIndexForColumn() {
-        // Test basic functionality - this method depends on CardinalityAnalyzer
-        boolean result = checker.hasOptimalIndexForColumn("users", "email");
-        // Result depends on the index configuration, just verify it doesn't throw
-        assertNotNull(result);
-    }
-
-    @Test
     void testIsCoveredByComposite() {
         // Add a multi-column index suggestion
         LinkedHashSet<String> multiColumnSet = checker.getSuggestedMultiColumnIndexes();
@@ -258,15 +250,15 @@ class QueryOptimizationCheckerTest {
             assertTrue(true); // If we get here, no exception was thrown
         } catch (Exception e) {
             // Expected since we don't have a proper Liquibase setup
-            assertTrue(e.getMessage() != null);
+            assertNotNull(e.getMessage());
         }
     }
 
     @Test
     void testCreateResultWithIndexAnalysis() {
         when(mockOptimizationIssue.query()).thenReturn(mockRepositoryQuery);
-        when(mockOptimizationIssue.currentColumnOrder()).thenReturn(Arrays.asList("id"));
-        when(mockOptimizationIssue.recommendedColumnOrder()).thenReturn(Arrays.asList("email"));
+        when(mockOptimizationIssue.currentColumnOrder()).thenReturn(List.of("id"));
+        when(mockOptimizationIssue.recommendedColumnOrder()).thenReturn(List.of("email"));
         when(mockOptimizationIssue.description()).thenReturn("Test optimization");
         when(mockOptimizationIssue.aiExplanation()).thenReturn("AI explanation");
         when(mockOptimizationIssue.optimizedQuery()).thenReturn(null);
@@ -361,7 +353,7 @@ class QueryOptimizationCheckerTest {
         when(mockCondition.cardinality()).thenReturn(CardinalityLevel.HIGH);
         when(mockCondition.columnName()).thenReturn("email");
         
-        when(mockResult.getWhereConditions()).thenReturn(Arrays.asList(mockCondition));
+        when(mockResult.getWhereConditions()).thenReturn(List.of(mockCondition));
         when(mockResult.getFirstCondition()).thenReturn(mockCondition);
         when(mockResult.getQuery()).thenReturn(mockRepositoryQuery);
         when(mockRepositoryQuery.getClassname()).thenReturn("UserRepository");
