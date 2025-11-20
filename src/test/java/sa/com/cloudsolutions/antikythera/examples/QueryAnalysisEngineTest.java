@@ -9,7 +9,7 @@ import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Unit tests for QueryAnalysisEngine to verify core functionality
+ * Unit tests for QueryAnalysisEngine to verify core functionality,
  * including initialization and basic validation.
  */
 class QueryAnalysisEngineTest {

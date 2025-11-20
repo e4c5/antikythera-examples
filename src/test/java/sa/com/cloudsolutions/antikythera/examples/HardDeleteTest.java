@@ -4,7 +4,6 @@ import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.expr.AnnotationExpr;
-import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import org.codehaus.plexus.util.xml.pull.XmlPullParserException;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -12,7 +11,6 @@ import org.junit.jupiter.api.Test;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.evaluator.mock.MockingRegistry;
-import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 import sa.com.cloudsolutions.antikythera.parser.MavenHelper;
 
@@ -28,7 +26,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * hard delete operations in JPA repositories while distinguishing them from soft deletes.
  */
 class HardDeleteTest {
-    protected final PrintStream standardOut = System.out;
     protected final ByteArrayOutputStream outContent = new ByteArrayOutputStream();
 
     @BeforeAll

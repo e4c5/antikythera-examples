@@ -2,6 +2,8 @@ package sa.com.cloudsolutions.antikythera.examples;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import sa.com.cloudsolutions.liquibase.Indexes;
 
 import java.util.*;
@@ -26,7 +28,6 @@ class CardinalityAnalyzerTest {
      * Sets up test index configurations for various scenarios.
      */
     private void setupTestIndexes() {
-        // Users table with various index types
         Set<Indexes.IndexInfo> userIndexes = new HashSet<>();
 
         // Primary key index
@@ -69,40 +70,18 @@ class CardinalityAnalyzerTest {
         indexMap.put("products", productIndexes);
     }
 
-    @Test
-    void testAnalyzeColumnCardinality_PrimaryKey_ReturnsHigh() {
-        CardinalityLevel result = CardinalityAnalyzer.analyzeColumnCardinality("users", "user_id");
-        assertEquals(CardinalityLevel.HIGH, result);
-    }
-
-    @Test
-    void testAnalyzeColumnCardinality_UniqueConstraint_ReturnsHigh() {
-        CardinalityLevel result = CardinalityAnalyzer.analyzeColumnCardinality("users", "email");
-        assertEquals(CardinalityLevel.HIGH, result);
-    }
-
-    @Test
-    void testAnalyzeColumnCardinality_UniqueIndex_ReturnsHigh() {
-        CardinalityLevel result = CardinalityAnalyzer.analyzeColumnCardinality("users", "username");
-        assertEquals(CardinalityLevel.HIGH, result);
-    }
-
-    @Test
-    void testAnalyzeColumnCardinality_RegularIndex_ReturnsMedium() {
-        CardinalityLevel result = CardinalityAnalyzer.analyzeColumnCardinality("users", "name");
-        assertEquals(CardinalityLevel.MEDIUM, result);
-    }
-
-    @Test
-    void testAnalyzeColumnCardinality_BooleanColumn_ReturnsLow() {
-        CardinalityLevel result = CardinalityAnalyzer.analyzeColumnCardinality("users", "is_active");
-        assertEquals(CardinalityLevel.LOW, result);
-    }
-
-    @Test
-    void testAnalyzeColumnCardinality_UnindexedColumn_ReturnsLow() {
-        CardinalityLevel result = CardinalityAnalyzer.analyzeColumnCardinality("users", "description");
-        assertEquals(CardinalityLevel.MEDIUM, result);
+    @ParameterizedTest(name = "{0}")
+    @CsvSource({
+        "PrimaryKey_ReturnsHigh, users, user_id, HIGH",
+        "UniqueConstraint_ReturnsHigh, users, email, HIGH",
+        "UniqueIndex_ReturnsHigh, users, username, HIGH",
+        "RegularIndex_ReturnsMedium, users, name, MEDIUM",
+        "BooleanColumn_ReturnsLow, users, is_active, LOW",
+        "UnindexedColumn_ReturnsMedium, users, description, MEDIUM"
+    })
+    void testAnalyzeColumnCardinality(String testName, String table, String column, CardinalityLevel expected) {
+        CardinalityLevel result = CardinalityAnalyzer.analyzeColumnCardinality(table, column);
+        assertEquals(expected, result);
     }
 
     @Test
