@@ -119,24 +119,28 @@ public class QueryOptimizationChecker {
         OptimizationStatsLogger.initialize(fullyQualifiedName);
         repositoryParser.compile(AbstractCompiler.classToPath(fullyQualifiedName));
         repositoryParser.processTypes();
-        repositoryParser.buildQueries();
+        if (repositoryParser.getEntity() != null && repositoryParser.getEntity().getFullyQualifiedName() != null){
 
-        // Step 1: Collect raw methods for LLM analysis (no programmatic analysis yet)
-        Collection<RepositoryQuery> rawQueries = repositoryParser.getAllQueries();
+            repositoryParser.buildQueries();
 
-        // Step 2: Send raw methods to LLM first
-        List<OptimizationIssue> llmRecommendations = sendRawQueriesToLLM(fullyQualifiedName, rawQueries);
+            // Step 1: Collect raw methods for LLM analysis (no programmatic analysis yet)
+            Collection<RepositoryQuery> rawQueries = repositoryParser.getAllQueries();
 
-        // Step 3: Analyze LLM recommendations and check indexes
-        List<QueryOptimizationResult> finalResults = analyzeLLMRecommendations(llmRecommendations, rawQueries.stream().toList());
+            // Step 2: Send raw methods to LLM first
+            List<OptimizationIssue> llmRecommendations = sendRawQueriesToLLM(fullyQualifiedName, rawQueries);
 
-        // Step 4: Report final results
-        for (QueryOptimizationResult result : finalResults) {
-            results.add(result);
-            reportOptimizationResults(result);
+            // Step 3: Analyze LLM recommendations and check indexes
+            List<QueryOptimizationResult> finalResults = analyzeLLMRecommendations(llmRecommendations, rawQueries.stream().toList());
+
+            // Step 4: Report final results
+            for (QueryOptimizationResult result : finalResults) {
+                results.add(result);
+                reportOptimizationResults(result);
+            }
+        } else {
+            logger.warn("Repository Entity could not be identified for {}", fullyQualifiedName);
         }
     }
-
 
     /**
      * Sends raw queries to LLM for optimization recommendations.
