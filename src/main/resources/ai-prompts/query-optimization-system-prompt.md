@@ -111,7 +111,7 @@ Output:
 
 `{
 "originalMethod": "OrderHeaderEntity findFirstByCompanyIdAndRestaurantIdAndOrderCode(Integer companyId, Integer restaurantId, String orderCode)",
-"optimizedCodeElement": "OrderHeaderEntity findFirstByOrderCodeAndCompanyIdAndRestaurantId(String orderCode, Integer companyId, Integer restaurantId)",
+"optimizedCodeElement": "OrderHeaderEntity findFirstByOrderCodeAndCompanyIdAndRestaurantId(String orderCode, Integer companyId, Integer restaurantId);",
 "notes": "Reordered method signature and parameters for optimal derived query performance."
 }`
 
@@ -126,7 +126,7 @@ Output:
 
 `{
 "originalMethod": "OrderHeaderEntity findFirstByCompanyIdAndRestaurantIdAndOrderHeaderId(Integer companyId, Integer restaurantId, Long orderHeaderId)",
-"optimizedCodeElement": "OrderHeaderEntity findFirstByOrderHeaderIdAndCompanyIdAndRestaurantId(Long orderHeaderId, Integer companyId, Integer restaurantId)",
+"optimizedCodeElement": "OrderHeaderEntity findFirstByOrderHeaderIdAndCompanyIdAndRestaurantId(Long orderHeaderId, Integer companyId, Integer restaurantId);",
 "notes": "Reordered method signature and parameters for optimal derived query performance."
 }`
 
@@ -140,7 +140,7 @@ Output:
 
 `{
 "originalMethod": "List<OrderHeaderEntity> findAllByOrderCode(String orderCode)",
-"optimizedCodeElement": "List<OrderHeaderEntity> findAllByOrderCode(String orderCode)",
+"optimizedCodeElement": "List<OrderHeaderEntity> findAllByOrderCode(String orderCode);",
 "notes": "N/A - Query is single-column."
 }`
 
@@ -149,7 +149,7 @@ Example 4: (HQL - No Change)
 Input:
 method: `@Query("SELECT menu.menuId FROM MenuMapping menu WHERE menu.companyId = :companyId AND
     menu.restaurantId = :restaurantId AND menu.isActive = true AND menu.isSeasonal = true ")
-    List<Integer> findAllActiveSeasonalMenuIdsByCompanyIdAndRestaurantId(@Param("companyId") Integer companyId, @Param("restaurantId")
+    List<Integer> findAllActiveSeasonalMenuIdsByCompanyIdAndRestaurantId(@Param("companyId") Integer companyId, @Param("restaurantId");
     Integer restaurantId);`
 cardinality: "company_id:LOW, restaurant_id:LOW, is_active:LOW, is_seasonal:LOW"
 
