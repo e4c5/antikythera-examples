@@ -9,6 +9,7 @@ import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.expr.NormalAnnotationExpr;
 import com.github.javaparser.ast.expr.StringLiteralExpr;
+import com.github.javaparser.ast.expr.TextBlockLiteralExpr;
 import com.github.javaparser.ast.visitor.ModifierVisitor;
 import com.github.javaparser.printer.lexicalpreservation.LexicalPreservingPrinter;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
@@ -61,14 +62,18 @@ public class QueryOptimizer extends QueryOptimizationChecker{
             if (issue != null) {
                 RepositoryQuery optimizedQuery = issue.optimizedQuery();
                 if (optimizedQuery != null) {
+                    String queryValue;
                     if (QueryType.HQL.equals(optimizedQuery.getQueryType())) {
-                        updateAnnotationValue(issue.query().getMethodDeclaration().asMethodDeclaration(),
-                                "Query",  optimizedQuery.getOriginalQuery());
+                        queryValue = optimizedQuery.getOriginalQuery();
                     }
                     else {
-                        updateAnnotationValue(issue.query().getMethodDeclaration().asMethodDeclaration(),
-                                "Query",optimizedQuery.getStatement().toString());
+                        queryValue = optimizedQuery.getStatement().toString();
                     }
+
+                    // Convert to text block if the query contains newlines
+                    updateAnnotationValueWithTextBlockSupport(
+                            issue.query().getMethodDeclaration().asMethodDeclaration(),
+                            "Query", queryValue);
 
                     OptimizationStatsLogger.updateQueryAnnotationsChanged(1);
 
@@ -116,6 +121,31 @@ public class QueryOptimizer extends QueryOptimizationChecker{
     }
 
     /**
+     * Updates the annotation value with proper text block support.
+     * If the query contains literal \n characters or actual newlines, it uses TextBlockLiteralExpr.
+     * Otherwise, it uses StringLiteralExpr.
+     *
+     * @param method the method declaration containing the annotation
+     * @param annotationName the name of the annotation to update
+     * @param newStringValue the new query value
+     */
+    private void updateAnnotationValueWithTextBlockSupport(MethodDeclaration method,
+                                                          String annotationName,
+                                                          String newStringValue) {
+        // Check if the string contains literal \n or actual newlines
+        boolean isMultiline = newStringValue != null &&
+                             (newStringValue.contains("\\n") || newStringValue.contains("\n"));
+
+        if (isMultiline) {
+            // Convert literal \n to actual newlines
+            String processedValue = "    " + newStringValue.replace("\\n", "\n        ");
+            updateAnnotationValue(method, annotationName, processedValue, true);
+        } else {
+            updateAnnotationValue(method, annotationName, newStringValue, false);
+        }
+    }
+
+    /**
      * Updates the "value" of a JavaParser AnnotationExpr on a method,
      * preserving the original annotation's indentation and formatting.
      * <p>
@@ -127,10 +157,12 @@ public class QueryOptimizer extends QueryOptimizationChecker{
      * @param method          The method node containing the annotation.
      * @param annotationName  The name of the annotation to find (e.g., "Query").
      * @param newStringValue  The new string to set as the annotation's value.
+     * @param useTextBlock    Whether to use TextBlockLiteralExpr (true) or StringLiteralExpr (false)
      */
     public void updateAnnotationValue(MethodDeclaration method,
-                                         String annotationName,
-                                         String newStringValue) {
+                                     String annotationName,
+                                     String newStringValue,
+                                     boolean useTextBlock) {
 
         System.out.println(annotationName + " -> " + newStringValue);
         // 1. Find the annotation on the method
@@ -138,8 +170,13 @@ public class QueryOptimizer extends QueryOptimizationChecker{
         if (oldAnnotationOpt.isPresent()) {
             AnnotationExpr annotation = oldAnnotationOpt.get();
 
-            // 2. Create the new value expression
-            StringLiteralExpr newValueExpr = new StringLiteralExpr(newStringValue);
+            // 2. Create the new value expression (text block or regular string)
+            Expression newValueExpr;
+            if (useTextBlock) {
+                newValueExpr = new TextBlockLiteralExpr(newStringValue);
+            } else {
+                newValueExpr = new StringLiteralExpr(newStringValue);
+            }
 
             // 3. Modify IN PLACE (not replace) so LexicalPreservingPrinter tracks the change
             if (annotation.isSingleMemberAnnotationExpr()) {
