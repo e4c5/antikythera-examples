@@ -47,7 +47,9 @@ class GeminiAIServiceTest {
     @BeforeAll
     static void setUpAll() throws IOException, ReflectiveOperationException {
         Settings.loadConfigMap(new File("src/test/resources/generator.yml"));
+        AbstractCompiler.reset();
         AbstractCompiler.preProcess();
+        EntityMappingResolver.reset();
         EntityMappingResolver.build();
         CardinalityAnalyzer.setIndexMap(new HashMap<>());
 
