@@ -87,6 +87,8 @@ public class QueryOptimizationChecker {
         int repositoriesProcessed = 0;
         for (Map.Entry<String, TypeWrapper> entry : resolvedTypes.entrySet()) {
             String fullyQualifiedName = entry.getKey();
+            if (!fullyQualifiedName.contains("UCAFRepository")) continue;
+
             TypeWrapper typeWrapper = entry.getValue();
 
             if (BaseRepositoryParser.isJpaRepository(typeWrapper)) {

@@ -2,6 +2,7 @@ package sa.com.cloudsolutions.antikythera.examples;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.ImportDeclaration;
@@ -30,9 +31,11 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Handles all interactions with the Gemini AI service including request formatting,
+ * Handles all interactions with the Gemini AI service including request
+ * formatting,
  * API communication, and response parsing.
- * Provides simple API communication capabilities for query optimization analysis.
+ * Provides simple API communication capabilities for query optimization
+ * analysis.
  */
 public class GeminiAIService {
     private static final Logger logger = LoggerFactory.getLogger(GeminiAIService.class);
@@ -44,6 +47,11 @@ public class GeminiAIService {
     private final String systemPrompt;
 
     public GeminiAIService() throws IOException {
+        // Configure JavaParser to support Java 21 features (including text blocks)
+        ParserConfiguration parserConfig = new ParserConfiguration();
+        parserConfig.setLanguageLevel(ParserConfiguration.LanguageLevel.JAVA_21);
+        StaticJavaParser.setConfiguration(parserConfig);
+
         this.objectMapper = new ObjectMapper();
         this.lastTokenUsage = new TokenUsage();
         this.systemPrompt = loadSystemPrompt();
@@ -93,17 +101,21 @@ public class GeminiAIService {
      * Loads the system prompt from the resource file.
      */
     private String loadSystemPrompt() throws IOException {
-        try (InputStream inputStream = getClass().getResourceAsStream("/ai-prompts/query-optimization-system-prompt.md")) {
+        try (InputStream inputStream = getClass()
+                .getResourceAsStream("/ai-prompts/query-optimization-system-prompt.md")) {
             if (inputStream == null) {
-                throw new IllegalStateException("System prompt file not found: /ai-prompts/query-optimization-system-prompt.md");
+                throw new IllegalStateException(
+                        "System prompt file not found: /ai-prompts/query-optimization-system-prompt.md");
             }
             return new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
         }
     }
 
     /**
-     * Builds the request payload for the Gemini AI API using proper message structure.
-     * Separates system instructions from user query data for better API interaction.
+     * Builds the request payload for the Gemini AI API using proper message
+     * structure.
+     * Separates system instructions from user query data for better API
+     * interaction.
      */
     String buildRequestPayload(QueryBatch batch) {
         // Build the JSON array of queries as expected by the new prompt
@@ -120,7 +132,8 @@ public class GeminiAIService {
             String tableSchemaAndCardinality = buildTableSchemaString(batch, query);
 
             // Build full method signature and escape JSON strings properly
-            String fullMethodSignature = escapeJsonString(query.getMethodDeclaration().getCallableDeclaration().toString());
+            String fullMethodSignature = escapeJsonString(
+                    query.getMethodDeclaration().getCallableDeclaration().toString());
             String queryText = escapeJsonString(getQueryText(query));
 
             queriesJson.append(String.format("""
@@ -138,7 +151,8 @@ public class GeminiAIService {
 
     /**
      * Builds the Gemini API request with proper message structure.
-     * Uses Gemini's contents format with separate parts for system and user content.
+     * Uses Gemini's contents format with separate parts for system and user
+     * content.
      */
     String buildGeminiApiRequest(String userQueryData) {
         // Escape strings for JSON
@@ -217,15 +231,17 @@ public class GeminiAIService {
      * Sends the API request to Gemini AI service.
      */
     String sendApiRequest(String payload) throws IOException, InterruptedException {
-        String apiEndpoint = getConfigString("api_endpoint", "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent");
+        String apiEndpoint = getConfigString("api_endpoint",
+                "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent");
         String model = getConfigString("model", "gemini-1.5-flash");
         String apiKey = getConfigString("api_key", null);
         int timeoutSeconds = getConfigInt("timeout_seconds", 60);
-        
+
         if (apiKey == null || apiKey.trim().isEmpty()) {
-            throw new IllegalStateException("AI service API key is required. Set GEMINI_API_KEY environment variable or configure ai_service.api_key in generator.yml");
+            throw new IllegalStateException(
+                    "AI service API key is required. Set GEMINI_API_KEY environment variable or configure ai_service.api_key in generator.yml");
         }
-        
+
         String url = apiEndpoint.replace("{model}", model) + "?key=" + apiKey;
 
         HttpRequest request = HttpRequest.newBuilder()
@@ -238,7 +254,8 @@ public class GeminiAIService {
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
         if (response.statusCode() != 200) {
-            throw new IOException("API request failed with status: " + response.statusCode() + ", body: " + response.body());
+            throw new IOException(
+                    "API request failed with status: " + response.statusCode() + ", body: " + response.body());
         }
 
         // Extract token usage if available
@@ -263,7 +280,8 @@ public class GeminiAIService {
             double costPer1kTokens = getConfigDouble("cost_per_1k_tokens", 0.00015);
             double estimatedCost = (totalTokens / 1000.0) * costPer1kTokens;
 
-            lastTokenUsage = new TokenUsage(inputTokens, outputTokens, totalTokens, estimatedCost, cachedContentTokenCount);
+            lastTokenUsage = new TokenUsage(inputTokens, outputTokens, totalTokens, estimatedCost,
+                    cachedContentTokenCount);
 
             boolean trackUsage = getConfigBoolean("track_usage", true);
             if (trackUsage) {
@@ -305,7 +323,6 @@ public class GeminiAIService {
     List<OptimizationIssue> parseRecommendations(String textResponse, QueryBatch batch) throws IOException {
         List<OptimizationIssue> issues = new ArrayList<>();
 
-
         // Extract JSON from the response (it might be wrapped in markdown code blocks)
         String jsonResponse = extractJsonFromResponse(textResponse);
 
@@ -338,7 +355,7 @@ public class GeminiAIService {
     /**
      * Extracts JSON content from the AI response, handling markdown code blocks.
      */
-     String extractJsonFromResponse(String response) {
+    String extractJsonFromResponse(String response) {
         if (response == null) {
             return null;
         }
@@ -380,21 +397,24 @@ public class GeminiAIService {
      * Always returns an OptimizationIssue - never returns null.
      * If no optimization is needed, returns an issue indicating no action required.
      */
-    OptimizationIssue parseOptimizationRecommendation(JsonNode recommendation, RepositoryQuery originalQuery) throws IOException {
+    OptimizationIssue parseOptimizationRecommendation(JsonNode recommendation, RepositoryQuery originalQuery)
+            throws IOException {
         String optimizedCodeElement = recommendation.path("optimizedCodeElement").asText();
         String notes = recommendation.path("notes").asText();
 
         // Determine if optimization was applied
-        boolean optimizationNeeded = !notes.contains("N/A") && !notes.contains("unchanged") && !notes.contains("already optimized");
+        boolean optimizationNeeded = !notes.contains("N/A") && !notes.contains("unchanged")
+                && !notes.contains("already optimized");
 
         /*
          * Extract the current column order from the original RepositoryQuery.
-         * For the recommended order, we need to create a new RepositoryQuery from the optimized code element.
+         * For the recommended order, we need to create a new RepositoryQuery from the
+         * optimized code element.
          */
         List<String> currentColumnOrder;
         List<String> recommendedColumnOrder;
         RepositoryQuery optimizedQuery = null;
-        
+
         currentColumnOrder = extractColumnOrderFromRepositoryQuery(originalQuery);
         if (optimizationNeeded) {
             OptimizedQueryResult optimizedResult = extractRecommendedColumnOrder(optimizedCodeElement, originalQuery);
@@ -411,8 +431,7 @@ public class GeminiAIService {
                     recommendedColumnOrder, // Same as current since no optimization needed
                     "Where clause is already optimized",
                     notes,
-                    null
-            );
+                    null);
         }
 
         return new OptimizationIssue(
@@ -421,13 +440,14 @@ public class GeminiAIService {
                 recommendedColumnOrder,
                 notes,
                 notes,
-                optimizedQuery
-        );
+                optimizedQuery);
     }
 
     /**
-     * Extracts column order from a RepositoryQuery using QueryOptimizationExtractor.
-     * This replaces the manual method signature parsing with proper WHERE clause analysis.
+     * Extracts column order from a RepositoryQuery using
+     * QueryOptimizationExtractor.
+     * This replaces the manual method signature parsing with proper WHERE clause
+     * analysis.
      */
     List<String> extractColumnOrderFromRepositoryQuery(RepositoryQuery repositoryQuery) {
         List<String> columns = new ArrayList<>();
@@ -436,7 +456,8 @@ public class GeminiAIService {
             return columns;
         }
 
-        List<WhereCondition> whereConditions = QueryOptimizationExtractor.extractWhereConditions(repositoryQuery.getStatement());
+        List<WhereCondition> whereConditions = QueryOptimizationExtractor
+                .extractWhereConditions(repositoryQuery.getStatement());
 
         // Extract column names in the order they appear in WHERE clause
         for (WhereCondition condition : whereConditions) {
@@ -451,19 +472,22 @@ public class GeminiAIService {
     /**
      * Record to hold both the optimized query and its column order.
      */
-    private record OptimizedQueryResult(RepositoryQuery optimizedQuery, List<String> columnOrder) {}
-
+    private record OptimizedQueryResult(RepositoryQuery optimizedQuery, List<String> columnOrder) {
+    }
 
     /**
      * Extracts recommended column order from the optimized code element.
-     * Creates a new RepositoryQuery that clones the original method but with the optimized method signature,
+     * Creates a new RepositoryQuery that clones the original method but with the
+     * optimized method signature,
      * then passes it through to extractColumnOrderFromRepositoryQuery.
      */
-    OptimizedQueryResult extractRecommendedColumnOrder(String optimizedCodeElement, RepositoryQuery originalQuery) throws IOException {
+    OptimizedQueryResult extractRecommendedColumnOrder(String optimizedCodeElement, RepositoryQuery originalQuery)
+            throws IOException {
         CompilationUnit originalCompilationUnit = originalQuery.getMethodDeclaration()
                 .getCallableDeclaration().findCompilationUnit().orElseThrow();
 
-        ClassOrInterfaceDeclaration cdecl = cloneClassSignature(originalCompilationUnit.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow());
+        ClassOrInterfaceDeclaration cdecl = cloneClassSignature(
+                originalCompilationUnit.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow());
         CompilationUnit cu = new CompilationUnit();
         cu.addType(cdecl);
 
@@ -552,7 +576,8 @@ public class GeminiAIService {
     void validateConfig() {
         String apiKey = getConfigString("api_key", null);
         if (apiKey == null || apiKey.trim().isEmpty()) {
-            throw new IllegalStateException("AI service API key is required. Set GEMINI_API_KEY environment variable or configure ai_service.api_key in generator.yml");
+            throw new IllegalStateException(
+                    "AI service API key is required. Set GEMINI_API_KEY environment variable or configure ai_service.api_key in generator.yml");
         }
     }
 
@@ -560,13 +585,14 @@ public class GeminiAIService {
      * Gets a string configuration value with fallback to environment variables.
      */
     String getConfigString(String key, String defaultValue) {
-        if (config == null) return defaultValue;
-        
+        if (config == null)
+            return defaultValue;
+
         Object value = config.get(key);
         if (value instanceof String str && !str.trim().isEmpty()) {
             return str;
         }
-        
+
         // Fallback to environment variables
         if ("api_key".equals(key)) {
             String envValue = System.getenv("GEMINI_API_KEY");
@@ -579,7 +605,7 @@ public class GeminiAIService {
                 return envValue;
             }
         }
-        
+
         return defaultValue;
     }
 
@@ -587,8 +613,9 @@ public class GeminiAIService {
      * Gets an integer configuration value.
      */
     int getConfigInt(String key, int defaultValue) {
-        if (config == null) return defaultValue;
-        
+        if (config == null)
+            return defaultValue;
+
         Object value = config.get(key);
         if (value instanceof Integer i) {
             return i;
@@ -602,15 +629,16 @@ public class GeminiAIService {
      * Gets a double configuration value.
      */
     double getConfigDouble(String key, double defaultValue) {
-        if (config == null) return defaultValue;
-        
+        if (config == null)
+            return defaultValue;
+
         Object value = config.get(key);
         if (value instanceof Number n) {
             return n.doubleValue();
         } else if (value instanceof String str) {
-             return Double.parseDouble(str);
+            return Double.parseDouble(str);
         }
-        
+
         return defaultValue;
     }
 
@@ -618,7 +646,8 @@ public class GeminiAIService {
      * Gets a boolean configuration value.
      */
     boolean getConfigBoolean(String key, boolean defaultValue) {
-        if (config == null) return defaultValue;
+        if (config == null)
+            return defaultValue;
 
         Object value = config.get(key);
         if (value instanceof Boolean b) {
