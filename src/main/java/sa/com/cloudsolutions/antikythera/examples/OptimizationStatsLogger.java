@@ -155,7 +155,7 @@ public class OptimizationStatsLogger {
         out.printf("Method calls updated:        %d%n", total.methodCallsChanged);
         out.printf("Dependent classes modified:  %d%n", total.dependentClassesModified);
         out.printf("Liquibase indexes generated: %d%n", total.liquibaseIndexesGenerated);
-        out.printf("Liquibase indexes generated: %d%n", total.liquibaseIndexesDropped);
+        out.printf("Liquibase indexes Dropped: %d%n", total.liquibaseIndexesDropped);
         out.println("=".repeat(80));
     }
 }
