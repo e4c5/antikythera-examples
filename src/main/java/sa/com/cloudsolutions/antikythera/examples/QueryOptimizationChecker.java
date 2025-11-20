@@ -148,7 +148,7 @@ public class QueryOptimizationChecker {
      */
     private List<OptimizationIssue> sendRawQueriesToLLM(String repositoryName, Collection<RepositoryQuery> rawQueries) throws IOException, InterruptedException {
         // Create a batch with raw queries and basic cardinality information
-        QueryBatch batch = createRawQueryBatch(repositoryName, rawQueries);
+        QueryBatch batch = createQueryBatch(repositoryName, rawQueries);
 
         // Send batch to AI service for analysis
         List<OptimizationIssue> llmRecommendations = aiService.analyzeQueryBatch(batch);
@@ -167,11 +167,12 @@ public class QueryOptimizationChecker {
      * Creates a QueryBatch with raw queries and actual WHERE clause column cardinality information.
      * Uses QueryAnalysisEngine to extract actual columns from WHERE clauses and method parameters.
      */
-    QueryBatch createRawQueryBatch(String repositoryName, Collection<RepositoryQuery> rawQueries) {
+    QueryBatch createQueryBatch(String repositoryName, Collection<RepositoryQuery> rawQueries) {
         QueryBatch batch = new QueryBatch(repositoryName);
 
         // Add all raw queries to the batch
         for (RepositoryQuery query : rawQueries) {
+
             batch.addQuery(query);
             addWhereClauseColumnCardinality(batch, query);
         }
