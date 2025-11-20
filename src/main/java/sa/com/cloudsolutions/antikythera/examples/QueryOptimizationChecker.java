@@ -628,7 +628,7 @@ public class QueryOptimizationChecker {
      */
     public void generateLiquibaseChangesFile() throws IOException {
         // Generate changesets for both create and drop operations
-        List<String> generated = generateAllChangesets();
+        List<String> generated = generateLiquibaseChangesets();
 
         if (generated.isEmpty()) {
             return;
@@ -651,7 +651,7 @@ public class QueryOptimizationChecker {
      *
      * @return GeneratedChangesets containing all changesets and counts
      */
-    List<String> generateAllChangesets() {
+    List<String> generateLiquibaseChangesets() {
         List<String> result = new ArrayList<>();
 
         for (String key : suggestedMultiColumnIndexes) {
