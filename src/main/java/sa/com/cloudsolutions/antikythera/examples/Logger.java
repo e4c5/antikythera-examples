@@ -54,12 +54,26 @@ public class Logger {
             super.visit(block, arg);
             if (block.getStatements().isEmpty()) {
                 Optional<Node> parent = block.getParentNode();
-                if (parent.isPresent() && parent.get() instanceof IfStmt ifStmt) {
-                    if (ifStmt.getElseStmt().isPresent()) {
-                        Statement elseStmt = ifStmt.getElseStmt().orElseThrow();
-                        if (elseStmt instanceof BlockStmt elseBlock && elseBlock.getStatements().isEmpty()) {
-                            return null;
+                if (parent.isPresent()) {
+                    Node parentNode = parent.get();
+                    // Don't remove empty catch blocks
+                    if (parentNode instanceof CatchClause) {
+                        return block;
+                    }
+                    // Don't remove empty method bodies
+                    if (parentNode instanceof MethodDeclaration) {
+                        return block;
+                    }
+                    if (parentNode instanceof IfStmt ifStmt) {
+                        if (ifStmt.getElseStmt().isPresent()) {
+                            Statement elseStmt = ifStmt.getElseStmt().orElseThrow();
+                            if (elseStmt instanceof BlockStmt elseBlock && elseBlock.getStatements().isEmpty()) {
+                                return null;
+                            }
                         }
+                    }
+                    else {
+                        return null;
                     }
                 }
                 else {
@@ -74,7 +88,9 @@ public class Logger {
         public MethodCallExpr visit(MethodCallExpr mce, Boolean functional) {
             super.visit(mce, functional);
 
-            if (mce.toString().toLowerCase().startsWith(loggerField)) {
+            // Check if the method call's scope is the logger field
+            if (mce.getScope().isPresent() &&
+                mce.getScope().get().toString().equals(loggerField)) {
                 count++;
 
                 BlockStmt block = AbstractCompiler.findBlockStatement(mce);
@@ -155,7 +171,7 @@ public class Logger {
                 m.accept(blockVisitor, null);
             }
 
-            String fullPath = Settings.getBasePath() + "/" + AbstractCompiler.classToPath(classname);
+            String fullPath = Settings.getBasePath() + "/src/main/java/" + AbstractCompiler.classToPath(classname);
             File f = new File(fullPath);
 
             if (f.exists()) {
