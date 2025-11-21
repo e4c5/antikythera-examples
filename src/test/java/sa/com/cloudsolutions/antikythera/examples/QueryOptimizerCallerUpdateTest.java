@@ -24,6 +24,7 @@ import java.io.PrintWriter;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.Collections;
 import java.util.List;
 
@@ -57,16 +58,26 @@ class QueryOptimizerCallerUpdateTest {
     static void init() throws IOException {
         File configFile = new File("src/test/resources/test-config.yml");
         Settings.loadConfigMap(configFile);
+
+        // Override base_path in Settings to point to the temp directory BEFORE preprocessing
+        Settings.setProperty("base_path", tempDir.toString());
+
+        // Mirror helper sources into the temp workspace
+        mirrorHelperSource(
+                "../antikythera-test-helper/src/main/java/sa/com/cloudsolutions/antikythera/testhelper/repository/UserRepository.java",
+                USER_REPOSITORY);
+        mirrorHelperSource(
+                "../antikythera-test-helper/src/main/java/sa/com/cloudsolutions/antikythera/testhelper/service/UserService.java",
+                USER_SERVICE);
+
+        // Ensure the mirrored UserService contains a call used for parameter reordering test
+        ensureUserServiceHasFindByNamesMethod();
+
+        // Initialize compiler/runtime with mirrored sources
         AbstractCompiler.reset();
         AbstractCompiler.setEnableLexicalPreservation(true);
-        AbstractCompiler.preProcess();
         EntityMappingResolver.reset();
-
-        // Override base_path in Settings to point to the temp directory
-        Settings.setProperty("base_path", tempDir.toString() );
-
-        createEmptyFile(USER_REPOSITORY);
-        createEmptyFile(USER_SERVICE);
+        AbstractCompiler.preProcess();
     }
 
     @BeforeEach
@@ -171,9 +182,9 @@ class QueryOptimizerCallerUpdateTest {
         System.out.println(serviceContent);
         System.out.println("=== End Service File Content ===");
 
-        assertTrue(serviceContent.contains("userRepository.findByUserName(username)"),
+        assertTrue(serviceContent.contains("repository.findByUserName(userName)"),
                 "Service method call should be updated to findByUserName");
-        assertFalse(serviceContent.contains("userRepository.findByUsername(username)"),
+        assertFalse(serviceContent.contains("repository.findByUsername(userName)"),
                 "Service should not contain old method name findByUsername");
     }
 
@@ -257,8 +268,8 @@ class QueryOptimizerCallerUpdateTest {
         System.out.println("=== End Service File Content ===");
 
         // Check that arguments are reordered in method calls
-        assertTrue(serviceContent.contains("userRepository.findByFirstNameAndLastName(lastName, firstName)") ||
-                serviceContent.contains("userRepository.findByFirstNameAndLastName(\"Doe\", \"John\")"),
+        assertTrue(serviceContent.contains("repository.findByFirstNameAndLastName(lastName, firstName)") ||
+                serviceContent.contains("repository.findByFirstNameAndLastName(\"Doe\", \"John\")"),
                 "Service method call arguments should be reordered");
     }
 
@@ -289,5 +300,32 @@ class QueryOptimizerCallerUpdateTest {
             }
         }
         throw new NoSuchFieldException(fieldName);
+    }
+
+    // Mirrors a helper source file into the temporary workspace, preserving package path
+    private static void mirrorHelperSource(String srcRelativePath, String destRelativePath) throws IOException {
+        Path srcPath = new File(srcRelativePath).toPath();
+        Path destPath = tempDir.resolve(destRelativePath);
+        Files.createDirectories(destPath.getParent());
+        Files.copy(srcPath, destPath, StandardCopyOption.REPLACE_EXISTING);
+    }
+
+    // Ensures the mirrored UserService contains a call suitable for the parameter reordering test
+    private static void ensureUserServiceHasFindByNamesMethod() throws IOException {
+        Path servicePath = tempDir.resolve(USER_SERVICE);
+        String content = Files.readString(servicePath);
+        if (!content.contains("findByFirstNameAndLastName(")) {
+            String method = "\n    public void findByNames(String firstName, String lastName) {\n" +
+                    "        repository.findByFirstNameAndLastName(firstName, lastName);\n" +
+                    "    }\n";
+            int idx = content.lastIndexOf('}');
+            if (idx >= 0) {
+                content = content.substring(0, idx) + method + content.substring(idx);
+            } else {
+                content = content + method;
+            }
+            Files.createDirectories(servicePath.getParent());
+            Files.writeString(servicePath, content);
+        }
     }
 }

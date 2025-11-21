@@ -13,6 +13,7 @@ import com.github.javaparser.ast.expr.TextBlockLiteralExpr;
 import com.github.javaparser.ast.visitor.ModifierVisitor;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.printer.lexicalpreservation.LexicalPreservingPrinter;
+import com.github.javaparser.ast.NodeList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
@@ -312,8 +313,20 @@ public class QueryOptimizer extends QueryOptimizationChecker {
 
                     // Process all field names for this class
                     for (String fieldName : fieldNames) {
-                        NameChangeVisitor visitor = new NameChangeVisitor(fieldName);
-                        typeWrapper.getType().accept(visitor, updates);
+                        NameChangeVisitor visitor = new NameChangeVisitor(fieldName, fullyQualifiedName);
+                        // Visit the entire CompilationUnit to ensure modifications apply to the CU instance
+                        CompilationUnit cu = AntikytheraRunTime.getCompilationUnit(className);
+                        if (cu != null) {
+                            try {
+                                LexicalPreservingPrinter.setup(cu);
+                            } catch (Exception e) {
+                                logger.debug("LPP setup failed for {}, proceeding without it: {}", className, e.getMessage());
+                            }
+                            cu.accept(visitor, updates);
+                        } else {
+                            // Fallback to visiting the type if CU is not available
+                            typeWrapper.getType().accept(visitor, updates);
+                        }
 
                         if (visitor.modified) {
                             classModified = true;
@@ -431,11 +444,13 @@ public class QueryOptimizer extends QueryOptimizationChecker {
 
     static class NameChangeVisitor extends ModifierVisitor<List<QueryOptimizationResult>> {
         String fieldName;
+        String repositoryFqn;
         boolean modified;
         int methodCallsUpdated = 0;
 
-        NameChangeVisitor(String fieldName) {
+        NameChangeVisitor(String fieldName, String repositoryFqn) {
             this.fieldName = fieldName;
+            this.repositoryFqn = repositoryFqn;
         }
 
         @Override
@@ -506,6 +521,18 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                 return false;
             }
 
+            // Guard: If arguments are already in the recommended order by variable names, skip
+            boolean allNameExpr = mce.getArguments().stream().allMatch(Expression::isNameExpr);
+            if (allNameExpr) {
+                List<String> argNames = mce.getArguments().stream()
+                        .map(e -> e.asNameExpr().getNameAsString())
+                        .toList();
+                if (argNames.equals(recommendedOrder)) {
+                    System.out.println("[DEBUG] Arguments already in recommended order; skipping");
+                    return false;
+                }
+            }
+
             // Create mapping from current position to new position
             List<Expression> currentArgs = new ArrayList<>(mce.getArguments());
             List<Expression> reorderedArgs = new ArrayList<>();
@@ -520,8 +547,8 @@ public class QueryOptimizer extends QueryOptimizationChecker {
 
             // Update the method call with reordered arguments
             if (reorderedArgs.size() == currentArgs.size()) {
-                mce.getArguments().clear();
-                mce.getArguments().addAll(reorderedArgs);
+                // Replace the entire NodeList to ensure the change is tracked by LPP and CU
+                mce.setArguments(new NodeList<>(reorderedArgs));
                 System.out.println("[DEBUG] Arguments reordered successfully");
                 return true;
             }
