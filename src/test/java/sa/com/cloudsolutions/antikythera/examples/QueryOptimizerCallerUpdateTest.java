@@ -1,6 +1,7 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -17,13 +18,14 @@ import sa.com.cloudsolutions.antikythera.parser.RepositoryParser;
 import sa.com.cloudsolutions.antikythera.parser.converter.EntityMappingResolver;
 
 import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.PrintWriter;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.Collections;
 import java.util.List;
-import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -36,10 +38,12 @@ import static org.mockito.Mockito.when;
  * updated
  * when repository method signatures change.
  */
-public class QueryOptimizerCallerUpdateTest {
+class QueryOptimizerCallerUpdateTest {
 
+    public static final String USER_SERVICE = "src/main/java/sa/com/cloudsolutions/antikythera/testhelper/service/UserService.java";
+    public static final String USER_REPOSITORY = "src/main/java/sa/com/cloudsolutions/antikythera/testhelper/repository/UserRepository.java";
     @TempDir
-    Path tempDir;
+    static Path tempDir;
 
     @Mock
     private GeminiAIService mockAiService;
@@ -49,45 +53,26 @@ public class QueryOptimizerCallerUpdateTest {
 
     private QueryOptimizer queryOptimizer;
 
-    @BeforeEach
-    void setUp() throws Exception {
-        MockitoAnnotations.openMocks(this);
-
-        // 1. Setup configuration
+    @BeforeAll
+    static void init() throws IOException {
         File configFile = new File("src/test/resources/test-config.yml");
         Settings.loadConfigMap(configFile);
-
-        // 2. Setup temporary directory with source files
-        Path sourceRoot = Path.of("../antikythera-test-helper/src/main/java");
-        Path destRoot = tempDir.resolve("src/main/java");
-        Files.createDirectories(destRoot);
-
-        try (Stream<Path> stream = Files.walk(sourceRoot)) {
-            stream.forEach(source -> {
-                Path dest = destRoot.resolve(sourceRoot.relativize(source));
-                try {
-                    Files.copy(source, dest, StandardCopyOption.REPLACE_EXISTING);
-                } catch (Exception e) {
-                    if (!Files.isDirectory(dest)) {
-                        try {
-                            Files.createDirectories(dest.getParent());
-                            Files.copy(source, dest, StandardCopyOption.REPLACE_EXISTING);
-                        } catch (Exception ex) {
-                            throw new RuntimeException(ex);
-                        }
-                    }
-                }
-            });
-        }
-
-        // Override base_path in Settings to point to the temp directory
-        Settings.setProperty("base_path", tempDir.toAbsolutePath().toString());
-
-        // 3. Reset Compiler and EntityMappingResolver
         AbstractCompiler.reset();
         AbstractCompiler.setEnableLexicalPreservation(true);
         AbstractCompiler.preProcess();
         EntityMappingResolver.reset();
+
+        // Override base_path in Settings to point to the temp directory
+        Settings.setProperty("base_path", tempDir.toString() );
+
+        createEmptyFile(USER_REPOSITORY);
+        createEmptyFile(USER_SERVICE);
+    }
+
+    @BeforeEach
+    void setUp() throws Exception {
+        MockitoAnnotations.openMocks(this);
+
 
         // 4. Initialize QueryOptimizer with mocks
         File liquibaseFile = new File("src/test/resources/db.changelog-master.xml");
@@ -113,7 +98,6 @@ public class QueryOptimizerCallerUpdateTest {
     void testMethodCallsUpdated_WhenMethodNameChanges() throws Exception {
         // Arrange
         String repoFqn = "sa.com.cloudsolutions.antikythera.testhelper.repository.UserRepository";
-        String serviceFqn = "sa.com.cloudsolutions.antikythera.testhelper.service.UserService";
 
         // Get the real CompilationUnit and MethodDeclaration
         var repoCu = AntikytheraRunTime.getCompilationUnit(repoFqn);
@@ -171,17 +155,18 @@ public class QueryOptimizerCallerUpdateTest {
 
         // Act
         TypeWrapper typeWrapper = AntikytheraRunTime.getResolvedTypes().get(repoFqn);
+
         queryOptimizer.analyzeRepository(repoFqn, typeWrapper);
 
         // Assert - Check that the repository method name was changed
         Path repoFile = tempDir
-                .resolve("src/main/java/sa/com/cloudsolutions/antikythera/testhelper/repository/UserRepository.java");
+                .resolve(USER_REPOSITORY);
         String repoContent = Files.readString(repoFile);
         assertTrue(repoContent.contains("findByUserName"), "Repository method name should be changed");
 
         // Assert - Check that the service method calls were updated
         Path serviceFile = tempDir
-                .resolve("src/main/java/sa/com/cloudsolutions/antikythera/testhelper/service/UserService.java");
+                .resolve(USER_SERVICE);
         String serviceContent = Files.readString(serviceFile);
 
         System.out.println("=== Service File Content ===");
@@ -194,11 +179,19 @@ public class QueryOptimizerCallerUpdateTest {
                 "Service should not contain old method name findByUsername");
     }
 
+    private static void createEmptyFile(String repoFqn) throws FileNotFoundException {
+        String fqn = AbstractCompiler.classToPath(repoFqn);
+        File f = new File(tempDir + "/" + fqn);
+        f.getParentFile().mkdirs();
+        PrintWriter writer = new PrintWriter(f);
+        writer.println("");
+        writer.close();
+    }
+
     @Test
     void testMethodCallsUpdated_WhenParametersReordered() throws Exception {
         // Arrange
         String repoFqn = "sa.com.cloudsolutions.antikythera.testhelper.repository.UserRepository";
-        String serviceFqn = "sa.com.cloudsolutions.antikythera.testhelper.service.UserService";
 
         var repoCu = AntikytheraRunTime.getCompilationUnit(repoFqn);
         var methodDecl = repoCu.getInterfaceByName("UserRepository").get()
@@ -258,7 +251,7 @@ public class QueryOptimizerCallerUpdateTest {
 
         // Assert - Check that service method calls have reordered arguments
         Path serviceFile = tempDir
-                .resolve("src/main/java/sa/com/cloudsolutions/antikythera/testhelper/service/UserService.java");
+                .resolve(USER_SERVICE);
         String serviceContent = Files.readString(serviceFile);
 
         System.out.println("=== Service File Content (Parameter Reordering) ===");
