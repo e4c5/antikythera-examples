@@ -242,13 +242,9 @@ public class QueryOptimizationChecker {
             String columnName = condition.columnName();
             CardinalityLevel cardinality = condition.cardinality();
 
-            // Check if index is needed for this column
-            if (cardinality != null && cardinality != CardinalityLevel.LOW) {
-                if (!hasOptimalIndexForColumn(tableName, columnName)) {
-                    // Index is missing or not optimal - add to required indexes
-                    String indexRecommendation = String.format("%s.%s", tableName, columnName);
-                    requiredIndexes.add(indexRecommendation);
-                }
+            if (cardinality != CardinalityLevel.LOW && !hasOptimalIndexForColumn(tableName, columnName)) {
+                String indexRecommendation = String.format("%s.%s", tableName, columnName);
+                requiredIndexes.add(indexRecommendation);
             }
         }
 
@@ -277,15 +273,7 @@ public class QueryOptimizationChecker {
      * @return true if an optimal index exists, false otherwise
      */
     boolean hasOptimalIndexForColumn(String tableName, String columnName) {
-        if (CardinalityAnalyzer.hasIndexWithLeadingColumn(tableName, columnName)) {
-            return true;
-        }
-
-        // Get the index map from cardinality analyzer to do more detailed analysis
-        Map<String, Set<Indexes.IndexInfo>> indexMap = CardinalityAnalyzer.getIndexMap();
-        indexMap.get(tableName);
-
-        return false;
+        return CardinalityAnalyzer.hasIndexWithLeadingColumn(tableName, columnName);
     }
 
 
@@ -685,9 +673,14 @@ public class QueryOptimizationChecker {
             result.add("\n    <!-- Summary: " + totalIndexCreateRecommendations + " total index create recommendations -->");
         }
 
+        addIndexDropChanges(result);
+        return result;
+    }
+
+    private void addIndexDropChanges(List<String> result) {
         // Analyze existing indexes to suggest drops for low-cardinality leading columns (always perform)
-        java.util.LinkedHashSet<String> dropCandidates = new java.util.LinkedHashSet<>();
-        java.util.Map<String, java.util.Set<Indexes.IndexInfo>> map = CardinalityAnalyzer.getIndexMap();
+        LinkedHashSet<String> dropCandidates = new LinkedHashSet<>();
+        Map<String, Set<Indexes.IndexInfo>> map = CardinalityAnalyzer.getIndexMap();
         if (map != null) {
             for (var entry : map.entrySet()) {
                 String table = entry.getKey();
@@ -718,7 +711,6 @@ public class QueryOptimizationChecker {
             OptimizationStatsLogger.updateIndexesDropped(dropCandidates.size());
             result.add("\n    <!-- Summary: " + dropCandidates.size() + " total index drop recommendations -->");
         }
-        return result;
     }
 
     boolean isCoveredByComposite(String table, String column) {
