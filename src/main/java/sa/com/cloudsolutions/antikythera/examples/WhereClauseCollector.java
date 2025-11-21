@@ -10,6 +10,9 @@ import net.sf.jsqlparser.statement.select.PlainSelect;
 import net.sf.jsqlparser.statement.select.Select;
 import net.sf.jsqlparser.statement.update.Update;
 
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -58,10 +61,28 @@ class WhereClauseCollector extends StatementVisitorAdapter<Void> {
     public <S> Void visit(Update update, S context) {
         extractWhereConditions(update.getWhere(), update.getFromItem());
 
-        // Process joins if present
+        // Process joins if present via known API
         if (update.getJoins() != null) {
             for (Join join : update.getJoins()) {
                 processJoin(join);
+            }
+        }
+        // Some JSqlParser versions expose UPDATE joins via different getters. Try them reflectively.
+        for (String methodName : new String[]{"getStartJoins", "getFromItemJoins"}) {
+            try {
+                Method m = update.getClass().getMethod(methodName);
+                Object res = m.invoke(update);
+                if (res instanceof List<?>) {
+                    for (Object o : (List<?>) res) {
+                        if (o instanceof Join j) {
+                            processJoin(j);
+                        }
+                    }
+                }
+            } catch (NoSuchMethodException ignored) {
+                // method not present in this version
+            } catch (Exception e) {
+                // ignore unexpected reflection issues to avoid breaking parsing
             }
         }
         return null;
@@ -117,12 +138,16 @@ class WhereClauseCollector extends StatementVisitorAdapter<Void> {
         // Process any subqueries in the join's right item
         processFromItem(join.getRightItem());
 
-        // Extract JOIN ON conditions separately
+        // Extract JOIN ON conditions separately. JSqlParser may expose a single onExpression
+        // or a list of onExpressions depending on statement type/version.
         if (join.getOnExpressions() != null) {
             for (Expression onExpr : join.getOnExpressions()) {
                 List<JoinCondition> conditions = extractJoinConditionsFromExpression(onExpr);
                 joinConditions.addAll(conditions);
             }
+        } else if (join.getOnExpression() != null) { // handle single ON expression (e.g., UPDATE ... JOIN ... ON ...)
+            List<JoinCondition> conditions = extractJoinConditionsFromExpression(join.getOnExpression());
+            joinConditions.addAll(conditions);
         }
     }
 

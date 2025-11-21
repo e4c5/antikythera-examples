@@ -298,22 +298,34 @@ public class QueryOptimizer extends QueryOptimizationChecker {
      */
     public void applySignatureUpdatesToUsagesWithStats(List<QueryOptimizationResult> updates, String fullyQualifiedName)
             throws FileNotFoundException {
-        Map<String, String> fields = Fields.getFieldDependencies(fullyQualifiedName);
+        Map<String, List<String>> fields = Fields.getFieldDependencies(fullyQualifiedName);
 
         if (fields != null) {
-            for (Map.Entry<String, String> entry : fields.entrySet()) {
+            for (Map.Entry<String, List<String>> entry : fields.entrySet()) {
                 String className = entry.getKey();
-                String fieldName = entry.getValue();
+                List<String> fieldNames = entry.getValue();
                 TypeWrapper typeWrapper = AntikytheraRunTime.getResolvedTypes().get(className);
 
                 if (typeWrapper != null) {
-                    NameChangeVisitor visitor = new NameChangeVisitor(fieldName);
-                    typeWrapper.getType().accept(visitor, updates);
+                    boolean classModified = false;
+                    int totalMethodCallsUpdated = 0;
 
-                    if (visitor.modified) {
+                    // Process all field names for this class
+                    for (String fieldName : fieldNames) {
+                        NameChangeVisitor visitor = new NameChangeVisitor(fieldName);
+                        typeWrapper.getType().accept(visitor, updates);
+
+                        if (visitor.modified) {
+                            classModified = true;
+                            totalMethodCallsUpdated += visitor.methodCallsUpdated;
+                        }
+                    }
+
+                    // Write file once if any field was modified
+                    if (classModified) {
                         if (writeFile(className)) {
                             OptimizationStatsLogger.updateDependentClassesChanged(1);
-                            OptimizationStatsLogger.updateMethodCallsChanged(visitor.methodCallsUpdated);
+                            OptimizationStatsLogger.updateMethodCallsChanged(totalMethodCallsUpdated);
                         }
                     }
                 }
@@ -475,18 +487,22 @@ public class QueryOptimizer extends QueryOptimizationChecker {
          * @return true if arguments were actually reordered, false otherwise
          */
         private boolean reorderMethodArguments(MethodCallExpr mce, OptimizationIssue issue) {
+            System.out.println("[DEBUG] reorderMethodArguments called for method: " + mce.getNameAsString());
             List<String> currentOrder = issue.currentColumnOrder();
             List<String> recommendedOrder = issue.recommendedColumnOrder();
-
+            System.out.println("[DEBUG] currentOrder=" + currentOrder + " recommendedOrder=" + recommendedOrder);
             // Only reorder if we have both orders and they're different
             if (currentOrder == null || recommendedOrder == null ||
                     currentOrder.equals(recommendedOrder) ||
                     currentOrder.size() != recommendedOrder.size()) {
+                System.out.println("[DEBUG] No reorder needed (null/equal/size mismatch)");
                 return false;
             }
 
             // Only reorder if argument count matches parameter count
             if (mce.getArguments().size() != currentOrder.size()) {
+                System.out.println(
+                        "[DEBUG] Argument count mismatch: " + mce.getArguments().size() + " vs " + currentOrder.size());
                 return false;
             }
 
@@ -506,11 +522,14 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             if (reorderedArgs.size() == currentArgs.size()) {
                 mce.getArguments().clear();
                 mce.getArguments().addAll(reorderedArgs);
+                System.out.println("[DEBUG] Arguments reordered successfully");
                 return true;
             }
 
+            System.out.println("[DEBUG] Reorder failed: size mismatch after mapping");
             return false;
         }
+
     }
 
     /**
