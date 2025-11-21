@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.examples.util.LiquibaseGenerator;
+import sa.com.cloudsolutions.antikythera.exception.AntikytheraException;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
 import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
@@ -96,9 +97,12 @@ public class QueryOptimizationChecker {
                 System.out.println("\n" + "=".repeat(80));
                 System.out.printf("Analyzing Repository: %s%n", fullyQualifiedName);
                 System.out.println("=".repeat(80));
-
-                analyzeRepository(fullyQualifiedName, typeWrapper);
-                repositoriesProcessed++;
+                try {
+                    analyzeRepository(fullyQualifiedName, typeWrapper);
+                    repositoriesProcessed++;
+                } catch (AntikytheraException ae) {
+                    logger.error("Error analyzing repository {}: {}", fullyQualifiedName, ae.getMessage());
+                }
             }
         }
 
@@ -115,7 +119,7 @@ public class QueryOptimizationChecker {
      * @param fullyQualifiedName the fully qualified class name of the repository
      * @param typeWrapper the TypeWrapper representing the repository
      */
-    protected void analyzeRepository(String fullyQualifiedName, TypeWrapper typeWrapper) throws IOException, ReflectiveOperationException, InterruptedException {
+     void analyzeRepository(String fullyQualifiedName, TypeWrapper typeWrapper) throws IOException, ReflectiveOperationException, InterruptedException {
         OptimizationStatsLogger.initialize(fullyQualifiedName);
         repositoryParser.compile(AbstractCompiler.classToPath(fullyQualifiedName));
         repositoryParser.processTypes();

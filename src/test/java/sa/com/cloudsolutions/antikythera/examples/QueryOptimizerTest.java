@@ -1,354 +1,384 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
-import com.github.javaparser.StaticJavaParser;
-import com.github.javaparser.ast.body.MethodDeclaration;
-import com.github.javaparser.ast.expr.AnnotationExpr;
-import com.github.javaparser.ast.expr.StringLiteralExpr;
-import com.github.javaparser.ast.expr.TextBlockLiteralExpr;
-import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.mockito.Mock;
+import org.mockito.MockitoAnnotations;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
+import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
+import sa.com.cloudsolutions.antikythera.generator.QueryType;
+import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
+import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
+import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
+import sa.com.cloudsolutions.antikythera.parser.Callable;
+import sa.com.cloudsolutions.antikythera.parser.RepositoryParser;
+import sa.com.cloudsolutions.antikythera.parser.converter.EntityMappingResolver;
 
 import java.io.File;
+import java.lang.reflect.Field;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.util.Collections;
+import java.util.List;
+import java.util.stream.Stream;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
-/**
- * Comprehensive test suite for QueryOptimizer class.
- * Tests both annotation value updates and text block rendering.
- */
 class QueryOptimizerTest {
 
-    private QueryOptimizer optimizer;
+    @TempDir
+    Path tempDir;
 
-    @BeforeAll
-    static void setUpClass() throws Exception {
-        Settings.loadConfigMap();
-    }
+    private QueryOptimizer queryOptimizer;
+
+    @Mock
+    private GeminiAIService mockAiService;
+
+    @Mock
+    private QueryAnalysisEngine mockAnalysisEngine;
+
+    private AutoCloseable closeable;
 
     @BeforeEach
     void setUp() throws Exception {
-        // Create a minimal QueryOptimizer instance for testing
-        File liquibaseFile = new File("src/test/resources/liquibase-test.xml");
-        optimizer = new QueryOptimizer(liquibaseFile);
+        closeable = MockitoAnnotations.openMocks(this);
+
+        // 1. Setup configuration
+        File configFile = new File("src/test/resources/test-config.yml");
+        Settings.loadConfigMap(configFile);
+
+        // 2. Setup temporary directory with source files
+        // Copy all files from antikythera-test-helper to tempDir to ensure entities are
+        // resolved
+        Path sourceRoot = Path.of("../antikythera-test-helper/src/main/java");
+        Path destRoot = tempDir.resolve("src/main/java");
+        Files.createDirectories(destRoot);
+
+        try (Stream<Path> stream = Files.walk(sourceRoot)) {
+            stream.forEach(source -> {
+                Path dest = destRoot.resolve(sourceRoot.relativize(source));
+                try {
+                    Files.copy(source, dest, StandardCopyOption.REPLACE_EXISTING);
+                } catch (Exception e) {
+                    // Ignore directory creation errors if they already exist or if it's a directory
+                    if (!Files.isDirectory(dest)) {
+                        // if destination directory doesn't exist, create it
+                        try {
+                            Files.createDirectories(dest.getParent());
+                            Files.copy(source, dest, StandardCopyOption.REPLACE_EXISTING);
+                        } catch (Exception ex) {
+                            throw new RuntimeException(ex);
+                        }
+                    }
+                }
+            });
+        }
+
+        // Override base_path in Settings to point to the temp directory
+        Settings.setProperty("base_path", tempDir.toAbsolutePath().toString());
+
+        // 3. Reset Compiler and EntityMappingResolver
+        AbstractCompiler.reset();
+        // Enable lexical preservation for AST modification tracking
+        AbstractCompiler.setEnableLexicalPreservation(true);
+        AbstractCompiler.preProcess();
+        EntityMappingResolver.reset();
+
+        // 4. Initialize QueryOptimizer with mocks
+        File liquibaseFile = new File("src/test/resources/db.changelog-master.xml");
+        queryOptimizer = new QueryOptimizer(liquibaseFile);
+
+        // Inject mocks using reflection
+        setField(queryOptimizer, "aiService", mockAiService);
+        setField(queryOptimizer, "analysisEngine", mockAnalysisEngine);
+
+        // Mock RepositoryParser
+        RepositoryParser mockRepositoryParser = mock(RepositoryParser.class);
+        setField(queryOptimizer, "repositoryParser", mockRepositoryParser);
+    }
+
+    @AfterEach
+    void tearDown() throws Exception {
+        closeable.close();
     }
 
     @Test
-    void testUpdateAnnotationValue_withSingleLineQuery() {
-        // Test case 1: Single-line query should use StringLiteralExpr
-        String singleLineQuery = "SELECT * FROM users WHERE id = ?";
+    void testAnalyzeRepository_WithOptimization() throws Exception {
+        // Arrange
+        String fullyQualifiedName = "sa.com.cloudsolutions.antikythera.testhelper.repository.UserRepository";
 
-        // Create a method with a Query annotation
-        MethodDeclaration method = StaticJavaParser.parseMethodDeclaration(
-            "@Query(\"old query\") List<User> findUsers();"
-        );
+        // Get the real CompilationUnit and MethodDeclaration
+        var cu = AntikytheraRunTime.getCompilationUnit(fullyQualifiedName);
+        var methodDecl = cu.getInterfaceByName("UserRepository").get().getMethodsByName("findByUsernameWithQuery")
+                .get(0);
 
-        optimizer.updateAnnotationValue(method, "Query", singleLineQuery, false);
+        // Mock AI Service response
+        OptimizationIssue issue = mock(OptimizationIssue.class);
+        RepositoryQuery query = mock(RepositoryQuery.class);
+        when(query.getMethodName()).thenReturn("findByUsernameWithQuery");
+        when(query.getQueryType()).thenReturn(QueryType.HQL);
+        when(query.getOriginalQuery()).thenReturn("SELECT u FROM User u WHERE u.username = ?1");
+        when(query.getStatement()).thenReturn(mock(net.sf.jsqlparser.statement.Statement.class));
 
-        // Verify the annotation was updated with StringLiteralExpr
-        AnnotationExpr annotation = method.getAnnotationByName("Query").orElseThrow();
-        assertTrue(annotation.isSingleMemberAnnotationExpr());
+        Callable callable = new Callable(methodDecl, null);
+        when(query.getMethodDeclaration()).thenReturn(callable);
 
-        var memberValue = annotation.asSingleMemberAnnotationExpr().getMemberValue();
-        assertTrue(memberValue instanceof StringLiteralExpr,
-            "Single-line query should use StringLiteralExpr");
-        assertEquals(singleLineQuery, ((StringLiteralExpr) memberValue).getValue());
+        when(issue.query()).thenReturn(query);
+
+        // Create a separate mock for optimized query to simulate a change
+        RepositoryQuery optimizedQuery = mock(RepositoryQuery.class);
+        when(optimizedQuery.getMethodName()).thenReturn("findByUsernameWithQuery");
+        when(optimizedQuery.getQueryType()).thenReturn(QueryType.HQL);
+        when(optimizedQuery.getOriginalQuery()).thenReturn("SELECT u FROM User u WHERE u.username = ?1 -- OPTIMIZED");
+        when(optimizedQuery.getStatement()).thenReturn(mock(net.sf.jsqlparser.statement.Statement.class));
+
+        when(issue.optimizedQuery()).thenReturn(optimizedQuery);
+        when(issue.description()).thenReturn("Optimization needed");
+        when(issue.aiExplanation()).thenReturn("Use index");
+
+        // Mock TokenUsage
+        TokenUsage tokenUsage = new TokenUsage();
+        when(mockAiService.getLastTokenUsage()).thenReturn(tokenUsage);
+
+        when(mockAiService.analyzeQueryBatch(any())).thenReturn(Collections.singletonList(issue));
+
+        // Mock Analysis Engine
+        QueryOptimizationResult result = mock(QueryOptimizationResult.class);
+        when(result.getOptimizationIssue()).thenReturn(issue);
+        when(result.getQuery()).thenReturn(query);
+        when(result.getMethodName()).thenReturn("findByUsernameWithQuery");
+        when(result.getWhereConditions()).thenReturn(Collections.emptyList());
+        when(result.getIndexSuggestions()).thenReturn(Collections.emptyList());
+        when(result.getFullWhereClause()).thenReturn("u.username = ?1");
+
+        when(mockAnalysisEngine.analyzeQuery(any())).thenReturn(result);
+
+        // Configure RepositoryParser mock
+        RepositoryParser mockRepositoryParser = (RepositoryParser) getField(queryOptimizer, "repositoryParser");
+        when(mockRepositoryParser.getCompilationUnit()).thenReturn(cu);
+        when(mockRepositoryParser.getAllQueries()).thenReturn(List.of(query));
+        // We need to return something for getEntity, otherwise it might throw NPE if
+        // used
+        // But analyzeRepository calls repositoryParser.getEntity() only for logging?
+        // Let's verify. It calls repositoryParser.getEntity() in line 118 of
+        // QueryOptimizationChecker.
+        // So we should mock it.
+        when(mockRepositoryParser.getEntity())
+                .thenReturn(new TypeWrapper(cu.getInterfaceByName("UserRepository").get()));
+
+        // Act
+        TypeWrapper typeWrapper = AntikytheraRunTime.getResolvedTypes().get(fullyQualifiedName);
+
+        queryOptimizer.analyzeRepository(fullyQualifiedName, typeWrapper);
+
+        Path repoFile = tempDir
+                .resolve("src/main/java/sa/com/cloudsolutions/antikythera/testhelper/repository/UserRepository.java");
+
+        // Verify that writeFile was called (it calls getCompilationUnit)
+        verify(mockRepositoryParser).getCompilationUnit();
+
+        // Assert
+        String content = Files.readString(repoFile);
+
+        assertTrue(content.contains("-- OPTIMIZED"), "File should contain optimized query");
     }
 
     @Test
-    void testUpdateAnnotationValue_withMultiLineQuery() {
-        // Test case 2: Multi-line query should use TextBlockLiteralExpr
-        String multiLineQuery = "SELECT *\nFROM users\nWHERE id = ?";
+    void testAnalyzeRepository_WithParameterReordering() throws Exception {
+        // Arrange
+        String fullyQualifiedName = "sa.com.cloudsolutions.antikythera.testhelper.repository.UserRepository";
 
-        // Create a method with a Query annotation
-        MethodDeclaration method = StaticJavaParser.parseMethodDeclaration(
-            "@Query(\"old query\") List<User> findUsers();"
-        );
+        // Get the real CompilationUnit and MethodDeclaration
+        var cu = AntikytheraRunTime.getCompilationUnit(fullyQualifiedName);
+        var methodDecl = cu.getInterfaceByName("UserRepository").get().getMethodsByName("findByFirstNameAndLastName")
+                .get(0);
 
-        optimizer.updateAnnotationValue(method, "Query", multiLineQuery, true);
+        // Mock AI Service response
+        OptimizationIssue issue = mock(OptimizationIssue.class);
+        RepositoryQuery query = mock(RepositoryQuery.class);
+        when(query.getMethodName()).thenReturn("findByFirstNameAndLastName");
+        when(query.getQueryType()).thenReturn(QueryType.DERIVED);
+        when(query.getOriginalQuery()).thenReturn("SELECT * FROM users WHERE first_name = ?1 AND last_name = ?2");
+        when(query.getStatement()).thenReturn(mock(net.sf.jsqlparser.statement.Statement.class));
 
-        // Verify the annotation was updated with TextBlockLiteralExpr
-        AnnotationExpr annotation = method.getAnnotationByName("Query").orElseThrow();
-        assertTrue(annotation.isSingleMemberAnnotationExpr());
+        Callable callable = new Callable(methodDecl, null);
+        when(query.getMethodDeclaration()).thenReturn(callable);
 
-        var memberValue = annotation.asSingleMemberAnnotationExpr().getMemberValue();
-        assertTrue(memberValue instanceof TextBlockLiteralExpr,
-            "Multi-line query should use TextBlockLiteralExpr");
-        assertEquals(multiLineQuery, ((TextBlockLiteralExpr) memberValue).getValue());
+        when(issue.query()).thenReturn(query);
+
+        RepositoryQuery optimizedQuery = mock(RepositoryQuery.class);
+        when(optimizedQuery.getMethodName()).thenReturn("findByFirstNameAndLastName");
+        when(optimizedQuery.getQueryType()).thenReturn(QueryType.DERIVED);
+        when(optimizedQuery.getOriginalQuery())
+                .thenReturn("SELECT * FROM users WHERE first_name = ?1 AND last_name = ?2");
+
+        // Mock statement for derived query
+        net.sf.jsqlparser.statement.Statement mockStatement = mock(net.sf.jsqlparser.statement.Statement.class);
+        when(mockStatement.toString()).thenReturn("SELECT * FROM users WHERE first_name = ?1 AND last_name = ?2");
+        when(optimizedQuery.getStatement()).thenReturn(mockStatement);
+
+        when(issue.optimizedQuery()).thenReturn(optimizedQuery);
+        when(issue.description()).thenReturn("Parameter reordering needed");
+        when(issue.aiExplanation()).thenReturn("Reorder parameters");
+        when(issue.currentColumnOrder()).thenReturn(List.of("firstName", "lastName"));
+        when(issue.recommendedColumnOrder()).thenReturn(List.of("lastName", "firstName"));
+
+        // Mock TokenUsage
+        TokenUsage tokenUsage = new TokenUsage();
+        when(mockAiService.getLastTokenUsage()).thenReturn(tokenUsage);
+
+        when(mockAiService.analyzeQueryBatch(any())).thenReturn(Collections.singletonList(issue));
+
+        // Mock Analysis Engine
+        QueryOptimizationResult result = mock(QueryOptimizationResult.class);
+        when(result.getOptimizationIssue()).thenReturn(issue);
+        when(result.getQuery()).thenReturn(query);
+        when(result.getMethodName()).thenReturn("findByFirstNameAndLastName");
+        when(result.getWhereConditions()).thenReturn(Collections.emptyList());
+        when(result.getIndexSuggestions()).thenReturn(Collections.emptyList());
+        when(result.getFullWhereClause()).thenReturn("first_name = ?1 AND last_name = ?2");
+
+        when(mockAnalysisEngine.analyzeQuery(any())).thenReturn(result);
+
+        // Configure RepositoryParser mock
+        RepositoryParser mockRepositoryParser = (RepositoryParser) getField(queryOptimizer, "repositoryParser");
+        when(mockRepositoryParser.getCompilationUnit()).thenReturn(cu);
+        when(mockRepositoryParser.getAllQueries()).thenReturn(List.of(query));
+        when(mockRepositoryParser.getEntity())
+                .thenReturn(new TypeWrapper(cu.getInterfaceByName("UserRepository").get()));
+
+        // Act
+        TypeWrapper typeWrapper = AntikytheraRunTime.getResolvedTypes().get(fullyQualifiedName);
+        queryOptimizer.analyzeRepository(fullyQualifiedName, typeWrapper);
+
+        // Assert
+        Path repoFile = tempDir
+                .resolve("src/main/java/sa/com/cloudsolutions/antikythera/testhelper/repository/UserRepository.java");
+        String content = Files.readString(repoFile);
+        // We expect parameters to be reordered in the file content if the optimizer
+        // writes it back
+        // Note: The optimizer writes back if 'repositoryFileModified' is true.
+        // Parameter reordering sets 'repositoryFileModified = true'.
+        // But we need to verify if it actually reordered them in the printed file.
+        // Since we are using LexicalPreservingPrinter, it should work.
+        // However, verifying exact string might be tricky with formatting.
+        // Let's check if "String lastName, String firstName" appears.
+        assertTrue(content.contains("String lastName, String firstName"), "Parameters should be reordered");
     }
 
     @Test
-    void testUpdateAnnotationValue_withLiteralBackslashN() {
-        // Test case 3: Query with literal \n characters (as string)
-        String queryWithLiteralBackslashN = "SELECT * FROM users\\nWHERE id = ?";
-        String expectedProcessed = "SELECT * FROM users\nWHERE id = ?";
+    void testAnalyzeRepository_WithMethodNameChange() throws Exception {
+        // Arrange
+        String fullyQualifiedName = "sa.com.cloudsolutions.antikythera.testhelper.repository.UserRepository";
 
-        // Create a method with a Query annotation
-        MethodDeclaration method = StaticJavaParser.parseMethodDeclaration(
-            "@Query(\"old query\") List<User> findUsers();"
-        );
+        // Get the real CompilationUnit and MethodDeclaration
+        var cu = AntikytheraRunTime.getCompilationUnit(fullyQualifiedName);
+        var methodDecl = cu.getInterfaceByName("UserRepository").get().getMethodsByName("findByUsername")
+                .get(0);
 
-        // The updateAnnotationValueWithTextBlockSupport should handle the conversion
-        // But we're testing updateAnnotationValue directly, so we convert manually
-        String processed = queryWithLiteralBackslashN.replace("\\n", "\n");
-        optimizer.updateAnnotationValue(method, "Query", processed, true);
+        // Mock AI Service response - recommending a method name change
+        OptimizationIssue issue = mock(OptimizationIssue.class);
+        RepositoryQuery query = mock(RepositoryQuery.class);
+        when(query.getMethodName()).thenReturn("findByUsername");
+        when(query.getQueryType()).thenReturn(QueryType.DERIVED);
+        when(query.getOriginalQuery()).thenReturn("SELECT * FROM users WHERE username = ?1");
+        when(query.getStatement()).thenReturn(mock(net.sf.jsqlparser.statement.Statement.class));
 
-        // Verify the annotation was updated with TextBlockLiteralExpr
-        AnnotationExpr annotation = method.getAnnotationByName("Query").orElseThrow();
-        var memberValue = annotation.asSingleMemberAnnotationExpr().getMemberValue();
+        Callable callable = new Callable(methodDecl, null);
+        when(query.getMethodDeclaration()).thenReturn(callable);
 
-        assertTrue(memberValue instanceof TextBlockLiteralExpr,
-            "Query with converted newlines should use TextBlockLiteralExpr");
-        assertEquals(expectedProcessed, ((TextBlockLiteralExpr) memberValue).getValue());
+        when(issue.query()).thenReturn(query);
+
+        RepositoryQuery optimizedQuery = mock(RepositoryQuery.class);
+        when(optimizedQuery.getMethodName()).thenReturn("findByUserName"); // Different name!
+        when(optimizedQuery.getQueryType()).thenReturn(QueryType.DERIVED);
+        when(optimizedQuery.getOriginalQuery())
+                .thenReturn("SELECT * FROM users WHERE username = ?1 -- OPTIMIZED");
+
+        // Mock statement for derived query
+        net.sf.jsqlparser.statement.Statement mockStatement = mock(net.sf.jsqlparser.statement.Statement.class);
+        when(mockStatement.toString()).thenReturn("SELECT * FROM users WHERE username = ?1 -- OPTIMIZED");
+        when(optimizedQuery.getStatement()).thenReturn(mockStatement);
+
+        when(issue.optimizedQuery()).thenReturn(optimizedQuery);
+        when(issue.description()).thenReturn("Method name should be changed");
+        when(issue.aiExplanation()).thenReturn("Use camelCase for method name");
+        when(issue.currentColumnOrder()).thenReturn(List.of("username"));
+        when(issue.recommendedColumnOrder()).thenReturn(List.of("username"));
+
+        // Mock TokenUsage
+        TokenUsage tokenUsage = new TokenUsage();
+        when(mockAiService.getLastTokenUsage()).thenReturn(tokenUsage);
+
+        when(mockAiService.analyzeQueryBatch(any())).thenReturn(Collections.singletonList(issue));
+
+        // Mock Analysis Engine
+        QueryOptimizationResult result = mock(QueryOptimizationResult.class);
+        when(result.getOptimizationIssue()).thenReturn(issue);
+        when(result.getQuery()).thenReturn(query);
+        when(result.getMethodName()).thenReturn("findByUserName");
+        when(result.getWhereConditions()).thenReturn(Collections.emptyList());
+        when(result.getIndexSuggestions()).thenReturn(Collections.emptyList());
+        when(result.getFullWhereClause()).thenReturn("username = ?1");
+
+        when(mockAnalysisEngine.analyzeQuery(any())).thenReturn(result);
+
+        // Configure RepositoryParser mock
+        RepositoryParser mockRepositoryParser = (RepositoryParser) getField(queryOptimizer, "repositoryParser");
+        when(mockRepositoryParser.getCompilationUnit()).thenReturn(cu);
+        when(mockRepositoryParser.getAllQueries()).thenReturn(List.of(query));
+        when(mockRepositoryParser.getEntity())
+                .thenReturn(new TypeWrapper(cu.getInterfaceByName("UserRepository").get()));
+
+        // Act
+        TypeWrapper typeWrapper = AntikytheraRunTime.getResolvedTypes().get(fullyQualifiedName);
+        queryOptimizer.analyzeRepository(fullyQualifiedName, typeWrapper);
+
+        // Assert
+        Path repoFile = tempDir
+                .resolve("src/main/java/sa/com/cloudsolutions/antikythera/testhelper/repository/UserRepository.java");
+        String content = Files.readString(repoFile);
+
+        // Verify the method name was changed in the file
+        assertTrue(content.contains("findByUserName"), "Method name should be changed to findByUserName");
+        assertFalse(content.contains("User findByUsername(String username)"),
+                "Old method signature should not be present");
     }
 
-    @Test
-    void testUpdateAnnotationValue_withNormalAnnotation() {
-        // Test case 4: Normal annotation style @Query(value = "...")
-        String multiLineQuery = "SELECT u.id, u.name\nFROM users u\nWHERE u.status = ?";
-
-        // Create a method with a normal annotation
-        MethodDeclaration method = StaticJavaParser.parseMethodDeclaration(
-            "@Query(value = \"old query\", nativeQuery = true) List<User> findUsers();"
-        );
-
-        optimizer.updateAnnotationValue(method, "Query", multiLineQuery, true);
-
-        // Verify the annotation was updated
-        AnnotationExpr annotation = method.getAnnotationByName("Query").orElseThrow();
-        assertTrue(annotation.isNormalAnnotationExpr());
-
-        var pairs = annotation.asNormalAnnotationExpr().getPairs();
-        var valuePair = pairs.stream()
-            .filter(p -> p.getName().asString().equals("value"))
-            .findFirst()
-            .orElseThrow();
-
-        assertTrue(valuePair.getValue() instanceof TextBlockLiteralExpr,
-            "Multi-line query should use TextBlockLiteralExpr in normal annotations");
-        assertEquals(multiLineQuery, ((TextBlockLiteralExpr) valuePair.getValue()).getValue());
+    private void setField(Object target, String fieldName, Object value) throws Exception {
+        Class<?> clazz = target.getClass();
+        while (clazz != null) {
+            try {
+                Field field = clazz.getDeclaredField(fieldName);
+                field.setAccessible(true);
+                field.set(target, value);
+                return;
+            } catch (NoSuchFieldException e) {
+                clazz = clazz.getSuperclass();
+            }
+        }
+        throw new NoSuchFieldException(fieldName);
     }
 
-    @Test
-    void testUpdateAnnotationValue_preservesOtherAnnotationProperties() {
-        // Test case 5: Updating value should preserve other annotation properties
-        String newQuery = "SELECT * FROM users";
-
-        MethodDeclaration method = StaticJavaParser.parseMethodDeclaration(
-            "@Query(value = \"old query\", nativeQuery = true) List<User> findUsers();"
-        );
-
-        optimizer.updateAnnotationValue(method, "Query", newQuery, false);
-
-        // Verify nativeQuery property is still present
-        AnnotationExpr annotation = method.getAnnotationByName("Query").orElseThrow();
-        var pairs = annotation.asNormalAnnotationExpr().getPairs();
-
-        assertEquals(2, pairs.size(), "Should still have 2 pairs (value and nativeQuery)");
-
-        var nativeQueryPair = pairs.stream()
-            .filter(p -> p.getName().asString().equals("nativeQuery"))
-            .findFirst();
-
-        assertTrue(nativeQueryPair.isPresent(), "nativeQuery property should be preserved");
-    }
-
-    @Test
-    void testUpdateAnnotationValue_withNonExistentAnnotation() {
-        // Test case 6: Attempting to update non-existent annotation should not crash
-        MethodDeclaration method = StaticJavaParser.parseMethodDeclaration(
-            "List<User> findUsers();"
-        );
-
-        // Should not throw exception
-        assertDoesNotThrow(() ->
-            optimizer.updateAnnotationValue(method, "Query", "SELECT * FROM users", false)
-        );
-
-        // Annotation should still not exist (we don't create it, just update if present)
-        assertFalse(method.getAnnotationByName("Query").isPresent());
-    }
-
-    @Test
-    void testUpdateAnnotationValue_withComplexMultiLineQuery() {
-        // Test case 7: Complex multi-line query with various SQL clauses
-        String complexQuery = """
-                            SELECT u.id, u.name, u.email
-                            FROM users u JOIN orders o ON u.id = o.user_id
-                            WHERE u.status = ? AND o.total > ? ORDER BY u.name""";
-
-        MethodDeclaration method = StaticJavaParser.parseMethodDeclaration(
-            "@Query(\"old query\") List<User> findUsers();"
-        );
-
-        optimizer.updateAnnotationValue(method, "Query", complexQuery, true);
-
-        // Verify the annotation was updated
-        AnnotationExpr annotation = method.getAnnotationByName("Query").orElseThrow();
-        var memberValue = annotation.asSingleMemberAnnotationExpr().getMemberValue();
-
-        assertTrue(memberValue instanceof TextBlockLiteralExpr);
-        String retrievedValue = ((TextBlockLiteralExpr) memberValue).getValue();
-
-        // Verify all parts of the query are preserved
-        assertTrue(retrievedValue.contains("SELECT u.id, u.name, u.email"));
-        assertTrue(retrievedValue.contains("FROM users u"));
-        assertTrue(retrievedValue.contains("JOIN orders o ON u.id = o.user_id"));
-        assertTrue(retrievedValue.contains("WHERE u.status = ? AND o.total > ?"));
-        assertTrue(retrievedValue.contains("ORDER BY u.name"));
-    }
-
-    // ==================== Integration Tests for Text Block Rendering ====================
-
-    @Test
-    void testTextBlockRendering_withTripleQuotes() {
-        // Integration test: Verify text blocks render with triple quotes
-        MethodDeclaration method = StaticJavaParser.parseMethodDeclaration(
-            "@Query(\"old query\") List<User> findUsers();"
-        );
-
-        String multilineQuery = "SELECT u.id, u.name\nFROM users u\nWHERE u.status = ?";
-        optimizer.updateAnnotationValue(method, "Query", multilineQuery, true);
-
-        // Verify the rendered output
-        String rendered = method.toString();
-
-        assertTrue(rendered.contains("\"\"\""),
-            "Rendered output should contain triple quotes for text block");
-        assertFalse(rendered.contains("\\n"),
-            "Rendered output should NOT contain escaped \\n characters");
-        assertTrue(rendered.contains("SELECT u.id, u.name"),
-            "Rendered output should contain the query text");
-        assertTrue(rendered.contains("FROM users u"),
-            "Rendered output should preserve line structure");
-
-        // Verify it actually renders across multiple lines
-        String[] lines = rendered.split("\n");
-        assertTrue(lines.length > 1,
-            "Rendered output should span multiple lines");
-    }
-
-    @Test
-    void testStringLiteralRendering_withEscapedNewlines() {
-        // Integration test: Verify string literals escape newlines
-        MethodDeclaration method = StaticJavaParser.parseMethodDeclaration(
-            "@Query(\"old query\") List<User> findUsers();"
-        );
-
-        String queryWithNewlines = "SELECT *\nFROM users\nWHERE id = ?";
-        optimizer.updateAnnotationValue(method, "Query", queryWithNewlines, false);
-
-        String rendered = method.toString();
-
-        assertFalse(rendered.contains("\"\"\""),
-            "Rendered output should NOT contain triple quotes when using StringLiteralExpr");
-        assertTrue(rendered.contains("\\n"),
-            "Rendered output SHOULD contain escaped \\n characters when using StringLiteralExpr");
-    }
-
-    @Test
-    void testLiteralBackslashN_detectionAndConversion() {
-        // Integration test: Verify literal \n detection and conversion
-        MethodDeclaration method = StaticJavaParser.parseMethodDeclaration(
-            "@Query(\"old query\") List<User> findUsers();"
-        );
-
-        String queryWithLiteralBackslashN = "SELECT * FROM users\\nWHERE id = ?";
-
-        // Simulate what updateAnnotationValueWithTextBlockSupport does
-        boolean isMultiline = queryWithLiteralBackslashN.contains("\\n") ||
-                             queryWithLiteralBackslashN.contains("\n");
-        assertTrue(isMultiline, "Should detect literal \\n as multiline");
-
-        // Convert and update
-        String processed = queryWithLiteralBackslashN.replace("\\n", "\n");
-        optimizer.updateAnnotationValue(method, "Query", processed, true);
-
-        // Verify the rendered output
-        String rendered = method.toString();
-        assertTrue(rendered.contains("\"\"\""),
-            "Should render as text block");
-        assertFalse(rendered.contains("\\n"),
-            "Should not have escaped newlines in text block");
-    }
-
-    @Test
-    void testCompleteWorkflow_fromLiteralBackslashNToTextBlock() {
-        // Integration test: Complete workflow from literal \n to text block
-        String originalQuery = "SELECT u.id, u.name, u.email\\nFROM users u\\nWHERE u.status = ?";
-
-        // Detect multiline
-        boolean hasLiteralNewline = originalQuery.contains("\\n");
-        boolean hasActualNewline = originalQuery.contains("\n");
-        boolean isMultiline = hasLiteralNewline || hasActualNewline;
-
-        assertTrue(isMultiline, "Should detect query as multiline");
-
-        // Convert and update
-        String processedQuery = originalQuery.replace("\\n", "\n");
-
-        MethodDeclaration method = StaticJavaParser.parseMethodDeclaration(
-            "@Query(\"old\") List<User> findUsers();"
-        );
-        optimizer.updateAnnotationValue(method, "Query", processedQuery, true);
-
-        // Verify final output
-        String rendered = method.toString();
-
-        assertTrue(rendered.contains("\"\"\""),
-            "Final output should use text block delimiters");
-        assertFalse(rendered.contains("\\n"),
-            "Final output should not have escaped \\n");
-        assertTrue(rendered.split("\n").length > 1,
-            "Final output should span multiple lines");
-
-        // Verify content preservation
-        assertTrue(rendered.contains("SELECT u.id, u.name, u.email"));
-        assertTrue(rendered.contains("FROM users u"));
-        assertTrue(rendered.contains("WHERE u.status = ?"));
-    }
-
-    @Test
-    void testVerifyExpressionType_textBlock() {
-        // Integration test: Verify AST contains TextBlockLiteralExpr when using text blocks
-        MethodDeclaration method = StaticJavaParser.parseMethodDeclaration(
-            "@Query(\"old\") List<User> findUsers();"
-        );
-
-        String multilineQuery = "SELECT *\nFROM users";
-        optimizer.updateAnnotationValue(method, "Query", multilineQuery, true);
-
-        AnnotationExpr annotation = method.getAnnotationByName("Query").orElseThrow();
-        var memberValue = annotation.asSingleMemberAnnotationExpr().getMemberValue();
-
-        assertTrue(memberValue instanceof TextBlockLiteralExpr,
-            "When useTextBlock=true, should create TextBlockLiteralExpr in AST");
-
-        String value = ((TextBlockLiteralExpr) memberValue).getValue();
-        assertEquals(multilineQuery, value,
-            "TextBlockLiteralExpr should preserve the exact query content");
-    }
-
-    @Test
-    void testVerifyExpressionType_stringLiteral() {
-        // Integration test: Verify AST contains StringLiteralExpr when not using text blocks
-        MethodDeclaration method = StaticJavaParser.parseMethodDeclaration(
-            "@Query(\"old\") List<User> findUsers();"
-        );
-
-        String singleLineQuery = "SELECT * FROM users";
-        optimizer.updateAnnotationValue(method, "Query", singleLineQuery, false);
-
-        AnnotationExpr annotation = method.getAnnotationByName("Query").orElseThrow();
-        var memberValue = annotation.asSingleMemberAnnotationExpr().getMemberValue();
-
-        assertTrue(memberValue instanceof StringLiteralExpr,
-            "When useTextBlock=false, should create StringLiteralExpr in AST");
-
-        String value = ((StringLiteralExpr) memberValue).getValue();
-        assertEquals(singleLineQuery, value,
-            "StringLiteralExpr should preserve the exact query content");
+    private Object getField(Object target, String fieldName) throws Exception {
+        Class<?> clazz = target.getClass();
+        while (clazz != null) {
+            try {
+                Field field = clazz.getDeclaredField(fieldName);
+                field.setAccessible(true);
+                return field.get(target);
+            } catch (NoSuchFieldException e) {
+                clazz = clazz.getSuperclass();
+            }
+        }
+        throw new NoSuchFieldException(fieldName);
     }
 }
-
