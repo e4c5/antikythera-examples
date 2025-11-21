@@ -159,14 +159,12 @@ class QueryOptimizerCallerUpdateTest {
         queryOptimizer.analyzeRepository(repoFqn, typeWrapper);
 
         // Assert - Check that the repository method name was changed
-        Path repoFile = tempDir
-                .resolve(USER_REPOSITORY);
+        Path repoFile = tempDir.resolve(USER_REPOSITORY);
         String repoContent = Files.readString(repoFile);
         assertTrue(repoContent.contains("findByUserName"), "Repository method name should be changed");
 
         // Assert - Check that the service method calls were updated
-        Path serviceFile = tempDir
-                .resolve(USER_SERVICE);
+        Path serviceFile = tempDir.resolve(USER_SERVICE);
         String serviceContent = Files.readString(serviceFile);
 
         System.out.println("=== Service File Content ===");
