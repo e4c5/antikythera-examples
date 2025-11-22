@@ -11,10 +11,6 @@ public record OptimizationIssue(RepositoryQuery query, List<String> currentColum
                                 List<String> recommendedColumnOrder, String description, String aiExplanation,
                                 RepositoryQuery optimizedQuery) {
 
-    public OptimizationIssue() {
-        this(null, null, null , null , null , null);
-    }
-
     /**
      * Checks if this issue has AI-generated recommendations.
      *
