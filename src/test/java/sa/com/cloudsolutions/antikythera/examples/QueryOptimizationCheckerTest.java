@@ -44,7 +44,7 @@ class QueryOptimizationCheckerTest {
     private OptimizationIssue mockOptimizationIssue;
 
     @Mock
-    private QueryOptimizationResult mockResult;
+    private QueryAnalysisResult mockResult;
 
     @Mock
     private RepositoryParser mockRepositoryParser;
@@ -194,7 +194,7 @@ class QueryOptimizationCheckerTest {
         when(mockOptimizationIssue.query()).thenReturn(mockRepositoryQuery);
         when(mockRepositoryQuery.getMethodName()).thenReturn("findByEmail");
 
-        List<QueryOptimizationResult> results = checker.analyzeLLMRecommendations(recommendations, queries);
+        List<QueryAnalysisResult> results = checker.analyzeLLMRecommendations(recommendations, queries);
 
         assertNotNull(results);
         assertEquals(1, results.size());
@@ -272,7 +272,7 @@ class QueryOptimizationCheckerTest {
 
         when(mockRepositoryQuery.getMethodName()).thenReturn("findById");
 
-        QueryOptimizationResult result = checker.createResultWithIndexAnalysis(mockOptimizationIssue,
+        QueryAnalysisResult result = checker.createResultWithIndexAnalysis(mockOptimizationIssue,
                 mockRepositoryQuery);
 
         assertNotNull(result);

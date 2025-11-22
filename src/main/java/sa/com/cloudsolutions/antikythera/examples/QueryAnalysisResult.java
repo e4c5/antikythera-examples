@@ -11,7 +11,7 @@ import java.util.List;
  * Aggregates the results of query optimization analysis, including all identified
  * issues, WHERE clause conditions, and summary statistics.
  */
-public class QueryOptimizationResult {
+public class QueryAnalysisResult {
 
     private final RepositoryQuery query;
     private final List<WhereCondition> whereConditions;
@@ -24,7 +24,7 @@ public class QueryOptimizationResult {
      * @param query             the full query that was analyzed
      * @param whereConditions   the list of WHERE clause conditions found in the query
      */
-    public QueryOptimizationResult(RepositoryQuery query, List<WhereCondition> whereConditions) {
+    public QueryAnalysisResult(RepositoryQuery query, List<WhereCondition> whereConditions) {
         this.query = query;
         this.whereConditions = new ArrayList<>(whereConditions != null ? whereConditions : Collections.emptyList());
         this.indexSuggestions = List.of();

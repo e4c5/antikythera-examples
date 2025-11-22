@@ -151,7 +151,7 @@ class QueryOptimizerTest {
         when(mockAiService.analyzeQueryBatch(any())).thenReturn(Collections.singletonList(issue));
 
         // Mock Analysis Engine
-        QueryOptimizationResult result = mock(QueryOptimizationResult.class);
+        QueryAnalysisResult result = mock(QueryAnalysisResult.class);
         when(result.getOptimizationIssue()).thenReturn(issue);
         when(result.getQuery()).thenReturn(query);
         when(result.getMethodName()).thenReturn("findByUsernameWithQuery");
@@ -238,7 +238,7 @@ class QueryOptimizerTest {
         when(mockAiService.analyzeQueryBatch(any())).thenReturn(Collections.singletonList(issue));
 
         // Mock Analysis Engine
-        QueryOptimizationResult result = mock(QueryOptimizationResult.class);
+        QueryAnalysisResult result = mock(QueryAnalysisResult.class);
         when(result.getOptimizationIssue()).thenReturn(issue);
         when(result.getQuery()).thenReturn(query);
         when(result.getMethodName()).thenReturn("findByFirstNameAndLastName");
@@ -321,7 +321,7 @@ class QueryOptimizerTest {
         when(mockAiService.analyzeQueryBatch(any())).thenReturn(Collections.singletonList(issue));
 
         // Mock Analysis Engine
-        QueryOptimizationResult result = mock(QueryOptimizationResult.class);
+        QueryAnalysisResult result = mock(QueryAnalysisResult.class);
         when(result.getOptimizationIssue()).thenReturn(issue);
         when(result.getQuery()).thenReturn(query);
         when(result.getMethodName()).thenReturn("findByUserName");

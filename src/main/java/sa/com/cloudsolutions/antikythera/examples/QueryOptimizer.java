@@ -37,6 +37,7 @@ import java.util.Set;
 @SuppressWarnings("java:S106")
 public class QueryOptimizer extends QueryOptimizationChecker {
     private static final Logger logger = LoggerFactory.getLogger(QueryOptimizer.class);
+    private boolean repositoryFileModified;
 
     /**
      * Creates a new QueryOptimizationChecker that uses RepositoryParser for
@@ -58,55 +59,11 @@ public class QueryOptimizer extends QueryOptimizationChecker {
 
         OptimizationStatsLogger.updateQueriesAnalyzed(results.size());
 
-        List<QueryOptimizationResult> updates = new ArrayList<>();
-        boolean repositoryFileModified = false;
+        List<QueryAnalysisResult> updates = new ArrayList<>();
+        repositoryFileModified = false;
 
-        for (QueryOptimizationResult result : results) {
-            OptimizationIssue issue = result.getOptimizationIssue();
-            if (issue != null) {
-                RepositoryQuery optimizedQuery = issue.optimizedQuery();
-                if (optimizedQuery != null) {
-                    String queryValue;
-                    if (QueryType.HQL.equals(optimizedQuery.getQueryType())) {
-                        queryValue = optimizedQuery.getOriginalQuery();
-                    } else {
-                        queryValue = optimizedQuery.getStatement().toString();
-                    }
-
-                    // Convert to text block if the query contains newlines
-                    updateAnnotationValueWithTextBlockSupport(
-                            issue.query().getMethodDeclaration().asMethodDeclaration(),
-                            "Query", queryValue);
-
-                    // Check if method name changed (indicating signature should change)
-                    boolean methodNameChanged = !issue.query().getMethodName().equals(optimizedQuery.getMethodName());
-
-                    // Apply method name change if recommended
-                    if (methodNameChanged) {
-                        MethodDeclaration method = issue.query().getMethodDeclaration().asMethodDeclaration();
-                        String newMethodName = optimizedQuery.getMethodName();
-                        method.setName(newMethodName);
-                        logger.info("Changed method name from {} to {}",
-                                issue.query().getMethodName(), newMethodName);
-                    }
-
-                    // Reorder parameters if column order changed (regardless of method name change)
-                    boolean parametersReordered = reorderMethodParameters(
-                            issue.query().getMethodDeclaration().asMethodDeclaration(),
-                            issue.currentColumnOrder(),
-                            issue.recommendedColumnOrder());
-
-                    // Track if file was modified (annotation always changes, and may also have
-                    // parameter reordering)
-                    repositoryFileModified = true;
-
-                    // Track method signature changes
-                    if (methodNameChanged || parametersReordered) {
-                        OptimizationStatsLogger.updateMethodSignaturesChanged(1);
-                    }
-                    updates.add(result);
-                }
-            }
+        for (QueryAnalysisResult result : results) {
+            actOnAnalysisResult(result, updates);
         }
 
         if (repositoryFileModified) {
@@ -121,7 +78,55 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         updateStats(fullyQualifiedName, updates, repositoryFileModified);
     }
 
-    private void updateStats(String fullyQualifiedName, List<QueryOptimizationResult> updates,
+    private void actOnAnalysisResult(QueryAnalysisResult result, List<QueryAnalysisResult> updates) {
+        OptimizationIssue issue = result.getOptimizationIssue();
+        if (issue != null) {
+            RepositoryQuery optimizedQuery = issue.optimizedQuery();
+            if (optimizedQuery != null) {
+                String queryValue;
+                if (QueryType.HQL.equals(optimizedQuery.getQueryType())) {
+                    queryValue = optimizedQuery.getOriginalQuery();
+                } else {
+                    queryValue = optimizedQuery.getStatement().toString();
+                }
+
+                // Convert to text block if the query contains newlines
+                updateAnnotationValueWithTextBlockSupport(
+                        issue.query().getMethodDeclaration().asMethodDeclaration(),
+                        "Query", queryValue);
+
+                // Check if method name changed (indicating signature should change)
+                boolean methodNameChanged = !issue.query().getMethodName().equals(optimizedQuery.getMethodName());
+
+                // Apply method name change if recommended
+                if (methodNameChanged) {
+                    MethodDeclaration method = issue.query().getMethodDeclaration().asMethodDeclaration();
+                    String newMethodName = optimizedQuery.getMethodName();
+                    method.setName(newMethodName);
+                    logger.info("Changed method name from {} to {}",
+                            issue.query().getMethodName(), newMethodName);
+                }
+
+                // Reorder parameters if column order changed (regardless of method name change)
+                boolean parametersReordered = reorderMethodParameters(
+                        issue.query().getMethodDeclaration().asMethodDeclaration(),
+                        issue.currentColumnOrder(),
+                        issue.recommendedColumnOrder());
+
+                // Track if file was modified (annotation always changes, and may also have
+                // parameter reordering)
+                repositoryFileModified = true;
+
+                // Track method signature changes
+                if (methodNameChanged || parametersReordered) {
+                    OptimizationStatsLogger.updateMethodSignaturesChanged(1);
+                }
+                updates.add(result);
+            }
+        }
+    }
+
+    private void updateStats(String fullyQualifiedName, List<QueryAnalysisResult> updates,
             boolean repositoryFileModified) throws IOException {
         // Apply signature updates and track dependent class changes
         applySignatureUpdatesToUsagesWithStats(updates, fullyQualifiedName);
@@ -297,7 +302,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
      * @param updates            the optimization results with signature changes
      * @param fullyQualifiedName the repository class name
      */
-    public void applySignatureUpdatesToUsagesWithStats(List<QueryOptimizationResult> updates, String fullyQualifiedName)
+    public void applySignatureUpdatesToUsagesWithStats(List<QueryAnalysisResult> updates, String fullyQualifiedName)
             throws FileNotFoundException {
         Map<String, List<String>> fields = Fields.getFieldDependencies(fullyQualifiedName);
 
@@ -448,7 +453,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         return false;
     }
 
-    static class NameChangeVisitor extends ModifierVisitor<List<QueryOptimizationResult>> {
+    static class NameChangeVisitor extends ModifierVisitor<List<QueryAnalysisResult>> {
         String fieldName;
         String repositoryFqn;
         boolean modified;
@@ -460,13 +465,13 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         }
 
         @Override
-        public MethodCallExpr visit(MethodCallExpr mce, List<QueryOptimizationResult> updates) {
+        public MethodCallExpr visit(MethodCallExpr mce, List<QueryAnalysisResult> updates) {
             super.visit(mce, updates);
             Optional<Expression> scope = mce.getScope();
             if (scope.isPresent() && scope.get() instanceof NameExpr fe && fe.getNameAsString().equals(fieldName)
                     && !updates.isEmpty()) {
                 // Loop through ALL updates to find matching method
-                for (QueryOptimizationResult update : updates) {
+                for (QueryAnalysisResult update : updates) {
                     // Check if this call matches the current update's method name
                     OptimizationIssue issue = update.getOptimizationIssue();
                     if (update.getMethodName().equals(mce.getNameAsString()) && issue != null) {
