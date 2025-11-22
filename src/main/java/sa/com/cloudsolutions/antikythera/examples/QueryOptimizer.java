@@ -78,7 +78,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         updateStats(fullyQualifiedName, updates, repositoryFileModified);
     }
 
-    private void actOnAnalysisResult(QueryAnalysisResult result, List<QueryAnalysisResult> updates) {
+    void actOnAnalysisResult(QueryAnalysisResult result, List<QueryAnalysisResult> updates) {
         OptimizationIssue issue = result.getOptimizationIssue();
         if (issue != null) {
             RepositoryQuery optimizedQuery = issue.optimizedQuery();
@@ -92,7 +92,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
 
                 // Convert to text block if the query contains newlines
                 updateAnnotationValueWithTextBlockSupport(
-                        issue.query().getMethodDeclaration().asMethodDeclaration(),queryValue);
+                        issue.query().getMethodDeclaration().asMethodDeclaration(), queryValue);
 
                 // Check if method name changed (indicating signature should change)
                 boolean methodNameChanged = !issue.query().getMethodName().equals(optimizedQuery.getMethodName());
