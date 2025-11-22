@@ -92,8 +92,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
 
                 // Convert to text block if the query contains newlines
                 updateAnnotationValueWithTextBlockSupport(
-                        issue.query().getMethodDeclaration().asMethodDeclaration(),
-                        "Query", queryValue);
+                        issue.query().getMethodDeclaration().asMethodDeclaration(),queryValue);
 
                 // Check if method name changed (indicating signature should change)
                 boolean methodNameChanged = !issue.query().getMethodName().equals(optimizedQuery.getMethodName());
@@ -144,12 +143,9 @@ public class QueryOptimizer extends QueryOptimizationChecker {
      * Otherwise, it uses StringLiteralExpr.
      *
      * @param method         the method declaration containing the annotation
-     * @param annotationName the name of the annotation to update
      * @param newStringValue the new query value
      */
-    private void updateAnnotationValueWithTextBlockSupport(MethodDeclaration method,
-            String annotationName,
-            String newStringValue) {
+    private void updateAnnotationValueWithTextBlockSupport(MethodDeclaration method, String newStringValue) {
         // Check if the string contains literal \n or actual newlines
         boolean isMultiline = newStringValue != null &&
                 (newStringValue.contains("\\n") || newStringValue.contains("\n"));
@@ -157,9 +153,9 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         if (isMultiline) {
             // Convert literal \n to actual newlines
             String processedValue = "    " + newStringValue.replace("\\n", "\n        ");
-            updateAnnotationValue(method, annotationName, processedValue, true);
+            updateAnnotationValue(method, "Query", processedValue, true);
         } else {
-            updateAnnotationValue(method, annotationName, newStringValue, false);
+            updateAnnotationValue(method, "Query", newStringValue, false);
         }
     }
 
@@ -306,52 +302,52 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             throws FileNotFoundException {
         Map<String, List<String>> fields = Fields.getFieldDependencies(fullyQualifiedName);
 
-        if (fields != null) {
-            for (Map.Entry<String, List<String>> entry : fields.entrySet()) {
-                String className = entry.getKey();
-                List<String> fieldNames = entry.getValue();
+        if (fields == null) {
+            return;
+        }
 
-                // Deduplicate field names to prevent processing the same field multiple times
-                List<String> uniqueFieldNames = new ArrayList<>(new java.util.LinkedHashSet<>(fieldNames));
+        for (Map.Entry<String, List<String>> entry : fields.entrySet()) {
+            String className = entry.getKey();
+            List<String> fieldNames = entry.getValue();
 
-                TypeWrapper typeWrapper = AntikytheraRunTime.getResolvedTypes().get(className);
+            // Deduplicate field names to prevent processing the same field multiple times
+            List<String> uniqueFieldNames = new ArrayList<>(new java.util.LinkedHashSet<>(fieldNames));
 
-                if (typeWrapper != null) {
-                    boolean classModified = false;
-                    int totalMethodCallsUpdated = 0;
+            TypeWrapper typeWrapper = AntikytheraRunTime.getResolvedTypes().get(className);
 
-                    // Process all field names for this class
-                    for (String fieldName : uniqueFieldNames) {
-                        NameChangeVisitor visitor = new NameChangeVisitor(fieldName, fullyQualifiedName);
-                        // Visit the entire CompilationUnit to ensure modifications apply to the CU
-                        // instance
-                        CompilationUnit cu = AntikytheraRunTime.getCompilationUnit(className);
-                        if (cu != null) {
-                            try {
-                                LexicalPreservingPrinter.setup(cu);
-                            } catch (Exception e) {
-                                logger.debug("LPP setup failed for {}, proceeding without it: {}", className,
-                                        e.getMessage());
-                            }
-                            cu.accept(visitor, updates);
-                        } else {
-                            // Fallback to visiting the type if CU is not available
-                            typeWrapper.getType().accept(visitor, updates);
+            if (typeWrapper != null) {
+                boolean classModified = false;
+                int totalMethodCallsUpdated = 0;
+
+                // Process all field names for this class
+                for (String fieldName : uniqueFieldNames) {
+                    NameChangeVisitor visitor = new NameChangeVisitor(fieldName, fullyQualifiedName);
+                    // Visit the entire CompilationUnit to ensure modifications apply to the CU
+                    // instance
+                    CompilationUnit cu = AntikytheraRunTime.getCompilationUnit(className);
+                    if (cu != null) {
+                        try {
+                            LexicalPreservingPrinter.setup(cu);
+                        } catch (Exception e) {
+                            logger.debug("LPP setup failed for {}, proceeding without it: {}", className,
+                                    e.getMessage());
                         }
-
-                        if (visitor.modified) {
-                            classModified = true;
-                            totalMethodCallsUpdated += visitor.methodCallsUpdated;
-                        }
+                        cu.accept(visitor, updates);
+                    } else {
+                        // Fallback to visiting the type if CU is not available
+                        typeWrapper.getType().accept(visitor, updates);
                     }
 
-                    // Write file once if any field was modified
-                    if (classModified) {
-                        if (writeFile(className)) {
-                            OptimizationStatsLogger.updateDependentClassesChanged(1);
-                            OptimizationStatsLogger.updateMethodCallsChanged(totalMethodCallsUpdated);
-                        }
+                    if (visitor.modified) {
+                        classModified = true;
+                        totalMethodCallsUpdated += visitor.methodCallsUpdated;
                     }
+                }
+
+                // Write file once if any field was modified
+                if (classModified && writeFile(className)) {
+                    OptimizationStatsLogger.updateDependentClassesChanged(1);
+                    OptimizationStatsLogger.updateMethodCallsChanged(totalMethodCallsUpdated);
                 }
             }
         }
@@ -380,76 +376,76 @@ public class QueryOptimizer extends QueryOptimizationChecker {
     static boolean writeFile(String fullyQualifiedName, CompilationUnit cu) throws FileNotFoundException {
         String relativePath = AbstractCompiler.classToPath(fullyQualifiedName);
         String fullPath = Settings.getBasePath() + "/src/main/java/" + relativePath;
-        if (fullPath != null && cu != null) {
-            // Read original content to check for changes
-            String original = null;
-            try {
-                File f = new File(fullPath);
-                if (f.exists()) {
-                    original = java.nio.file.Files.readString(f.toPath());
-                }
-            } catch (IOException e) {
-                logger.warn("Could not read original file {}: {}", fullPath, e.getMessage());
+
+        // Read original content to check for changes
+        String original = null;
+        try {
+            File f = new File(fullPath);
+            if (f.exists()) {
+                original = java.nio.file.Files.readString(f.toPath());
             }
-
-            // Use LexicalPreservingPrinter for whitespace preservation
-            // Since we modify annotations IN PLACE, LexicalPreservingPrinter should track
-            // changes properly
-            String content;
-            boolean usedFallback = false;
-            try {
-                content = LexicalPreservingPrinter.print(cu);
-
-                // IMPORTANT: LexicalPreservingPrinter sometimes fails to track AST
-                // modifications
-                // (e.g., when modifying annotation values). If the content is identical to the
-                // original
-                // but cu.toString() shows changes, fall back to cu.toString()
-                if (original != null && original.equals(content)) {
-                    String cuToString = cu.toString();
-                    if (!original.equals(cuToString)) {
-                        // LPP didn't track the changes, use cu.toString() instead
-                        logger.debug("LexicalPreservingPrinter didn't track changes for {}, using cu.toString()",
-                                fullyQualifiedName);
-                        content = cuToString;
-                        usedFallback = true;
-                    }
-                } else {
-                    logger.debug("LexicalPreservingPrinter successfully preserved formatting for {}",
-                            fullyQualifiedName);
-                }
-            } catch (Exception e) {
-                // LexicalPreservingPrinter can still fail on complex AST modifications (e.g.,
-                // parameter reordering)
-                logger.warn("LexicalPreservingPrinter failed for {}: {}. Using default printer (may lose formatting).",
-                        fullyQualifiedName, e.getMessage());
-                content = cu.toString();
-                usedFallback = true;
-            }
-
-            // If resulting content is identical to original, skip writing
-            if (original != null && original.equals(content)) {
-                return false;
-            }
-
-            try {
-                File f = new File(fullPath);
-
-                if (f.exists()) {
-                    PrintWriter writer = new PrintWriter(f);
-
-                    writer.print(content); // Use the content variable we already computed
-                    writer.close();
-
-                    if (usedFallback) {
-                        logger.info("File {} was written using cu.toString() (formatting may differ)", fullPath);
-                    }
-                    return true;
-                }
-            } catch (IOException e) {
-                throw new FileNotFoundException("Failed to write file " + fullPath + ": " + e.getMessage());
-            }
+        } catch (IOException e) {
+            logger.warn("Could not read original file {}: {}", fullPath, e.getMessage());
         }
+
+        // Use LexicalPreservingPrinter for whitespace preservation
+        // Since we modify annotations IN PLACE, LexicalPreservingPrinter should track
+        // changes properly
+        String content;
+        boolean usedFallback = false;
+        try {
+            content = LexicalPreservingPrinter.print(cu);
+
+            // IMPORTANT: LexicalPreservingPrinter sometimes fails to track AST
+            // modifications
+            // (e.g., when modifying annotation values). If the content is identical to the
+            // original
+            // but cu.toString() shows changes, fall back to cu.toString()
+            if (original != null && original.equals(content)) {
+                String cuToString = cu.toString();
+                if (!original.equals(cuToString)) {
+                    // LPP didn't track the changes, use cu.toString() instead
+                    logger.debug("LexicalPreservingPrinter didn't track changes for {}, using cu.toString()",
+                            fullyQualifiedName);
+                    content = cuToString;
+                    usedFallback = true;
+                }
+            } else {
+                logger.debug("LexicalPreservingPrinter successfully preserved formatting for {}",
+                        fullyQualifiedName);
+            }
+        } catch (Exception e) {
+            // LexicalPreservingPrinter can still fail on complex AST modifications (e.g.,
+            // parameter reordering)
+            logger.warn("LexicalPreservingPrinter failed for {}: {}. Using default printer (may lose formatting).",
+                    fullyQualifiedName, e.getMessage());
+            content = cu.toString();
+            usedFallback = true;
+        }
+
+        // If resulting content is identical to original, skip writing
+        if (original != null && original.equals(content)) {
+            return false;
+        }
+
+        try {
+            File f = new File(fullPath);
+
+            if (f.exists()) {
+                PrintWriter writer = new PrintWriter(f);
+
+                writer.print(content); // Use the content variable we already computed
+                writer.close();
+
+                if (usedFallback) {
+                    logger.info("File {} was written using cu.toString() (formatting may differ)", fullPath);
+                }
+                return true;
+            }
+        } catch (IOException e) {
+            throw new FileNotFoundException("Failed to write file " + fullPath + ": " + e.getMessage());
+        }
+
         return false;
     }
 
