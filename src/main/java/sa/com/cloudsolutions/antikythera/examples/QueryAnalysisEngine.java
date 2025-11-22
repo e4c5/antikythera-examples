@@ -27,7 +27,7 @@ public class QueryAnalysisEngine {
      * @param repositoryQuery the repository query to analyze
      * @return the analysis results including WHERE conditions and optimization issues
      */
-    public QueryOptimizationResult analyzeQuery(RepositoryQuery repositoryQuery) {
+    public QueryAnalysisResult analyzeQuery(RepositoryQuery repositoryQuery) {
         Statement statement = repositoryQuery.getStatement();
         if (statement == null) {
             return handleDerivedQuery(repositoryQuery);
@@ -47,7 +47,7 @@ public class QueryAnalysisEngine {
             whereConditions = QueryOptimizationExtractor.extractWhereConditions(repositoryQuery.getStatement());
         }
         updateWhereConditions(whereConditions, conversionResult);
-        return new QueryOptimizationResult(repositoryQuery, whereConditions);
+        return new QueryAnalysisResult(repositoryQuery, whereConditions);
     }
 
     private static void updateWhereConditions(List<WhereCondition> whereConditions, ConversionResult conversionResult) {
@@ -71,7 +71,7 @@ public class QueryAnalysisEngine {
     /**
      * Handles analysis of derived query methods (findBy*, countBy*, etc.).
      */
-    private QueryOptimizationResult handleDerivedQuery(RepositoryQuery repositoryQuery) {
+    private QueryAnalysisResult handleDerivedQuery(RepositoryQuery repositoryQuery) {
         // For derived queries, we can still analyze the method parameters to infer WHERE conditions
         List<WhereCondition> whereConditions = new ArrayList<>();
 
@@ -93,6 +93,6 @@ public class QueryAnalysisEngine {
             }
         }
         
-        return new QueryOptimizationResult(repositoryQuery, whereConditions);
+        return new QueryAnalysisResult(repositoryQuery, whereConditions);
     }
 }

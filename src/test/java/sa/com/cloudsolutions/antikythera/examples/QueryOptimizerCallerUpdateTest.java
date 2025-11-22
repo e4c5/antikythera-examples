@@ -148,7 +148,7 @@ class QueryOptimizerCallerUpdateTest {
                 when(mockAiService.getLastTokenUsage()).thenReturn(tokenUsage);
                 when(mockAiService.analyzeQueryBatch(any())).thenReturn(Collections.singletonList(issue));
 
-                QueryOptimizationResult result = mock(QueryOptimizationResult.class);
+                QueryAnalysisResult result = mock(QueryAnalysisResult.class);
                 when(result.getOptimizationIssue()).thenReturn(issue);
                 when(result.getQuery()).thenReturn(query);
                 when(result.getMethodName()).thenReturn("findByUsername");
@@ -237,7 +237,7 @@ class QueryOptimizerCallerUpdateTest {
                 when(mockAiService.getLastTokenUsage()).thenReturn(tokenUsage);
                 when(mockAiService.analyzeQueryBatch(any())).thenReturn(Collections.singletonList(issue));
 
-                QueryOptimizationResult result = mock(QueryOptimizationResult.class);
+                QueryAnalysisResult result = mock(QueryAnalysisResult.class);
                 when(result.getOptimizationIssue()).thenReturn(issue);
                 when(result.getQuery()).thenReturn(query);
                 when(result.getMethodName()).thenReturn("findByFirstNameAndLastName");

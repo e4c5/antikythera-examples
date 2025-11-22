@@ -44,7 +44,7 @@ public class QueryOptimizationChecker {
     // Multi-column index suggestions (key format: table|column1,column2,...)
     protected final LinkedHashSet<String> suggestedMultiColumnIndexes = new LinkedHashSet<>();
 
-    protected final List<QueryOptimizationResult> results = new ArrayList<>();
+    protected final List<QueryAnalysisResult> results = new ArrayList<>();
 
     // Token usage tracking for AI service
     protected final TokenUsage cumulativeTokenUsage = new TokenUsage();
@@ -138,11 +138,11 @@ public class QueryOptimizationChecker {
             List<OptimizationIssue> llmRecommendations = sendRawQueriesToLLM(fullyQualifiedName, rawQueries);
 
             // Step 3: Analyze LLM recommendations and check indexes
-            List<QueryOptimizationResult> finalResults = analyzeLLMRecommendations(llmRecommendations,
+            List<QueryAnalysisResult> finalResults = analyzeLLMRecommendations(llmRecommendations,
                     rawQueries.stream().toList());
 
             // Step 4: Report final results
-            for (QueryOptimizationResult result : finalResults) {
+            for (QueryAnalysisResult result : finalResults) {
                 results.add(result);
                 reportOptimizationResults(result);
             }
@@ -201,7 +201,7 @@ public class QueryOptimizationChecker {
     void addWhereClauseColumnCardinality(QueryBatch batch, RepositoryQuery query) {
         // Use existing QueryAnalysisEngine to extract WHERE conditions from the actual
         // query
-        QueryOptimizationResult tempResult = analysisEngine.analyzeQuery(query);
+        QueryAnalysisResult tempResult = analysisEngine.analyzeQuery(query);
         List<WhereCondition> whereConditions = tempResult.getWhereConditions();
 
         // Add cardinality information for each WHERE clause column
@@ -220,15 +220,15 @@ public class QueryOptimizationChecker {
      * This is where we do our programmatic analysis AFTER getting LLM
      * recommendations.
      */
-    List<QueryOptimizationResult> analyzeLLMRecommendations(List<OptimizationIssue> llmRecommendations,
-            List<RepositoryQuery> rawQueries) {
-        List<QueryOptimizationResult> finalResults = new ArrayList<>();
+    List<QueryAnalysisResult> analyzeLLMRecommendations(List<OptimizationIssue> llmRecommendations,
+                                                        List<RepositoryQuery> rawQueries) {
+        List<QueryAnalysisResult> finalResults = new ArrayList<>();
 
         for (int i = 0; i < llmRecommendations.size() && i < rawQueries.size(); i++) {
             OptimizationIssue llmRecommendation = llmRecommendations.get(i);
             RepositoryQuery rawQuery = rawQueries.get(i);
 
-            QueryOptimizationResult result = createResultWithIndexAnalysis(llmRecommendation, rawQuery);
+            QueryAnalysisResult result = createResultWithIndexAnalysis(llmRecommendation, rawQuery);
             finalResults.add(result);
         }
 
@@ -243,11 +243,11 @@ public class QueryOptimizationChecker {
      * Uses QueryAnalysisEngine to extract WHERE conditions and the Indexes class to
      * determine missing indexes.
      */
-    QueryOptimizationResult createResultWithIndexAnalysis(OptimizationIssue llmRecommendation,
-            RepositoryQuery rawQuery) {
+    QueryAnalysisResult createResultWithIndexAnalysis(OptimizationIssue llmRecommendation,
+                                                      RepositoryQuery rawQuery) {
         // Use QueryAnalysisEngine to extract WHERE conditions from the actual query
         // This is independent of LLM recommendations
-        QueryOptimizationResult engineResult = analysisEngine.analyzeQuery(rawQuery);
+        QueryAnalysisResult engineResult = analysisEngine.analyzeQuery(rawQuery);
         List<WhereCondition> whereConditions = engineResult.getWhereConditions();
 
         // Analyze indexes based on actual WHERE conditions, not LLM recommendations
@@ -280,7 +280,7 @@ public class QueryOptimizationChecker {
                 llmRecommendation.aiExplanation(),
                 llmRecommendation.optimizedQuery());
 
-        QueryOptimizationResult result = new QueryOptimizationResult(rawQuery, whereConditions);
+        QueryAnalysisResult result = new QueryAnalysisResult(rawQuery, whereConditions);
         result.setIndexSuggestions(requiredIndexes);
         result.setOptimizationIssue(enhancedRecommendation);
         return result;
@@ -310,7 +310,7 @@ public class QueryOptimizationChecker {
      *
      * @param result the analysis results to report
      */
-    void reportOptimizationResults(QueryOptimizationResult result) {
+    void reportOptimizationResults(QueryAnalysisResult result) {
         OptimizationIssue issue = result.getOptimizationIssue();
 
         if (issue == null) {
@@ -334,7 +334,7 @@ public class QueryOptimizationChecker {
      *
      * @param result the analysis results for an optimized query
      */
-    void reportOptimizedQuery(QueryOptimizationResult result) {
+    void reportOptimizedQuery(QueryAnalysisResult result) {
         if (!result.getWhereConditions().isEmpty()) {
             WhereCondition firstCondition = result.getFirstCondition();
             String cardinalityInfo = firstCondition != null
@@ -353,7 +353,7 @@ public class QueryOptimizationChecker {
         }
     }
 
-    private OptimizationIssue reportNumbers(QueryOptimizationResult result) {
+    private OptimizationIssue reportNumbers(QueryAnalysisResult result) {
         OptimizationIssue issue = result.getOptimizationIssue();
 
         if (issue != null) {
@@ -368,7 +368,7 @@ public class QueryOptimizationChecker {
      *
      * @param result the analysis results
      */
-    void reportOptimizationIssues(QueryOptimizationResult result) {
+    void reportOptimizationIssues(QueryAnalysisResult result) {
         // Sort issues by severity (HIGH -> MEDIUM -> LOW) for prioritized reporting
         OptimizationIssue issue = reportNumbers(result);
 
@@ -411,7 +411,7 @@ public class QueryOptimizationChecker {
      * @param result the full analysis result for additional context
      * @return formatted string representation of the issue
      */
-    String formatOptimizationIssueEnhanced(OptimizationIssue issue, QueryOptimizationResult result) {
+    String formatOptimizationIssueEnhanced(OptimizationIssue issue, QueryAnalysisResult result) {
         StringBuilder formatted = new StringBuilder();
 
         // Show WHERE clause conditions if available
@@ -449,7 +449,7 @@ public class QueryOptimizationChecker {
      *
      * @param result the analysis results
      */
-    void reportOptimizationIssuesQuiet(QueryOptimizationResult result) {
+    void reportOptimizationIssuesQuiet(QueryAnalysisResult result) {
         // Update global recommendation counters
         OptimizationIssue issue = reportNumbers(result);
         // Collect any index creation suggestions for consolidation at the end
@@ -501,7 +501,7 @@ public class QueryOptimizationChecker {
      * @param columnName the column name to find
      * @return the matching WhereCondition or null if not found
      */
-    WhereCondition findConditionByColumn(QueryOptimizationResult result, String columnName) {
+    WhereCondition findConditionByColumn(QueryAnalysisResult result, String columnName) {
         return result.getWhereConditions().stream()
                 .filter(condition -> columnName.equals(condition.columnName()))
                 .findFirst()
@@ -532,7 +532,7 @@ public class QueryOptimizationChecker {
      *
      * @param result the query optimization result to print details for
      */
-    void printQueryDetails(QueryOptimizationResult result) {
+    void printQueryDetails(QueryAnalysisResult result) {
         // Print the original WHERE clause
         String originalWhereClause = result.getFullWhereClause();
         if (!originalWhereClause.isEmpty()) {
@@ -543,7 +543,7 @@ public class QueryOptimizationChecker {
 
         if (firstIssue != null && firstIssue.optimizedQuery() != null) {
             // Use the existing QueryAnalysisEngine to analyze the optimized query
-            QueryOptimizationResult optimizedResult = analysisEngine.analyzeQuery(firstIssue.optimizedQuery());
+            QueryAnalysisResult optimizedResult = analysisEngine.analyzeQuery(firstIssue.optimizedQuery());
             String optimizedWhereClause = optimizedResult.getFullWhereClause();
             if (!optimizedWhereClause.isEmpty() && !optimizedWhereClause.equals(originalWhereClause)) {
                 System.out.printf("  ✨ Optimized WHERE: %s%n", optimizedWhereClause);
@@ -601,7 +601,7 @@ public class QueryOptimizationChecker {
         return liquibaseGenerator.createDropIndexChangeset(indexName);
     }
 
-    void collectIndexSuggestions(QueryOptimizationResult result) {
+    void collectIndexSuggestions(QueryAnalysisResult result) {
         // Group columns by table - critical for JOIN queries where columns come from
         // multiple tables
         Map<String, List<String>> columnsByTable = new HashMap<>();
