@@ -25,20 +25,21 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Set;
 
-@SuppressWarnings({"java:S3457", "java:S106"})
+@SuppressWarnings({ "java:S3457", "java:S106" })
 public class QueryOptimizationChecker {
 
     protected static final Logger logger = LoggerFactory.getLogger(QueryOptimizationChecker.class);
 
-    protected final RepositoryParser repositoryParser;
-    protected final QueryAnalysisEngine analysisEngine;
+    protected RepositoryParser repositoryParser;
+    protected QueryAnalysisEngine analysisEngine;
     protected final File liquibaseXmlPath;
-    protected final GeminiAIService aiService;
-    protected final LiquibaseGenerator liquibaseGenerator;
+    protected GeminiAIService aiService;
+    protected LiquibaseGenerator liquibaseGenerator;
 
     protected int totalRecommendations = 0;
 
-    // Aggregated, de-duplicated suggestions for new indexes (key format: table|column)
+    // Aggregated, de-duplicated suggestions for new indexes (key format:
+    // table|column)
     protected final LinkedHashSet<String> suggestedNewIndexes = new LinkedHashSet<>();
     // Multi-column index suggestions (key format: table|column1,column2,...)
     protected final LinkedHashSet<String> suggestedMultiColumnIndexes = new LinkedHashSet<>();
@@ -52,7 +53,8 @@ public class QueryOptimizationChecker {
     protected static boolean quietMode = false;
 
     /**
-     * Creates a new QueryOptimizationChecker that uses RepositoryParser for comprehensive query analysis.
+     * Creates a new QueryOptimizationChecker that uses RepositoryParser for
+     * comprehensive query analysis.
      *
      * @param liquibaseXmlPath path to the Liquibase XML file for database metadata
      * @throws Exception if initialization fails
@@ -79,7 +81,8 @@ public class QueryOptimizationChecker {
     }
 
     /**
-     * Analyzes all JPA repositories using RepositoryParser to extract and analyze queries.
+     * Analyzes all JPA repositories using RepositoryParser to extract and analyze
+     * queries.
      *
      */
     public void analyze() throws IOException, ReflectiveOperationException, InterruptedException {
@@ -117,13 +120,14 @@ public class QueryOptimizationChecker {
      * 4. Generate final output
      *
      * @param fullyQualifiedName the fully qualified class name of the repository
-     * @param typeWrapper the TypeWrapper representing the repository
+     * @param typeWrapper        the TypeWrapper representing the repository
      */
-     void analyzeRepository(String fullyQualifiedName, TypeWrapper typeWrapper) throws IOException, ReflectiveOperationException, InterruptedException {
+    void analyzeRepository(String fullyQualifiedName, TypeWrapper typeWrapper)
+            throws IOException, ReflectiveOperationException, InterruptedException {
         OptimizationStatsLogger.initialize(fullyQualifiedName);
         repositoryParser.compile(AbstractCompiler.classToPath(fullyQualifiedName));
         repositoryParser.processTypes();
-        if (repositoryParser.getEntity() != null && repositoryParser.getEntity().getFullyQualifiedName() != null){
+        if (repositoryParser.getEntity() != null && repositoryParser.getEntity().getFullyQualifiedName() != null) {
 
             repositoryParser.buildQueries();
 
@@ -134,7 +138,8 @@ public class QueryOptimizationChecker {
             List<OptimizationIssue> llmRecommendations = sendRawQueriesToLLM(fullyQualifiedName, rawQueries);
 
             // Step 3: Analyze LLM recommendations and check indexes
-            List<QueryOptimizationResult> finalResults = analyzeLLMRecommendations(llmRecommendations, rawQueries.stream().toList());
+            List<QueryOptimizationResult> finalResults = analyzeLLMRecommendations(llmRecommendations,
+                    rawQueries.stream().toList());
 
             // Step 4: Report final results
             for (QueryOptimizationResult result : finalResults) {
@@ -150,7 +155,8 @@ public class QueryOptimizationChecker {
      * Sends raw queries to LLM for optimization recommendations.
      * No programmatic analysis is done beforehand - LLM gets the raw methods.
      */
-    private List<OptimizationIssue> sendRawQueriesToLLM(String repositoryName, Collection<RepositoryQuery> rawQueries) throws IOException, InterruptedException {
+    private List<OptimizationIssue> sendRawQueriesToLLM(String repositoryName, Collection<RepositoryQuery> rawQueries)
+            throws IOException, InterruptedException {
         // Create a batch with raw queries and basic cardinality information
         QueryBatch batch = createQueryBatch(repositoryName, rawQueries);
 
@@ -168,8 +174,10 @@ public class QueryOptimizationChecker {
     }
 
     /**
-     * Creates a QueryBatch with raw queries and actual WHERE clause column cardinality information.
-     * Uses QueryAnalysisEngine to extract actual columns from WHERE clauses and method parameters.
+     * Creates a QueryBatch with raw queries and actual WHERE clause column
+     * cardinality information.
+     * Uses QueryAnalysisEngine to extract actual columns from WHERE clauses and
+     * method parameters.
      */
     QueryBatch createQueryBatch(String repositoryName, Collection<RepositoryQuery> rawQueries) {
         QueryBatch batch = new QueryBatch(repositoryName);
@@ -185,11 +193,14 @@ public class QueryOptimizationChecker {
     }
 
     /**
-     * Adds actual WHERE clause column cardinality information using QueryAnalysisEngine.
-     * Extracts columns from WHERE clauses and method parameters to get real query column usage.
+     * Adds actual WHERE clause column cardinality information using
+     * QueryAnalysisEngine.
+     * Extracts columns from WHERE clauses and method parameters to get real query
+     * column usage.
      */
     void addWhereClauseColumnCardinality(QueryBatch batch, RepositoryQuery query) {
-        // Use existing QueryAnalysisEngine to extract WHERE conditions from the actual query
+        // Use existing QueryAnalysisEngine to extract WHERE conditions from the actual
+        // query
         QueryOptimizationResult tempResult = analysisEngine.analyzeQuery(query);
         List<WhereCondition> whereConditions = tempResult.getWhereConditions();
 
@@ -206,9 +217,11 @@ public class QueryOptimizationChecker {
 
     /**
      * Analyzes LLM recommendations and checks for required indexes.
-     * This is where we do our programmatic analysis AFTER getting LLM recommendations.
+     * This is where we do our programmatic analysis AFTER getting LLM
+     * recommendations.
      */
-    List<QueryOptimizationResult> analyzeLLMRecommendations(List<OptimizationIssue> llmRecommendations, List<RepositoryQuery> rawQueries) {
+    List<QueryOptimizationResult> analyzeLLMRecommendations(List<OptimizationIssue> llmRecommendations,
+            List<RepositoryQuery> rawQueries) {
         List<QueryOptimizationResult> finalResults = new ArrayList<>();
 
         for (int i = 0; i < llmRecommendations.size() && i < rawQueries.size(); i++) {
@@ -223,22 +236,32 @@ public class QueryOptimizationChecker {
     }
 
     /**
-     * Creates a complete QueryOptimizationResult from an LLM recommendation with index analysis.
-     * This merged method combines the functionality of creating the result and analyzing indexes.
-     * Uses QueryAnalysisEngine to extract WHERE conditions and the Indexes class to determine missing indexes.
+     * Creates a complete QueryOptimizationResult from an LLM recommendation with
+     * index analysis.
+     * This merged method combines the functionality of creating the result and
+     * analyzing indexes.
+     * Uses QueryAnalysisEngine to extract WHERE conditions and the Indexes class to
+     * determine missing indexes.
      */
-    QueryOptimizationResult createResultWithIndexAnalysis(OptimizationIssue llmRecommendation, RepositoryQuery rawQuery) {
+    QueryOptimizationResult createResultWithIndexAnalysis(OptimizationIssue llmRecommendation,
+            RepositoryQuery rawQuery) {
         // Use QueryAnalysisEngine to extract WHERE conditions from the actual query
         // This is independent of LLM recommendations
         QueryOptimizationResult engineResult = analysisEngine.analyzeQuery(rawQuery);
         List<WhereCondition> whereConditions = engineResult.getWhereConditions();
 
         // Analyze indexes based on actual WHERE conditions, not LLM recommendations
-        // Each condition now includes its own table name, which is critical for JOIN queries
+        // Each condition now includes its own table name, which is critical for JOIN
+        // queries
         List<String> requiredIndexes = new ArrayList<>();
 
         for (WhereCondition condition : whereConditions) {
-            String tableName = condition.tableName() == null ? rawQuery.getPrimaryTable() : condition.getTableName(); // Use table from condition (supports JOINs)
+            String tableName = condition.tableName() == null ? rawQuery.getPrimaryTable() : condition.getTableName(); // Use
+                                                                                                                      // table
+                                                                                                                      // from
+                                                                                                                      // condition
+                                                                                                                      // (supports
+                                                                                                                      // JOINs)
             String columnName = condition.columnName();
             CardinalityLevel cardinality = condition.cardinality();
 
@@ -255,8 +278,7 @@ public class QueryOptimizationChecker {
                 llmRecommendation.recommendedColumnOrder(),
                 llmRecommendation.description(),
                 llmRecommendation.aiExplanation(),
-                llmRecommendation.optimizedQuery()
-        );
+                llmRecommendation.optimizedQuery());
 
         QueryOptimizationResult result = new QueryOptimizationResult(rawQuery, whereConditions);
         result.setIndexSuggestions(requiredIndexes);
@@ -265,10 +287,12 @@ public class QueryOptimizationChecker {
     }
 
     /**
-     * Checks if there's an optimal index for the given column using the Indexes class.
-     * This method provides more comprehensive index analysis than just checking for leading columns.
+     * Checks if there's an optimal index for the given column using the Indexes
+     * class.
+     * This method provides more comprehensive index analysis than just checking for
+     * leading columns.
      *
-     * @param tableName the table name
+     * @param tableName  the table name
      * @param columnName the column name
      * @return true if an optimal index exists, false otherwise
      */
@@ -276,11 +300,13 @@ public class QueryOptimizationChecker {
         return CardinalityAnalyzer.hasIndexWithLeadingColumn(tableName, columnName);
     }
 
-
     /**
-     * Reports the optimization analysis results with enhanced formatting and severity-based prioritization.
-     * Enhanced to include repository class name and method name from Callable objects,
-     * specific recommendations for column reordering, and confirmation reporting for optimized queries.
+     * Reports the optimization analysis results with enhanced formatting and
+     * severity-based prioritization.
+     * Enhanced to include repository class name and method name from Callable
+     * objects,
+     * specific recommendations for column reordering, and confirmation reporting
+     * for optimized queries.
      *
      * @param result the analysis results to report
      */
@@ -303,17 +329,19 @@ public class QueryOptimizationChecker {
     }
 
     /**
-     * Reports confirmation for already optimized queries with cardinality information.
+     * Reports confirmation for already optimized queries with cardinality
+     * information.
      *
      * @param result the analysis results for an optimized query
      */
     void reportOptimizedQuery(QueryOptimizationResult result) {
         if (!result.getWhereConditions().isEmpty()) {
             WhereCondition firstCondition = result.getFirstCondition();
-            String cardinalityInfo = firstCondition != null ?
-                    String.format(" (First condition uses %s cardinality column: %s)",
+            String cardinalityInfo = firstCondition != null
+                    ? String.format(" (First condition uses %s cardinality column: %s)",
                             firstCondition.cardinality().toString().toLowerCase(),
-                            firstCondition.columnName()) : "";
+                            firstCondition.columnName())
+                    : "";
 
             System.out.printf("✓ OPTIMIZED: %s.%s - Query is already optimized%s%n",
                     result.getQuery().getClassname(),
@@ -329,13 +357,14 @@ public class QueryOptimizationChecker {
         OptimizationIssue issue = result.getOptimizationIssue();
 
         if (issue != null) {
-           totalRecommendations++;
+            totalRecommendations++;
         }
         return issue;
     }
 
     /**
-     * Reports optimization issues with severity-based prioritization and enhanced recommendations.
+     * Reports optimization issues with severity-based prioritization and enhanced
+     * recommendations.
      *
      * @param result the analysis results
      */
@@ -374,10 +403,11 @@ public class QueryOptimizationChecker {
     }
 
     /**
-     * Formats an optimization issue with enhanced display including cardinality information,
+     * Formats an optimization issue with enhanced display including cardinality
+     * information,
      * AI explanations, and required indexes.
      *
-     * @param issue the optimization issue to format
+     * @param issue  the optimization issue to format
      * @param result the full analysis result for additional context
      * @return formatted string representation of the issue
      */
@@ -414,7 +444,8 @@ public class QueryOptimizationChecker {
     }
 
     /**
-     * Reports optimization issues in quiet mode - only shows method signatures and queries changed.
+     * Reports optimization issues in quiet mode - only shows method signatures and
+     * queries changed.
      *
      * @param result the analysis results
      */
@@ -447,6 +478,7 @@ public class QueryOptimizationChecker {
 
     /**
      * Enables or disables quiet mode.
+     * 
      * @param enabled true to enable quiet mode, false for normal output
      */
     public static void setQuietMode(boolean enabled) {
@@ -455,6 +487,7 @@ public class QueryOptimizationChecker {
 
     /**
      * Checks if quiet mode is enabled.
+     * 
      * @return true if quiet mode is enabled
      */
     public static boolean isQuietMode() {
@@ -464,7 +497,7 @@ public class QueryOptimizationChecker {
     /**
      * Finds a WHERE condition by column name from the analysis result.
      *
-     * @param result the analysis result
+     * @param result     the analysis result
      * @param columnName the column name to find
      * @return the matching WhereCondition or null if not found
      */
@@ -479,7 +512,7 @@ public class QueryOptimizationChecker {
      * Formats a condition with cardinality information for enhanced reporting.
      *
      * @param columnName the column name
-     * @param condition the WhereCondition object (may be null)
+     * @param condition  the WhereCondition object (may be null)
      * @return formatted string with cardinality information
      */
     String formatConditionWithCardinality(String columnName, WhereCondition condition) {
@@ -494,7 +527,8 @@ public class QueryOptimizationChecker {
     /**
      * Prints the WHERE clause details for a query optimization result.
      * Shows the original WHERE clause and optimized WHERE clause when available.
-     * This method eliminates code duplication between reportOptimizedQuery and reportOptimizationIssues.
+     * This method eliminates code duplication between reportOptimizedQuery and
+     * reportOptimizationIssues.
      *
      * @param result the query optimization result to print details for
      */
@@ -528,7 +562,8 @@ public class QueryOptimizationChecker {
             // remove schema and quotes
             String last = raw;
             int dot = raw.lastIndexOf('.');
-            if (dot >= 0 && dot < raw.length() - 1) last = raw.substring(dot + 1);
+            if (dot >= 0 && dot < raw.length() - 1)
+                last = raw.substring(dot + 1);
             last = last.replace("`", "").replace("\"", "").replace("'", "");
             return last;
         }
@@ -538,8 +573,10 @@ public class QueryOptimizationChecker {
     String inferTableNameFromRepositoryClassName(String repositoryClass) {
         String simple = repositoryClass;
         int dot = simple.lastIndexOf('.');
-        if (dot >= 0) simple = simple.substring(dot + 1);
-        if (simple.endsWith("Repository")) simple = simple.substring(0, simple.length() - "Repository".length());
+        if (dot >= 0)
+            simple = simple.substring(dot + 1);
+        if (simple.endsWith("Repository"))
+            simple = simple.substring(0, simple.length() - "Repository".length());
         // convert CamelCase to snake_case
         return simple.replaceAll("(?<!^)([A-Z])", "_$1").toLowerCase();
     }
@@ -553,7 +590,7 @@ public class QueryOptimizationChecker {
      * Uses the consolidated LiquibaseGenerator utility.
      *
      * @param tableName the table name
-     * @param columns list of column names in index order
+     * @param columns   list of column names in index order
      * @return XML changeset string
      */
     String buildLiquibaseMultiColumnIndexChangeSet(String tableName, LinkedHashSet<String> columns) {
@@ -565,12 +602,14 @@ public class QueryOptimizationChecker {
     }
 
     void collectIndexSuggestions(QueryOptimizationResult result) {
-        // Group columns by table - critical for JOIN queries where columns come from multiple tables
+        // Group columns by table - critical for JOIN queries where columns come from
+        // multiple tables
         Map<String, List<String>> columnsByTable = new HashMap<>();
 
         for (WhereCondition condition : result.getWhereConditions()) {
             if (condition.cardinality() != CardinalityLevel.LOW) {
-                String tableName = condition.tableName() == null ? result.getQuery().getPrimaryTable() : condition.getTableName();
+                String tableName = condition.tableName() == null ? result.getQuery().getPrimaryTable()
+                        : condition.getTableName();
                 columnsByTable.computeIfAbsent(tableName, k -> new ArrayList<>()).add(condition.columnName());
             }
         }
@@ -609,14 +648,19 @@ public class QueryOptimizationChecker {
         String pad = " ".repeat(Math.max(0, spaces));
         return java.util.Arrays.stream(s.split("\n"))
                 .map(line -> pad + line)
-                .reduce((a,b) -> a + "\n" + b)
+                .reduce((a, b) -> a + "\n" + b)
                 .orElse(pad + s);
     }
-    public TokenUsage getCumulativeTokenUsage() { return cumulativeTokenUsage; }
+
+    public TokenUsage getCumulativeTokenUsage() {
+        return cumulativeTokenUsage;
+    }
 
     /**
-     * Generates a Liquibase changes file from consolidated suggestions and includes it in the master file.
-     * Uses the consolidated LiquibaseGenerator utility for changeset creation and file operations.
+     * Generates a Liquibase changes file from consolidated suggestions and includes
+     * it in the master file.
+     * Uses the consolidated LiquibaseGenerator utility for changeset creation and
+     * file operations.
      */
     public void generateLiquibaseChangesFile() throws IOException {
         // Generate changesets for both create and drop operations
@@ -628,10 +672,12 @@ public class QueryOptimizationChecker {
 
         // Use LiquibaseGenerator to write the changeset file
         String allChangesets = String.join("\n", generated);
-        LiquibaseGenerator.WriteResult result = liquibaseGenerator.writeChangesetToFile(liquibaseXmlPath, allChangesets);
+        LiquibaseGenerator.WriteResult result = liquibaseGenerator.writeChangesetToFile(liquibaseXmlPath,
+                allChangesets);
 
         if (result.wasWritten() && result.getChangesFile() != null) {
-            logger.debug("Generated Liquibase changes file: {} with {} index create recommendations and {} drop recommendations",
+            logger.debug(
+                    "Generated Liquibase changes file: {} with {} index create recommendations and {} drop recommendations",
                     result.getChangesFile().getName(), OptimizationStatsLogger.getTotalIndexesGenerated(),
                     OptimizationStatsLogger.getTotalIndexesDropped());
         }
@@ -639,7 +685,8 @@ public class QueryOptimizationChecker {
 
     /**
      * Generates all Liquibase changesets (create and drop) as a consolidated list.
-     * This method is used by both the file writer and the console printer to avoid duplication.
+     * This method is used by both the file writer and the console printer to avoid
+     * duplication.
      *
      * @return GeneratedChangesets containing all changesets and counts
      */
@@ -670,7 +717,8 @@ public class QueryOptimizationChecker {
 
         // Add create index summary comment (or note no create recommendations)
         if (totalIndexCreateRecommendations > 0) {
-            result.add("\n    <!-- Summary: " + totalIndexCreateRecommendations + " total index create recommendations -->");
+            result.add("\n    <!-- Summary: " + totalIndexCreateRecommendations
+                    + " total index create recommendations -->");
         }
 
         addIndexDropChanges(result);
@@ -678,7 +726,8 @@ public class QueryOptimizationChecker {
     }
 
     private void addIndexDropChanges(List<String> result) {
-        // Analyze existing indexes to suggest drops for low-cardinality leading columns (always perform)
+        // Analyze existing indexes to suggest drops for low-cardinality leading columns
+        // (always perform)
         LinkedHashSet<String> dropCandidates = new LinkedHashSet<>();
         Map<String, Set<Indexes.IndexInfo>> map = CardinalityAnalyzer.getIndexMap();
         if (map != null) {
@@ -728,7 +777,7 @@ public class QueryOptimizationChecker {
     /**
      * Indents XML content by the specified number of spaces.
      *
-     * @param xml the XML content to indent
+     * @param xml    the XML content to indent
      * @param spaces number of spaces to indent
      * @return indented XML content
      */
@@ -759,6 +808,37 @@ public class QueryOptimizationChecker {
         return liquibaseFile;
     }
 
+    public void setRepositoryParser(RepositoryParser repositoryParser) {
+        this.repositoryParser = repositoryParser;
+    }
+
+    public void setAnalysisEngine(QueryAnalysisEngine analysisEngine) {
+        this.analysisEngine = analysisEngine;
+    }
+
+    public void setAiService(GeminiAIService aiService) {
+        this.aiService = aiService;
+    }
+
+    public void setLiquibaseGenerator(LiquibaseGenerator liquibaseGenerator) {
+        this.liquibaseGenerator = liquibaseGenerator;
+    }
+
+    public RepositoryParser getRepositoryParser() {
+        return repositoryParser;
+    }
+
+    public QueryAnalysisEngine getAnalysisEngine() {
+        return analysisEngine;
+    }
+
+    public GeminiAIService getAiService() {
+        return aiService;
+    }
+
+    public LiquibaseGenerator getLiquibaseGenerator() {
+        return liquibaseGenerator;
+    }
 
     public static void main(String[] args) throws Exception {
         Settings.loadConfigMap();
@@ -792,7 +872,8 @@ public class QueryOptimizationChecker {
                 String value = arg.substring(prefix.length());
                 for (String token : value.split(",")) {
                     String t = token.trim().toLowerCase();
-                    if (!t.isEmpty()) set.add(t);
+                    if (!t.isEmpty())
+                        set.add(t);
                 }
             }
         }
