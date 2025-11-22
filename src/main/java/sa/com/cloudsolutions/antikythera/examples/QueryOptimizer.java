@@ -305,6 +305,10 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             for (Map.Entry<String, List<String>> entry : fields.entrySet()) {
                 String className = entry.getKey();
                 List<String> fieldNames = entry.getValue();
+
+                // Deduplicate field names to prevent processing the same field multiple times
+                List<String> uniqueFieldNames = new ArrayList<>(new java.util.LinkedHashSet<>(fieldNames));
+
                 TypeWrapper typeWrapper = AntikytheraRunTime.getResolvedTypes().get(className);
 
                 if (typeWrapper != null) {
@@ -312,15 +316,17 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                     int totalMethodCallsUpdated = 0;
 
                     // Process all field names for this class
-                    for (String fieldName : fieldNames) {
+                    for (String fieldName : uniqueFieldNames) {
                         NameChangeVisitor visitor = new NameChangeVisitor(fieldName, fullyQualifiedName);
-                        // Visit the entire CompilationUnit to ensure modifications apply to the CU instance
+                        // Visit the entire CompilationUnit to ensure modifications apply to the CU
+                        // instance
                         CompilationUnit cu = AntikytheraRunTime.getCompilationUnit(className);
                         if (cu != null) {
                             try {
                                 LexicalPreservingPrinter.setup(cu);
                             } catch (Exception e) {
-                                logger.debug("LPP setup failed for {}, proceeding without it: {}", className, e.getMessage());
+                                logger.debug("LPP setup failed for {}, proceeding without it: {}", className,
+                                        e.getMessage());
                             }
                             cu.accept(visitor, updates);
                         } else {
@@ -502,33 +508,28 @@ public class QueryOptimizer extends QueryOptimizationChecker {
          * @return true if arguments were actually reordered, false otherwise
          */
         private boolean reorderMethodArguments(MethodCallExpr mce, OptimizationIssue issue) {
-            System.out.println("[DEBUG] reorderMethodArguments called for method: " + mce.getNameAsString());
             List<String> currentOrder = issue.currentColumnOrder();
             List<String> recommendedOrder = issue.recommendedColumnOrder();
-            System.out.println("[DEBUG] currentOrder=" + currentOrder + " recommendedOrder=" + recommendedOrder);
             // Only reorder if we have both orders and they're different
             if (currentOrder == null || recommendedOrder == null ||
                     currentOrder.equals(recommendedOrder) ||
                     currentOrder.size() != recommendedOrder.size()) {
-                System.out.println("[DEBUG] No reorder needed (null/equal/size mismatch)");
                 return false;
             }
 
             // Only reorder if argument count matches parameter count
             if (mce.getArguments().size() != currentOrder.size()) {
-                System.out.println(
-                        "[DEBUG] Argument count mismatch: " + mce.getArguments().size() + " vs " + currentOrder.size());
                 return false;
             }
 
-            // Guard: If arguments are already in the recommended order by variable names, skip
+            // Guard: If arguments are already in the recommended order by variable names,
+            // skip
             boolean allNameExpr = mce.getArguments().stream().allMatch(Expression::isNameExpr);
             if (allNameExpr) {
                 List<String> argNames = mce.getArguments().stream()
                         .map(e -> e.asNameExpr().getNameAsString())
                         .toList();
                 if (argNames.equals(recommendedOrder)) {
-                    System.out.println("[DEBUG] Arguments already in recommended order; skipping");
                     return false;
                 }
             }
@@ -541,19 +542,31 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             for (String recommendedColumn : recommendedOrder) {
                 int currentIndex = currentOrder.indexOf(recommendedColumn);
                 if (currentIndex >= 0 && currentIndex < currentArgs.size()) {
-                    reorderedArgs.add(currentArgs.get(currentIndex).clone());
+                    Expression arg = currentArgs.get(currentIndex);
+                    reorderedArgs.add(arg.clone());
                 }
+            }
+
+            // Guard: Check if the reordering would actually change anything
+            // This prevents applying the same transformation multiple times
+            boolean wouldChange = false;
+            for (int i = 0; i < currentArgs.size() && i < reorderedArgs.size(); i++) {
+                if (!currentArgs.get(i).toString().equals(reorderedArgs.get(i).toString())) {
+                    wouldChange = true;
+                    break;
+                }
+            }
+            if (!wouldChange) {
+                return false;
             }
 
             // Update the method call with reordered arguments
             if (reorderedArgs.size() == currentArgs.size()) {
                 // Replace the entire NodeList to ensure the change is tracked by LPP and CU
                 mce.setArguments(new NodeList<>(reorderedArgs));
-                System.out.println("[DEBUG] Arguments reordered successfully");
                 return true;
             }
 
-            System.out.println("[DEBUG] Reorder failed: size mismatch after mapping");
             return false;
         }
 

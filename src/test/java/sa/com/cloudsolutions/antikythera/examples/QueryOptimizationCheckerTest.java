@@ -10,6 +10,7 @@ import org.mockito.MockitoAnnotations;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
 import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
+import sa.com.cloudsolutions.antikythera.parser.RepositoryParser;
 import sa.com.cloudsolutions.liquibase.Indexes;
 
 import java.io.ByteArrayOutputStream;
@@ -32,23 +33,29 @@ class QueryOptimizationCheckerTest {
 
     @Mock
     private TypeWrapper mockTypeWrapper;
-    
+
     @Mock
     private ClassOrInterfaceDeclaration mockClassDeclaration;
-    
+
     @Mock
     private RepositoryQuery mockRepositoryQuery;
-    
+
     @Mock
     private OptimizationIssue mockOptimizationIssue;
-    
+
     @Mock
     private QueryOptimizationResult mockResult;
+
+    @Mock
+    private RepositoryParser mockRepositoryParser;
+
+    @Mock
+    private GeminiAIService mockAiService;
 
     private static File liquibaseFile;
 
     @BeforeAll
-    static void setupClass() throws Exception{
+    static void setupClass() throws Exception {
         // Load YAML settings explicitly to avoid reflection hacks
         Path tmpDir = Files.createTempDirectory("qoc-test");
         liquibaseFile = tmpDir.resolve("db.changelog-master.xml").toFile();
@@ -64,11 +71,14 @@ class QueryOptimizationCheckerTest {
     void setUp() throws Exception {
         MockitoAnnotations.openMocks(this);
         checker = new QueryOptimizationChecker(liquibaseFile);
+        checker.setRepositoryParser(mockRepositoryParser);
+        checker.setAiService(mockAiService);
     }
 
     @Test
     void testParseListArg() {
-        Set<String> low = QueryOptimizationChecker.parseListArg(new String[]{"--low-cardinality=email,is_active,  USER_ID   ", "--other=x"}, "--low-cardinality=");
+        Set<String> low = QueryOptimizationChecker.parseListArg(
+                new String[] { "--low-cardinality=email,is_active,  USER_ID   ", "--other=x" }, "--low-cardinality=");
         assertTrue(low.contains("email"));
         assertTrue(low.contains("is_active"));
         assertTrue(low.contains("user_id"));
@@ -77,7 +87,7 @@ class QueryOptimizationCheckerTest {
 
     @Test
     void testParseListArg_NoMatch() {
-        Set<String> none = QueryOptimizationChecker.parseListArg(new String[]{"--foo=bar"}, "--low-cardinality=");
+        Set<String> none = QueryOptimizationChecker.parseListArg(new String[] { "--foo=bar" }, "--low-cardinality=");
         assertTrue(none.isEmpty());
     }
 
@@ -85,33 +95,32 @@ class QueryOptimizationCheckerTest {
     void testInferTableNameFromQuery() {
         String table1 = checker.inferTableNameFromQuery("SELECT * FROM public.users u WHERE u.id = ?");
         assertEquals("users", table1);
-        
+
         // Test with quoted table names
         String table2 = checker.inferTableNameFromQuery("SELECT * FROM `user_accounts` WHERE id = ?");
         assertEquals("user_accounts", table2);
-        
+
         // Test with null query
         String table3 = checker.inferTableNameFromQuery(null);
         assertNull(table3);
-        
+
         // Test with no FROM clause
         String table4 = checker.inferTableNameFromQuery("SELECT 1");
         assertNull(table4);
     }
-
 
     @Test
     void testBuildLiquibaseMultiColumnIndexChangeSet() {
         LinkedHashSet<String> columns = new LinkedHashSet<>();
         columns.add("user_id");
         columns.add("created_date");
-        
+
         String result = checker.buildLiquibaseMultiColumnIndexChangeSet("orders", columns);
-        
+
         assertTrue(result.contains("idx_orders_user_id_created_date"));
         assertTrue(result.contains("ON orders (user_id, created_date)"));
         assertTrue(result.toLowerCase().contains("rollback"));
-        
+
         // Test with empty columns
         String result2 = checker.buildLiquibaseMultiColumnIndexChangeSet("orders", new LinkedHashSet<>());
         assertEquals("", result2);
@@ -122,12 +131,11 @@ class QueryOptimizationCheckerTest {
         String dropXml = checker.buildLiquibaseDropIndexChangeSet("idx_users_email");
         assertTrue(
                 dropXml.contains("DROP INDEX CONCURRENTLY IF EXISTS idx_users_email")
-                        || dropXml.contains("DROP INDEX idx_users_email")
-        );
+                        || dropXml.contains("DROP INDEX idx_users_email"));
         // Verify rollback section was added
         assertTrue(dropXml.toLowerCase().contains("rollback"));
         assertTrue(dropXml.contains("manual recreation required"));
-        
+
         // Test with empty index name
         String dropXml2 = checker.buildLiquibaseDropIndexChangeSet("");
         assertTrue(dropXml2.contains("<INDEX_NAME>"));
@@ -140,11 +148,11 @@ class QueryOptimizationCheckerTest {
     void testIndent() {
         String indented = checker.indent("a\nb", 2);
         assertEquals("  a\n  b", indented);
-        
+
         // Test with zero spaces
         String indented2 = checker.indent("test", 0);
         assertEquals("test", indented2);
-        
+
         // Test with negative spaces
         String indented3 = checker.indent("test", -1);
         assertEquals("test", indented3);
@@ -156,24 +164,23 @@ class QueryOptimizationCheckerTest {
         String result = checker.indentXml(xml, 2);
         assertTrue(result.contains("  <tag>"));
         assertTrue(result.contains("  <nested>value</nested>"));
-        
+
         // Test with null/empty
         String result2 = checker.indentXml(null, 2);
         assertNull(result2);
-        
+
         String result3 = checker.indentXml("", 2);
         assertEquals("", result3);
     }
-
 
     @Test
     void testCreateQueryBatch() {
         List<RepositoryQuery> queries = new ArrayList<>();
         when(mockRepositoryQuery.getMethodName()).thenReturn("findByEmail");
         queries.add(mockRepositoryQuery);
-        
+
         QueryBatch result = checker.createQueryBatch("TestRepository", queries);
-        
+
         assertNotNull(result);
         // QueryBatch doesn't have getRepositoryName method, check toString instead
         assertTrue(result.toString().contains("TestRepository"));
@@ -183,12 +190,12 @@ class QueryOptimizationCheckerTest {
     void testAnalyzeLLMRecommendations() {
         List<OptimizationIssue> recommendations = Arrays.asList(mockOptimizationIssue);
         List<RepositoryQuery> queries = Arrays.asList(mockRepositoryQuery);
-        
+
         when(mockOptimizationIssue.query()).thenReturn(mockRepositoryQuery);
         when(mockRepositoryQuery.getMethodName()).thenReturn("findByEmail");
-        
+
         List<QueryOptimizationResult> results = checker.analyzeLLMRecommendations(recommendations, queries);
-        
+
         assertNotNull(results);
         assertEquals(1, results.size());
     }
@@ -207,10 +214,10 @@ class QueryOptimizationCheckerTest {
     @Test
     void testQuietModeOperations() {
         assertFalse(QueryOptimizationChecker.isQuietMode());
-        
+
         QueryOptimizationChecker.setQuietMode(true);
         assertTrue(QueryOptimizationChecker.isQuietMode());
-        
+
         QueryOptimizationChecker.setQuietMode(false);
         assertFalse(QueryOptimizationChecker.isQuietMode());
     }
@@ -223,17 +230,17 @@ class QueryOptimizationCheckerTest {
         when(mockRepositoryQuery.getPrimaryTable()).thenReturn("users");
         when(mockRepositoryQuery.getClassname()).thenReturn("UserRepository");
         when(mockRepositoryQuery.getQuery()).thenReturn("SELECT * FROM users WHERE email = ?");
-        
+
         WhereCondition mockCondition = mock(WhereCondition.class);
         when(mockCondition.columnName()).thenReturn("email");
         when(mockCondition.cardinality()).thenReturn(CardinalityLevel.HIGH);
         when(mockResult.getWhereConditions()).thenReturn(Arrays.asList(mockCondition));
-        
+
         when(mockOptimizationIssue.recommendedColumnOrder()).thenReturn(Arrays.asList("email"));
-        
+
         // Test the method
         checker.collectIndexSuggestions(mockResult);
-        
+
         // Verify it doesn't throw exceptions
         assertTrue(true);
     }
@@ -243,7 +250,7 @@ class QueryOptimizationCheckerTest {
         // Add some index suggestions
         LinkedHashSet<String> suggestedSet = checker.getSuggestedNewIndexes();
         suggestedSet.add("users|email");
-        
+
         // This method requires file I/O, so we'll just test it doesn't throw
         try {
             checker.generateLiquibaseChangesFile();
@@ -262,11 +269,12 @@ class QueryOptimizationCheckerTest {
         when(mockOptimizationIssue.description()).thenReturn("Test optimization");
         when(mockOptimizationIssue.aiExplanation()).thenReturn("AI explanation");
         when(mockOptimizationIssue.optimizedQuery()).thenReturn(null);
-        
+
         when(mockRepositoryQuery.getMethodName()).thenReturn("findById");
-        
-        QueryOptimizationResult result = checker.createResultWithIndexAnalysis(mockOptimizationIssue, mockRepositoryQuery);
-        
+
+        QueryOptimizationResult result = checker.createResultWithIndexAnalysis(mockOptimizationIssue,
+                mockRepositoryQuery);
+
         assertNotNull(result);
         assertEquals(mockRepositoryQuery, result.getQuery());
     }
@@ -275,10 +283,10 @@ class QueryOptimizationCheckerTest {
     void testAddWhereClauseColumnCardinality() {
         QueryBatch batch = new QueryBatch("TestRepository");
         when(mockRepositoryQuery.getMethodName()).thenReturn("findByEmail");
-        
+
         // This method uses QueryAnalysisEngine internally, so we test it doesn't throw
         checker.addWhereClauseColumnCardinality(batch, mockRepositoryQuery);
-        
+
         // Verify the method completes without exception
         assertTrue(true);
     }
@@ -289,7 +297,7 @@ class QueryOptimizationCheckerTest {
         when(mockResult.getWhereConditions()).thenReturn(new ArrayList<>());
         WhereCondition result = checker.findConditionByColumn(mockResult, "email");
         assertNull(result);
-        
+
         // Test formatConditionWithCardinality
         String formatted = checker.formatConditionWithCardinality("email", null);
         assertTrue(formatted.contains("cardinality unknown"));
@@ -307,7 +315,7 @@ class QueryOptimizationCheckerTest {
         // Test the method that generates Liquibase changes
         LinkedHashSet<String> suggestedSet = checker.getSuggestedNewIndexes();
         suggestedSet.add("users|email");
-        
+
         // This will likely fail due to file I/O but we test it doesn't crash
         try {
             checker.generateLiquibaseChangesFile();
@@ -320,7 +328,7 @@ class QueryOptimizationCheckerTest {
     @Test
     void testStaticMethods() {
         // Test parseListArg method which is static and safe to test
-        Set<String> result = QueryOptimizationChecker.parseListArg(new String[]{"--test=a,b,c"}, "--test=");
+        Set<String> result = QueryOptimizationChecker.parseListArg(new String[] { "--test=a,b,c" }, "--test=");
         assertEquals(3, result.size());
         assertTrue(result.contains("a"));
         assertTrue(result.contains("b"));
@@ -332,7 +340,7 @@ class QueryOptimizationCheckerTest {
         // Test with empty optimization issues (should call reportOptimizedQuery)
         when(mockResult.getOptimizationIssue()).thenReturn(null);
         when(mockResult.getWhereConditions()).thenReturn(new ArrayList<>());
-        
+
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         PrintStream originalOut = System.out;
         System.setOut(new PrintStream(baos));
@@ -341,7 +349,7 @@ class QueryOptimizationCheckerTest {
         } finally {
             System.setOut(originalOut);
         }
-        
+
         // Should not throw exception
         assertTrue(true);
     }
@@ -352,14 +360,14 @@ class QueryOptimizationCheckerTest {
         WhereCondition mockCondition = mock(WhereCondition.class);
         when(mockCondition.cardinality()).thenReturn(CardinalityLevel.HIGH);
         when(mockCondition.columnName()).thenReturn("email");
-        
+
         when(mockResult.getWhereConditions()).thenReturn(List.of(mockCondition));
         when(mockResult.getFirstCondition()).thenReturn(mockCondition);
         when(mockResult.getQuery()).thenReturn(mockRepositoryQuery);
         when(mockRepositoryQuery.getClassname()).thenReturn("UserRepository");
         when(mockResult.getMethodName()).thenReturn("findByEmail");
         when(mockResult.getFullWhereClause()).thenReturn("email = ?");
-        
+
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         PrintStream originalOut = System.out;
         System.setOut(new PrintStream(baos));
@@ -368,7 +376,7 @@ class QueryOptimizationCheckerTest {
         } finally {
             System.setOut(originalOut);
         }
-        
+
         String output = baos.toString();
         assertTrue(output.contains("OPTIMIZED"));
     }
@@ -377,7 +385,7 @@ class QueryOptimizationCheckerTest {
     void testPrintQueryDetails() {
         when(mockResult.getFullWhereClause()).thenReturn("email = ? AND status = ?");
         when(mockResult.getOptimizationIssue()).thenReturn(null);
-        
+
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         PrintStream originalOut = System.out;
         System.setOut(new PrintStream(baos));
@@ -386,21 +394,26 @@ class QueryOptimizationCheckerTest {
         } finally {
             System.setOut(originalOut);
         }
-        
+
         String output = baos.toString();
         assertTrue(output.contains("WHERE"));
     }
 
     @Test
-    void testAnalyzeRepository() {
-        try {
-            checker.analyzeRepository("com.example.UserRepository", mockTypeWrapper);
-            // This will likely fail due to complex dependencies, but we test it doesn't crash
-            assertTrue(true);
-        } catch (Exception e) {
-            // Expected - method has complex dependencies on RepositoryParser and AI service
-            assertTrue(e.getCause() != null || e.getMessage() != null);
-        }
+    void testAnalyzeRepository() throws Exception {
+        // Setup mocks
+        when(mockRepositoryParser.getEntity()).thenReturn(mockTypeWrapper);
+        when(mockTypeWrapper.getFullyQualifiedName()).thenReturn("com.example.UserRepository");
+        when(mockRepositoryParser.getAllQueries()).thenReturn(Collections.emptyList());
+        when(mockAiService.getLastTokenUsage()).thenReturn(new TokenUsage());
+        when(mockAiService.analyzeQueryBatch(any())).thenReturn(Collections.emptyList());
+
+        checker.analyzeRepository("com.example.UserRepository", mockTypeWrapper);
+
+        // Verify interactions
+        verify(mockRepositoryParser).compile(any());
+        verify(mockRepositoryParser).processTypes();
+        verify(mockRepositoryParser).buildQueries();
     }
 
     @Test
@@ -419,12 +432,12 @@ class QueryOptimizationCheckerTest {
     void testFindConditionByColumn() {
         WhereCondition mockCondition = mock(WhereCondition.class);
         when(mockCondition.columnName()).thenReturn("email");
-        
+
         when(mockResult.getWhereConditions()).thenReturn(Arrays.asList(mockCondition));
-        
+
         WhereCondition result = checker.findConditionByColumn(mockResult, "email");
         assertEquals(mockCondition, result);
-        
+
         // Test with non-matching column
         WhereCondition result2 = checker.findConditionByColumn(mockResult, "nonexistent");
         assertNull(result2);
@@ -434,7 +447,7 @@ class QueryOptimizationCheckerTest {
     void testFormatConditionWithCardinalityWithCondition() {
         WhereCondition mockCondition = mock(WhereCondition.class);
         when(mockCondition.cardinality()).thenReturn(CardinalityLevel.HIGH);
-        
+
         String result = checker.formatConditionWithCardinality("email", mockCondition);
         assertTrue(result.contains("email"));
         assertTrue(result.contains("high cardinality"));
@@ -445,11 +458,11 @@ class QueryOptimizationCheckerTest {
         // Test with valid inputs first
         assertFalse(checker.hasOptimalIndexForColumn("users", "email"));
         assertFalse(checker.hasOptimalIndexForColumn("", ""));
-        
+
         // Test isCoveredByComposite with edge cases
         assertFalse(checker.isCoveredByComposite("users", "email"));
         assertFalse(checker.isCoveredByComposite("", ""));
-        
+
         // Note: Testing with null inputs would cause NPE in the current implementation
         // This indicates the methods should have null checks added
     }

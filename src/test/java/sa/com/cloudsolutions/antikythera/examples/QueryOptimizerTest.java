@@ -17,7 +17,7 @@ import sa.com.cloudsolutions.antikythera.parser.RepositoryParser;
 import sa.com.cloudsolutions.antikythera.parser.converter.EntityMappingResolver;
 
 import java.io.File;
-import java.lang.reflect.Field;
+
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -96,13 +96,13 @@ class QueryOptimizerTest {
         File liquibaseFile = new File("src/test/resources/db.changelog-master.xml");
         queryOptimizer = new QueryOptimizer(liquibaseFile);
 
-        // Inject mocks using reflection
-        setField(queryOptimizer, "aiService", mockAiService);
-        setField(queryOptimizer, "analysisEngine", mockAnalysisEngine);
+        // Inject mocks using setters
+        queryOptimizer.setAiService(mockAiService);
+        queryOptimizer.setAnalysisEngine(mockAnalysisEngine);
 
         // Mock RepositoryParser
         RepositoryParser mockRepositoryParser = mock(RepositoryParser.class);
-        setField(queryOptimizer, "repositoryParser", mockRepositoryParser);
+        queryOptimizer.setRepositoryParser(mockRepositoryParser);
     }
 
     @AfterEach
@@ -162,7 +162,7 @@ class QueryOptimizerTest {
         when(mockAnalysisEngine.analyzeQuery(any())).thenReturn(result);
 
         // Configure RepositoryParser mock
-        RepositoryParser mockRepositoryParser = (RepositoryParser) getField(queryOptimizer, "repositoryParser");
+        RepositoryParser mockRepositoryParser = queryOptimizer.getRepositoryParser();
         when(mockRepositoryParser.getCompilationUnit()).thenReturn(cu);
         when(mockRepositoryParser.getAllQueries()).thenReturn(List.of(query));
         // We need to return something for getEntity, otherwise it might throw NPE if
@@ -249,7 +249,7 @@ class QueryOptimizerTest {
         when(mockAnalysisEngine.analyzeQuery(any())).thenReturn(result);
 
         // Configure RepositoryParser mock
-        RepositoryParser mockRepositoryParser = (RepositoryParser) getField(queryOptimizer, "repositoryParser");
+        RepositoryParser mockRepositoryParser = queryOptimizer.getRepositoryParser();
         when(mockRepositoryParser.getCompilationUnit()).thenReturn(cu);
         when(mockRepositoryParser.getAllQueries()).thenReturn(List.of(query));
         when(mockRepositoryParser.getEntity())
@@ -332,7 +332,7 @@ class QueryOptimizerTest {
         when(mockAnalysisEngine.analyzeQuery(any())).thenReturn(result);
 
         // Configure RepositoryParser mock
-        RepositoryParser mockRepositoryParser = (RepositoryParser) getField(queryOptimizer, "repositoryParser");
+        RepositoryParser mockRepositoryParser = queryOptimizer.getRepositoryParser();
         when(mockRepositoryParser.getCompilationUnit()).thenReturn(cu);
         when(mockRepositoryParser.getAllQueries()).thenReturn(List.of(query));
         when(mockRepositoryParser.getEntity())
@@ -353,32 +353,4 @@ class QueryOptimizerTest {
                 "Old method signature should not be present");
     }
 
-    private void setField(Object target, String fieldName, Object value) throws Exception {
-        Class<?> clazz = target.getClass();
-        while (clazz != null) {
-            try {
-                Field field = clazz.getDeclaredField(fieldName);
-                field.setAccessible(true);
-                field.set(target, value);
-                return;
-            } catch (NoSuchFieldException e) {
-                clazz = clazz.getSuperclass();
-            }
-        }
-        throw new NoSuchFieldException(fieldName);
-    }
-
-    private Object getField(Object target, String fieldName) throws Exception {
-        Class<?> clazz = target.getClass();
-        while (clazz != null) {
-            try {
-                Field field = clazz.getDeclaredField(fieldName);
-                field.setAccessible(true);
-                return field.get(target);
-            } catch (NoSuchFieldException e) {
-                clazz = clazz.getSuperclass();
-            }
-        }
-        throw new NoSuchFieldException(fieldName);
-    }
 }
