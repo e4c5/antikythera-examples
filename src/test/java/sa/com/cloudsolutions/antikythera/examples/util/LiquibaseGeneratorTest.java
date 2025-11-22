@@ -55,10 +55,18 @@ class LiquibaseGeneratorTest {
         assertNotNull(changeset);
         assertTrue(changeset.contains("users"));
         assertTrue(changeset.contains("email"));
-        assertTrue(changeset.contains("CREATE INDEX"));
         assertTrue(changeset.contains("idx_users_email"));
-        assertTrue(changeset.contains("postgresql"));
-        assertTrue(changeset.contains("oracle"));
+
+        // Verify specific SQL syntax for different dialects
+        assertTrue(changeset.contains("CREATE INDEX CONCURRENTLY idx_users_email ON users (email)"));
+        assertTrue(changeset.contains("CREATE INDEX idx_users_email ON users (email) ONLINE"));
+
+        // Verify XML structure
+        assertTrue(changeset.contains("<preConditions onFail=\"MARK_RAN\">"));
+        assertTrue(changeset.contains("<indexExists tableName=\"users\" indexName=\"idx_users_email\"/>"));
+        assertTrue(changeset.contains("<rollback>"));
+        assertTrue(changeset.contains("DROP INDEX CONCURRENTLY IF EXISTS idx_users_email"));
+        assertTrue(changeset.contains("DROP INDEX idx_users_email"));
     }
 
     @Test
@@ -69,8 +77,17 @@ class LiquibaseGeneratorTest {
 
         assertNotNull(changeset);
         assertTrue(changeset.contains("orders"));
-        assertTrue(changeset.contains("user_id, created_date, status"));
         assertTrue(changeset.contains("idx_orders_user_id_created_date_status"));
+
+        // Verify SQL syntax
+        assertTrue(changeset.contains(
+                "CREATE INDEX CONCURRENTLY idx_orders_user_id_created_date_status ON orders (user_id, created_date, status)"));
+        assertTrue(changeset.contains(
+                "CREATE INDEX idx_orders_user_id_created_date_status ON orders (user_id, created_date, status) ONLINE"));
+
+        // Verify rollback
+        assertTrue(changeset.contains("DROP INDEX CONCURRENTLY IF EXISTS idx_orders_user_id_created_date_status"));
+        assertTrue(changeset.contains("DROP INDEX idx_orders_user_id_created_date_status"));
     }
 
     @Test
@@ -106,11 +123,15 @@ class LiquibaseGeneratorTest {
 
         assertNotNull(changeset);
         assertTrue(changeset.contains("idx_users_email"));
-        assertTrue(changeset.contains("DROP INDEX"));
-        assertTrue(changeset.contains("postgresql"));
-        assertTrue(changeset.contains("oracle"));
-        assertTrue(changeset.contains("preConditions"));
-        assertTrue(changeset.contains("indexExists"));
+
+        // Verify SQL syntax
+        assertTrue(changeset.contains("DROP INDEX CONCURRENTLY IF EXISTS idx_users_email"));
+        assertTrue(changeset.contains("DROP INDEX idx_users_email"));
+
+        // Verify XML structure
+        assertTrue(changeset.contains("<preConditions onFail=\"MARK_RAN\">"));
+        assertTrue(changeset.contains("<indexExists indexName=\"idx_users_email\"/>"));
+        assertTrue(changeset.contains("<rollback>"));
     }
 
     @Test
