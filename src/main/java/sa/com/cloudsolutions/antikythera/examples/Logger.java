@@ -35,6 +35,54 @@ public class Logger {
     static int count;
     static String loggerField;
 
+    public static void main(String[] args) throws IOException {
+        Settings.loadConfigMap();
+        AbstractCompiler.preProcess();
+
+        for (var entry : AntikytheraRunTime.getResolvedCompilationUnits().entrySet()) {
+            try {
+                processClass(entry.getKey(), entry.getValue());
+            } catch (UnsupportedOperationException uoe) {
+                System.out.println(entry.getKey() + " : " + uoe.getMessage());
+            }
+        }
+
+    }
+
+    private static void processClass(String classname, CompilationUnit cu) throws FileNotFoundException {
+        try {
+            LexicalPreservingPrinter.setup(cu);
+        } catch (Exception e) {
+            System.out.println("Warning : " + classname + " cannot be pretty formatted");
+        }
+
+        for (TypeDeclaration<?> decl : cu.getTypes()) {
+            FieldVisitor visitor = new FieldVisitor();
+            if (decl.getAnnotationByName("Slf4j").isPresent()) {
+                loggerField = "log";
+            } else {
+                loggerField = "logger";
+                decl.accept(visitor, cu);
+            }
+
+            for (MethodDeclaration m : decl.getMethods()) {
+                m.accept(new LoggerVisitor(), false);
+                BlockVisitor blockVisitor = new BlockVisitor();
+                m.accept(blockVisitor, null);
+            }
+
+            String fullPath = Settings.getBasePath() + "/src/main/java/" + AbstractCompiler.classToPath(classname);
+            File f = new File(fullPath);
+
+            if (f.exists()) {
+                PrintWriter writer = new PrintWriter(f);
+
+                writer.print(LexicalPreservingPrinter.print(cu));
+                writer.close();
+            }
+        }
+    }
+
     static class FieldVisitor extends VoidVisitorAdapter<CompilationUnit> {
         @Override
         public void visit(FieldDeclaration field, CompilationUnit cu) {
@@ -42,7 +90,7 @@ public class Logger {
 
             VariableDeclarator vdecl = field.getVariable(0);
             TypeWrapper wrapper = AbstractCompiler.findType(cu, vdecl.getTypeAsString());
-            if (wrapper != null  && wrapper.getFullyQualifiedName().equals("org.slf4j.Logger")) {
+            if (wrapper != null && wrapper.getFullyQualifiedName().equals("org.slf4j.Logger")) {
                 loggerField = vdecl.getNameAsString();
             }
 
@@ -71,12 +119,10 @@ public class Logger {
                                 return null;
                             }
                         }
-                    }
-                    else {
+                    } else {
                         return null;
                     }
-                }
-                else {
+                } else {
                     return null;
                 }
             }
@@ -90,7 +136,7 @@ public class Logger {
 
             // Check if the method call's scope is the logger field
             if (mce.getScope().isPresent() &&
-                mce.getScope().get().toString().equals(loggerField)) {
+                    mce.getScope().get().toString().equals(loggerField)) {
                 count++;
 
                 BlockStmt block = AbstractCompiler.findBlockStatement(mce);
@@ -127,59 +173,10 @@ public class Logger {
             if (n instanceof ForEachStmt || n instanceof WhileStmt || n instanceof ForStmt || n instanceof DoWhileLoopTree) {
                 return true;
             }
-            if(n.getParentNode().isPresent()) {
+            if (n.getParentNode().isPresent()) {
                 return isLooping(n.getParentNode().get());
             }
             return false;
-        }
-    }
-
-    public static void main(String[] args) throws IOException {
-        Settings.loadConfigMap();
-        AbstractCompiler.preProcess();
-
-        for (var entry : AntikytheraRunTime.getResolvedCompilationUnits().entrySet()) {
-            try {
-                processClass(entry.getKey(), entry.getValue());
-            } catch (UnsupportedOperationException uoe) {
-                System.out.println(entry.getKey() + " : " +uoe.getMessage());
-            }
-        }
-
-    }
-
-    private static void processClass(String classname, CompilationUnit cu) throws FileNotFoundException {
-        try {
-            LexicalPreservingPrinter.setup(cu);
-        } catch (Exception e) {
-            System.out.println("Warning : " + classname + " cannot be pretty formatted");
-        }
-
-        for (TypeDeclaration<?> decl : cu.getTypes()) {
-            FieldVisitor visitor = new FieldVisitor();
-            if (decl.getAnnotationByName("Slf4j").isPresent()) {
-                loggerField = "log";
-            }
-            else {
-                loggerField = "logger";
-                decl.accept(visitor, cu);
-            }
-
-            for (MethodDeclaration m : decl.getMethods()) {
-                m.accept(new LoggerVisitor(), false);
-                BlockVisitor blockVisitor = new BlockVisitor();
-                m.accept(blockVisitor, null);
-            }
-
-            String fullPath = Settings.getBasePath() + "/src/main/java/" + AbstractCompiler.classToPath(classname);
-            File f = new File(fullPath);
-
-            if (f.exists()) {
-                PrintWriter writer = new PrintWriter(f);
-
-                writer.print(LexicalPreservingPrinter.print(cu));
-                writer.close();
-            }
         }
     }
 }
