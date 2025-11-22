@@ -158,7 +158,7 @@ class QueryOptimizerCallerUpdateTest {
         when(mockAnalysisEngine.analyzeQuery(any())).thenReturn(result);
 
         // Configure RepositoryParser mock
-        RepositoryParser mockRepositoryParser = (RepositoryParser) getField(queryOptimizer, "repositoryParser");
+        RepositoryParser mockRepositoryParser = (RepositoryParser) getField(queryOptimizer);
         when(mockRepositoryParser.getCompilationUnit()).thenReturn(repoCu);
         when(mockRepositoryParser.getAllQueries()).thenReturn(List.of(query));
         when(mockRepositoryParser.getEntity())
@@ -178,11 +178,8 @@ class QueryOptimizerCallerUpdateTest {
         Path serviceFile = tempDir.resolve(USER_SERVICE);
         String serviceContent = Files.readString(serviceFile);
 
-        System.out.println("=== Service File Content ===");
-        System.out.println(serviceContent);
-        System.out.println("=== End Service File Content ===");
 
-        assertTrue(serviceContent.contains("repository.findByUserName(userName)"),
+        assertTrue(serviceContent.contains("userRepository.findByUserName(username)"),
                 "Service method call should be updated to findByUserName");
         assertFalse(serviceContent.contains("repository.findByUsername(userName)"),
                 "Service should not contain old method name findByUsername");
@@ -248,7 +245,7 @@ class QueryOptimizerCallerUpdateTest {
 
         when(mockAnalysisEngine.analyzeQuery(any())).thenReturn(result);
 
-        RepositoryParser mockRepositoryParser = (RepositoryParser) getField(queryOptimizer, "repositoryParser");
+        RepositoryParser mockRepositoryParser = (RepositoryParser) getField(queryOptimizer);
         when(mockRepositoryParser.getCompilationUnit()).thenReturn(repoCu);
         when(mockRepositoryParser.getAllQueries()).thenReturn(List.of(query));
         when(mockRepositoryParser.getEntity())
@@ -262,10 +259,6 @@ class QueryOptimizerCallerUpdateTest {
         Path serviceFile = tempDir
                 .resolve(USER_SERVICE);
         String serviceContent = Files.readString(serviceFile);
-
-        System.out.println("=== Service File Content (Parameter Reordering) ===");
-        System.out.println(serviceContent);
-        System.out.println("=== End Service File Content ===");
 
         // Check that arguments are reordered in method calls
         assertTrue(serviceContent.contains("repository.findByFirstNameAndLastName(lastName, firstName)") ||
@@ -288,18 +281,18 @@ class QueryOptimizerCallerUpdateTest {
         throw new NoSuchFieldException(fieldName);
     }
 
-    private Object getField(Object target, String fieldName) throws Exception {
+    private Object getField(Object target) throws Exception {
         Class<?> clazz = target.getClass();
         while (clazz != null) {
             try {
-                Field field = clazz.getDeclaredField(fieldName);
+                Field field = clazz.getDeclaredField("repositoryParser");
                 field.setAccessible(true);
                 return field.get(target);
             } catch (NoSuchFieldException e) {
                 clazz = clazz.getSuperclass();
             }
         }
-        throw new NoSuchFieldException(fieldName);
+        throw new NoSuchFieldException("repositoryParser");
     }
 
     // Mirrors a helper source file into the temporary workspace, preserving package path
