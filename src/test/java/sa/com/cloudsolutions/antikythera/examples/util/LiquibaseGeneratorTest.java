@@ -7,6 +7,9 @@ import sa.com.cloudsolutions.antikythera.examples.util.LiquibaseGenerator.Change
 import sa.com.cloudsolutions.antikythera.examples.util.LiquibaseGenerator.DatabaseDialect;
 import sa.com.cloudsolutions.antikythera.examples.util.LiquibaseGenerator.WriteResult;
 
+import java.io.File;
+import sa.com.cloudsolutions.antikythera.configuration.Settings;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -29,9 +32,10 @@ class LiquibaseGeneratorTest {
 
     @BeforeEach
     void setUp() throws IOException {
+        Settings.loadConfigMap();
         generator = new LiquibaseGenerator();
         masterFile = tempDir.resolve("master-changelog.xml");
-        
+
         // Create a basic master changelog file
         String masterContent = """
                 <?xml version="1.0" encoding="UTF-8"?>
@@ -47,7 +51,7 @@ class LiquibaseGeneratorTest {
     void testCreateIndexChangeset() {
         // Test basic single-column index creation
         String changeset = generator.createIndexChangeset("users", "email");
-        
+
         assertNotNull(changeset);
         assertTrue(changeset.contains("users"));
         assertTrue(changeset.contains("email"));
@@ -62,7 +66,7 @@ class LiquibaseGeneratorTest {
         // Test multi-column index creation
         List<String> columns = Arrays.asList("user_id", "created_date", "status");
         String changeset = generator.createMultiColumnIndexChangeset("orders", columns);
-        
+
         assertNotNull(changeset);
         assertTrue(changeset.contains("orders"));
         assertTrue(changeset.contains("user_id, created_date, status"));
@@ -76,9 +80,9 @@ class LiquibaseGeneratorTest {
         columns.add("first_name");
         columns.add("last_name");
         columns.add("birth_date");
-        
+
         String changeset = generator.createMultiColumnIndexChangeset("persons", columns);
-        
+
         assertNotNull(changeset);
         assertTrue(changeset.contains("first_name, last_name, birth_date"));
         assertTrue(changeset.contains("idx_persons_first_name_last_name_birth_date"));
@@ -89,7 +93,7 @@ class LiquibaseGeneratorTest {
         // Test with empty column list
         String changeset = generator.createMultiColumnIndexChangeset("table", new ArrayList<>());
         assertEquals("", changeset);
-        
+
         // Test with null column list
         String changeset2 = generator.createMultiColumnIndexChangeset("table", (List<String>) null);
         assertEquals("", changeset2);
@@ -99,7 +103,7 @@ class LiquibaseGeneratorTest {
     void testCreateDropIndexChangeset() {
         // Test index drop changeset creation
         String changeset = generator.createDropIndexChangeset("idx_users_email");
-        
+
         assertNotNull(changeset);
         assertTrue(changeset.contains("idx_users_email"));
         assertTrue(changeset.contains("DROP INDEX"));
@@ -114,7 +118,7 @@ class LiquibaseGeneratorTest {
         // Test with null index name
         String changeset = generator.createDropIndexChangeset(null);
         assertTrue(changeset.contains("<INDEX_NAME>"));
-        
+
         // Test with empty index name
         String changeset2 = generator.createDropIndexChangeset("");
         assertTrue(changeset2.contains("<INDEX_NAME>"));
@@ -126,15 +130,15 @@ class LiquibaseGeneratorTest {
         String changeset1 = generator.createIndexChangeset("users", "email");
         String changeset2 = generator.createIndexChangeset("orders", "user_id");
         String changeset3 = generator.createDropIndexChangeset("old_index");
-        
+
         List<String> changesets = Arrays.asList(changeset1, changeset2, changeset3);
         String composite = generator.createCompositeChangeset(changesets);
-        
+
         assertNotNull(composite);
         assertTrue(composite.contains("users"));
         assertTrue(composite.contains("orders"));
         assertTrue(composite.contains("old_index"));
-        
+
         // Should contain all individual changesets
         assertTrue(composite.contains(changeset1));
         assertTrue(composite.contains(changeset2));
@@ -146,11 +150,11 @@ class LiquibaseGeneratorTest {
         // Test with empty changeset list
         String composite = generator.createCompositeChangeset(new ArrayList<>());
         assertEquals("", composite);
-        
+
         // Test with null changeset list
         String composite2 = generator.createCompositeChangeset(null);
         assertEquals("", composite2);
-        
+
         // Test with list containing null and empty strings
         List<String> changesets = Arrays.asList(null, "", "  ", "valid changeset");
         String composite3 = generator.createCompositeChangeset(changesets);
@@ -163,7 +167,7 @@ class LiquibaseGeneratorTest {
         WriteResult result = generator.writeChangesetToFile(masterFile, "");
         assertFalse(result.wasWritten());
         assertNull(result.getChangesFile());
-        
+
         // Test with null changeset
         WriteResult result2 = generator.writeChangesetToFile(masterFile, null);
         assertFalse(result2.wasWritten());
@@ -175,7 +179,7 @@ class LiquibaseGeneratorTest {
         // Test index name generation with special characters
         String indexName = generator.generateIndexName("user-table", Arrays.asList("email@domain"));
         assertEquals("idx_user_table_email_domain", indexName);
-        
+
         // Test with numbers and underscores
         String indexName2 = generator.generateIndexName("table_123", Arrays.asList("col_1", "col_2"));
         assertEquals("idx_table_123_col_1_col_2", indexName2);
@@ -186,14 +190,14 @@ class LiquibaseGeneratorTest {
         // Test that changeset IDs are unique
         String changeset1 = generator.createIndexChangeset("users", "email");
         String changeset2 = generator.createIndexChangeset("users", "email");
-        
+
         // Extract changeset IDs (they should be different due to timestamp)
         assertNotEquals(changeset1, changeset2);
-        
+
         // Test isChangesetGenerated method
         Set<String> generatedIds = generator.getGeneratedChangesetIds();
         assertFalse(generatedIds.isEmpty());
-        
+
         // Test clearing generated changesets
         generator.clearGeneratedChangesets();
         assertTrue(generator.getGeneratedChangesetIds().isEmpty());
@@ -202,20 +206,20 @@ class LiquibaseGeneratorTest {
     @Test
     void testDatabaseDialectSupport() {
         // Test all supported database dialects
-        ChangesetConfig config = new ChangesetConfig("test-author", 
-            Set.of(DatabaseDialect.POSTGRESQL, DatabaseDialect.ORACLE, 
-                   DatabaseDialect.MYSQL, DatabaseDialect.H2),
-            true, true);
-        
+        ChangesetConfig config = new ChangesetConfig("test-author",
+                Set.of(DatabaseDialect.POSTGRESQL, DatabaseDialect.ORACLE,
+                        DatabaseDialect.MYSQL, DatabaseDialect.H2),
+                true, true);
+
         LiquibaseGenerator dialectGenerator = new LiquibaseGenerator(config);
         String changeset = dialectGenerator.createIndexChangeset("users", "email");
-        
+
         // Should contain SQL for all dialects
         assertTrue(changeset.contains("postgresql"));
         assertTrue(changeset.contains("oracle"));
         assertTrue(changeset.contains("mysql"));
         assertTrue(changeset.contains("h2"));
-        
+
         // Test dialect-specific SQL
         assertTrue(changeset.contains("CONCURRENTLY")); // PostgreSQL
         assertTrue(changeset.contains("ONLINE")); // Oracle
@@ -224,12 +228,12 @@ class LiquibaseGeneratorTest {
     @Test
     void testChangesetConfigOptions() {
         // Test custom configuration
-        ChangesetConfig customConfig = new ChangesetConfig("custom-author", 
-            Set.of(DatabaseDialect.POSTGRESQL), false, false);
-        
+        ChangesetConfig customConfig = new ChangesetConfig("custom-author",
+                Set.of(DatabaseDialect.POSTGRESQL), false, false);
+
         LiquibaseGenerator customGenerator = new LiquibaseGenerator(customConfig);
         String changeset = customGenerator.createIndexChangeset("users", "email");
-        
+
         assertTrue(changeset.contains("custom-author"));
         assertFalse(changeset.contains("preConditions")); // No preconditions
         assertFalse(changeset.contains("rollback")); // No rollback
@@ -241,7 +245,7 @@ class LiquibaseGeneratorTest {
     void testDefaultChangesetConfig() {
         // Test default configuration
         ChangesetConfig defaultConfig = ChangesetConfig.defaultConfig();
-        
+
         assertEquals("antikythera", defaultConfig.author());
         assertTrue(defaultConfig.supportedDialects().contains(DatabaseDialect.POSTGRESQL));
         assertTrue(defaultConfig.supportedDialects().contains(DatabaseDialect.ORACLE));
@@ -253,21 +257,21 @@ class LiquibaseGeneratorTest {
     void testXmlFormattingAndStructure() {
         // Test XML structure and formatting
         String changeset = generator.createIndexChangeset("users", "email");
-        
+
         // Should be valid XML structure
         assertTrue(changeset.contains("<changeSet"));
         assertTrue(changeset.contains("</changeSet>"));
         assertTrue(changeset.contains("id="));
         assertTrue(changeset.contains("author="));
-        
+
         // Should contain proper SQL tags
         assertTrue(changeset.contains("<sql dbms="));
         assertTrue(changeset.contains("</sql>"));
-        
+
         // Should contain preconditions
         assertTrue(changeset.contains("<preConditions"));
         assertTrue(changeset.contains("</preConditions>"));
-        
+
         // Should contain rollback
         assertTrue(changeset.contains("<rollback>"));
         assertTrue(changeset.contains("</rollback>"));
@@ -277,12 +281,12 @@ class LiquibaseGeneratorTest {
     void testConcurrentChangesetGeneration() {
         // Simplified concurrent test - verify multiple changesets are unique
         List<String> changesets = new ArrayList<>();
-        
+
         for (int i = 0; i < 5; i++) {
             String changeset = generator.createIndexChangeset("table" + i, "column" + i);
             changesets.add(changeset);
         }
-        
+
         // All changesets should be unique
         assertEquals(5, changesets.size());
         Set<String> uniqueChangesets = new HashSet<>(changesets);
@@ -290,12 +294,12 @@ class LiquibaseGeneratorTest {
     }
 
     @Test
-    void testErrorHandlingInFileOperations() throws IOException {
+    void testErrorHandlingInFileOperations() {
         // Test error handling when master file doesn't exist
         Path nonExistentMaster = tempDir.resolve("nonexistent").resolve("master.xml");
-        
+
         String changeset = generator.createIndexChangeset("users", "email");
-        
+
         // Should handle missing directory gracefully
         assertDoesNotThrow(() -> {
             try {
@@ -305,5 +309,127 @@ class LiquibaseGeneratorTest {
                 // IOException is acceptable for file operations
             }
         });
+    }
+
+    @Test
+    void testDefaultConstructor() {
+        LiquibaseGenerator defaultGenerator = new LiquibaseGenerator();
+        assertNotNull(defaultGenerator);
+        assertTrue(defaultGenerator.getGeneratedChangesetIds().isEmpty());
+    }
+
+    @Test
+    void testConstructorWithConfig() {
+        ChangesetConfig config = new ChangesetConfig(
+                "test-author",
+                Set.of(DatabaseDialect.MYSQL),
+                false,
+                false);
+
+        LiquibaseGenerator customGenerator = new LiquibaseGenerator(config);
+
+        assertNotNull(customGenerator);
+        assertTrue(customGenerator.getGeneratedChangesetIds().isEmpty());
+    }
+
+    @Test
+    void testCreateIndexChangesetWithNullColumn() {
+        assertThrows(NullPointerException.class,
+                () -> generator.createIndexChangeset("users", null));
+    }
+
+    @Test
+    void testCreateIndexChangesetWithEmptyColumn() {
+        String changeset = generator.createIndexChangeset("users", "");
+        assertNotNull(changeset);
+        assertTrue(changeset.contains("users"));
+    }
+
+    @Test
+    void testCreateIndexChangesetWithNullTable() {
+        assertThrows(IllegalArgumentException.class, () -> generator.createIndexChangeset(null, "email"));
+    }
+
+    @Test
+    void testGenerateIndexName() {
+        String indexName = generator.generateIndexName("users", Arrays.asList("email", "status"));
+        assertEquals("idx_users_email_status", indexName);
+    }
+
+    @Test
+    void testIsChangesetGenerated() {
+        generator.createIndexChangeset("users", "email");
+
+        assertFalse(generator.getGeneratedChangesetIds().isEmpty());
+
+        String generatedId = generator.getGeneratedChangesetIds().iterator().next();
+        assertTrue(generator.isChangesetGenerated(generatedId));
+        assertFalse(generator.isChangesetGenerated("non-existent-id"));
+    }
+
+    @Test
+    void testGetGeneratedChangesetIds() {
+        generator.createIndexChangeset("users", "email");
+        generator.createIndexChangeset("products", "name");
+
+        Set<String> ids = generator.getGeneratedChangesetIds();
+
+        assertEquals(2, ids.size());
+        // Verify it's a copy, not the original set
+        ids.clear();
+        assertEquals(2, generator.getGeneratedChangesetIds().size());
+    }
+
+    @Test
+    void testWriteChangesetToFileWithPath() throws IOException {
+        // Use existing masterFile from setUp
+        String changesets = "<changeSet id=\"test\">content</changeSet>";
+
+        WriteResult result = generator.writeChangesetToFile(masterFile, changesets);
+
+        assertNotNull(result);
+        assertTrue(result.wasWritten());
+        assertNotNull(result.getChangesFile());
+        assertTrue(result.getChangesFile().exists());
+
+        String content = Files.readString(result.getChangesFile().toPath());
+        assertTrue(content.contains("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
+        assertTrue(content.contains("content"));
+    }
+
+    @Test
+    void testWriteChangesetToFileWithFile() throws IOException {
+        // Use existing masterFile from setUp but convert to File
+        File masterFileObj = masterFile.toFile();
+        String changesets = "<changeSet id=\"test\">content</changeSet>";
+
+        WriteResult result = generator.writeChangesetToFile(masterFileObj, changesets);
+
+        assertNotNull(result);
+        assertTrue(result.wasWritten());
+        assertNotNull(result.getChangesFile());
+        assertTrue(result.getChangesFile().exists());
+    }
+
+    @Test
+    void testDatabaseDialectEnum() {
+        assertEquals("postgresql", DatabaseDialect.POSTGRESQL.getLiquibaseDbms());
+        assertEquals("oracle", DatabaseDialect.ORACLE.getLiquibaseDbms());
+        assertEquals("mysql", DatabaseDialect.MYSQL.getLiquibaseDbms());
+        assertEquals("h2", DatabaseDialect.H2.getLiquibaseDbms());
+    }
+
+    @Test
+    void testWriteResultClass() {
+        File testFile = new File("test.xml");
+
+        WriteResult result1 = new WriteResult(testFile, true);
+        WriteResult result2 = new WriteResult(null, false);
+
+        assertEquals(testFile, result1.getChangesFile());
+        assertTrue(result1.wasWritten());
+
+        assertNull(result2.getChangesFile());
+        assertFalse(result2.wasWritten());
     }
 }
