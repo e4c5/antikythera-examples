@@ -7,20 +7,20 @@ import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 public class Fields {
     /**
      * Stores the known field dependencies of any class
-     * Storage is: repository class name → (dependent class name → list of field
+     * Storage is: repository class name → (dependent class name → collection of field
      * names)
      * This handles cases where a class has multiple fields of the same repository
      * type.
      */
-    protected static final Map<String, Map<String, List<String>>> fieldDependencies = new HashMap<>();
+    protected static final Map<String, Map<String, Set<String>>> fieldDependencies = new HashMap<>();
 
     private Fields() {
     }
@@ -30,15 +30,15 @@ public class Fields {
             String name = type.getFullyQualifiedName();
             for (FieldDeclaration fd : type.getType().getFields()) {
                 // Process ALL variables in the field declaration, not just the first one
-                // This handles cases like: private UserRepository repo1, repo2, repo3;
+
                 fd.getVariables().forEach(variable -> {
                     Type fieldType = variable.getType();
                     if (fieldType instanceof ClassOrInterfaceType ct) {
                         TypeWrapper tw = AbstractCompiler.findType(AntikytheraRunTime.getCompilationUnit(name), ct);
                         if (tw != null) {
-                            Map<String, List<String>> dependentClasses = fieldDependencies.computeIfAbsent(
+                            Map<String, Set<String>> dependentClasses = fieldDependencies.computeIfAbsent(
                                     tw.getFullyQualifiedName(), k -> new HashMap<>());
-                            List<String> fieldNames = dependentClasses.computeIfAbsent(name, k -> new ArrayList<>());
+                            Set<String> fieldNames = dependentClasses.computeIfAbsent(name, k -> new HashSet<>());
                             fieldNames.add(variable.getNameAsString());
                         }
                     }
@@ -47,7 +47,7 @@ public class Fields {
         }
     }
 
-    public static Map<String, List<String>> getFieldDependencies(String name) {
+    public static Map<String, Set<String>> getFieldDependencies(String name) {
         return fieldDependencies.get(name);
     }
 }

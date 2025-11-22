@@ -256,12 +256,8 @@ public class QueryOptimizationChecker {
         List<String> requiredIndexes = new ArrayList<>();
 
         for (WhereCondition condition : whereConditions) {
-            String tableName = condition.tableName() == null ? rawQuery.getPrimaryTable() : condition.getTableName(); // Use
-                                                                                                                      // table
-                                                                                                                      // from
-                                                                                                                      // condition
-                                                                                                                      // (supports
-                                                                                                                      // JOINs)
+            String tableName = condition.tableName() == null ? rawQuery.getPrimaryTable() : condition.getTableName();
+
             String columnName = condition.columnName();
             CardinalityLevel cardinality = condition.cardinality();
 

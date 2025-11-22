@@ -18,9 +18,7 @@ import sa.com.cloudsolutions.antikythera.parser.RepositoryParser;
 import sa.com.cloudsolutions.antikythera.parser.converter.EntityMappingResolver;
 
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.io.PrintWriter;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -183,15 +181,6 @@ class QueryOptimizerCallerUpdateTest {
                                 "Service method call should be updated to findByUserName");
                 assertFalse(serviceContent.contains("repository.findByUsername(userName)"),
                                 "Service should not contain old method name findByUsername");
-        }
-
-        private static void createEmptyFile(String repoFqn) throws FileNotFoundException {
-                String fqn = AbstractCompiler.classToPath(repoFqn);
-                File f = new File(tempDir + "/" + fqn);
-                f.getParentFile().mkdirs();
-                PrintWriter writer = new PrintWriter(f);
-                writer.println("");
-                writer.close();
         }
 
         @Test

@@ -128,7 +128,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
     private void updateStats(String fullyQualifiedName, List<QueryAnalysisResult> updates,
             boolean repositoryFileModified) throws IOException {
         // Apply signature updates and track dependent class changes
-        applySignatureUpdatesToUsagesWithStats(updates, fullyQualifiedName);
+        updateMethodCallSignatures(updates, fullyQualifiedName);
 
         // Track files modified (repository file + dependent classes)
         if (repositoryFileModified) {
@@ -298,20 +298,17 @@ public class QueryOptimizer extends QueryOptimizationChecker {
      * @param updates            the optimization results with signature changes
      * @param fullyQualifiedName the repository class name
      */
-    public void applySignatureUpdatesToUsagesWithStats(List<QueryAnalysisResult> updates, String fullyQualifiedName)
+    public void updateMethodCallSignatures(List<QueryAnalysisResult> updates, String fullyQualifiedName)
             throws FileNotFoundException {
-        Map<String, List<String>> fields = Fields.getFieldDependencies(fullyQualifiedName);
+        Map<String, Set<String>> fields = Fields.getFieldDependencies(fullyQualifiedName);
 
         if (fields == null) {
             return;
         }
 
-        for (Map.Entry<String, List<String>> entry : fields.entrySet()) {
+        for (Map.Entry<String, Set<String>> entry : fields.entrySet()) {
             String className = entry.getKey();
-            List<String> fieldNames = entry.getValue();
-
-            // Deduplicate field names to prevent processing the same field multiple times
-            List<String> uniqueFieldNames = new ArrayList<>(new java.util.LinkedHashSet<>(fieldNames));
+            Set<String> fieldNames = entry.getValue();
 
             TypeWrapper typeWrapper = AntikytheraRunTime.getResolvedTypes().get(className);
 
@@ -320,7 +317,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                 int totalMethodCallsUpdated = 0;
 
                 // Process all field names for this class
-                for (String fieldName : uniqueFieldNames) {
+                for (String fieldName : fieldNames) {
                     NameChangeVisitor visitor = new NameChangeVisitor(fieldName, fullyQualifiedName);
                     // Visit the entire CompilationUnit to ensure modifications apply to the CU
                     // instance
