@@ -52,7 +52,7 @@ class CardinalityAnalyzerTest {
         Set<Indexes.IndexInfo> orderIndexes = new HashSet<>();
 
         // Primary key
-        Indexes.IndexInfo orderPrimaryKey = new Indexes.IndexInfo("PRIMARY_KEY", "pk_orders", Arrays.asList("order_id"));
+        Indexes.IndexInfo orderPrimaryKey = new Indexes.IndexInfo("PRIMARY_KEY", "pk_orders", List.of("order_id"));
         orderIndexes.add(orderPrimaryKey);
 
         // Composite index
@@ -64,7 +64,7 @@ class CardinalityAnalyzerTest {
         // Products table with minimal indexes
         Set<Indexes.IndexInfo> productIndexes = new HashSet<>();
 
-        Indexes.IndexInfo productPrimaryKey = new Indexes.IndexInfo("PRIMARY_KEY", "pk_products", Arrays.asList("product_id"));
+        Indexes.IndexInfo productPrimaryKey = new Indexes.IndexInfo("PRIMARY_KEY", "pk_products", List.of("product_id"));
         productIndexes.add(productPrimaryKey);
 
         indexMap.put("products", productIndexes);
@@ -189,7 +189,7 @@ class CardinalityAnalyzerTest {
     void testCardinalityPriority_PrimaryKeyOverUnique() {
         // Add a unique constraint on user_id to test priority
         Set<Indexes.IndexInfo> userIndexes = indexMap.get("users");
-        Indexes.IndexInfo uniqueUserId = new Indexes.IndexInfo("UNIQUE_CONSTRAINT", "uk_users_user_id", Arrays.asList("user_id"));
+        Indexes.IndexInfo uniqueUserId = new Indexes.IndexInfo("UNIQUE_CONSTRAINT", "uk_users_user_id", List.of("user_id"));
         userIndexes.add(uniqueUserId);
 
         // Primary key should take priority over unique constraint
@@ -202,7 +202,7 @@ class CardinalityAnalyzerTest {
     void testCardinalityPriority_UniqueOverRegularIndex() {
         // Add a regular index on email to test priority
         Set<Indexes.IndexInfo> userIndexes = indexMap.get("users");
-        Indexes.IndexInfo emailIndex = new Indexes.IndexInfo("INDEX", "idx_users_email", Arrays.asList("email"));
+        Indexes.IndexInfo emailIndex = new Indexes.IndexInfo("INDEX", "idx_users_email", List.of("email"));
         userIndexes.add(emailIndex);
 
         // Unique constraint should take priority over regular index
@@ -215,7 +215,7 @@ class CardinalityAnalyzerTest {
     void testCardinalityPriority_BooleanOverIndex() {
         // Add a regular index on a boolean-named column
         Set<Indexes.IndexInfo> userIndexes = indexMap.get("users");
-        Indexes.IndexInfo activeIndex = new Indexes.IndexInfo("INDEX", "idx_users_is_active", Arrays.asList("is_active"));
+        Indexes.IndexInfo activeIndex = new Indexes.IndexInfo("INDEX", "idx_users_is_active", List.of("is_active"));
         userIndexes.add(activeIndex);
 
         // Boolean naming should take priority over index (low cardinality)
