@@ -408,7 +408,7 @@ class QueryOptimizationCheckerTest {
         when(mockAiService.getLastTokenUsage()).thenReturn(new TokenUsage());
         when(mockAiService.analyzeQueryBatch(any())).thenReturn(Collections.emptyList());
 
-        checker.analyzeRepository("com.example.UserRepository", mockTypeWrapper);
+        checker.analyzeRepository(mockTypeWrapper);
 
         // Verify interactions
         verify(mockRepositoryParser).compile(any());

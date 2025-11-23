@@ -166,7 +166,7 @@ class QueryOptimizerCallerUpdateTest {
                 // Act
                 TypeWrapper typeWrapper = AntikytheraRunTime.getResolvedTypes().get(repoFqn);
 
-                queryOptimizer.analyzeRepository(repoFqn, typeWrapper);
+                queryOptimizer.analyzeRepository(typeWrapper);
 
                 // Assert - Check that the repository method name was changed
                 Path repoFile = tempDir.resolve(USER_REPOSITORY);
@@ -244,7 +244,7 @@ class QueryOptimizerCallerUpdateTest {
 
                 // Act
                 TypeWrapper typeWrapper = AntikytheraRunTime.getResolvedTypes().get(repoFqn);
-                queryOptimizer.analyzeRepository(repoFqn, typeWrapper);
+                queryOptimizer.analyzeRepository(typeWrapper);
 
                 // Assert - Check that service method calls have reordered arguments
                 Path serviceFile = tempDir

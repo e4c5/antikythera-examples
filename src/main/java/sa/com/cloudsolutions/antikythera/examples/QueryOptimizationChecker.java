@@ -91,7 +91,6 @@ public class QueryOptimizationChecker {
         int repositoriesProcessed = 0;
         for (Map.Entry<String, TypeWrapper> entry : resolvedTypes.entrySet()) {
             String fullyQualifiedName = entry.getKey();
-
             TypeWrapper typeWrapper = entry.getValue();
 
             if (BaseRepositoryParser.isJpaRepository(typeWrapper)) {
@@ -101,7 +100,7 @@ public class QueryOptimizationChecker {
                 System.out.printf("Analyzing Repository: %s%n", fullyQualifiedName);
                 System.out.println("=".repeat(80));
                 try {
-                    analyzeRepository(fullyQualifiedName, typeWrapper);
+                    analyzeRepository(typeWrapper);
                     repositoriesProcessed++;
                 } catch (AntikytheraException ae) {
                     logger.error("Error analyzing repository {}: {}", fullyQualifiedName, ae.getMessage());
@@ -119,11 +118,11 @@ public class QueryOptimizationChecker {
      * 3. Do index analysis based on LLM recommendations
      * 4. Generate final output
      *
-     * @param fullyQualifiedName the fully qualified class name of the repository
      * @param typeWrapper        the TypeWrapper representing the repository
      */
-    void analyzeRepository(String fullyQualifiedName, TypeWrapper typeWrapper)
+    void analyzeRepository(TypeWrapper typeWrapper)
             throws IOException, ReflectiveOperationException, InterruptedException {
+        String fullyQualifiedName = typeWrapper.getFullyQualifiedName();
         OptimizationStatsLogger.initialize(fullyQualifiedName);
         repositoryParser.compile(AbstractCompiler.classToPath(fullyQualifiedName));
         repositoryParser.processTypes();
