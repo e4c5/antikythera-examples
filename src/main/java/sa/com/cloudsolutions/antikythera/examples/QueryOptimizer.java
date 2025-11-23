@@ -56,7 +56,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
     @Override
     void analyzeRepository(TypeWrapper typeWrapper)
             throws IOException, ReflectiveOperationException, InterruptedException {
-        if (!typeWrapper.getFullyQualifiedName().endsWith("AdmissionRequestRepository")) {
+        if (!typeWrapper.getFullyQualifiedName().endsWith("AccessUserRepository")) {
             return;
         }
         super.analyzeRepository(typeWrapper);
@@ -71,7 +71,8 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         }
 
         if (repositoryFileModified) {
-            boolean fileWasWritten = writeFile(typeWrapper.getFullyQualifiedName(), this.repositoryParser.getCompilationUnit());
+            boolean fileWasWritten = writeFile(typeWrapper.getFullyQualifiedName(),
+                    this.repositoryParser.getCompilationUnit());
             if (!fileWasWritten) {
                 repositoryFileModified = false;
             }
@@ -112,7 +113,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                             issue.currentColumnOrder(),
                             issue.recommendedColumnOrder());
                 }
-                // Track if file was modified (annotation always changes, and may also have
+                // Track if file was modified (annotation always changes and may also have
                 // parameter reordering)
                 repositoryFileModified = true;
 
@@ -210,59 +211,61 @@ public class QueryOptimizer extends QueryOptimizationChecker {
      * Reorders method parameters to match the recommended column order.
      * This ensures the method signature matches the optimized WHERE clause column
      * order.
-     * 
+     *
      * @param method                 the method declaration to modify
      * @param currentColumnOrder     the current column order
      * @param recommendedColumnOrder the recommended column order
-     * @return true if parameters were reordered, false otherwise
      */
-    boolean reorderMethodParameters(MethodDeclaration method,
+    void reorderMethodParameters(MethodDeclaration method,
             List<String> currentColumnOrder,
             List<String> recommendedColumnOrder) {
         // Validate inputs
         if (method == null || currentColumnOrder == null || recommendedColumnOrder == null) {
-            return false;
+            return;
         }
 
         // Only reorder if orders are different
         if (currentColumnOrder.equals(recommendedColumnOrder)) {
-            return false;
+            return;
         }
 
         // Only reorder if parameter count matches column count
         if (method.getParameters().size() != currentColumnOrder.size()) {
-            return false;
+            return;
         }
 
         // Check if sizes match
         if (currentColumnOrder.size() != recommendedColumnOrder.size()) {
-            return false;
+            return;
         }
 
         // Get current parameters (save copies before modifying)
         var currentParams = new ArrayList<>(method.getParameters());
-        var paramNodeList = method.getParameters();
+
+        // Build a map of column name -> list of indices in current order
+        // We use a LinkedList to act as a queue for duplicates
+        Map<String, java.util.LinkedList<Integer>> columnIndices = new java.util.HashMap<>();
+        for (int i = 0; i < currentColumnOrder.size(); i++) {
+            columnIndices.computeIfAbsent(currentColumnOrder.get(i), k -> new java.util.LinkedList<>()).add(i);
+        }
 
         // Build reordered parameter list
         var reorderedParams = new ArrayList<Parameter>();
         for (String recommendedColumn : recommendedColumnOrder) {
-            int currentIndex = currentColumnOrder.indexOf(recommendedColumn);
-            if (currentIndex >= 0 && currentIndex < currentParams.size()) {
-                reorderedParams.add(currentParams.get(currentIndex));
+            var indices = columnIndices.get(recommendedColumn);
+            if (indices != null && !indices.isEmpty()) {
+                int originalIndex = indices.poll(); // Get and remove the first available index
+                if (originalIndex >= 0 && originalIndex < currentParams.size()) {
+                    reorderedParams.add(currentParams.get(originalIndex));
+                }
             }
         }
 
         // Only apply if we successfully mapped all parameters
         if (reorderedParams.size() == currentParams.size()) {
-            // Replace parameters one-by-one using set() for better LexicalPreservingPrinter
-            // tracking
-            // This is more LPP-friendly than clear()+addAll()
-            for (int i = 0; i < reorderedParams.size(); i++) {
-                paramNodeList.set(i, reorderedParams.get(i));
-            }
-            return true;
+            // Replace the entire NodeList to ensure the change is tracked by LPP and CU
+            method.setParameters(new NodeList<>(reorderedParams));
         }
-        return false;
     }
 
     /**
@@ -271,7 +274,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
      * This reorders call arguments to match the new parameter order. Only
      * same-arity calls are modified.
      * 
-     * @param update            the optimization results with signature changes
+     * @param update             the optimization results with signature changes
      * @param fullyQualifiedName the repository class name
      */
     public void updateMethodCallSignatures(QueryAnalysisResult update, String fullyQualifiedName) {
@@ -338,7 +341,6 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         String relativePath = AbstractCompiler.classToPath(fullyQualifiedName);
         String fullPath = Settings.getBasePath() + "/src/main/java/" + relativePath;
 
-
         // Use LexicalPreservingPrinter for whitespace preservation
         // Since we modify annotations IN PLACE, LexicalPreservingPrinter should track
         // changes properly
@@ -394,27 +396,27 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             if (scope.isPresent() && scope.get() instanceof NameExpr fe && fe.getNameAsString().equals(fieldName)) {
                 // Check if this call matches the current update's method name
                 OptimizationIssue issue = update.getOptimizationIssue();
-                if (update.getMethodName().equals(mce.getNameAsString()) && issue != null && issue.optimizedQuery() != null) {
-                        String originalMethodName = mce.getNameAsString();
-                        String newMethodName = issue.optimizedQuery().getMethodName();
+                if (update.getMethodName().equals(mce.getNameAsString()) && issue != null
+                        && issue.optimizedQuery() != null) {
+                    String originalMethodName = mce.getNameAsString();
+                    String newMethodName = issue.optimizedQuery().getMethodName();
 
-                        // Only count as an update if something actually changes
-                        boolean methodNameChanged = !originalMethodName.equals(newMethodName);
-                        boolean argumentsReordered = false;
+                    // Only count as an update if something actually changes
+                    boolean methodNameChanged = !originalMethodName.equals(newMethodName);
 
-                        // Update method name if it changed
-                        if (methodNameChanged) {
-                            mce.setName(newMethodName);
-                        }
+                    // Update method name if it changed
+                    if (methodNameChanged) {
+                        mce.setName(newMethodName);
+                    }
 
-                        // Reorder arguments based on column order changes
-                        argumentsReordered = reorderMethodArguments(mce, issue);
+                    // Reorder arguments based on column order changes
+                    boolean argumentsReordered = reorderMethodArguments(mce, issue);
 
-                        // Only mark as modified and increment counter if actual changes were made
-                        if (methodNameChanged || argumentsReordered) {
-                            modified = true;
-                            methodCallsUpdated++;
-                        }
+                    // Only mark as modified and increment counter if actual changes were made
+                    if (methodNameChanged || argumentsReordered) {
+                        modified = true;
+                        methodCallsUpdated++;
+                    }
 
                 }
             }
@@ -445,28 +447,33 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                 return false;
             }
 
-            // Guard: If arguments are already in the recommended order by variable names,
-            // skip
-            boolean allNameExpr = mce.getArguments().stream().allMatch(Expression::isNameExpr);
-            if (allNameExpr) {
-                List<String> argNames = mce.getArguments().stream()
-                        .map(e -> e.asNameExpr().getNameAsString())
-                        .toList();
-                if (argNames.equals(recommendedOrder)) {
-                    return false;
-                }
+            List<String> argNames = mce.getArguments().stream()
+                    .map(e -> e.asNameExpr().getNameAsString())
+                    .toList();
+            if (argNames.equals(recommendedOrder)) {
+                return false;
             }
 
             // Create mapping from current position to new position
             List<Expression> currentArgs = new ArrayList<>(mce.getArguments());
+
+            // Build a map of column name -> list of indices in current order
+            // We use a LinkedList to act as a queue for duplicates
+            Map<String, java.util.LinkedList<Integer>> columnIndices = new java.util.HashMap<>();
+            for (int i = 0; i < currentOrder.size(); i++) {
+                columnIndices.computeIfAbsent(currentOrder.get(i), k -> new java.util.LinkedList<>()).add(i);
+            }
+
             List<Expression> reorderedArgs = new ArrayList<>();
 
             // For each position in the recommended order, find the corresponding argument
             for (String recommendedColumn : recommendedOrder) {
-                int currentIndex = currentOrder.indexOf(recommendedColumn);
-                if (currentIndex >= 0 && currentIndex < currentArgs.size()) {
-                    Expression arg = currentArgs.get(currentIndex);
-                    reorderedArgs.add(arg.clone());
+                var indices = columnIndices.get(recommendedColumn);
+                if (indices != null && !indices.isEmpty()) {
+                    int originalIndex = indices.poll(); // Get and remove the first available index
+                    if (originalIndex >= 0 && originalIndex < currentArgs.size()) {
+                        reorderedArgs.add(currentArgs.get(originalIndex).clone());
+                    }
                 }
             }
 

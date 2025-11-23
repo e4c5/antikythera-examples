@@ -102,8 +102,13 @@ public class ExpressionConditionExtractor extends BaseConditionExtractor<WhereCo
      */
     @Override
     protected void handleComparison(ComparisonOperator comparison) {
-        if (comparison.getLeftExpression() instanceof Column column) {
-            createAndAddCondition(column, comparison.getStringExpression());
+        if (comparison.getLeftExpression() instanceof Column leftColumn) {
+            createAndAddCondition(leftColumn, comparison.getStringExpression());
+            return;
+        }
+        // Handle cases where the column appears on the right side (e.g., :param = table.column)
+        if (comparison.getRightExpression() instanceof Column rightColumn) {
+            createAndAddCondition(rightColumn, comparison.getStringExpression());
         }
     }
 

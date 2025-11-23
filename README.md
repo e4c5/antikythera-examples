@@ -66,6 +66,18 @@ Troubleshooting
 - SDK/language level: Ensure Project SDK is JDK 21 and language level matches (we set maven-compiler-plugin <release>21</release> for consistency).
 - Caches: If IntelliJ still doesn’t link sources, try File > Invalidate Caches / Restart.
 
+## Build & Test
+
+### Build
+```bash
+mvn clean compile
+```
+
+### Run Tests
+```bash
+mvn test
+```
+
 ## Usage Examples
 
 ### Query Condition Extraction
