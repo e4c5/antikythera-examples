@@ -57,7 +57,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
     @Override
     void analyzeRepository(TypeWrapper typeWrapper)
             throws IOException, ReflectiveOperationException, InterruptedException {
-        if (!typeWrapper.getFullyQualifiedName().endsWith("ProcedureApprovalRepository")) {
+        if (!typeWrapper.getFullyQualifiedName().endsWith(".EApprovalRequestComRepository")) {
             return;
         }
         super.analyzeRepository(typeWrapper);
