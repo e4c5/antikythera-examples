@@ -99,7 +99,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
 
                 // Apply method name change if recommended
                 if (methodNameChanged) {
-                    updateMethodCallSignatures(result, optimizedQuery.getClassname());
+                    updateMethodCallSignatures(result, issue.query().getRepositoryClassName());
 
                     MethodDeclaration method = issue.query().getMethodDeclaration().asMethodDeclaration();
                     String newMethodName = optimizedQuery.getMethodName();
@@ -297,18 +297,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                     // Visit the entire CompilationUnit to ensure modifications apply to the CU
                     // instance
                     CompilationUnit cu = AntikytheraRunTime.getCompilationUnit(className);
-                    if (cu != null) {
-                        try {
-                            LexicalPreservingPrinter.setup(cu);
-                        } catch (Exception e) {
-                            logger.debug("LPP setup failed for {}, proceeding without it: {}", className,
-                                    e.getMessage());
-                        }
-                        cu.accept(visitor, update);
-                    } else {
-                        // Fallback to visiting the type if CU is not available
-                        typeWrapper.getType().accept(visitor, update);
-                    }
+                    cu.accept(visitor, update);
 
                     if (visitor.modified) {
                         classModified = true;

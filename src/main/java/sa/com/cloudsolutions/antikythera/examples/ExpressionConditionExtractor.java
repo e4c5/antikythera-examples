@@ -25,6 +25,7 @@ import java.util.List;
 public class ExpressionConditionExtractor extends BaseConditionExtractor<WhereCondition> {
 
     private final List<WhereCondition> conditions;
+    private String defaultTableName;
 
     public ExpressionConditionExtractor() {
         super();
@@ -36,8 +37,21 @@ public class ExpressionConditionExtractor extends BaseConditionExtractor<WhereCo
      * This is the main entry point that triggers the visitor pattern.
      */
     public List<WhereCondition> extractConditions(Expression whereExpression) {
+        return extractConditions(whereExpression, null);
+    }
+
+    /**
+     * Extracts WHERE conditions from the given expression with a default table name.
+     * The default table name is used when a column doesn't have an explicit table qualifier.
+     * 
+     * @param whereExpression the WHERE clause expression to analyze
+     * @param defaultTableName the table name to use for unqualified columns (can be null)
+     * @return list of extracted WHERE conditions
+     */
+    public List<WhereCondition> extractConditions(Expression whereExpression, String defaultTableName) {
         conditions.clear();
         resetState();
+        this.defaultTableName = defaultTableName;
 
         if (whereExpression != null) {
             whereExpression.accept(this, null);
@@ -129,6 +143,11 @@ public class ExpressionConditionExtractor extends BaseConditionExtractor<WhereCo
     private void createAndAddCondition(Column column, String operator) {
         String columnName = getColumnName(column);
         String tableName = getTableName(column);
+        
+        // Use default table name if column doesn't have an explicit table qualifier
+        if (tableName == null && defaultTableName != null) {
+            tableName = defaultTableName;
+        }
 
         WhereCondition condition = new WhereCondition(
             tableName, columnName, operator, positionCounter++
