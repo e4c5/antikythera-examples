@@ -194,4 +194,4 @@ Output:
 }`
 
 Final Notes:
-Do not reorder columns of the same cardinality.
+Do not reorder columns of the same cardinality. Try to format the annotations to be as close to the input as possible.
