@@ -38,6 +38,7 @@ import java.util.Set;
 public class QueryOptimizer extends QueryOptimizationChecker {
     private static final Logger logger = LoggerFactory.getLogger(QueryOptimizer.class);
     private boolean repositoryFileModified;
+    private static final Set<String> modifiedFiles = new java.util.HashSet<>();
 
     /**
      * Creates a new QueryOptimizationChecker that uses RepositoryParser for
@@ -53,9 +54,12 @@ public class QueryOptimizer extends QueryOptimizationChecker {
     }
 
     @Override
-    void analyzeRepository(String fullyQualifiedName, TypeWrapper typeWrapper)
+    void analyzeRepository(TypeWrapper typeWrapper)
             throws IOException, ReflectiveOperationException, InterruptedException {
-        super.analyzeRepository(fullyQualifiedName, typeWrapper);
+        if (!typeWrapper.getFullyQualifiedName().endsWith("AdmissionRequestRepository")) {
+            return;
+        }
+        super.analyzeRepository(typeWrapper);
 
         OptimizationStatsLogger.updateQueriesAnalyzed(results.size());
 
@@ -67,15 +71,11 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         }
 
         if (repositoryFileModified) {
-            boolean fileWasWritten = writeFile(fullyQualifiedName, this.repositoryParser.getCompilationUnit());
+            boolean fileWasWritten = writeFile(typeWrapper.getFullyQualifiedName(), this.repositoryParser.getCompilationUnit());
             if (!fileWasWritten) {
-                // File wasn't actually written (no content changes), so reset the modification
-                // flag
                 repositoryFileModified = false;
             }
         }
-
-        updateStats(fullyQualifiedName, updates, repositoryFileModified);
     }
 
     void actOnAnalysisResult(QueryAnalysisResult result, List<QueryAnalysisResult> updates) {
@@ -99,6 +99,8 @@ public class QueryOptimizer extends QueryOptimizationChecker {
 
                 // Apply method name change if recommended
                 if (methodNameChanged) {
+                    updateMethodCallSignatures(result, optimizedQuery.getClassname());
+
                     MethodDeclaration method = issue.query().getMethodDeclaration().asMethodDeclaration();
                     String newMethodName = optimizedQuery.getMethodName();
                     method.setName(newMethodName);
@@ -120,17 +122,6 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                 }
                 updates.add(result);
             }
-        }
-    }
-
-    private void updateStats(String fullyQualifiedName, List<QueryAnalysisResult> updates,
-            boolean repositoryFileModified) throws IOException {
-        // Apply signature updates and track dependent class changes
-        updateMethodCallSignatures(updates, fullyQualifiedName);
-
-        // Track files modified (repository file + dependent classes)
-        if (repositoryFileModified) {
-            OptimizationStatsLogger.updateDependentClassesChanged(1);
         }
     }
 
@@ -248,42 +239,29 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             return false;
         }
 
-        try {
-            // Get current parameters (save copies before modifying)
-            var currentParams = new ArrayList<>(method.getParameters());
-            var paramNodeList = method.getParameters();
+        // Get current parameters (save copies before modifying)
+        var currentParams = new ArrayList<>(method.getParameters());
+        var paramNodeList = method.getParameters();
 
-            // Build reordered parameter list
-            var reorderedParams = new ArrayList<Parameter>();
-            for (String recommendedColumn : recommendedColumnOrder) {
-                int currentIndex = currentColumnOrder.indexOf(recommendedColumn);
-                if (currentIndex >= 0 && currentIndex < currentParams.size()) {
-                    reorderedParams.add(currentParams.get(currentIndex));
-                }
+        // Build reordered parameter list
+        var reorderedParams = new ArrayList<Parameter>();
+        for (String recommendedColumn : recommendedColumnOrder) {
+            int currentIndex = currentColumnOrder.indexOf(recommendedColumn);
+            if (currentIndex >= 0 && currentIndex < currentParams.size()) {
+                reorderedParams.add(currentParams.get(currentIndex));
             }
-
-            // Only apply if we successfully mapped all parameters
-            if (reorderedParams.size() == currentParams.size()) {
-                // Replace parameters one-by-one using set() for better LexicalPreservingPrinter
-                // tracking
-                // This is more LPP-friendly than clear()+addAll()
-                for (int i = 0; i < reorderedParams.size(); i++) {
-                    paramNodeList.set(i, reorderedParams.get(i));
-                }
-
-                // Note: Parameter reordering may still cause LexicalPreservingPrinter to fall
-                // back
-                // to default formatting in some cases, but this approach maximizes
-                // compatibility
-
-                return true;
-            }
-        } catch (Exception e) {
-            // If reordering fails, log and continue without modification
-            QueryOptimizationChecker.logger.warn("Failed to reorder method parameters for {}: {}",
-                    method.getNameAsString(), e.getMessage());
         }
 
+        // Only apply if we successfully mapped all parameters
+        if (reorderedParams.size() == currentParams.size()) {
+            // Replace parameters one-by-one using set() for better LexicalPreservingPrinter
+            // tracking
+            // This is more LPP-friendly than clear()+addAll()
+            for (int i = 0; i < reorderedParams.size(); i++) {
+                paramNodeList.set(i, reorderedParams.get(i));
+            }
+            return true;
+        }
         return false;
     }
 
@@ -293,11 +271,10 @@ public class QueryOptimizer extends QueryOptimizationChecker {
      * This reorders call arguments to match the new parameter order. Only
      * same-arity calls are modified.
      * 
-     * @param updates            the optimization results with signature changes
+     * @param update            the optimization results with signature changes
      * @param fullyQualifiedName the repository class name
      */
-    public void updateMethodCallSignatures(List<QueryAnalysisResult> updates, String fullyQualifiedName)
-            throws FileNotFoundException {
+    public void updateMethodCallSignatures(QueryAnalysisResult update, String fullyQualifiedName) {
         Map<String, Set<String>> fields = Fields.getFieldDependencies(fullyQualifiedName);
 
         if (fields == null) {
@@ -327,10 +304,10 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                             logger.debug("LPP setup failed for {}, proceeding without it: {}", className,
                                     e.getMessage());
                         }
-                        cu.accept(visitor, updates);
+                        cu.accept(visitor, update);
                     } else {
                         // Fallback to visiting the type if CU is not available
-                        typeWrapper.getType().accept(visitor, updates);
+                        typeWrapper.getType().accept(visitor, update);
                     }
 
                     if (visitor.modified) {
@@ -340,8 +317,8 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                 }
 
                 // Write file once if any field was modified
-                if (classModified && writeFile(className)) {
-                    OptimizationStatsLogger.updateDependentClassesChanged(1);
+                if (classModified) {
+                    modifiedFiles.add(className);
                     OptimizationStatsLogger.updateMethodCallsChanged(totalMethodCallsUpdated);
                 }
             }
@@ -372,16 +349,6 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         String relativePath = AbstractCompiler.classToPath(fullyQualifiedName);
         String fullPath = Settings.getBasePath() + "/src/main/java/" + relativePath;
 
-        // Read original content to check for changes
-        String original = null;
-        try {
-            File f = new File(fullPath);
-            if (f.exists()) {
-                original = java.nio.file.Files.readString(f.toPath());
-            }
-        } catch (IOException e) {
-            logger.warn("Could not read original file {}: {}", fullPath, e.getMessage());
-        }
 
         // Use LexicalPreservingPrinter for whitespace preservation
         // Since we modify annotations IN PLACE, LexicalPreservingPrinter should track
@@ -390,25 +357,6 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         boolean usedFallback = false;
         try {
             content = LexicalPreservingPrinter.print(cu);
-
-            // IMPORTANT: LexicalPreservingPrinter sometimes fails to track AST
-            // modifications
-            // (e.g., when modifying annotation values). If the content is identical to the
-            // original
-            // but cu.toString() shows changes, fall back to cu.toString()
-            if (original != null && original.equals(content)) {
-                String cuToString = cu.toString();
-                if (!original.equals(cuToString)) {
-                    // LPP didn't track the changes, use cu.toString() instead
-                    logger.debug("LexicalPreservingPrinter didn't track changes for {}, using cu.toString()",
-                            fullyQualifiedName);
-                    content = cuToString;
-                    usedFallback = true;
-                }
-            } else {
-                logger.debug("LexicalPreservingPrinter successfully preserved formatting for {}",
-                        fullyQualifiedName);
-            }
         } catch (Exception e) {
             // LexicalPreservingPrinter can still fail on complex AST modifications (e.g.,
             // parameter reordering)
@@ -416,11 +364,6 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                     fullyQualifiedName, e.getMessage());
             content = cu.toString();
             usedFallback = true;
-        }
-
-        // If resulting content is identical to original, skip writing
-        if (original != null && original.equals(content)) {
-            return false;
         }
 
         try {
@@ -444,7 +387,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         return false;
     }
 
-    static class NameChangeVisitor extends ModifierVisitor<List<QueryAnalysisResult>> {
+    static class NameChangeVisitor extends ModifierVisitor<QueryAnalysisResult> {
         String fieldName;
         String repositoryFqn;
         boolean modified;
@@ -456,39 +399,34 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         }
 
         @Override
-        public MethodCallExpr visit(MethodCallExpr mce, List<QueryAnalysisResult> updates) {
-            super.visit(mce, updates);
+        public MethodCallExpr visit(MethodCallExpr mce, QueryAnalysisResult update) {
+            super.visit(mce, update);
             Optional<Expression> scope = mce.getScope();
-            if (scope.isPresent() && scope.get() instanceof NameExpr fe && fe.getNameAsString().equals(fieldName)
-                    && !updates.isEmpty()) {
-                // Loop through ALL updates to find matching method
-                for (QueryAnalysisResult update : updates) {
-                    // Check if this call matches the current update's method name
-                    OptimizationIssue issue = update.getOptimizationIssue();
-                    if (update.getMethodName().equals(mce.getNameAsString()) && issue != null) {
-                        if (issue.optimizedQuery() != null) {
-                            String originalMethodName = mce.getNameAsString();
-                            String newMethodName = issue.optimizedQuery().getMethodName();
+            if (scope.isPresent() && scope.get() instanceof NameExpr fe && fe.getNameAsString().equals(fieldName)) {
+                // Check if this call matches the current update's method name
+                OptimizationIssue issue = update.getOptimizationIssue();
+                if (update.getMethodName().equals(mce.getNameAsString()) && issue != null && issue.optimizedQuery() != null) {
+                        String originalMethodName = mce.getNameAsString();
+                        String newMethodName = issue.optimizedQuery().getMethodName();
 
-                            // Only count as an update if something actually changes
-                            boolean methodNameChanged = !originalMethodName.equals(newMethodName);
-                            boolean argumentsReordered = false;
+                        // Only count as an update if something actually changes
+                        boolean methodNameChanged = !originalMethodName.equals(newMethodName);
+                        boolean argumentsReordered = false;
 
-                            // Update method name if it changed
-                            if (methodNameChanged) {
-                                mce.setName(newMethodName);
-                            }
-
-                            // Reorder arguments based on column order changes
-                            argumentsReordered = reorderMethodArguments(mce, issue);
-
-                            // Only mark as modified and increment counter if actual changes were made
-                            if (methodNameChanged || argumentsReordered) {
-                                modified = true;
-                                methodCallsUpdated++;
-                            }
+                        // Update method name if it changed
+                        if (methodNameChanged) {
+                            mce.setName(newMethodName);
                         }
-                    }
+
+                        // Reorder arguments based on column order changes
+                        argumentsReordered = reorderMethodArguments(mce, issue);
+
+                        // Only mark as modified and increment counter if actual changes were made
+                        if (methodNameChanged || argumentsReordered) {
+                            modified = true;
+                            methodCallsUpdated++;
+                        }
+
                 }
             }
             return mce;
@@ -619,6 +557,8 @@ public class QueryOptimizer extends QueryOptimizationChecker {
 
         OptimizationStatsLogger.initialize("");
         OptimizationStatsLogger.printSummary(System.out);
+        OptimizationStatsLogger.updateDependentClassesChanged(modifiedFiles.size());
+        updateFiles();
 
         if (!quietMode) {
             System.out.println("\nTime taken " + (System.currentTimeMillis() - s) + " ms.");
@@ -628,5 +568,11 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         // Explicitly exit to ensure JVM shuts down (HttpClient may have non-daemon
         // threads)
         System.exit(0);
+    }
+
+    private static void updateFiles() throws FileNotFoundException {
+        for (String className : modifiedFiles) {
+            writeFile(className);
+        }
     }
 }

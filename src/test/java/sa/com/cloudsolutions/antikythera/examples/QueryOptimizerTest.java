@@ -177,7 +177,7 @@ class QueryOptimizerTest {
         // Act
         TypeWrapper typeWrapper = AntikytheraRunTime.getResolvedTypes().get(fullyQualifiedName);
 
-        queryOptimizer.analyzeRepository(fullyQualifiedName, typeWrapper);
+        queryOptimizer.analyzeRepository(typeWrapper);
 
         Path repoFile = tempDir
                 .resolve("src/main/java/sa/com/cloudsolutions/antikythera/testhelper/repository/UserRepository.java");
@@ -257,7 +257,7 @@ class QueryOptimizerTest {
 
         // Act
         TypeWrapper typeWrapper = AntikytheraRunTime.getResolvedTypes().get(fullyQualifiedName);
-        queryOptimizer.analyzeRepository(fullyQualifiedName, typeWrapper);
+        queryOptimizer.analyzeRepository(typeWrapper);
 
         // Assert
         Path repoFile = tempDir
@@ -340,7 +340,7 @@ class QueryOptimizerTest {
 
         // Act
         TypeWrapper typeWrapper = AntikytheraRunTime.getResolvedTypes().get(fullyQualifiedName);
-        queryOptimizer.analyzeRepository(fullyQualifiedName, typeWrapper);
+        queryOptimizer.analyzeRepository(typeWrapper);
 
         // Assert
         Path repoFile = tempDir
