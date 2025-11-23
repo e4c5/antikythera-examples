@@ -1,5 +1,6 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
+import com.github.javaparser.ast.body.CallableDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.expr.AnnotationExpr;
@@ -22,12 +23,14 @@ import sa.com.cloudsolutions.antikythera.generator.QueryType;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
 import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
+import sa.com.cloudsolutions.antikythera.parser.Callable;
 import sa.com.cloudsolutions.antikythera.parser.converter.EntityMappingResolver;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -55,7 +58,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
     @Override
     void analyzeRepository(TypeWrapper typeWrapper)
             throws IOException, ReflectiveOperationException, InterruptedException {
-        if (!typeWrapper.getFullyQualifiedName().endsWith("EApprovalRequestComRepository")) {
+        if (!typeWrapper.getFullyQualifiedName().endsWith("ProcedureRequestRepository")) {
             return;
         }
         super.analyzeRepository(typeWrapper);
@@ -102,15 +105,14 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                     updateMethodCallSignatures(result, issue.query().getRepositoryClassName());
 
                     MethodDeclaration method = issue.query().getMethodDeclaration().asMethodDeclaration();
-                    String newMethodName = optimizedQuery.getMethodName();
-                    method.setName(newMethodName);
+                    Callable newMethod = optimizedQuery.getMethodDeclaration();
+                    method.setName(newMethod.getNameAsString());
                     logger.info("Changed method name from {} to {}",
-                            issue.query().getMethodName(), newMethodName);
+                            issue.query().getMethodName(), newMethod.getNameAsString());
 
                     reorderMethodParameters(
                             issue.query().getMethodDeclaration().asMethodDeclaration(),
-                            issue.currentColumnOrder(),
-                            issue.recommendedColumnOrder());
+                            newMethod.asMethodDeclaration());
                 }
                 // Track if file was modified (annotation always changes and may also have
                 // parameter reordering)
@@ -169,7 +171,6 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             String newStringValue,
             boolean useTextBlock) {
 
-        System.out.println(annotationName + " -> " + newStringValue);
         // 1. Find the annotation on the method
         Optional<AnnotationExpr> oldAnnotationOpt = method.getAnnotationByName(annotationName);
         if (oldAnnotationOpt.isPresent()) {
@@ -188,7 +189,6 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             if (annotation.isSingleMemberAnnotationExpr()) {
                 // --- Case 1: @Query("...") ---
                 annotation.asSingleMemberAnnotationExpr().setMemberValue(newValueExpr);
-
             } else if (annotation.isNormalAnnotationExpr()) {
                 // --- Case 2: @Query(value = "...") ---
                 NormalAnnotationExpr normal = annotation.asNormalAnnotationExpr();
@@ -198,11 +198,11 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                         .filter(p -> p.getName().asString().equals("value"))
                         .findFirst();
 
-                valuePair.ifPresent(memberValuePair -> {
-                    memberValuePair.setValue(newValueExpr);
-                    OptimizationStatsLogger.updateQueryAnnotationsChanged(1);
-                });
+                valuePair.ifPresent(memberValuePair ->
+                    memberValuePair.setValue(newValueExpr)
+                );
             }
+            OptimizationStatsLogger.updateQueryAnnotationsChanged(1);
         }
     }
 
@@ -212,58 +212,12 @@ public class QueryOptimizer extends QueryOptimizationChecker {
      * order.
      *
      * @param method                 the method declaration to modify
-     * @param currentColumnOrder     the current column order
-     * @param recommendedColumnOrder the recommended column order
+     * @param newMethod              the updated method signature
      */
-    void reorderMethodParameters(MethodDeclaration method,
-            List<String> currentColumnOrder,
-            List<String> recommendedColumnOrder) {
-        // Validate inputs
-        if (method == null || currentColumnOrder == null || recommendedColumnOrder == null) {
-            return;
-        }
-
-        // Only reorder if orders are different
-        if (currentColumnOrder.equals(recommendedColumnOrder)) {
-            return;
-        }
-
-        // Only reorder if parameter count matches column count
-        if (method.getParameters().size() != currentColumnOrder.size()) {
-            return;
-        }
-
-        // Check if sizes match
-        if (currentColumnOrder.size() != recommendedColumnOrder.size()) {
-            return;
-        }
-
-        // Get current parameters (save copies before modifying)
-        var currentParams = new ArrayList<>(method.getParameters());
-
-        // Build a map of column name -> list of indices in current order
-        // We use a LinkedList to act as a queue for duplicates
-        Map<String, java.util.LinkedList<Integer>> columnIndices = new java.util.HashMap<>();
-        for (int i = 0; i < currentColumnOrder.size(); i++) {
-            columnIndices.computeIfAbsent(currentColumnOrder.get(i), k -> new java.util.LinkedList<>()).add(i);
-        }
-
-        // Build reordered parameter list
-        var reorderedParams = new ArrayList<Parameter>();
-        for (String recommendedColumn : recommendedColumnOrder) {
-            var indices = columnIndices.get(recommendedColumn);
-            if (indices != null && !indices.isEmpty()) {
-                int originalIndex = indices.poll(); // Get and remove the first available index
-                if (originalIndex >= 0 && originalIndex < currentParams.size()) {
-                    reorderedParams.add(currentParams.get(originalIndex));
-                }
-            }
-        }
-
-        // Only apply if we successfully mapped all parameters
-        if (reorderedParams.size() == currentParams.size()) {
-            // Replace the entire NodeList to ensure the change is tracked by LPP and CU
-            method.setParameters(new NodeList<>(reorderedParams));
+    void reorderMethodParameters(MethodDeclaration method,MethodDeclaration newMethod) {
+        NodeList<Parameter> params = method.getParameters();
+        for (int i = 0 ; i < params.size() ; i++ ) {
+            params.set(i, newMethod.getParameter(i).clone());
         }
     }
 
@@ -402,13 +356,11 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                     // Update method name if it changed
                     if (methodNameChanged) {
                         mce.setName(newMethodName);
+                        reorderMethodArguments(mce, issue);
                     }
 
-                    // Reorder arguments based on column order changes
-                    boolean argumentsReordered = reorderMethodArguments(mce, issue);
-
                     // Only mark as modified and increment counter if actual changes were made
-                    if (methodNameChanged || argumentsReordered) {
+                    if (methodNameChanged) {
                         modified = true;
                         methodCallsUpdated++;
                     }
@@ -425,76 +377,28 @@ public class QueryOptimizer extends QueryOptimizationChecker {
          * findByStatusAndEmail),
          * the method call arguments are also reordered to match.
          * 
-         * @return true if arguments were actually reordered, false otherwise
          */
-        private boolean reorderMethodArguments(MethodCallExpr mce, OptimizationIssue issue) {
-            List<String> currentOrder = issue.currentColumnOrder();
-            List<String> recommendedOrder = issue.recommendedColumnOrder();
-            // Only reorder if we have both orders and they're different
-            if (currentOrder == null || recommendedOrder == null ||
-                    currentOrder.equals(recommendedOrder) ||
-                    currentOrder.size() != recommendedOrder.size()) {
-                return false;
-            }
-
-            // Only reorder if argument count matches parameter count
-            if (mce.getArguments().size() != currentOrder.size()) {
-                return false;
-            }
-
-            List<String> argNames = mce.getArguments().stream()
-                    .map(e -> e.asNameExpr().getNameAsString())
-                    .toList();
-            if (argNames.equals(recommendedOrder)) {
-                return false;
-            }
-
-            // Create mapping from current position to new position
-            List<Expression> currentArgs = new ArrayList<>(mce.getArguments());
-
-            // Build a map of column name -> list of indices in current order
-            // We use a LinkedList to act as a queue for duplicates
-            Map<String, java.util.LinkedList<Integer>> columnIndices = new java.util.HashMap<>();
-            for (int i = 0; i < currentOrder.size(); i++) {
-                columnIndices.computeIfAbsent(currentOrder.get(i), k -> new java.util.LinkedList<>()).add(i);
-            }
-
-            List<Expression> reorderedArgs = new ArrayList<>();
-
-            // For each position in the recommended order, find the corresponding argument
-            for (String recommendedColumn : recommendedOrder) {
-                var indices = columnIndices.get(recommendedColumn);
-                if (indices != null && !indices.isEmpty()) {
-                    int originalIndex = indices.poll(); // Get and remove the first available index
-                    if (originalIndex >= 0 && originalIndex < currentArgs.size()) {
-                        reorderedArgs.add(currentArgs.get(originalIndex).clone());
+        void reorderMethodArguments(MethodCallExpr mce, OptimizationIssue issue) {
+            MethodDeclaration oldMethod = issue.query().getMethodDeclaration().asMethodDeclaration();
+            MethodDeclaration newMethod = issue.optimizedQuery().getMethodDeclaration().asMethodDeclaration();
+            Map<Integer, Integer> map = new HashMap<>();
+            for (int i = 0 ; i < oldMethod.getParameters().size() ; i++) {
+                for (int j = 0 ; j < newMethod.getParameters().size() ; j++) {
+                    if (oldMethod.getParameter(i).toString().equals(newMethod.getParameter(j).toString())) {
+                        map.put(j, i);
                     }
                 }
             }
 
-            // Guard: Check if the reordering would actually change anything
-            // This prevents applying the same transformation multiple times
-            boolean wouldChange = false;
-            for (int i = 0; i < currentArgs.size() && i < reorderedArgs.size(); i++) {
-                if (!currentArgs.get(i).toString().equals(reorderedArgs.get(i).toString())) {
-                    wouldChange = true;
-                    break;
-                }
-            }
-            if (!wouldChange) {
-                return false;
+            NodeList<Expression> args = mce.getArguments();
+            NodeList<Expression> newArgs = new NodeList<>();
+            for (int i = 0 ; i < args.size() ; i++) {
+                newArgs.add(args.get(map.get(i)));
             }
 
-            // Update the method call with reordered arguments
-            if (reorderedArgs.size() == currentArgs.size()) {
-                // Replace the entire NodeList to ensure the change is tracked by LPP and CU
-                mce.setArguments(new NodeList<>(reorderedArgs));
-                return true;
-            }
-
-            return false;
+            mce.getArguments().clear();
+            mce.setArguments(newArgs);
         }
-
     }
 
     /**
