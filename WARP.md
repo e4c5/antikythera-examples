@@ -322,7 +322,6 @@ ai_service:
   api_key: "${GEMINI_API_KEY}"
   timeout_seconds: 90
   max_retries: 2
-  queries_per_request: 40
   track_usage: true
   cost_per_1k_tokens: 0.00015
 ```

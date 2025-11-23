@@ -183,7 +183,7 @@ public class QueryOptimizationChecker {
 
         // Add all raw queries to the batch
         for (RepositoryQuery query : rawQueries) {
-            if (!query.getMethodDeclaration().getNameAsString().equals("save")) {
+            if (! "save".equals(query.getMethodDeclaration().getNameAsString())) {
                 batch.addQuery(query);
                 addWhereClauseColumnCardinality(batch, query);
             }
