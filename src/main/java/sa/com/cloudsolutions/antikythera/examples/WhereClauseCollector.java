@@ -66,7 +66,21 @@ class WhereClauseCollector extends StatementVisitorAdapter<Void> {
 
     @Override
     public <S> Void visit(Update update, S context) {
-        extractWhereConditions(update.getWhere(), update.getFromItem());
+        // Determine the default table for UPDATE WHERE clause conditions.
+        String defaultTable = resolveUpdateTargetTable(update);
+        if (update.getWhere() != null) {
+            List<WhereCondition> conditions = extractWhereConditionsFromExpression(update.getWhere(), defaultTable);
+            whereConditions.addAll(conditions);
+        }
+        // Process potential FROM item (subquery/CTE style updates) for completeness
+        try {
+            FromItem fromItem = update.getFromItem();
+            if (fromItem != null) {
+                processFromItem(fromItem);
+            }
+        } catch (NoSuchMethodError | Exception ignored) {
+            // getFromItem may not exist on some versions; ignore safely
+        }
 
         // Process joins if present via known API
         if (update.getJoins() != null) {
@@ -86,11 +100,54 @@ class WhereClauseCollector extends StatementVisitorAdapter<Void> {
                         }
                     }
                 }
-            } catch (NoSuchMethodException ignored) {
-                // method not present in this version
-            } catch (Exception e) {
+            }  catch (Exception e) {
                 // ignore unexpected reflection issues to avoid breaking parsing
             }
+        }
+        return null;
+    }
+
+    /**
+     * Attempts to resolve the update target table name or alias across JSqlParser versions.
+     */
+    private String resolveUpdateTargetTable(Update update) {
+        // Try the common getTable() first
+        try {
+            Method m = update.getClass().getMethod("getTable");
+            Object res = m.invoke(update);
+            if (res instanceof Table table) {
+                // Prefer alias if present
+                if (table.getAlias() != null) {
+                    return table.getAlias().getName();
+                }
+                return table.getName();
+            }
+        }  catch (Exception ignored) {
+            // ignore reflection problems
+        }
+        // Some versions expose multiple target tables (e.g., UPDATE table SET ... FROM ...)
+        try {
+            Method m = update.getClass().getMethod("getTables");
+            Object res = m.invoke(update);
+            if (res instanceof List<?>) {
+                for (Object o : (List<?>) res) {
+                    if (o instanceof Table table) {
+                        if (table.getAlias() != null) {
+                            return table.getAlias().getName();
+                        }
+                        return table.getName();
+                    }
+                }
+            }
+        }  catch (Exception ignored) {
+            // ignore
+        }
+        // Fallback to FromItem if available
+        try {
+            FromItem fromItem = update.getFromItem();
+            return extractTableName(fromItem);
+        } catch (NoSuchMethodError | Exception ignored) {
+            // not available
         }
         return null;
     }
