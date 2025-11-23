@@ -1,6 +1,5 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
-import com.github.javaparser.ast.body.CallableDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.expr.AnnotationExpr;
@@ -58,7 +57,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
     @Override
     void analyzeRepository(TypeWrapper typeWrapper)
             throws IOException, ReflectiveOperationException, InterruptedException {
-        if (!typeWrapper.getFullyQualifiedName().endsWith("ProcedureRequestRepository")) {
+        if (!typeWrapper.getFullyQualifiedName().endsWith("ProcedureApprovalRepository")) {
             return;
         }
         super.analyzeRepository(typeWrapper);
@@ -274,11 +273,9 @@ public class QueryOptimizer extends QueryOptimizationChecker {
      * Writes the modified compilation unit to disk using FileOperationsManager.
      * 
      * Attempts to use LexicalPreservingPrinter for whitespace preservation, but
-     * falls back to
-     * cu.toString() if:
+     * falls back to cu.toString() if:
      * 1. LexicalPreservingPrinter throws an exception
-     * 2. LexicalPreservingPrinter returns unchanged content (indicating AST mods
-     * weren't tracked)
+     * 2. LexicalPreservingPrinter returns unchanged content (indicating AST mods weren't tracked)
      * 
      * The fallback uses JavaParser's default pretty printer which produces
      * consistent formatting.
