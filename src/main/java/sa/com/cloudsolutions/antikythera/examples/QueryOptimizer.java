@@ -25,7 +25,6 @@ import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 import sa.com.cloudsolutions.antikythera.parser.converter.EntityMappingResolver;
 
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.ArrayList;
@@ -56,7 +55,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
     @Override
     void analyzeRepository(TypeWrapper typeWrapper)
             throws IOException, ReflectiveOperationException, InterruptedException {
-        if (!typeWrapper.getFullyQualifiedName().endsWith("AccessUserRepository")) {
+        if (!typeWrapper.getFullyQualifiedName().endsWith("EApprovalRequestComRepository")) {
             return;
         }
         super.analyzeRepository(typeWrapper);
@@ -333,11 +332,11 @@ public class QueryOptimizer extends QueryOptimizationChecker {
      * @return true if the file was actually written (content changed), false if
      *         skipped (no changes)
      */
-    static boolean writeFile(String fullyQualifiedName) throws FileNotFoundException {
+    static boolean writeFile(String fullyQualifiedName) throws IOException {
         return writeFile(fullyQualifiedName, AntikytheraRunTime.getCompilationUnit(fullyQualifiedName));
     }
 
-    static boolean writeFile(String fullyQualifiedName, CompilationUnit cu) throws FileNotFoundException {
+    static boolean writeFile(String fullyQualifiedName, CompilationUnit cu) throws IOException {
         String relativePath = AbstractCompiler.classToPath(fullyQualifiedName);
         String fullPath = Settings.getBasePath() + "/src/main/java/" + relativePath;
 
@@ -357,22 +356,18 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             usedFallback = true;
         }
 
-        try {
-            File f = new File(fullPath);
+        File f = new File(fullPath);
 
-            if (f.exists()) {
-                PrintWriter writer = new PrintWriter(f);
+        if (f.exists()) {
+            PrintWriter writer = new PrintWriter(f);
 
-                writer.print(content); // Use the content variable we already computed
-                writer.close();
+            writer.print(content); // Use the content variable we already computed
+            writer.close();
 
-                if (usedFallback) {
-                    logger.info("File {} was written using cu.toString() (formatting may differ)", fullPath);
-                }
-                return true;
+            if (usedFallback) {
+                logger.info("File {} was written using cu.toString() (formatting may differ)", fullPath);
             }
-        } catch (IOException e) {
-            throw new FileNotFoundException("Failed to write file " + fullPath + ": " + e.getMessage());
+            return true;
         }
 
         return false;
@@ -566,7 +561,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         System.exit(0);
     }
 
-    private static void updateFiles() throws FileNotFoundException {
+    private static void updateFiles() throws IOException {
         for (String className : modifiedFiles) {
             writeFile(className);
         }
