@@ -1,6 +1,7 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
 import net.sf.jsqlparser.expression.Expression;
+import net.sf.jsqlparser.schema.Table;
 import net.sf.jsqlparser.statement.StatementVisitorAdapter;
 import net.sf.jsqlparser.statement.delete.Delete;
 import net.sf.jsqlparser.statement.select.FromItem;
@@ -33,8 +34,16 @@ class WhereClauseCollector extends StatementVisitorAdapter<Void> {
      * Now uses ExpressionConditionExtractor which provides better structure than OptimizationAnalysisVisitor.
      */
     public List<WhereCondition> extractWhereConditionsFromExpression(Expression whereExpression) {
+        return extractWhereConditionsFromExpression(whereExpression, null);
+    }
+
+    /**
+     * Extracts WHERE conditions from a WHERE expression with a default table name.
+     * The default table name is used when columns don't have explicit table qualifiers.
+     */
+    public List<WhereCondition> extractWhereConditionsFromExpression(Expression whereExpression, String defaultTableName) {
         ExpressionConditionExtractor extractor = new ExpressionConditionExtractor();
-        return extractor.extractConditions(whereExpression);
+        return extractor.extractConditions(whereExpression, defaultTableName);
     }
 
     /**
@@ -88,7 +97,8 @@ class WhereClauseCollector extends StatementVisitorAdapter<Void> {
 
     private void extractWhereConditions(Expression whereClause, FromItem fromItem) {
         if (whereClause != null) {
-            List<WhereCondition> conditions = extractWhereConditionsFromExpression(whereClause);
+            String tableName = extractTableName(fromItem);
+            List<WhereCondition> conditions = extractWhereConditionsFromExpression(whereClause, tableName);
             whereConditions.addAll(conditions);
         }
 
@@ -97,11 +107,32 @@ class WhereClauseCollector extends StatementVisitorAdapter<Void> {
         }
     }
 
+    /**
+     * Extracts the table name or alias from a FromItem.
+     * Returns the alias if present (e.g., "o" from "orders o"), otherwise the table name.
+     */
+    private String extractTableName(FromItem fromItem) {
+        if (fromItem == null) {
+            return null;
+        }
+        
+        if (fromItem instanceof Table table) {
+            // Prefer alias if present, otherwise use table name
+            if (table.getAlias() != null) {
+                return table.getAlias().getName();
+            }
+            return table.getName();
+        }
+        
+        // For other FromItem types (subqueries, etc.), we can't extract a simple table name
+        return null;
+    }
+
     @Override
     public <S> Void visit(Delete delete, S context) {
-        Expression whereClause = delete.getWhere();
-        if (whereClause != null) {
-            List<WhereCondition> conditions = extractWhereConditionsFromExpression(whereClause);
+        String tableName = extractTableName(delete.getTable());
+        if (delete.getWhere() != null) {
+            List<WhereCondition> conditions = extractWhereConditionsFromExpression(delete.getWhere(), tableName);
             whereConditions.addAll(conditions);
         }
 
