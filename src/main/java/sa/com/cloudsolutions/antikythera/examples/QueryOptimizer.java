@@ -58,9 +58,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
     @Override
     void analyzeRepository(TypeWrapper typeWrapper)
             throws IOException, ReflectiveOperationException, InterruptedException {
-        if (!typeWrapper.getFullyQualifiedName().endsWith(".AdmissionRequestRepository")) {
-            return;
-        }
+
         super.analyzeRepository(typeWrapper);
 
         OptimizationStatsLogger.updateQueriesAnalyzed(results.size());
@@ -198,9 +196,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                         .filter(p -> p.getName().asString().equals("value"))
                         .findFirst();
 
-                valuePair.ifPresent(memberValuePair ->
-                    memberValuePair.setValue(newValueExpr)
-                );
+                valuePair.ifPresent(memberValuePair -> memberValuePair.setValue(newValueExpr));
             }
             OptimizationStatsLogger.updateQueryAnnotationsChanged(1);
         }
@@ -211,12 +207,12 @@ public class QueryOptimizer extends QueryOptimizationChecker {
      * This ensures the method signature matches the optimized WHERE clause column
      * order.
      *
-     * @param method                 the method declaration to modify
-     * @param newMethod              the updated method signature
+     * @param method    the method declaration to modify
+     * @param newMethod the updated method signature
      */
-    void reorderMethodParameters(MethodDeclaration method,MethodDeclaration newMethod) {
+    void reorderMethodParameters(MethodDeclaration method, MethodDeclaration newMethod) {
         NodeList<Parameter> params = method.getParameters();
-        for (int i = 0 ; i < params.size() ; i++ ) {
+        for (int i = 0; i < params.size(); i++) {
             params.set(i, newMethod.getParameter(i).clone());
         }
     }
@@ -276,7 +272,8 @@ public class QueryOptimizer extends QueryOptimizationChecker {
      * Attempts to use LexicalPreservingPrinter for whitespace preservation, but
      * falls back to cu.toString() if:
      * 1. LexicalPreservingPrinter throws an exception
-     * 2. LexicalPreservingPrinter returns unchanged content (indicating AST mods weren't tracked)
+     * 2. LexicalPreservingPrinter returns unchanged content (indicating AST mods
+     * weren't tracked)
      * 
      * The fallback uses JavaParser's default pretty printer which produces
      * consistent formatting.
@@ -311,9 +308,8 @@ public class QueryOptimizer extends QueryOptimizationChecker {
 
         if (f.exists()) {
             return writeFile(f, content);
-        }
-        else {
-            File t = new File(fullPath.replace("src/main","src/test"));
+        } else {
+            File t = new File(fullPath.replace("src/main", "src/test"));
             if (t.exists()) {
                 return writeFile(t, content);
             }
@@ -349,30 +345,43 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                 return mce;
             }
 
+            boolean isMatchingCall = false;
+
+            // Case 1: Regular method call - fieldName.methodName(...)
             if (scope.isPresent() && scope.get() instanceof NameExpr fe && fe.getNameAsString().equals(fieldName)) {
-                // Check if this call matches the current update's method name
+                isMatchingCall = true;
+            }
 
-                if (update.getMethodName().equals(mce.getNameAsString())) {
-                    String originalMethodName = mce.getNameAsString();
-                    String newMethodName = issue.optimizedQuery().getMethodName();
-
-                    // Only count as an update if something actually changes
-                    boolean methodNameChanged = !originalMethodName.equals(newMethodName);
-
-                    // Update method name if it changed
-                    if (methodNameChanged) {
-                        mce.setName(newMethodName);
-                        reorderMethodArguments(mce, issue);
+            // Case 2: Mockito verify call - verify(fieldName).methodName(...)
+            if (scope.isPresent() && scope.get() instanceof MethodCallExpr verifyCall) {
+                if ("verify".equals(verifyCall.getNameAsString()) && !verifyCall.getArguments().isEmpty()) {
+                    Expression firstArg = verifyCall.getArgument(0);
+                    if (firstArg instanceof NameExpr nameExpr && nameExpr.getNameAsString().equals(fieldName)) {
+                        isMatchingCall = true;
                     }
-
-                    // Only mark as modified and increment counter if actual changes were made
-                    if (methodNameChanged) {
-                        modified = true;
-                        methodCallsUpdated++;
-                    }
-
                 }
             }
+
+            if (isMatchingCall && update.getMethodName().equals(mce.getNameAsString())) {
+                String originalMethodName = mce.getNameAsString();
+                String newMethodName = issue.optimizedQuery().getMethodName();
+
+                // Only count as an update if something actually changes
+                boolean methodNameChanged = !originalMethodName.equals(newMethodName);
+
+                // Update method name if it changed
+                if (methodNameChanged) {
+                    mce.setName(newMethodName);
+                    reorderMethodArguments(mce, issue);
+                }
+
+                // Only mark as modified and increment counter if actual changes were made
+                if (methodNameChanged) {
+                    modified = true;
+                    methodCallsUpdated++;
+                }
+            }
+
             return mce;
         }
 
@@ -388,8 +397,8 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             MethodDeclaration oldMethod = issue.query().getMethodDeclaration().asMethodDeclaration();
             MethodDeclaration newMethod = issue.optimizedQuery().getMethodDeclaration().asMethodDeclaration();
             Map<Integer, Integer> map = new HashMap<>();
-            for (int i = 0 ; i < oldMethod.getParameters().size() ; i++) {
-                for (int j = 0 ; j < newMethod.getParameters().size() ; j++) {
+            for (int i = 0; i < oldMethod.getParameters().size(); i++) {
+                for (int j = 0; j < newMethod.getParameters().size(); j++) {
                     if (oldMethod.getParameter(i).toString().equals(newMethod.getParameter(j).toString())) {
                         map.put(j, i);
                     }
@@ -398,7 +407,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
 
             NodeList<Expression> args = mce.getArguments();
             NodeList<Expression> newArgs = new NodeList<>();
-            for (int i = 0 ; i < args.size() ; i++) {
+            for (int i = 0; i < args.size(); i++) {
                 newArgs.add(args.get(map.get(i)));
             }
 
