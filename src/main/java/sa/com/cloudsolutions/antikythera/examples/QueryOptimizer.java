@@ -104,20 +104,18 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                     method.setName(newMethodName);
                     logger.info("Changed method name from {} to {}",
                             issue.query().getMethodName(), newMethodName);
+
+                    reorderMethodParameters(
+                            issue.query().getMethodDeclaration().asMethodDeclaration(),
+                            issue.currentColumnOrder(),
+                            issue.recommendedColumnOrder());
                 }
-
-                // Reorder parameters if column order changed (regardless of method name change)
-                boolean parametersReordered = reorderMethodParameters(
-                        issue.query().getMethodDeclaration().asMethodDeclaration(),
-                        issue.currentColumnOrder(),
-                        issue.recommendedColumnOrder());
-
                 // Track if file was modified (annotation always changes, and may also have
                 // parameter reordering)
                 repositoryFileModified = true;
 
                 // Track method signature changes
-                if (methodNameChanged || parametersReordered) {
+                if (methodNameChanged) {
                     OptimizationStatsLogger.updateMethodSignaturesChanged(1);
                 }
                 updates.add(result);
