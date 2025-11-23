@@ -26,6 +26,7 @@ import sa.com.cloudsolutions.antikythera.parser.Callable;
 import sa.com.cloudsolutions.antikythera.parser.converter.EntityMappingResolver;
 
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.ArrayList;
@@ -57,7 +58,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
     @Override
     void analyzeRepository(TypeWrapper typeWrapper)
             throws IOException, ReflectiveOperationException, InterruptedException {
-        if (!typeWrapper.getFullyQualifiedName().endsWith(".EApprovalRequestComRepository")) {
+        if (!typeWrapper.getFullyQualifiedName().endsWith(".AdmissionRequestRepository")) {
             return;
         }
         super.analyzeRepository(typeWrapper);
@@ -295,7 +296,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         // Since we modify annotations IN PLACE, LexicalPreservingPrinter should track
         // changes properly
         String content;
-        boolean usedFallback = false;
+
         try {
             content = LexicalPreservingPrinter.print(cu);
         } catch (Exception e) {
@@ -304,24 +305,28 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             logger.warn("LexicalPreservingPrinter failed for {}: {}. Using default printer (may lose formatting).",
                     fullyQualifiedName, e.getMessage());
             content = cu.toString();
-            usedFallback = true;
         }
 
         File f = new File(fullPath);
 
         if (f.exists()) {
-            PrintWriter writer = new PrintWriter(f);
-
-            writer.print(content); // Use the content variable we already computed
-            writer.close();
-
-            if (usedFallback) {
-                logger.info("File {} was written using cu.toString() (formatting may differ)", fullPath);
+            return writeFile(f, content);
+        }
+        else {
+            File t = new File(fullPath.replace("src/main","src/test"));
+            if (t.exists()) {
+                return writeFile(t, content);
             }
-            return true;
         }
 
         return false;
+    }
+
+    private static boolean writeFile(File f, String content) throws FileNotFoundException {
+        PrintWriter writer = new PrintWriter(f);
+        writer.print(content); // Use the content variable we already computed
+        writer.close();
+        return true;
     }
 
     static class NameChangeVisitor extends ModifierVisitor<QueryAnalysisResult> {
@@ -339,11 +344,15 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         public MethodCallExpr visit(MethodCallExpr mce, QueryAnalysisResult update) {
             super.visit(mce, update);
             Optional<Expression> scope = mce.getScope();
+            OptimizationIssue issue = update.getOptimizationIssue();
+            if (issue == null || issue.optimizedQuery() == null) {
+                return mce;
+            }
+
             if (scope.isPresent() && scope.get() instanceof NameExpr fe && fe.getNameAsString().equals(fieldName)) {
                 // Check if this call matches the current update's method name
-                OptimizationIssue issue = update.getOptimizationIssue();
-                if (update.getMethodName().equals(mce.getNameAsString()) && issue != null
-                        && issue.optimizedQuery() != null) {
+
+                if (update.getMethodName().equals(mce.getNameAsString())) {
                     String originalMethodName = mce.getNameAsString();
                     String newMethodName = issue.optimizedQuery().getMethodName();
 
