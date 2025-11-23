@@ -565,17 +565,6 @@ public class QueryOptimizationChecker {
         return null;
     }
 
-    String inferTableNameFromRepositoryClassName(String repositoryClass) {
-        String simple = repositoryClass;
-        int dot = simple.lastIndexOf('.');
-        if (dot >= 0)
-            simple = simple.substring(dot + 1);
-        if (simple.endsWith("Repository"))
-            simple = simple.substring(0, simple.length() - "Repository".length());
-        // convert CamelCase to snake_case
-        return simple.replaceAll("(?<!^)([A-Z])", "_$1").toLowerCase();
-    }
-
     String buildLiquibaseNonLockingIndexChangeSet(String tableName, String columnName) {
         return liquibaseGenerator.createIndexChangeset(tableName, columnName);
     }
