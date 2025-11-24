@@ -137,6 +137,13 @@ public class Logger {
             // Check if the method call's scope is the logger field
             if (mce.getScope().isPresent() &&
                     mce.getScope().get().toString().equals(loggerField)) {
+
+                // Skip utility methods like isDebugEnabled(), isInfoEnabled(), etc.
+                String methodName = mce.getNameAsString();
+                if (methodName.startsWith("is") && methodName.endsWith("Enabled")) {
+                    return mce;
+                }
+
                 count++;
 
                 BlockStmt block = AbstractCompiler.findBlockStatement(mce);
