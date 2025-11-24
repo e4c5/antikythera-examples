@@ -10,6 +10,7 @@ import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.LambdaExpr;
 import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.ExpressionStmt;
 import com.github.javaparser.ast.stmt.CatchClause;
@@ -31,11 +32,13 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.util.HashSet;
 import java.util.Optional;
+import java.util.Set;
 
 public class Logger {
     static int count;
-    static String loggerField;
+    static Set<String> loggerFields = new HashSet<>();
 
     public static void main(String[] args) throws IOException {
         Settings.loadConfigMap();
@@ -59,13 +62,15 @@ public class Logger {
         }
 
         for (TypeDeclaration<?> decl : cu.getTypes()) {
+            // Clear logger fields for each class
+            loggerFields.clear();
+
             FieldVisitor visitor = new FieldVisitor();
             if (decl.getAnnotationByName("Slf4j").isPresent()) {
-                loggerField = "log";
-            } else {
-                loggerField = "logger";
-                decl.accept(visitor, cu);
+                loggerFields.add("log");
             }
+            // Always visit fields to find any explicitly declared loggers
+            decl.accept(visitor, cu);
 
             for (MethodDeclaration m : decl.getMethods()) {
                 m.accept(new LoggerVisitor(), false);
@@ -95,7 +100,7 @@ public class Logger {
             VariableDeclarator vdecl = field.getVariable(0);
             TypeWrapper wrapper = AbstractCompiler.findType(cu, vdecl.getTypeAsString());
             if (wrapper != null && wrapper.getFullyQualifiedName().equals("org.slf4j.Logger")) {
-                loggerField = vdecl.getNameAsString();
+                loggerFields.add(vdecl.getNameAsString());
             }
 
         }
@@ -187,10 +192,20 @@ public class Logger {
         public MethodCallExpr visit(MethodCallExpr mce, Boolean functional) {
             super.visit(mce, functional);
 
-            // Check if the method call's scope is the logger field
-            if (mce.getScope().isPresent() &&
-                    mce.getScope().get().toString().equals(loggerField)) {
+            boolean isLoggerCall = false;
+            boolean isSystemOut = false;
 
+            // Check if the method call's scope is the logger field
+            if (mce.getScope().isPresent()) {
+                String scope = mce.getScope().get().toString();
+                if (loggerFields.contains(scope)) {
+                    isLoggerCall = true;
+                } else if (scope.equals("System.out") || scope.equals("System.err")) {
+                    isSystemOut = true;
+                }
+            }
+
+            if (isLoggerCall) {
                 // Skip utility methods like isDebugEnabled(), isInfoEnabled(), etc.
                 String methodName = mce.getNameAsString();
                 if (methodName.startsWith("is") && methodName.endsWith("Enabled")) {
@@ -216,6 +231,15 @@ public class Logger {
                     return null;
                 }
                 mce.setName("debug");
+            } else if (isSystemOut) {
+                // Handle System.out.println, System.out.print, System.out.printf, System.err.*
+                // Always remove these statements completely
+                String methodName = mce.getNameAsString();
+                if (methodName.equals("println") || methodName.equals("print") ||
+                    methodName.equals("printf") || methodName.equals("format")) {
+                    count++;
+                    return null;  // Remove System.out/err calls completely
+                }
             } else {
                 for (Expression expr : mce.getArguments()) {
                     if (expr.isLambdaExpr()) {

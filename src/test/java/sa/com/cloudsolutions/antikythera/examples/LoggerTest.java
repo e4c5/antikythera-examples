@@ -35,8 +35,9 @@ public class LoggerTest {
         LexicalPreservingPrinter.setup(cu);
         
         // Process with LoggerVisitor
-        Logger.loggerField = "logger";
-        cu.findAll(MethodDeclaration.class).forEach(m -> 
+        Logger.loggerFields.clear();
+        Logger.loggerFields.add("logger");
+        cu.findAll(MethodDeclaration.class).forEach(m ->
             m.accept(new Logger.LoggerVisitor(), false)
         );
         
@@ -72,7 +73,8 @@ public class LoggerTest {
         LexicalPreservingPrinter.setup(cu);
         
         // Process with LoggerVisitor
-        Logger.loggerField = "logger";
+        Logger.loggerFields.clear();
+        Logger.loggerFields.add("logger");
         cu.findAll(MethodDeclaration.class).forEach(m -> {
             m.accept(new Logger.LoggerVisitor(), false);
             m.accept(new Logger.EmptyForEachRemover(), null);
@@ -110,8 +112,9 @@ public class LoggerTest {
         LexicalPreservingPrinter.setup(cu);
         
         // Process with LoggerVisitor
-        Logger.loggerField = "logger";
-        cu.findAll(MethodDeclaration.class).forEach(m -> 
+        Logger.loggerFields.clear();
+        Logger.loggerFields.add("logger");
+        cu.findAll(MethodDeclaration.class).forEach(m ->
             m.accept(new Logger.LoggerVisitor(), false)
         );
         
@@ -121,5 +124,176 @@ public class LoggerTest {
         assertTrue(result.contains("logger.error("), 
             "Logger in catch block should be changed to error level");
     }
-}
 
+    @Test
+    public void testSystemOutPrintlnConvertedToLogger() {
+        String code = """
+            package test;
+            import org.slf4j.Logger;
+            import org.slf4j.LoggerFactory;
+            
+            public class TestClass {
+                private static final Logger logger = LoggerFactory.getLogger(TestClass.class);
+                
+                public void testMethod() {
+                    System.out.println("This is a message");
+                    System.out.print("Another message");
+                    System.out.printf("Formatted: %s", "value");
+                }
+            }
+            """;
+
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        LexicalPreservingPrinter.setup(cu);
+
+        // Process with LoggerVisitor
+        Logger.loggerFields.clear();
+        Logger.loggerFields.add("logger");
+        cu.findAll(MethodDeclaration.class).forEach(m ->
+            m.accept(new Logger.LoggerVisitor(), false)
+        );
+
+        String result = LexicalPreservingPrinter.print(cu);
+
+        // System.out calls should be completely removed
+        assertFalse(result.contains("System.out.println"),
+            "System.out.println should be removed");
+        assertFalse(result.contains("System.out.print"),
+            "System.out.print should be removed");
+        assertFalse(result.contains("System.out.printf"),
+            "System.out.printf should be removed");
+        assertFalse(result.contains("logger.debug("),
+            "System.out calls should be removed, not converted to logger");
+    }
+
+    @Test
+    public void testSystemOutInLoopRemoved() {
+        String code = """
+            package test;
+            import org.slf4j.Logger;
+            import org.slf4j.LoggerFactory;
+            import java.util.List;
+            
+            public class TestClass {
+                private static final Logger logger = LoggerFactory.getLogger(TestClass.class);
+                
+                public void testMethod(List<String> items) {
+                    items.forEach(item -> {
+                        System.out.println("Processing: " + item);
+                    });
+                }
+            }
+            """;
+
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        LexicalPreservingPrinter.setup(cu);
+
+        // Process with LoggerVisitor and EmptyForEachRemover
+        Logger.loggerFields.clear();
+        Logger.loggerFields.add("logger");
+        cu.findAll(MethodDeclaration.class).forEach(m -> {
+            m.accept(new Logger.LoggerVisitor(), false);
+            m.accept(new Logger.EmptyForEachRemover(), null);
+        });
+
+        String result = LexicalPreservingPrinter.print(cu);
+
+        // System.out in loop should be removed, and forEach should be removed too
+        assertFalse(result.contains("System.out.println"),
+            "System.out.println in loop should be removed");
+        assertFalse(result.contains("forEach"),
+            "Empty forEach should be removed");
+    }
+
+    @Test
+    public void testSystemErrInCatchBlockRemoved() {
+        String code = """
+            package test;
+            import org.slf4j.Logger;
+            import org.slf4j.LoggerFactory;
+            
+            public class TestClass {
+                private static final Logger logger = LoggerFactory.getLogger(TestClass.class);
+                
+                public void testMethod() {
+                    try {
+                        // some code
+                    } catch (Exception e) {
+                        System.err.println("Error: " + e.getMessage());
+                    }
+                }
+            }
+            """;
+
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        LexicalPreservingPrinter.setup(cu);
+
+        // Process with LoggerVisitor
+        Logger.loggerFields.clear();
+        Logger.loggerFields.add("logger");
+        cu.findAll(MethodDeclaration.class).forEach(m ->
+            m.accept(new Logger.LoggerVisitor(), false)
+        );
+
+        String result = LexicalPreservingPrinter.print(cu);
+
+        // System.err should be completely removed
+        assertFalse(result.contains("System.err"),
+            "System.err should be removed");
+        assertFalse(result.contains("logger.error("),
+            "System.err should be removed, not converted to logger");
+    }
+
+    @Test
+    public void testMultipleLoggerFields() {
+        String code = """
+            package test;
+            import org.slf4j.Logger;
+            import org.slf4j.LoggerFactory;
+            
+            public class TestClass {
+                private static final Logger log = LoggerFactory.getLogger(TestClass.class);
+                private static final Logger auditLogger = LoggerFactory.getLogger("audit");
+                
+                public void testMethod() {
+                    log.info("Main log message");
+                    auditLogger.info("Audit message");
+                    
+                    if (log.isDebugEnabled()) {
+                        log.debug("Debug message");
+                    }
+                    
+                    if (auditLogger.isInfoEnabled()) {
+                        auditLogger.info("Audit info");
+                    }
+                }
+            }
+            """;
+
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        LexicalPreservingPrinter.setup(cu);
+
+        // Process with LoggerVisitor - simulate both loggers being detected
+        Logger.loggerFields.clear();
+        Logger.loggerFields.add("log");
+        Logger.loggerFields.add("auditLogger");
+
+        cu.findAll(MethodDeclaration.class).forEach(m ->
+            m.accept(new Logger.LoggerVisitor(), false)
+        );
+
+        String result = LexicalPreservingPrinter.print(cu);
+
+        // Both logger utility methods should be preserved
+        assertTrue(result.contains("log.isDebugEnabled()"),
+            "log.isDebugEnabled() should be preserved");
+        assertTrue(result.contains("auditLogger.isInfoEnabled()"),
+            "auditLogger.isInfoEnabled() should be preserved");
+
+        // Both logger calls should be changed to debug
+        assertTrue(result.contains("log.debug("),
+            "log.info should be changed to log.debug");
+        assertTrue(result.contains("auditLogger.debug("),
+            "auditLogger.info should be changed to auditLogger.debug");
+    }
+}
