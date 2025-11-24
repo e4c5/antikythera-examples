@@ -8,8 +8,10 @@ import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.Expression;
+import com.github.javaparser.ast.expr.LambdaExpr;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.stmt.BlockStmt;
+import com.github.javaparser.ast.stmt.ExpressionStmt;
 import com.github.javaparser.ast.stmt.CatchClause;
 import com.github.javaparser.ast.stmt.ForEachStmt;
 import com.github.javaparser.ast.stmt.ForStmt;
@@ -69,6 +71,8 @@ public class Logger {
                 m.accept(new LoggerVisitor(), false);
                 BlockVisitor blockVisitor = new BlockVisitor();
                 m.accept(blockVisitor, null);
+                // Remove forEach calls with empty lambda bodies
+                m.accept(new EmptyForEachRemover(), null);
             }
 
             String fullPath = Settings.getBasePath() + "/src/main/java/" + AbstractCompiler.classToPath(classname);
@@ -127,6 +131,55 @@ public class Logger {
                 }
             }
             return block;
+        }
+    }
+
+    static class EmptyForEachRemover extends ModifierVisitor<Void> {
+        @Override
+        public ExpressionStmt visit(ExpressionStmt stmt, Void arg) {
+            super.visit(stmt, arg);
+
+            if (stmt.getExpression().isMethodCallExpr()) {
+                MethodCallExpr mce = stmt.getExpression().asMethodCallExpr();
+                if (hasEmptyLambda(mce)) {
+                    // Remove the entire statement
+                    return null;
+                }
+            }
+            return stmt;
+        }
+
+        private boolean hasEmptyLambda(MethodCallExpr mce) {
+            // Check if this is a forEach or similar method with an empty lambda
+            String methodName = mce.getNameAsString();
+
+            // Common stream terminal operations and forEach methods
+            if (methodName.equals("forEach") ||
+                methodName.equals("forEachOrdered") ||
+                methodName.equals("peek") ||
+                methodName.equals("ifPresent")) {
+
+                // Check if the argument is a lambda with an empty body
+                if (!mce.getArguments().isEmpty()) {
+                    Expression arg = mce.getArguments().get(0);
+                    if (arg.isLambdaExpr()) {
+                        LambdaExpr lambda = arg.asLambdaExpr();
+                        if (lambda.getBody().isBlockStmt()) {
+                            BlockStmt block = lambda.getBody().asBlockStmt();
+                            return block.getStatements().isEmpty();
+                        }
+                        // Single expression lambdas that are now null would have been removed
+                        // by the LoggerVisitor, so we check if the body is empty/null-like
+                    }
+                }
+            }
+
+            // Recursively check the scope (for chained calls like stream().forEach(...))
+            if (mce.getScope().isPresent() && mce.getScope().get().isMethodCallExpr()) {
+                return hasEmptyLambda(mce.getScope().get().asMethodCallExpr());
+            }
+
+            return false;
         }
     }
 
