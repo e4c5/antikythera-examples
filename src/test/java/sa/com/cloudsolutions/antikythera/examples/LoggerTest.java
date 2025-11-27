@@ -3,6 +3,7 @@ package sa.com.cloudsolutions.antikythera.examples;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.printer.lexicalpreservation.LexicalPreservingPrinter;
 import org.junit.jupiter.api.Test;
 
@@ -38,7 +39,7 @@ public class LoggerTest {
         Logger.loggerFields.clear();
         Logger.loggerFields.add("logger");
         cu.findAll(MethodDeclaration.class).forEach(m ->
-            m.accept(new Logger.LoggerVisitor(), false)
+            m.accept(new Logger.LoggerVisitor(m.findAncestor(TypeDeclaration.class).orElseThrow()), false)
         );
         
         String result = LexicalPreservingPrinter.print(cu);
@@ -76,7 +77,7 @@ public class LoggerTest {
         Logger.loggerFields.clear();
         Logger.loggerFields.add("logger");
         cu.findAll(MethodDeclaration.class).forEach(m -> {
-            m.accept(new Logger.LoggerVisitor(), false);
+            m.accept(new Logger.LoggerVisitor(m.findAncestor(TypeDeclaration.class).orElseThrow()), false);
             m.accept(new Logger.EmptyForEachRemover(), null);
         });
         
@@ -115,7 +116,7 @@ public class LoggerTest {
         Logger.loggerFields.clear();
         Logger.loggerFields.add("logger");
         cu.findAll(MethodDeclaration.class).forEach(m ->
-            m.accept(new Logger.LoggerVisitor(), false)
+            m.accept(new Logger.LoggerVisitor(m.findAncestor(TypeDeclaration.class).orElseThrow()), false)
         );
         
         String result = LexicalPreservingPrinter.print(cu);
@@ -150,7 +151,7 @@ public class LoggerTest {
         Logger.loggerFields.clear();
         Logger.loggerFields.add("logger");
         cu.findAll(MethodDeclaration.class).forEach(m ->
-            m.accept(new Logger.LoggerVisitor(), false)
+            m.accept(new Logger.LoggerVisitor(m.findAncestor(TypeDeclaration.class).orElseThrow()), false)
         );
 
         String result = LexicalPreservingPrinter.print(cu);
@@ -192,7 +193,7 @@ public class LoggerTest {
         Logger.loggerFields.clear();
         Logger.loggerFields.add("logger");
         cu.findAll(MethodDeclaration.class).forEach(m -> {
-            m.accept(new Logger.LoggerVisitor(), false);
+            m.accept(new Logger.LoggerVisitor(m.findAncestor(TypeDeclaration.class).orElseThrow()), false);
             m.accept(new Logger.EmptyForEachRemover(), null);
         });
 
@@ -232,7 +233,7 @@ public class LoggerTest {
         Logger.loggerFields.clear();
         Logger.loggerFields.add("logger");
         cu.findAll(MethodDeclaration.class).forEach(m ->
-            m.accept(new Logger.LoggerVisitor(), false)
+            m.accept(new Logger.LoggerVisitor(m.findAncestor(TypeDeclaration.class).orElseThrow()), false)
         );
 
         String result = LexicalPreservingPrinter.print(cu);
@@ -279,7 +280,7 @@ public class LoggerTest {
         Logger.loggerFields.add("auditLogger");
 
         cu.findAll(MethodDeclaration.class).forEach(m ->
-            m.accept(new Logger.LoggerVisitor(), false)
+            m.accept(new Logger.LoggerVisitor(m.findAncestor(TypeDeclaration.class).orElseThrow()), false)
         );
 
         String result = LexicalPreservingPrinter.print(cu);

@@ -10,7 +10,6 @@ import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.LambdaExpr;
 import com.github.javaparser.ast.expr.MethodCallExpr;
-import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.ExpressionStmt;
 import com.github.javaparser.ast.stmt.CatchClause;
@@ -73,7 +72,7 @@ public class Logger {
             decl.accept(visitor, cu);
 
             for (MethodDeclaration m : decl.getMethods()) {
-                m.accept(new LoggerVisitor(), false);
+                m.accept(new LoggerVisitor(decl), false);
                 BlockVisitor blockVisitor = new BlockVisitor();
                 m.accept(blockVisitor, null);
                 // Remove forEach calls with empty lambda bodies
@@ -189,6 +188,12 @@ public class Logger {
     }
 
     static class LoggerVisitor extends ModifierVisitor<Boolean> {
+        final TypeDeclaration<?> cdecl;
+
+        LoggerVisitor(TypeDeclaration<?> cdecl) {
+            this.cdecl = cdecl;
+        }
+
         public MethodCallExpr visit(MethodCallExpr mce, Boolean functional) {
             super.visit(mce, functional);
 
@@ -227,7 +232,7 @@ public class Logger {
                     }
                 }
 
-                if (functional || isLooping(mce)) {
+                if (functional || cdecl.isAnnotationPresent("RestController") || isLooping(mce)) {
                     return null;
                 }
                 mce.setName("debug");
@@ -243,7 +248,7 @@ public class Logger {
             } else {
                 for (Expression expr : mce.getArguments()) {
                     if (expr.isLambdaExpr()) {
-                        expr.asLambdaExpr().getBody().accept(new LoggerVisitor(), true);
+                        expr.asLambdaExpr().getBody().accept(new LoggerVisitor(cdecl), true);
                     }
                 }
             }
