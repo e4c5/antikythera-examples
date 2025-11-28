@@ -120,6 +120,12 @@ public class Logger {
                     if (parentNode instanceof MethodDeclaration) {
                         return block;
                     }
+                    // Check if this is part of a switch case (including default)
+                    if (parentNode instanceof com.github.javaparser.ast.stmt.SwitchEntry) {
+                        // Remove the entire switch entry (case or default)
+                        parentNode.remove();
+                        return null;
+                    }
                     if (parentNode instanceof IfStmt ifStmt) {
                         if (ifStmt.getElseStmt().isPresent()) {
                             Statement elseStmt = ifStmt.getElseStmt().orElseThrow();

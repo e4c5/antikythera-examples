@@ -10,11 +10,12 @@ The Logger cleanup tool processes Java source files to standardize and optimize 
 
 The tool automatically:
 - **Converts logger levels** to `debug()` for regular code or `error()` for catch blocks
-- **Removes logging** from loops and forEach statements (performance optimization)
+- **Removes logging** from loops, forEach statements, and @RestController classes (performance optimization)
 - **Removes System.out/err** statements completely (all contexts)
 - **Preserves utility methods** like `isDebugEnabled()`, `isInfoEnabled()`, etc.
-- **Cleans up empty forEach** statements left after removing logging code
+- **Cleans up empty forEach/peek/ifPresent** statements left after removing logging code
 - **Supports multiple loggers** in the same class (e.g., @Slf4j + explicit loggers)
+- **Preserves empty catch blocks and method bodies** while removing other empty blocks
 
 ---
 
@@ -25,6 +26,7 @@ The tool automatically:
 | `logger.info("msg")` | Regular code | `logger.debug("msg")` |
 | `logger.warn("msg")` | Regular code | `logger.debug("msg")` |
 | `logger.info("msg")` | Inside loop/forEach | **REMOVED** |
+| `logger.info("msg")` | @RestController class | **REMOVED** |
 | `logger.info("msg")` | Catch block | `logger.error("msg")` |
 | `logger.isDebugEnabled()` | Anywhere | **PRESERVED** |
 | `logger.isInfoEnabled()` | Anywhere | **PRESERVED** |
@@ -33,6 +35,8 @@ The tool automatically:
 | `System.out.printf(...)` | Anywhere | **REMOVED** |
 | `System.err.println("msg")` | Anywhere | **REMOVED** |
 | `items.forEach(i -> logger.info(i))` | Anywhere | **REMOVED** (empty forEach) |
+| `items.peek(i -> logger.info(i))` | Anywhere | **REMOVED** (empty peek) |
+| `optional.ifPresent(v -> logger.info(v))` | Anywhere | **REMOVED** (empty ifPresent) |
 
 ---
 
@@ -140,7 +144,37 @@ if (logger.isDebugEnabled()) {
 }
 ```
 
-### Example 8: Multiple Loggers in One Class
+### Example 8: @RestController - All Logging Removed
+```java
+// BEFORE
+@RestController
+public class OrderController {
+    private static final Logger logger = LoggerFactory.getLogger(OrderController.class);
+    
+    @GetMapping("/orders")
+    public List<Order> getOrders() {
+        logger.info("Getting all orders");
+        List<Order> orders = orderService.findAll();
+        logger.debug("Found " + orders.size() + " orders");
+        return orders;
+    }
+}
+
+// AFTER
+@RestController
+public class OrderController {
+    private static final Logger logger = LoggerFactory.getLogger(OrderController.class);
+    
+    @GetMapping("/orders")
+    public List<Order> getOrders() {
+        // All logger calls removed for performance
+        List<Order> orders = orderService.findAll();
+        return orders;
+    }
+}
+```
+
+### Example 9: Multiple Loggers in One Class
 ```java
 // BEFORE
 @Slf4j
@@ -170,6 +204,71 @@ public class MyService {
         // forEach removed - contained only logging
     }
 }
+```
+
+### Example 10: Stream peek() and Optional ifPresent()
+```java
+// BEFORE
+public void processStream(List<String> items) {
+    items.stream()
+        .peek(item -> logger.info("Processing: " + item))
+        .map(String::toUpperCase)
+        .collect(Collectors.toList());
+    
+    Optional<String> result = findResult();
+    result.ifPresent(r -> logger.info("Result: " + r));
+}
+
+// AFTER
+public void processStream(List<String> items) {
+    items.stream()
+        // peek removed - contained only logging
+        .map(String::toUpperCase)
+        .collect(Collectors.toList());
+    
+    Optional<String> result = findResult();
+    // ifPresent removed - contained only logging
+}
+```
+
+---
+
+## Empty Block Handling
+
+The tool intelligently handles empty blocks after removing logging statements:
+
+### Preserved Empty Blocks
+- **Empty catch blocks**: Always preserved (required by Java syntax)
+- **Empty method bodies**: Always preserved (valid for abstract/interface methods)
+
+### Removed Empty Blocks
+- **Empty if-else blocks**: Only removed if both if and else blocks are empty
+- **Empty loop bodies**: Removed after logging statements are removed
+- **Empty forEach/peek/ifPresent lambdas**: Entire statement is removed
+
+### Examples
+
+#### Empty Catch Block (Preserved)
+```java
+// BEFORE & AFTER (unchanged)
+try {
+    riskyOperation();
+} catch (Exception e) {
+    // Empty catch block preserved
+}
+```
+
+#### Empty If-Else (Smart Removal)
+```java
+// BEFORE
+if (condition) {
+    logger.info("Condition true");
+} else {
+    logger.info("Condition false");
+}
+
+// AFTER
+// Entire if-else removed - both blocks became empty
 ```
 
 ---
@@ -309,10 +408,11 @@ public class OrderProcessor {
 ## Key Features
 
 ✅ **Preserves utility methods** - `isDebugEnabled()`, `isInfoEnabled()`, etc. remain unchanged  
-✅ **Performance optimization** - Removes logging from loops to improve performance  
-✅ **Empty forEach cleanup** - Automatically removes forEach statements that become empty  
+✅ **Performance optimization** - Removes logging from loops and @RestController classes  
+✅ **Empty forEach cleanup** - Automatically removes forEach, peek, ifPresent, and forEachOrdered statements that become empty  
 ✅ **System.out/err removal** - Completely removes all console output statements  
 ✅ **Multiple logger support** - Works with @Slf4j + multiple explicit loggers  
-✅ **Context-aware** - Different transformations for regular code, loops, and catch blocks  
+✅ **Context-aware** - Different transformations for regular code, loops, catch blocks, and controllers  
+✅ **Smart empty block handling** - Preserves necessary empty blocks (catch, methods) while removing unnecessary ones  
 ✅ **Safe** - Never breaks code; utility methods and conditional logging preserved
 
