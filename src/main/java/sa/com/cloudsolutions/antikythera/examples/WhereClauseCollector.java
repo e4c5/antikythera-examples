@@ -1,6 +1,7 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
 import net.sf.jsqlparser.expression.Expression;
+import net.sf.jsqlparser.schema.Table;
 import net.sf.jsqlparser.statement.StatementVisitorAdapter;
 import net.sf.jsqlparser.statement.delete.Delete;
 import net.sf.jsqlparser.statement.select.FromItem;
@@ -33,8 +34,16 @@ class WhereClauseCollector extends StatementVisitorAdapter<Void> {
      * Now uses ExpressionConditionExtractor which provides better structure than OptimizationAnalysisVisitor.
      */
     public List<WhereCondition> extractWhereConditionsFromExpression(Expression whereExpression) {
+        return extractWhereConditionsFromExpression(whereExpression, null);
+    }
+
+    /**
+     * Extracts WHERE conditions from a WHERE expression with a default table name.
+     * The default table name is used when columns don't have explicit table qualifiers.
+     */
+    public List<WhereCondition> extractWhereConditionsFromExpression(Expression whereExpression, String defaultTableName) {
         ExpressionConditionExtractor extractor = new ExpressionConditionExtractor();
-        return extractor.extractConditions(whereExpression);
+        return extractor.extractConditions(whereExpression, defaultTableName);
     }
 
     /**
@@ -57,7 +66,21 @@ class WhereClauseCollector extends StatementVisitorAdapter<Void> {
 
     @Override
     public <S> Void visit(Update update, S context) {
-        extractWhereConditions(update.getWhere(), update.getFromItem());
+        // Determine the default table for UPDATE WHERE clause conditions.
+        String defaultTable = resolveUpdateTargetTable(update);
+        if (update.getWhere() != null) {
+            List<WhereCondition> conditions = extractWhereConditionsFromExpression(update.getWhere(), defaultTable);
+            whereConditions.addAll(conditions);
+        }
+        // Process potential FROM item (subquery/CTE style updates) for completeness
+        try {
+            FromItem fromItem = update.getFromItem();
+            if (fromItem != null) {
+                processFromItem(fromItem);
+            }
+        } catch (NoSuchMethodError | Exception ignored) {
+            // getFromItem may not exist on some versions; ignore safely
+        }
 
         // Process joins if present via known API
         if (update.getJoins() != null) {
@@ -77,18 +100,62 @@ class WhereClauseCollector extends StatementVisitorAdapter<Void> {
                         }
                     }
                 }
-            } catch (NoSuchMethodException ignored) {
-                // method not present in this version
-            } catch (Exception e) {
+            }  catch (Exception e) {
                 // ignore unexpected reflection issues to avoid breaking parsing
             }
         }
         return null;
     }
 
+    /**
+     * Attempts to resolve the update target table name or alias across JSqlParser versions.
+     */
+    private String resolveUpdateTargetTable(Update update) {
+        // Try the common getTable() first
+        try {
+            Method m = update.getClass().getMethod("getTable");
+            Object res = m.invoke(update);
+            if (res instanceof Table table) {
+                // Prefer alias if present
+                if (table.getAlias() != null) {
+                    return table.getAlias().getName();
+                }
+                return table.getName();
+            }
+        }  catch (Exception ignored) {
+            // ignore reflection problems
+        }
+        // Some versions expose multiple target tables (e.g., UPDATE table SET ... FROM ...)
+        try {
+            Method m = update.getClass().getMethod("getTables");
+            Object res = m.invoke(update);
+            if (res instanceof List<?>) {
+                for (Object o : (List<?>) res) {
+                    if (o instanceof Table table) {
+                        if (table.getAlias() != null) {
+                            return table.getAlias().getName();
+                        }
+                        return table.getName();
+                    }
+                }
+            }
+        }  catch (Exception ignored) {
+            // ignore
+        }
+        // Fallback to FromItem if available
+        try {
+            FromItem fromItem = update.getFromItem();
+            return extractTableName(fromItem);
+        } catch (NoSuchMethodError | Exception ignored) {
+            // not available
+        }
+        return null;
+    }
+
     private void extractWhereConditions(Expression whereClause, FromItem fromItem) {
         if (whereClause != null) {
-            List<WhereCondition> conditions = extractWhereConditionsFromExpression(whereClause);
+            String tableName = extractTableName(fromItem);
+            List<WhereCondition> conditions = extractWhereConditionsFromExpression(whereClause, tableName);
             whereConditions.addAll(conditions);
         }
 
@@ -97,11 +164,32 @@ class WhereClauseCollector extends StatementVisitorAdapter<Void> {
         }
     }
 
+    /**
+     * Extracts the table name or alias from a FromItem.
+     * Returns the alias if present (e.g., "o" from "orders o"), otherwise the table name.
+     */
+    private String extractTableName(FromItem fromItem) {
+        if (fromItem == null) {
+            return null;
+        }
+        
+        if (fromItem instanceof Table table) {
+            // Prefer alias if present, otherwise use table name
+            if (table.getAlias() != null) {
+                return table.getAlias().getName();
+            }
+            return table.getName();
+        }
+        
+        // For other FromItem types (subqueries, etc.), we can't extract a simple table name
+        return null;
+    }
+
     @Override
     public <S> Void visit(Delete delete, S context) {
-        Expression whereClause = delete.getWhere();
-        if (whereClause != null) {
-            List<WhereCondition> conditions = extractWhereConditionsFromExpression(whereClause);
+        String tableName = extractTableName(delete.getTable());
+        if (delete.getWhere() != null) {
+            List<WhereCondition> conditions = extractWhereConditionsFromExpression(delete.getWhere(), tableName);
             whereConditions.addAll(conditions);
         }
 

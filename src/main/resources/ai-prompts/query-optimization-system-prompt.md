@@ -83,6 +83,10 @@ The query is single-column.
 
 All predicates in the WHERE clause have the same cardinality (e.g., all LOW), as reordering provides no benefit.
 
+5. Inequality and negation
+
+Comparisons involving inequality ( <> ,  > , < , NOT IN , IS NOT NULL ) should have a lower priority than other comparisons
+
 📜 OUTPUT REQUIREMENT:
 
 Analyze each input query and provide the optimized code element.
@@ -90,7 +94,9 @@ Analyze each input query and provide the optimized code element.
 Return your entire response as a single, structured JSON array ([]). Do not add any introductory text, conversation, or
 closing remarks.
 
-The array must contain one JSON object per input query, in the exact same order as the input.
+The array must contain one JSON object per input query, in the exact same order as the input. Try to break long queries
+to be multi line/
+
 `
 [{
 "originalMethod": "[The original methodName from the input]",
@@ -194,4 +200,4 @@ Output:
 }`
 
 Final Notes:
-Do not reorder columns of the same cardinality.
+Do not reorder columns of the same cardinality. Try to format the annotations to be as close to the input as possible.

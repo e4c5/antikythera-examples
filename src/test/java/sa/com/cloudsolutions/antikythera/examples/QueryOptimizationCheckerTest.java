@@ -176,7 +176,14 @@ class QueryOptimizationCheckerTest {
     @Test
     void testCreateQueryBatch() {
         List<RepositoryQuery> queries = new ArrayList<>();
+
+        // Mock the Callable that getMethodDeclaration() returns
+        sa.com.cloudsolutions.antikythera.parser.Callable mockCallable = mock(
+                sa.com.cloudsolutions.antikythera.parser.Callable.class);
+        when(mockCallable.getNameAsString()).thenReturn("findByEmail");
+
         when(mockRepositoryQuery.getMethodName()).thenReturn("findByEmail");
+        when(mockRepositoryQuery.getMethodDeclaration()).thenReturn(mockCallable);
         queries.add(mockRepositoryQuery);
 
         QueryBatch result = checker.createQueryBatch("TestRepository", queries);
@@ -408,7 +415,7 @@ class QueryOptimizationCheckerTest {
         when(mockAiService.getLastTokenUsage()).thenReturn(new TokenUsage());
         when(mockAiService.analyzeQueryBatch(any())).thenReturn(Collections.emptyList());
 
-        checker.analyzeRepository("com.example.UserRepository", mockTypeWrapper);
+        checker.analyzeRepository(mockTypeWrapper);
 
         // Verify interactions
         verify(mockRepositoryParser).compile(any());

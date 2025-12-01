@@ -22,6 +22,7 @@ import sa.com.cloudsolutions.antikythera.generator.QueryType;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
 import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
+import sa.com.cloudsolutions.antikythera.parser.Callable;
 import sa.com.cloudsolutions.antikythera.parser.converter.EntityMappingResolver;
 
 import java.io.File;
@@ -29,6 +30,7 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -38,6 +40,7 @@ import java.util.Set;
 public class QueryOptimizer extends QueryOptimizationChecker {
     private static final Logger logger = LoggerFactory.getLogger(QueryOptimizer.class);
     private boolean repositoryFileModified;
+    private static final Set<String> modifiedFiles = new java.util.HashSet<>();
 
     /**
      * Creates a new QueryOptimizationChecker that uses RepositoryParser for
@@ -53,9 +56,12 @@ public class QueryOptimizer extends QueryOptimizationChecker {
     }
 
     @Override
-    void analyzeRepository(String fullyQualifiedName, TypeWrapper typeWrapper)
+    void analyzeRepository(TypeWrapper typeWrapper)
             throws IOException, ReflectiveOperationException, InterruptedException {
-        super.analyzeRepository(fullyQualifiedName, typeWrapper);
+        if (!typeWrapper.getFullyQualifiedName().equals("com.csi.bm.invoice.repository.InvoiceItemRepository")) {
+            return;
+        }
+        super.analyzeRepository(typeWrapper);
 
         OptimizationStatsLogger.updateQueriesAnalyzed(results.size());
 
@@ -67,15 +73,12 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         }
 
         if (repositoryFileModified) {
-            boolean fileWasWritten = writeFile(fullyQualifiedName, this.repositoryParser.getCompilationUnit());
+            boolean fileWasWritten = writeFile(typeWrapper.getFullyQualifiedName(),
+                    this.repositoryParser.getCompilationUnit());
             if (!fileWasWritten) {
-                // File wasn't actually written (no content changes), so reset the modification
-                // flag
                 repositoryFileModified = false;
             }
         }
-
-        updateStats(fullyQualifiedName, updates, repositoryFileModified);
     }
 
     void actOnAnalysisResult(QueryAnalysisResult result, List<QueryAnalysisResult> updates) {
@@ -99,40 +102,28 @@ public class QueryOptimizer extends QueryOptimizationChecker {
 
                 // Apply method name change if recommended
                 if (methodNameChanged) {
+                    updateMethodCallSignatures(result, issue.query().getRepositoryClassName());
+
                     MethodDeclaration method = issue.query().getMethodDeclaration().asMethodDeclaration();
-                    String newMethodName = optimizedQuery.getMethodName();
-                    method.setName(newMethodName);
+                    Callable newMethod = optimizedQuery.getMethodDeclaration();
+                    method.setName(newMethod.getNameAsString());
                     logger.info("Changed method name from {} to {}",
-                            issue.query().getMethodName(), newMethodName);
+                            issue.query().getMethodName(), newMethod.getNameAsString());
+
+                    reorderMethodParameters(
+                            issue.query().getMethodDeclaration().asMethodDeclaration(),
+                            newMethod.asMethodDeclaration());
                 }
-
-                // Reorder parameters if column order changed (regardless of method name change)
-                boolean parametersReordered = reorderMethodParameters(
-                        issue.query().getMethodDeclaration().asMethodDeclaration(),
-                        issue.currentColumnOrder(),
-                        issue.recommendedColumnOrder());
-
-                // Track if file was modified (annotation always changes, and may also have
+                // Track if file was modified (annotation always changes and may also have
                 // parameter reordering)
                 repositoryFileModified = true;
 
                 // Track method signature changes
-                if (methodNameChanged || parametersReordered) {
+                if (methodNameChanged) {
                     OptimizationStatsLogger.updateMethodSignaturesChanged(1);
                 }
                 updates.add(result);
             }
-        }
-    }
-
-    private void updateStats(String fullyQualifiedName, List<QueryAnalysisResult> updates,
-            boolean repositoryFileModified) throws IOException {
-        // Apply signature updates and track dependent class changes
-        updateMethodCallSignatures(updates, fullyQualifiedName);
-
-        // Track files modified (repository file + dependent classes)
-        if (repositoryFileModified) {
-            OptimizationStatsLogger.updateDependentClassesChanged(1);
         }
     }
 
@@ -180,7 +171,6 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             String newStringValue,
             boolean useTextBlock) {
 
-        System.out.println(annotationName + " -> " + newStringValue);
         // 1. Find the annotation on the method
         Optional<AnnotationExpr> oldAnnotationOpt = method.getAnnotationByName(annotationName);
         if (oldAnnotationOpt.isPresent()) {
@@ -199,7 +189,6 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             if (annotation.isSingleMemberAnnotationExpr()) {
                 // --- Case 1: @Query("...") ---
                 annotation.asSingleMemberAnnotationExpr().setMemberValue(newValueExpr);
-
             } else if (annotation.isNormalAnnotationExpr()) {
                 // --- Case 2: @Query(value = "...") ---
                 NormalAnnotationExpr normal = annotation.asNormalAnnotationExpr();
@@ -209,11 +198,9 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                         .filter(p -> p.getName().asString().equals("value"))
                         .findFirst();
 
-                valuePair.ifPresent(memberValuePair -> {
-                    memberValuePair.setValue(newValueExpr);
-                    OptimizationStatsLogger.updateQueryAnnotationsChanged(1);
-                });
+                valuePair.ifPresent(memberValuePair -> memberValuePair.setValue(newValueExpr));
             }
+            OptimizationStatsLogger.updateQueryAnnotationsChanged(1);
         }
     }
 
@@ -221,72 +208,15 @@ public class QueryOptimizer extends QueryOptimizationChecker {
      * Reorders method parameters to match the recommended column order.
      * This ensures the method signature matches the optimized WHERE clause column
      * order.
-     * 
-     * @param method                 the method declaration to modify
-     * @param currentColumnOrder     the current column order
-     * @param recommendedColumnOrder the recommended column order
-     * @return true if parameters were reordered, false otherwise
+     *
+     * @param method    the method declaration to modify
+     * @param newMethod the updated method signature
      */
-    boolean reorderMethodParameters(MethodDeclaration method,
-            List<String> currentColumnOrder,
-            List<String> recommendedColumnOrder) {
-        // Validate inputs
-        if (method == null || currentColumnOrder == null || recommendedColumnOrder == null) {
-            return false;
+    void reorderMethodParameters(MethodDeclaration method, MethodDeclaration newMethod) {
+        NodeList<Parameter> params = method.getParameters();
+        for (int i = 0; i < params.size(); i++) {
+            params.set(i, newMethod.getParameter(i).clone());
         }
-
-        // Only reorder if orders are different
-        if (currentColumnOrder.equals(recommendedColumnOrder)) {
-            return false;
-        }
-
-        // Only reorder if parameter count matches column count
-        if (method.getParameters().size() != currentColumnOrder.size()) {
-            return false;
-        }
-
-        // Check if sizes match
-        if (currentColumnOrder.size() != recommendedColumnOrder.size()) {
-            return false;
-        }
-
-        try {
-            // Get current parameters (save copies before modifying)
-            var currentParams = new ArrayList<>(method.getParameters());
-            var paramNodeList = method.getParameters();
-
-            // Build reordered parameter list
-            var reorderedParams = new ArrayList<Parameter>();
-            for (String recommendedColumn : recommendedColumnOrder) {
-                int currentIndex = currentColumnOrder.indexOf(recommendedColumn);
-                if (currentIndex >= 0 && currentIndex < currentParams.size()) {
-                    reorderedParams.add(currentParams.get(currentIndex));
-                }
-            }
-
-            // Only apply if we successfully mapped all parameters
-            if (reorderedParams.size() == currentParams.size()) {
-                // Replace parameters one-by-one using set() for better LexicalPreservingPrinter
-                // tracking
-                // This is more LPP-friendly than clear()+addAll()
-                for (int i = 0; i < reorderedParams.size(); i++) {
-                    paramNodeList.set(i, reorderedParams.get(i));
-                }
-
-                // Note: Parameter reordering may still cause LexicalPreservingPrinter to fall
-                // back
-                // to default formatting in some cases, but this approach maximizes
-                // compatibility
-
-                return true;
-            }
-        } catch (Exception e) {
-            // If reordering fails, log and continue without modification
-            QueryOptimizationChecker.logger.warn("Failed to reorder method parameters for {}: {}",
-                    method.getNameAsString(), e.getMessage());
-        }
-
-        return false;
     }
 
     /**
@@ -295,11 +225,10 @@ public class QueryOptimizer extends QueryOptimizationChecker {
      * This reorders call arguments to match the new parameter order. Only
      * same-arity calls are modified.
      * 
-     * @param updates            the optimization results with signature changes
+     * @param update             the optimization results with signature changes
      * @param fullyQualifiedName the repository class name
      */
-    public void updateMethodCallSignatures(List<QueryAnalysisResult> updates, String fullyQualifiedName)
-            throws FileNotFoundException {
+    public void updateMethodCallSignatures(QueryAnalysisResult update, String fullyQualifiedName) {
         Map<String, Set<String>> fields = Fields.getFieldDependencies(fullyQualifiedName);
 
         if (fields == null) {
@@ -322,18 +251,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                     // Visit the entire CompilationUnit to ensure modifications apply to the CU
                     // instance
                     CompilationUnit cu = AntikytheraRunTime.getCompilationUnit(className);
-                    if (cu != null) {
-                        try {
-                            LexicalPreservingPrinter.setup(cu);
-                        } catch (Exception e) {
-                            logger.debug("LPP setup failed for {}, proceeding without it: {}", className,
-                                    e.getMessage());
-                        }
-                        cu.accept(visitor, updates);
-                    } else {
-                        // Fallback to visiting the type if CU is not available
-                        typeWrapper.getType().accept(visitor, updates);
-                    }
+                    cu.accept(visitor, update);
 
                     if (visitor.modified) {
                         classModified = true;
@@ -342,8 +260,8 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                 }
 
                 // Write file once if any field was modified
-                if (classModified && writeFile(className)) {
-                    OptimizationStatsLogger.updateDependentClassesChanged(1);
+                if (classModified) {
+                    modifiedFiles.add(className);
                     OptimizationStatsLogger.updateMethodCallsChanged(totalMethodCallsUpdated);
                 }
             }
@@ -354,8 +272,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
      * Writes the modified compilation unit to disk using FileOperationsManager.
      * 
      * Attempts to use LexicalPreservingPrinter for whitespace preservation, but
-     * falls back to
-     * cu.toString() if:
+     * falls back to cu.toString() if:
      * 1. LexicalPreservingPrinter throws an exception
      * 2. LexicalPreservingPrinter returns unchanged content (indicating AST mods
      * weren't tracked)
@@ -366,87 +283,51 @@ public class QueryOptimizer extends QueryOptimizationChecker {
      * @return true if the file was actually written (content changed), false if
      *         skipped (no changes)
      */
-    static boolean writeFile(String fullyQualifiedName) throws FileNotFoundException {
+    static boolean writeFile(String fullyQualifiedName) throws IOException {
         return writeFile(fullyQualifiedName, AntikytheraRunTime.getCompilationUnit(fullyQualifiedName));
     }
 
-    static boolean writeFile(String fullyQualifiedName, CompilationUnit cu) throws FileNotFoundException {
+    static boolean writeFile(String fullyQualifiedName, CompilationUnit cu) throws IOException {
         String relativePath = AbstractCompiler.classToPath(fullyQualifiedName);
         String fullPath = Settings.getBasePath() + "/src/main/java/" + relativePath;
-
-        // Read original content to check for changes
-        String original = null;
-        try {
-            File f = new File(fullPath);
-            if (f.exists()) {
-                original = java.nio.file.Files.readString(f.toPath());
-            }
-        } catch (IOException e) {
-            logger.warn("Could not read original file {}: {}", fullPath, e.getMessage());
-        }
 
         // Use LexicalPreservingPrinter for whitespace preservation
         // Since we modify annotations IN PLACE, LexicalPreservingPrinter should track
         // changes properly
         String content;
-        boolean usedFallback = false;
+
         try {
             content = LexicalPreservingPrinter.print(cu);
-
-            // IMPORTANT: LexicalPreservingPrinter sometimes fails to track AST
-            // modifications
-            // (e.g., when modifying annotation values). If the content is identical to the
-            // original
-            // but cu.toString() shows changes, fall back to cu.toString()
-            if (original != null && original.equals(content)) {
-                String cuToString = cu.toString();
-                if (!original.equals(cuToString)) {
-                    // LPP didn't track the changes, use cu.toString() instead
-                    logger.debug("LexicalPreservingPrinter didn't track changes for {}, using cu.toString()",
-                            fullyQualifiedName);
-                    content = cuToString;
-                    usedFallback = true;
-                }
-            } else {
-                logger.debug("LexicalPreservingPrinter successfully preserved formatting for {}",
-                        fullyQualifiedName);
-            }
         } catch (Exception e) {
             // LexicalPreservingPrinter can still fail on complex AST modifications (e.g.,
             // parameter reordering)
             logger.warn("LexicalPreservingPrinter failed for {}: {}. Using default printer (may lose formatting).",
                     fullyQualifiedName, e.getMessage());
             content = cu.toString();
-            usedFallback = true;
         }
 
-        // If resulting content is identical to original, skip writing
-        if (original != null && original.equals(content)) {
-            return false;
-        }
+        File f = new File(fullPath);
 
-        try {
-            File f = new File(fullPath);
-
-            if (f.exists()) {
-                PrintWriter writer = new PrintWriter(f);
-
-                writer.print(content); // Use the content variable we already computed
-                writer.close();
-
-                if (usedFallback) {
-                    logger.info("File {} was written using cu.toString() (formatting may differ)", fullPath);
-                }
-                return true;
+        if (f.exists()) {
+            return writeFile(f, content);
+        } else {
+            File t = new File(fullPath.replace("src/main", "src/test"));
+            if (t.exists()) {
+                return writeFile(t, content);
             }
-        } catch (IOException e) {
-            throw new FileNotFoundException("Failed to write file " + fullPath + ": " + e.getMessage());
         }
 
         return false;
     }
 
-    static class NameChangeVisitor extends ModifierVisitor<List<QueryAnalysisResult>> {
+    private static boolean writeFile(File f, String content) throws FileNotFoundException {
+        PrintWriter writer = new PrintWriter(f);
+        writer.print(content); // Use the content variable we already computed
+        writer.close();
+        return true;
+    }
+
+    static class NameChangeVisitor extends ModifierVisitor<QueryAnalysisResult> {
         String fieldName;
         String repositoryFqn;
         boolean modified;
@@ -458,41 +339,51 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         }
 
         @Override
-        public MethodCallExpr visit(MethodCallExpr mce, List<QueryAnalysisResult> updates) {
-            super.visit(mce, updates);
+        public MethodCallExpr visit(MethodCallExpr mce, QueryAnalysisResult update) {
+            super.visit(mce, update);
             Optional<Expression> scope = mce.getScope();
-            if (scope.isPresent() && scope.get() instanceof NameExpr fe && fe.getNameAsString().equals(fieldName)
-                    && !updates.isEmpty()) {
-                // Loop through ALL updates to find matching method
-                for (QueryAnalysisResult update : updates) {
-                    // Check if this call matches the current update's method name
-                    OptimizationIssue issue = update.getOptimizationIssue();
-                    if (update.getMethodName().equals(mce.getNameAsString()) && issue != null) {
-                        if (issue.optimizedQuery() != null) {
-                            String originalMethodName = mce.getNameAsString();
-                            String newMethodName = issue.optimizedQuery().getMethodName();
+            OptimizationIssue issue = update.getOptimizationIssue();
+            if (issue == null || issue.optimizedQuery() == null) {
+                return mce;
+            }
 
-                            // Only count as an update if something actually changes
-                            boolean methodNameChanged = !originalMethodName.equals(newMethodName);
-                            boolean argumentsReordered = false;
+            boolean isMatchingCall = false;
 
-                            // Update method name if it changed
-                            if (methodNameChanged) {
-                                mce.setName(newMethodName);
-                            }
+            // Case 1: Regular method call - fieldName.methodName(...)
+            if (scope.isPresent() && scope.get() instanceof NameExpr fe && fe.getNameAsString().equals(fieldName)) {
+                isMatchingCall = true;
+            }
 
-                            // Reorder arguments based on column order changes
-                            argumentsReordered = reorderMethodArguments(mce, issue);
-
-                            // Only mark as modified and increment counter if actual changes were made
-                            if (methodNameChanged || argumentsReordered) {
-                                modified = true;
-                                methodCallsUpdated++;
-                            }
-                        }
+            // Case 2: Mockito verify call - verify(fieldName).methodName(...)
+            if (scope.isPresent() && scope.get() instanceof MethodCallExpr verifyCall) {
+                if ("verify".equals(verifyCall.getNameAsString()) && !verifyCall.getArguments().isEmpty()) {
+                    Expression firstArg = verifyCall.getArgument(0);
+                    if (firstArg instanceof NameExpr nameExpr && nameExpr.getNameAsString().equals(fieldName)) {
+                        isMatchingCall = true;
                     }
                 }
             }
+
+            if (isMatchingCall && update.getMethodName().equals(mce.getNameAsString())) {
+                String originalMethodName = mce.getNameAsString();
+                String newMethodName = issue.optimizedQuery().getMethodName();
+
+                // Only count as an update if something actually changes
+                boolean methodNameChanged = !originalMethodName.equals(newMethodName);
+
+                // Update method name if it changed
+                if (methodNameChanged) {
+                    mce.setName(newMethodName);
+                    reorderMethodArguments(mce, issue);
+                }
+
+                // Only mark as modified and increment counter if actual changes were made
+                if (methodNameChanged) {
+                    modified = true;
+                    methodCallsUpdated++;
+                }
+            }
+
             return mce;
         }
 
@@ -503,71 +394,28 @@ public class QueryOptimizer extends QueryOptimizationChecker {
          * findByStatusAndEmail),
          * the method call arguments are also reordered to match.
          * 
-         * @return true if arguments were actually reordered, false otherwise
          */
-        private boolean reorderMethodArguments(MethodCallExpr mce, OptimizationIssue issue) {
-            List<String> currentOrder = issue.currentColumnOrder();
-            List<String> recommendedOrder = issue.recommendedColumnOrder();
-            // Only reorder if we have both orders and they're different
-            if (currentOrder == null || recommendedOrder == null ||
-                    currentOrder.equals(recommendedOrder) ||
-                    currentOrder.size() != recommendedOrder.size()) {
-                return false;
-            }
-
-            // Only reorder if argument count matches parameter count
-            if (mce.getArguments().size() != currentOrder.size()) {
-                return false;
-            }
-
-            // Guard: If arguments are already in the recommended order by variable names,
-            // skip
-            boolean allNameExpr = mce.getArguments().stream().allMatch(Expression::isNameExpr);
-            if (allNameExpr) {
-                List<String> argNames = mce.getArguments().stream()
-                        .map(e -> e.asNameExpr().getNameAsString())
-                        .toList();
-                if (argNames.equals(recommendedOrder)) {
-                    return false;
+        void reorderMethodArguments(MethodCallExpr mce, OptimizationIssue issue) {
+            MethodDeclaration oldMethod = issue.query().getMethodDeclaration().asMethodDeclaration();
+            MethodDeclaration newMethod = issue.optimizedQuery().getMethodDeclaration().asMethodDeclaration();
+            Map<Integer, Integer> map = new HashMap<>();
+            for (int i = 0; i < oldMethod.getParameters().size(); i++) {
+                for (int j = 0; j < newMethod.getParameters().size(); j++) {
+                    if (oldMethod.getParameter(i).toString().equals(newMethod.getParameter(j).toString())) {
+                        map.put(j, i);
+                    }
                 }
             }
 
-            // Create mapping from current position to new position
-            List<Expression> currentArgs = new ArrayList<>(mce.getArguments());
-            List<Expression> reorderedArgs = new ArrayList<>();
-
-            // For each position in the recommended order, find the corresponding argument
-            for (String recommendedColumn : recommendedOrder) {
-                int currentIndex = currentOrder.indexOf(recommendedColumn);
-                if (currentIndex >= 0 && currentIndex < currentArgs.size()) {
-                    Expression arg = currentArgs.get(currentIndex);
-                    reorderedArgs.add(arg.clone());
-                }
+            NodeList<Expression> args = mce.getArguments();
+            NodeList<Expression> newArgs = new NodeList<>();
+            for (int i = 0; i < args.size(); i++) {
+                newArgs.add(args.get(map.get(i)));
             }
 
-            // Guard: Check if the reordering would actually change anything
-            // This prevents applying the same transformation multiple times
-            boolean wouldChange = false;
-            for (int i = 0; i < currentArgs.size() && i < reorderedArgs.size(); i++) {
-                if (!currentArgs.get(i).toString().equals(reorderedArgs.get(i).toString())) {
-                    wouldChange = true;
-                    break;
-                }
-            }
-            if (!wouldChange) {
-                return false;
-            }
-
-            // Update the method call with reordered arguments
-            if (reorderedArgs.size() == currentArgs.size()) {
-                // Replace the entire NodeList to ensure the change is tracked by LPP and CU
-                mce.setArguments(new NodeList<>(reorderedArgs));
-                return true;
-            }
-
-            return false;
+            mce.getArguments().clear();
+            mce.setArguments(newArgs);
         }
-
     }
 
     /**
@@ -621,6 +469,8 @@ public class QueryOptimizer extends QueryOptimizationChecker {
 
         OptimizationStatsLogger.initialize("");
         OptimizationStatsLogger.printSummary(System.out);
+        OptimizationStatsLogger.updateDependentClassesChanged(modifiedFiles.size());
+        updateFiles();
 
         if (!quietMode) {
             System.out.println("\nTime taken " + (System.currentTimeMillis() - s) + " ms.");
@@ -630,5 +480,11 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         // Explicitly exit to ensure JVM shuts down (HttpClient may have non-daemon
         // threads)
         System.exit(0);
+    }
+
+    private static void updateFiles() throws IOException {
+        for (String className : modifiedFiles) {
+            writeFile(className);
+        }
     }
 }

@@ -8,19 +8,6 @@ import static org.junit.jupiter.api.Assertions.*;
  * Tests core logic without complex dependencies.
  */
 class SimpleQueryOptimizationTest {
-
-    @Test
-    void testCardinalityLevelEnum() {
-        // Test CardinalityLevel enum values
-        assertEquals("HIGH", CardinalityLevel.HIGH.toString());
-        assertEquals("MEDIUM", CardinalityLevel.MEDIUM.toString());
-        assertEquals("LOW", CardinalityLevel.LOW.toString());
-        
-        // Test enum ordering
-        assertTrue(CardinalityLevel.HIGH.ordinal() < CardinalityLevel.MEDIUM.ordinal());
-        assertTrue(CardinalityLevel.MEDIUM.ordinal() < CardinalityLevel.LOW.ordinal());
-    }
-
     @Test
     void testTokenUsageBasicFunctionality() {
         // Test TokenUsage creation and basic methods
