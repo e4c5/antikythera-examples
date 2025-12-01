@@ -54,7 +54,7 @@ public class QueryAnalysisEngine {
         for (WhereCondition condition : whereConditions) {
             if (conversionResult != null) {
                 String entity = conversionResult.getMetaData().getEntityForAlias(condition.tableName());
-                String tableName = EntityMappingResolver.getTableNameForEntity(entity == null ? condition.tableName() : entity);
+                String tableName = entity == null ? condition.tableName() : EntityMappingResolver.getTableNameForEntity(entity);
 
                 CardinalityLevel cardinalityLevel = CardinalityAnalyzer.analyzeColumnCardinality(tableName, condition.columnName());
                 condition.setTableName(tableName);

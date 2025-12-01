@@ -91,7 +91,6 @@ public class QueryOptimizationChecker {
         int repositoriesProcessed = 0;
         for (Map.Entry<String, TypeWrapper> entry : resolvedTypes.entrySet()) {
             String fullyQualifiedName = entry.getKey();
-
             TypeWrapper typeWrapper = entry.getValue();
 
             if (BaseRepositoryParser.isJpaRepository(typeWrapper)) {
@@ -101,7 +100,7 @@ public class QueryOptimizationChecker {
                 System.out.printf("Analyzing Repository: %s%n", fullyQualifiedName);
                 System.out.println("=".repeat(80));
                 try {
-                    analyzeRepository(fullyQualifiedName, typeWrapper);
+                    analyzeRepository(typeWrapper);
                     repositoriesProcessed++;
                 } catch (AntikytheraException ae) {
                     logger.error("Error analyzing repository {}: {}", fullyQualifiedName, ae.getMessage());
@@ -119,11 +118,11 @@ public class QueryOptimizationChecker {
      * 3. Do index analysis based on LLM recommendations
      * 4. Generate final output
      *
-     * @param fullyQualifiedName the fully qualified class name of the repository
-     * @param typeWrapper        the TypeWrapper representing the repository
+     * @param typeWrapper the TypeWrapper representing the repository
      */
-    void analyzeRepository(String fullyQualifiedName, TypeWrapper typeWrapper)
+    void analyzeRepository(TypeWrapper typeWrapper)
             throws IOException, ReflectiveOperationException, InterruptedException {
+        String fullyQualifiedName = typeWrapper.getFullyQualifiedName();
         OptimizationStatsLogger.initialize(fullyQualifiedName);
         repositoryParser.compile(AbstractCompiler.classToPath(fullyQualifiedName));
         repositoryParser.processTypes();
@@ -157,20 +156,34 @@ public class QueryOptimizationChecker {
      */
     private List<OptimizationIssue> sendRawQueriesToLLM(String repositoryName, Collection<RepositoryQuery> rawQueries)
             throws IOException, InterruptedException {
-        // Create a batch with raw queries and basic cardinality information
-        QueryBatch batch = createQueryBatch(repositoryName, rawQueries);
+        List<OptimizationIssue> allRecommendations = new ArrayList<>();
+        List<RepositoryQuery> queryList = new ArrayList<>(rawQueries);
+        int batchSize = 5; // Process queries in small batches to avoid token limits
 
-        // Send batch to AI service for analysis
-        List<OptimizationIssue> llmRecommendations = aiService.analyzeQueryBatch(batch);
+        for (int i = 0; i < queryList.size(); i += batchSize) {
+            int end = Math.min(queryList.size(), i + batchSize);
+            List<RepositoryQuery> batchQueries = queryList.subList(i, end);
 
-        // Track and report token usage
-        TokenUsage tokenUsage = aiService.getLastTokenUsage();
-        cumulativeTokenUsage.add(tokenUsage);
-        if (!quietMode) {
-            System.out.printf("🤖 AI Analysis for %s: %s%n", repositoryName, tokenUsage.getFormattedReport());
+            // Create a batch with raw queries and basic cardinality information
+            QueryBatch batch = createQueryBatch(repositoryName, batchQueries);
+
+            // Send batch to AI service for analysis
+            List<OptimizationIssue> batchRecommendations = aiService.analyzeQueryBatch(batch);
+            allRecommendations.addAll(batchRecommendations);
+
+            // Track and report token usage
+            TokenUsage tokenUsage = aiService.getLastTokenUsage();
+            cumulativeTokenUsage.add(tokenUsage);
+            if (!quietMode) {
+                System.out.printf("🤖 AI Analysis for %s (Batch %d/%d): %s%n",
+                        repositoryName,
+                        (i / batchSize) + 1,
+                        (int) Math.ceil((double) queryList.size() / batchSize),
+                        tokenUsage.getFormattedReport());
+            }
         }
 
-        return llmRecommendations;
+        return allRecommendations;
     }
 
     /**
@@ -184,9 +197,10 @@ public class QueryOptimizationChecker {
 
         // Add all raw queries to the batch
         for (RepositoryQuery query : rawQueries) {
-
-            batch.addQuery(query);
-            addWhereClauseColumnCardinality(batch, query);
+            if (!"save".equals(query.getMethodDeclaration().getNameAsString())) {
+                batch.addQuery(query);
+                addWhereClauseColumnCardinality(batch, query);
+            }
         }
 
         return batch;
@@ -221,7 +235,7 @@ public class QueryOptimizationChecker {
      * recommendations.
      */
     List<QueryAnalysisResult> analyzeLLMRecommendations(List<OptimizationIssue> llmRecommendations,
-                                                        List<RepositoryQuery> rawQueries) {
+            List<RepositoryQuery> rawQueries) {
         List<QueryAnalysisResult> finalResults = new ArrayList<>();
 
         for (int i = 0; i < llmRecommendations.size() && i < rawQueries.size(); i++) {
@@ -244,7 +258,7 @@ public class QueryOptimizationChecker {
      * determine missing indexes.
      */
     QueryAnalysisResult createResultWithIndexAnalysis(OptimizationIssue llmRecommendation,
-                                                      RepositoryQuery rawQuery) {
+            RepositoryQuery rawQuery) {
         // Use QueryAnalysisEngine to extract WHERE conditions from the actual query
         // This is independent of LLM recommendations
         QueryAnalysisResult engineResult = analysisEngine.analyzeQuery(rawQuery);
@@ -564,17 +578,6 @@ public class QueryOptimizationChecker {
             return last;
         }
         return null;
-    }
-
-    String inferTableNameFromRepositoryClassName(String repositoryClass) {
-        String simple = repositoryClass;
-        int dot = simple.lastIndexOf('.');
-        if (dot >= 0)
-            simple = simple.substring(dot + 1);
-        if (simple.endsWith("Repository"))
-            simple = simple.substring(0, simple.length() - "Repository".length());
-        // convert CamelCase to snake_case
-        return simple.replaceAll("(?<!^)([A-Z])", "_$1").toLowerCase();
     }
 
     String buildLiquibaseNonLockingIndexChangeSet(String tableName, String columnName) {

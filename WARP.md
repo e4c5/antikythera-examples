@@ -4,8 +4,15 @@ This file provides guidance to WARP (warp.dev) when working with code in this re
 
 ## Project Overview
 
-This repository contains examples and utilities for the Antikythera framework, focused on JPA repository query analysis and optimization. The main functionality includes:
+This repository contains examples and utilities for the Antikythera framework, focused on JPA repository query analysis and optimization.
 
+### Key Tools
+- **QueryOptimizationChecker**: Analyzes repositories for optimization opportunities without modifying code.
+- **QueryOptimizer**: Extends Checker to automatically apply optimizations (rewrites `@Query`, reorders parameters, updates call sites).
+- **HardDelete**: Detects hard delete operations.
+- **UsageFinder**: Finds collection usage patterns.
+
+The main functionality includes:
 - Static analysis of Spring Data JPA repositories
 - Query optimization recommendations using AI (Gemini)
 - Database cardinality analysis using Liquibase metadata
@@ -315,7 +322,6 @@ ai_service:
   api_key: "${GEMINI_API_KEY}"
   timeout_seconds: 90
   max_retries: 2
-  queries_per_request: 40
   track_usage: true
   cost_per_1k_tokens: 0.00015
 ```

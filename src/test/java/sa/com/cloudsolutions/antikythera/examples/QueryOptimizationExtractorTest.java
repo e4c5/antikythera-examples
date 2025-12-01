@@ -260,5 +260,22 @@ class QueryOptimizationExtractorTest {
         assertNotNull(conditions);
         assertEquals(0, conditions.size(), "Should extract no conditions from query without WHERE");
     }
+
+    @Test
+    void testUpdateWithoutFrom_usesTargetTableForWhereConditions() throws JSQLParserException {
+        // Anonymized fish-themed query per requirement
+        String sql = "UPDATE fish_ledger SET gill_count = :gillCount WHERE fish_id = :fishId";
+        Statement statement = CCJSqlParserUtil.parse(sql);
+
+        List<WhereCondition> whereConditions = QueryOptimizationExtractor.extractWhereConditions(statement);
+
+        assertNotNull(whereConditions, "Where conditions should not be null");
+        assertEquals(1, whereConditions.size(), "Should extract one WHERE condition");
+
+        WhereCondition c = whereConditions.get(0);
+        assertEquals("fish_ledger", c.getTableName(), "Table name should be resolved to the UPDATE target table");
+        assertEquals("fish_id", c.getColumnName());
+        assertEquals("=", c.getOperator());
+    }
 }
 
