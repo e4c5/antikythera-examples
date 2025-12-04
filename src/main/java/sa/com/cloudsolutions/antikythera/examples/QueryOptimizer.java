@@ -459,15 +459,13 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         CardinalityAnalyzer.configureUserDefinedCardinality(lowOverride, highOverride);
 
         QueryOptimizer checker = new QueryOptimizer(getLiquibasePath());
-        if (!quietMode) {
-            System.out.println("Time to build field map   " + (System.currentTimeMillis() - s) + "ms");
-        }
+        OptimizationStatsLogger.initialize("");
+
         checker.analyze();
 
         // Generate Liquibase file with suggested changes and include in master
         checker.generateLiquibaseChangesFile();
 
-        OptimizationStatsLogger.initialize("");
         OptimizationStatsLogger.printSummary(System.out);
         OptimizationStatsLogger.updateDependentClassesChanged(modifiedFiles.size());
         updateFiles();
