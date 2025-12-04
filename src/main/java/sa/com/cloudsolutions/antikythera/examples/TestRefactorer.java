@@ -24,6 +24,9 @@ import java.io.FileReader;
 import java.io.FileWriter;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import com.github.javaparser.ast.expr.NameExpr;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.Optional;
@@ -32,7 +35,7 @@ import java.util.Set;
 public class TestRefactorer {
 
     enum ResourceType {
-        DATABASE, REDIS, KAFKA, WEB, NONE
+        DATABASE, REDIS, KAFKA, WEB, REST_CLIENT, JSON, NONE
     }
 
     private CompilationUnit currentCu;
@@ -220,18 +223,47 @@ public class TestRefactorer {
         }
     }
 
-    public boolean refactor(CompilationUnit cu) {
-        this.currentCu = cu;
-        boolean modified = false;
-        for (ClassOrInterfaceDeclaration decl : cu.findAll(ClassOrInterfaceDeclaration.class)) {
-            if (analyzeClass(decl)) {
-                modified = true;
-            }
+    public static class RefactorOutcome {
+        public String className;
+        public String originalAnnotation;
+        public String newAnnotation;
+        public Set<ResourceType> resourcesDetected;
+        public String action; // CONVERTED, KEPT, REVERTED
+        public String reason;
+        public boolean modified;
+
+        public RefactorOutcome(String className) {
+            this.className = className;
+            this.resourcesDetected = new HashSet<>();
+            this.modified = false;
         }
-        return modified;
+
+        @Override
+        public String toString() {
+            if (action == null)
+                return "";
+            return String.format("%-40s | %-15s -> %-15s | %-20s | %s",
+                    className,
+                    originalAnnotation != null ? originalAnnotation : "None",
+                    newAnnotation != null ? newAnnotation : "None",
+                    action,
+                    reason);
+        }
     }
 
-    private boolean analyzeClass(ClassOrInterfaceDeclaration decl) {
+    public RefactorOutcome refactor(CompilationUnit cu) {
+        this.currentCu = cu;
+        RefactorOutcome outcome = null;
+        for (ClassOrInterfaceDeclaration decl : cu.findAll(ClassOrInterfaceDeclaration.class)) {
+            outcome = analyzeClass(decl);
+            if (outcome != null) {
+                return outcome; // Assuming one test class per file usually
+            }
+        }
+        return null;
+    }
+
+    private RefactorOutcome analyzeClass(ClassOrInterfaceDeclaration decl) {
         String annotationName = null;
         if (decl.getAnnotationByName("SpringBootTest").isPresent()) {
             annotationName = "SpringBootTest";
@@ -242,6 +274,9 @@ public class TestRefactorer {
         }
 
         if (annotationName != null) {
+            RefactorOutcome outcome = new RefactorOutcome(decl.getNameAsString());
+            outcome.originalAnnotation = annotationName;
+
             Set<ResourceType> resources = new HashSet<>();
 
             // Analyze all test methods
@@ -250,10 +285,11 @@ public class TestRefactorer {
                     resources.addAll(analyzeInteractions(method, new HashSet<>(), decl));
                 }
             }
+            outcome.resourcesDetected = resources;
 
-            return applyRefactoring(decl, resources, annotationName);
+            return applyRefactoring(decl, resources, annotationName, outcome);
         }
-        return false;
+        return null;
     }
 
     private Set<ResourceType> analyzeInteractions(MethodDeclaration method, Set<String> visitedMethods,
@@ -361,87 +397,141 @@ public class TestRefactorer {
 
     private ResourceType identifyResourceType(Type type) {
         String typeName = type.asString();
-
         if (typeName.endsWith("Repository") || typeName.equals("JdbcTemplate") || typeName.equals("EntityManager")
-                || typeName.equals("DataSource")) {
-            TypeWrapper wrapper = AbstractCompiler.findType(currentCu, type);
-            if (wrapper != null && wrapper.getType() != null) {
-                if (wrapper.getType().isClassOrInterfaceDeclaration()) {
-                    ClassOrInterfaceDeclaration decl = wrapper.getType().asClassOrInterfaceDeclaration();
-                    if (decl.getExtendedTypes().stream().anyMatch(t -> t.getNameAsString().contains("Repository"))) {
-                        return ResourceType.DATABASE;
-                    }
-                }
-            }
-            if (typeName.endsWith("Repository"))
-                return ResourceType.DATABASE;
-            if (typeName.equals("JdbcTemplate") || typeName.equals("EntityManager") || typeName.equals("DataSource"))
-                return ResourceType.DATABASE;
+                || typeName.equals("DataSource") || typeName.equals("NamedParameterJdbcTemplate")) {
+            return ResourceType.DATABASE;
         }
-
-        if (typeName.contains("RedisTemplate")) {
+        if (typeName.equals("RedisTemplate") || typeName.equals("StringRedisTemplate")) {
             return ResourceType.REDIS;
         }
-
-        if (typeName.contains("KafkaTemplate")) {
+        if (typeName.equals("KafkaTemplate")) {
             return ResourceType.KAFKA;
         }
-
         if (typeName.equals("MockMvc") || typeName.equals("TestRestTemplate")) {
             return ResourceType.WEB;
         }
-
+        if (typeName.equals("MockRestServiceServer")) {
+            return ResourceType.REST_CLIENT;
+        }
+        if (typeName.startsWith("JacksonTester") || typeName.startsWith("JsonTester")
+                || typeName.equals("ObjectMapper")) {
+            return ResourceType.JSON;
+        }
         return ResourceType.NONE;
     }
 
-    private boolean applyRefactoring(ClassOrInterfaceDeclaration decl, Set<ResourceType> resources,
-            String currentAnnotation) {
+    private RefactorOutcome applyRefactoring(ClassOrInterfaceDeclaration decl, Set<ResourceType> resources,
+            String currentAnnotation, RefactorOutcome outcome) {
         String className = decl.getNameAsString();
         boolean modified = false;
 
         if (resources.isEmpty()) {
+            outcome.action = "CONVERTED";
+            outcome.newAnnotation = "Unit Test";
+            outcome.reason = "No resources detected (all mocked)";
             System.out.println("Converting " + className + " to Unit Test");
             modified = convertToUnitTest(decl, currentAnnotation);
         } else if (isSpringBootAtLeast("1.4.0") && hasSliceTestSupport) {
             if (resources.contains(ResourceType.DATABASE) && !resources.contains(ResourceType.REDIS)
-                    && !resources.contains(ResourceType.KAFKA) && !resources.contains(ResourceType.WEB)) {
+                    && !resources.contains(ResourceType.KAFKA) && !resources.contains(ResourceType.WEB)
+                    && !resources.contains(ResourceType.REST_CLIENT) && !resources.contains(ResourceType.JSON)) {
                 if (!"DataJpaTest".equals(currentAnnotation)) {
+                    outcome.action = "CONVERTED";
+                    outcome.newAnnotation = "@DataJpaTest";
+                    outcome.reason = "Only DATABASE resource detected";
                     System.out.println("Converting " + className + " to @DataJpaTest");
                     modified = replaceAnnotation(decl, currentAnnotation, "DataJpaTest",
                             "org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest");
+                } else {
+                    outcome.action = "KEPT";
+                    outcome.newAnnotation = "@DataJpaTest";
+                    outcome.reason = "Already optimal";
                 }
             } else if (resources.contains(ResourceType.WEB) && !resources.contains(ResourceType.DATABASE)
-                    && !resources.contains(ResourceType.REDIS) && !resources.contains(ResourceType.KAFKA)) {
+                    && !resources.contains(ResourceType.REDIS) && !resources.contains(ResourceType.KAFKA)
+                    && !resources.contains(ResourceType.REST_CLIENT)) {
+                // WebMvcTest includes JSON support
                 if (!"WebMvcTest".equals(currentAnnotation)) {
+                    outcome.action = "CONVERTED";
+                    outcome.newAnnotation = "@WebMvcTest";
+                    outcome.reason = "Only WEB resource detected (JSON allowed)";
                     System.out.println("Converting " + className + " to @WebMvcTest");
                     modified = replaceAnnotation(decl, currentAnnotation, "WebMvcTest",
                             "org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest");
+                } else {
+                    outcome.action = "KEPT";
+                    outcome.newAnnotation = "@WebMvcTest";
+                    outcome.reason = "Already optimal";
+                }
+            } else if (resources.contains(ResourceType.REST_CLIENT) && !resources.contains(ResourceType.DATABASE)
+                    && !resources.contains(ResourceType.REDIS) && !resources.contains(ResourceType.KAFKA)
+                    && !resources.contains(ResourceType.WEB) && !resources.contains(ResourceType.JSON)) {
+                if (!"RestClientTest".equals(currentAnnotation)) {
+                    outcome.action = "CONVERTED";
+                    outcome.newAnnotation = "@RestClientTest";
+                    outcome.reason = "Only REST_CLIENT resource detected";
+                    System.out.println("Converting " + className + " to @RestClientTest");
+                    modified = replaceAnnotation(decl, currentAnnotation, "RestClientTest",
+                            "org.springframework.boot.test.autoconfigure.web.client.RestClientTest");
+                } else {
+                    outcome.action = "KEPT";
+                    outcome.newAnnotation = "@RestClientTest";
+                    outcome.reason = "Already optimal";
+                }
+            } else if (resources.contains(ResourceType.JSON) && !resources.contains(ResourceType.DATABASE)
+                    && !resources.contains(ResourceType.REDIS) && !resources.contains(ResourceType.KAFKA)
+                    && !resources.contains(ResourceType.WEB) && !resources.contains(ResourceType.REST_CLIENT)) {
+                if (!"JsonTest".equals(currentAnnotation)) {
+                    outcome.action = "CONVERTED";
+                    outcome.newAnnotation = "@JsonTest";
+                    outcome.reason = "Only JSON resource detected";
+                    System.out.println("Converting " + className + " to @JsonTest");
+                    modified = replaceAnnotation(decl, currentAnnotation, "JsonTest",
+                            "org.springframework.boot.test.autoconfigure.json.JsonTest");
+                } else {
+                    outcome.action = "KEPT";
+                    outcome.newAnnotation = "@JsonTest";
+                    outcome.reason = "Already optimal";
                 }
             } else {
                 if (!"SpringBootTest".equals(currentAnnotation)) {
+                    outcome.action = "REVERTED";
+                    outcome.newAnnotation = "@SpringBootTest";
+                    outcome.reason = "Complex resources found: " + resources;
                     System.out.println("Reverting " + className + " to @SpringBootTest (Complex resources found)");
                     modified = replaceAnnotation(decl, currentAnnotation, "SpringBootTest",
                             "org.springframework.boot.test.context.SpringBootTest");
                 } else {
+                    outcome.action = "KEPT";
+                    outcome.newAnnotation = "@SpringBootTest";
+                    outcome.reason = "Complex resources found: " + resources;
                     System.out.println("Keeping " + className + " as @SpringBootTest");
                 }
             }
         } else {
             if (!"SpringBootTest".equals(currentAnnotation)) {
+                outcome.action = "REVERTED";
+                outcome.newAnnotation = "@SpringBootTest";
+                outcome.reason = "Slice tests not supported (version/deps)";
                 System.out.println("Reverting " + className + " to @SpringBootTest (Slice tests not supported)");
                 modified = replaceAnnotation(decl, currentAnnotation, "SpringBootTest",
                         "org.springframework.boot.test.context.SpringBootTest");
             } else {
+                outcome.action = "KEPT";
+                outcome.newAnnotation = "@SpringBootTest";
                 if (!hasSliceTestSupport) {
+                    outcome.reason = "Slice test dependencies not found";
                     System.out.println(
                             "Keeping " + className + " as @SpringBootTest (Slice test dependencies not found)");
                 } else {
+                    outcome.reason = "Spring Boot < 1.4.0";
                     System.out.println("Keeping " + className
                             + " as @SpringBootTest (Spring Boot < 1.4.0 does not support slice tests)");
                 }
             }
         }
-        return modified;
+        outcome.modified = modified;
+        return outcome;
     }
 
     private boolean convertToUnitTest(ClassOrInterfaceDeclaration decl, String currentAnnotation) {
@@ -457,6 +547,15 @@ public class TestRefactorer {
                 testAnnotation.get().replace(extendWith);
                 decl.findCompilationUnit().ifPresent(cu -> cu.addImport("org.junit.jupiter.api.extension.ExtendWith"));
                 decl.findCompilationUnit().ifPresent(cu -> cu.addImport("org.mockito.junit.jupiter.MockitoExtension"));
+
+                // Add @MockitoSettings(strictness = Strictness.LENIENT)
+                decl.addAnnotation(new SingleMemberAnnotationExpr(
+                        new Name("MockitoSettings"),
+                        new NameExpr("strictness = Strictness.LENIENT")));
+                decl.findCompilationUnit().ifPresent(cu -> {
+                    cu.addImport("org.mockito.junit.jupiter.MockitoSettings");
+                    cu.addImport("org.mockito.quality.Strictness");
+                });
             } else {
                 SingleMemberAnnotationExpr runWith = new SingleMemberAnnotationExpr(
                         new Name("RunWith"),
@@ -477,6 +576,8 @@ public class TestRefactorer {
         String sutName = testClassName.endsWith("Test") ? testClassName.substring(0, testClassName.length() - 4)
                 : testClassName.endsWith("Tests") ? testClassName.substring(0, testClassName.length() - 5) : "";
 
+        String sutFieldName = null;
+
         for (FieldDeclaration field : decl.getFields()) {
             Optional<AnnotationExpr> autowired = field.getAnnotationByName("Autowired");
             Optional<AnnotationExpr> inject = field.getAnnotationByName("Inject");
@@ -488,6 +589,7 @@ public class TestRefactorer {
                 if (!sutName.isEmpty() && fieldType.equals(sutName)) {
                     annotationToReplace.replace(new MarkerAnnotationExpr("InjectMocks"));
                     decl.findCompilationUnit().ifPresent(cu -> cu.addImport("org.mockito.InjectMocks"));
+                    sutFieldName = field.getVariables().get(0).getNameAsString();
                 } else {
                     annotationToReplace.replace(new MarkerAnnotationExpr("Mock"));
                     decl.findCompilationUnit().ifPresent(cu -> cu.addImport("org.mockito.Mock"));
@@ -503,7 +605,91 @@ public class TestRefactorer {
             }
         }
 
+        // 4. Inject @Value fields if SUT is identified
+        if (sutFieldName != null) {
+            injectValueFields(decl, sutName, sutFieldName);
+        }
+
         return modified;
+    }
+
+    private void injectValueFields(ClassOrInterfaceDeclaration decl, String sutClassName, String sutFieldName) {
+        // Find SUT class definition
+        Optional<TypeWrapper> sutType = Optional
+                .ofNullable(AbstractCompiler.findType(currentCu, new ClassOrInterfaceType(null, sutClassName)));
+
+        if (sutType.isPresent() && sutType.get().getType().isClassOrInterfaceDeclaration()) {
+            ClassOrInterfaceDeclaration sutDecl = sutType.get().getType().asClassOrInterfaceDeclaration();
+            List<String> injectionStatements = new ArrayList<>();
+
+            for (FieldDeclaration field : sutDecl.getFields()) {
+                if (field.getAnnotationByName("Value").isPresent()) {
+                    String fieldName = field.getVariables().get(0).getNameAsString();
+                    String fieldType = field.getElementType().asString();
+                    String valueToInject = getValueForType(fieldType);
+
+                    injectionStatements.add("ReflectionTestUtils.setField(" + sutFieldName + ", \"" + fieldName + "\", "
+                            + valueToInject + ");");
+                }
+            }
+
+            if (!injectionStatements.isEmpty()) {
+                decl.findCompilationUnit()
+                        .ifPresent(cu -> cu.addImport("org.springframework.test.util.ReflectionTestUtils"));
+
+                MethodDeclaration beforeEach = decl.getMethods().stream()
+                        .filter(m -> m.getAnnotationByName("BeforeEach").isPresent()
+                                || m.getAnnotationByName("Before").isPresent())
+                        .findFirst()
+                        .orElseGet(() -> {
+                            MethodDeclaration m = decl.addMethod("setUp",
+                                    com.github.javaparser.ast.Modifier.Keyword.PUBLIC);
+                            if (isJUnit5) {
+                                m.addAnnotation("BeforeEach");
+                                decl.findCompilationUnit()
+                                        .ifPresent(cu -> cu.addImport("org.junit.jupiter.api.BeforeEach"));
+                            } else {
+                                m.addAnnotation("Before");
+                                decl.findCompilationUnit().ifPresent(cu -> cu.addImport("org.junit.Before"));
+                            }
+                            return m;
+                        });
+
+                com.github.javaparser.ast.stmt.BlockStmt body = beforeEach.getBody().orElseGet(() -> {
+                    com.github.javaparser.ast.stmt.BlockStmt b = new com.github.javaparser.ast.stmt.BlockStmt();
+                    beforeEach.setBody(b);
+                    return b;
+                });
+
+                for (String stmt : injectionStatements) {
+                    // Check if statement already exists to avoid duplicates
+                    if (body.getStatements().stream().noneMatch(s -> s.toString().trim().equals(stmt))) {
+                        body.addStatement(stmt);
+                    }
+                }
+            }
+        }
+    }
+
+    private String getValueForType(String type) {
+        switch (type) {
+            case "String":
+                return "\"test-value\"";
+            case "boolean":
+            case "Boolean":
+                return "false";
+            case "int":
+            case "Integer":
+                return "0";
+            case "long":
+            case "Long":
+                return "0L";
+            case "double":
+            case "Double":
+                return "0.0";
+            default:
+                return "null";
+        }
     }
 
     private boolean replaceAnnotation(ClassOrInterfaceDeclaration decl, String oldName, String newName,

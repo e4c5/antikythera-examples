@@ -36,15 +36,30 @@ public class TestFixer {
         AbstractCompiler.preProcess();
 
         TestRefactorer refactorer = new TestRefactorer(dryRun);
+        List<TestRefactorer.RefactorOutcome> outcomes = new ArrayList<>();
+
         for (var entry : AntikytheraRunTime.getResolvedCompilationUnits().entrySet()) {
             boolean modified = processCu(entry.getKey(), entry.getValue());
-            if (refactorer.refactor(entry.getValue())) {
-                modified = true;
+
+            TestRefactorer.RefactorOutcome outcome = refactorer.refactor(entry.getValue());
+            if (outcome != null) {
+                outcomes.add(outcome);
+                if (outcome.modified) {
+                    modified = true;
+                }
             }
 
             if (modified && !dryRun) {
                 saveCompilationUnit(entry.getKey(), entry.getValue());
             }
+        }
+
+        System.out.println("\nRefactoring Summary:");
+        System.out.printf("%-40s | %-15s -> %-15s | %-20s | %s%n", "Class", "Original", "New", "Action", "Reason");
+        System.out.println(
+                "----------------------------------------------------------------------------------------------------------------------------------");
+        for (TestRefactorer.RefactorOutcome outcome : outcomes) {
+            System.out.println(outcome);
         }
     }
 
