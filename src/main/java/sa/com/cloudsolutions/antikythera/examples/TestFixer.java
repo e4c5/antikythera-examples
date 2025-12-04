@@ -36,10 +36,14 @@ public class TestFixer {
         AbstractCompiler.preProcess();
 
         for (var entry : AntikytheraRunTime.getResolvedCompilationUnits().entrySet()) {
-            if (processCu(entry.getKey(), entry.getValue()) && !dryRun) {
+            boolean modified = processCu(entry.getKey(), entry.getValue());
+            if (new TestRefactorer().refactor(entry.getValue())) {
+                modified = true;
+            }
+
+            if (modified && !dryRun) {
                 saveCompilationUnit(entry.getKey(), entry.getValue());
             }
-            new TestRefactorer().refactor(entry.getValue());
         }
     }
 
