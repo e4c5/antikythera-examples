@@ -23,12 +23,16 @@ import java.util.Set;
 @SuppressWarnings("java:S106")
 public class TestFixer {
     private static boolean dryRun = false;
+    private static boolean refactor = false;
 
     public static void main(String[] args) throws IOException {
         for (String arg : args) {
             if (arg.equals("--dry-run")) {
                 dryRun = true;
                 System.out.println("Running in DRY RUN mode. No changes will be made.");
+            } else if (arg.equals("--refactor")) {
+                refactor = true;
+                System.out.println("Refactoring enabled.");
             }
         }
 
@@ -41,11 +45,13 @@ public class TestFixer {
         for (var entry : AntikytheraRunTime.getResolvedCompilationUnits().entrySet()) {
             boolean modified = processCu(entry.getKey(), entry.getValue());
 
-            TestRefactorer.RefactorOutcome outcome = refactorer.refactor(entry.getValue());
-            if (outcome != null) {
-                outcomes.add(outcome);
-                if (outcome.modified) {
-                    modified = true;
+            if (refactor) {
+                TestRefactorer.RefactorOutcome outcome = refactorer.refactor(entry.getValue());
+                if (outcome != null) {
+                    outcomes.add(outcome);
+                    if (outcome.modified) {
+                        modified = true;
+                    }
                 }
             }
 
@@ -54,12 +60,14 @@ public class TestFixer {
             }
         }
 
-        System.out.println("\nRefactoring Summary:");
-        System.out.printf("%-40s | %-15s -> %-15s | %-20s | %s%n", "Class", "Original", "New", "Action", "Reason");
-        System.out.println(
-                "----------------------------------------------------------------------------------------------------------------------------------");
-        for (TestRefactorer.RefactorOutcome outcome : outcomes) {
-            System.out.println(outcome);
+        if (refactor) {
+            System.out.println("\nRefactoring Summary:");
+            System.out.printf("%-40s | %-15s -> %-15s | %-20s | %s%n", "Class", "Original", "New", "Action", "Reason");
+            System.out.println(
+                    "----------------------------------------------------------------------------------------------------------------------------------");
+            for (TestRefactorer.RefactorOutcome outcome : outcomes) {
+                System.out.println(outcome);
+            }
         }
     }
 
