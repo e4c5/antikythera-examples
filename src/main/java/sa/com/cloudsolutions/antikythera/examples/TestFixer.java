@@ -39,6 +39,7 @@ public class TestFixer {
             if (processCu(entry.getKey(), entry.getValue()) && !dryRun) {
                 saveCompilationUnit(entry.getKey(), entry.getValue());
             }
+            new TestRefactorer().refactor(entry.getValue());
         }
     }
 
