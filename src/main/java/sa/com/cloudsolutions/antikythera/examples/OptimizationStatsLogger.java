@@ -69,17 +69,18 @@ public class OptimizationStatsLogger {
     }
 
     public static void initialize(String repo) throws IOException {
+        Path csvPath = Paths.get(CSV_FILENAME);
+        FileWriter fw = new FileWriter(CSV_FILENAME, true);
+        PrintWriter out = new PrintWriter(fw);
+
+        if (!csvPath.toFile().exists()) {
+            out.println(CSV_HEADER);
+        }
+
         if (current == null) {
             current = new Stats(repo);
             total = new Stats("");
         } else {
-            Path csvPath = Paths.get(CSV_FILENAME);
-            FileWriter fw = new FileWriter(CSV_FILENAME, true);
-            PrintWriter out = new PrintWriter(fw);
-
-            if (!csvPath.toFile().exists()) {
-                out.println(CSV_HEADER);
-            }
             out.println(String.format("%s,%s,%d,%d,%d,%d,%d,%d,%d",
                     java.time.LocalDate.now(),
                     current.repo,
@@ -90,12 +91,11 @@ public class OptimizationStatsLogger {
                     current.dependentClassesModified,
                     current.liquibaseIndexesGenerated,
                     current.liquibaseIndexesDropped));
-            out.close();
-            fw.close();
-
             current = new Stats(repo);
             totalRepositoriesProcessed++;
         }
+        out.close();
+        fw.close();
     }
 
     public static void updateQueriesAnalyzed(int queriesAnalyzed) {
