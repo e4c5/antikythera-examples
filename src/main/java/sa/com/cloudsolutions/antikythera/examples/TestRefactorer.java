@@ -25,6 +25,8 @@ import java.io.FileWriter;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import com.github.javaparser.ast.expr.NameExpr;
+import com.github.javaparser.ast.expr.NormalAnnotationExpr;
+import com.github.javaparser.ast.expr.Expression;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.EnumSet;
@@ -425,7 +427,23 @@ public class TestRefactorer {
         String className = decl.getNameAsString();
         boolean modified = false;
 
-        if (resources.isEmpty()) {
+        if (requiresRunningServer(decl)) {
+            if (!"SpringBootTest".equals(currentAnnotation)) {
+                outcome.action = "REVERTED";
+                outcome.newAnnotation = "@SpringBootTest(webEnvironment = RANDOM_PORT)";
+                outcome.reason = "Requires running server (TestRestTemplate/LocalServerPort)";
+                System.out.println("Reverting " + className + " to @SpringBootTest (Requires running server)");
+                modified = replaceAnnotation(decl, currentAnnotation, "SpringBootTest",
+                        "org.springframework.boot.test.context.SpringBootTest");
+                addRandomPortConfig(decl);
+            } else {
+                outcome.action = "KEPT";
+                outcome.newAnnotation = "@SpringBootTest(webEnvironment = RANDOM_PORT)";
+                outcome.reason = "Requires running server";
+                System.out.println("Keeping " + className + " as @SpringBootTest (Requires running server)");
+                addRandomPortConfig(decl);
+            }
+        } else if (resources.isEmpty()) {
             outcome.action = "CONVERTED";
             outcome.newAnnotation = "Unit Test";
             outcome.reason = "No resources detected (all mocked)";
@@ -689,6 +707,166 @@ public class TestRefactorer {
                 return "0.0";
             default:
                 return "null";
+        }
+    }
+
+    private boolean requiresRunningServer(ClassOrInterfaceDeclaration decl) {
+        for (FieldDeclaration field : decl.getFields()) {
+            if (field.getElementType().asString().equals("TestRestTemplate")) {
+                return true;
+            }
+            if (field.getAnnotationByName("LocalServerPort").isPresent()) {
+                return true;
+            }
+            if (field.getAnnotationByName("Value").isPresent()) {
+                AnnotationExpr annotation = field.getAnnotationByName("Value").get();
+                String value = "";
+                if (annotation.isSingleMemberAnnotationExpr()) {
+                    value = annotation.asSingleMemberAnnotationExpr().getMemberValue().toString();
+                } else if (annotation.isNormalAnnotationExpr()) {
+                    for (com.github.javaparser.ast.expr.MemberValuePair pair : annotation.asNormalAnnotationExpr()
+                            .getPairs()) {
+                        if (pair.getNameAsString().equals("value")) {
+                            value = pair.getValue().toString();
+                            break;
+                        }
+                    }
+                }
+
+                if (value.contains("local.server.port")) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private void addRandomPortConfig(ClassOrInterfaceDeclaration decl) {
+        Optional<AnnotationExpr> springBootTest = decl.getAnnotationByName("SpringBootTest");
+        if (springBootTest.isPresent()) {
+            if (springBootTest.get().isNormalAnnotationExpr()) {
+                NormalAnnotationExpr normal = springBootTest.get().asNormalAnnotationExpr();
+                boolean hasWebEnv = normal.getPairs().stream()
+                        .anyMatch(p -> p.getNameAsString().equals("webEnvironment"));
+                if (!hasWebEnv) {
+                    normal.addPair("webEnvironment", "WebEnvironment.RANDOM_PORT");
+                    decl.findCompilationUnit().ifPresent(
+                            cu -> cu.addImport("org.springframework.boot.test.context.SpringBootTest.WebEnvironment"));
+                }
+            } else if (springBootTest.get().isMarkerAnnotationExpr()) {
+                NormalAnnotationExpr normal = new NormalAnnotationExpr();
+                normal.setName("SpringBootTest");
+                normal.addPair("webEnvironment", "WebEnvironment.RANDOM_PORT");
+                springBootTest.get().replace(normal);
+                decl.findCompilationUnit().ifPresent(
+                        cu -> cu.addImport("org.springframework.boot.test.context.SpringBootTest.WebEnvironment"));
+            }
+        }
+        fixContextConfiguration(decl);
+    }
+
+    private void fixContextConfiguration(ClassOrInterfaceDeclaration decl) {
+        Optional<AnnotationExpr> contextConfig = decl.getAnnotationByName("ContextConfiguration");
+        if (contextConfig.isPresent() && contextConfig.get().isNormalAnnotationExpr()) {
+            NormalAnnotationExpr normal = contextConfig.get().asNormalAnnotationExpr();
+            for (com.github.javaparser.ast.expr.MemberValuePair pair : normal.getPairs()) {
+                if (pair.getNameAsString().equals("classes")) {
+                    // Extract classes
+                    Expression value = pair.getValue();
+                    List<String> classNames = new ArrayList<>();
+                    if (value.isArrayInitializerExpr()) {
+                        for (Expression expr : value.asArrayInitializerExpr().getValues()) {
+                            classNames.add(expr.toString());
+                        }
+                    } else if (value.isClassExpr()) {
+                        classNames.add(value.toString());
+                    }
+
+                    // Remove 'classes' from ContextConfiguration
+                    pair.remove();
+
+                    // Add to @Import
+                    addToImport(decl, classNames);
+                    break;
+                }
+            }
+            // If ContextConfiguration is empty or only has initializers, leave it (or clean
+            // up if empty)
+            if (normal.getPairs().isEmpty()) {
+                normal.remove();
+            }
+        }
+    }
+
+    private void addToImport(ClassOrInterfaceDeclaration decl, List<String> classNames) {
+        if (classNames.isEmpty())
+            return;
+
+        Optional<AnnotationExpr> importAnnotation = decl.getAnnotationByName("Import");
+        if (importAnnotation.isPresent()) {
+            // Add to existing @Import
+            if (importAnnotation.get().isSingleMemberAnnotationExpr()) {
+                // Convert single to array if needed, or just add
+                Expression existing = importAnnotation.get().asSingleMemberAnnotationExpr().getMemberValue();
+                com.github.javaparser.ast.expr.ArrayInitializerExpr array;
+                if (existing.isArrayInitializerExpr()) {
+                    array = existing.asArrayInitializerExpr();
+                } else {
+                    array = new com.github.javaparser.ast.expr.ArrayInitializerExpr();
+                    array.getValues().add(existing);
+                    importAnnotation.get().asSingleMemberAnnotationExpr().setMemberValue(array);
+                }
+                for (String className : classNames) {
+                    if (array.getValues().stream().noneMatch(v -> v.toString().equals(className))) {
+                        array.getValues().add(new NameExpr(className));
+                    }
+                }
+            } else if (importAnnotation.get().isNormalAnnotationExpr()) {
+                // Handle normal annotation @Import(value = ...)
+                for (com.github.javaparser.ast.expr.MemberValuePair pair : importAnnotation.get()
+                        .asNormalAnnotationExpr().getPairs()) {
+                    if (pair.getNameAsString().equals("value")) {
+                        Expression existing = pair.getValue();
+                        com.github.javaparser.ast.expr.ArrayInitializerExpr array;
+                        if (existing.isArrayInitializerExpr()) {
+                            array = existing.asArrayInitializerExpr();
+                        } else {
+                            array = new com.github.javaparser.ast.expr.ArrayInitializerExpr();
+                            array.getValues().add(existing);
+                            pair.setValue(array);
+                        }
+                        for (String className : classNames) {
+                            if (array.getValues().stream().noneMatch(v -> v.toString().equals(className))) {
+                                array.getValues().add(new NameExpr(className));
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            // Create new @Import
+            StringBuilder sb = new StringBuilder("@Import({");
+            for (int i = 0; i < classNames.size(); i++) {
+                sb.append(classNames.get(i));
+                if (i < classNames.size() - 1)
+                    sb.append(", ");
+            }
+            sb.append("})");
+
+            // The above construction is a bit clunky with JavaParser API for arrays.
+            // Let's try a simpler approach or fix the AST construction.
+            // Actually, let's just use addAnnotation with string parsing if possible, or
+            // build AST correctly.
+
+            com.github.javaparser.ast.expr.ArrayInitializerExpr array = new com.github.javaparser.ast.expr.ArrayInitializerExpr();
+            for (String className : classNames) {
+                array.getValues().add(new NameExpr(className));
+            }
+            decl.addAnnotation(new com.github.javaparser.ast.expr.SingleMemberAnnotationExpr(
+                    new com.github.javaparser.ast.expr.Name("Import"),
+                    array));
+
+            decl.findCompilationUnit().ifPresent(cu -> cu.addImport("org.springframework.context.annotation.Import"));
         }
     }
 
