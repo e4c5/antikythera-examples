@@ -16,11 +16,12 @@ import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import org.apache.maven.model.Dependency;
 import org.apache.maven.model.Model;
 import org.apache.maven.model.io.xpp3.MavenXpp3Reader;
+import org.apache.maven.model.io.xpp3.MavenXpp3Writer;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
-import sa.com.cloudsolutions.antikythera.parser.MavenHelper;
 import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
 
 import java.io.FileReader;
+import java.io.FileWriter;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.EnumSet;
@@ -36,11 +37,18 @@ public class TestRefactorer {
 
     private CompilationUnit currentCu;
     private boolean isJUnit5 = false;
-    private String springBootVersion = "2.0.0"; // Default to 2.x if unknown
+    private String springBootVersion = "2.0.0"; // Default to 2.x as requested
     private boolean isMockito1 = false;
+    private boolean hasSliceTestSupport = false;
+    private boolean dryRun = false;
+
+    public TestRefactorer(boolean dryRun) {
+        this.dryRun = dryRun;
+        detectVersions();
+    }
 
     public TestRefactorer() {
-        detectVersions();
+        this(false);
     }
 
     private void detectVersions() {
@@ -57,49 +65,116 @@ public class TestRefactorer {
             }
 
             if (p.toFile().exists()) {
+                System.out.println("Reading POM from: " + p);
                 Model model = reader.read(new FileReader(p.toFile()));
 
-                // Detect JUnit 5
+                // Check properties for version hints
+                java.util.Properties props = model.getProperties();
+                if (props != null) {
+                    if (props.containsKey("spring.boot.version")) {
+                        springBootVersion = props.getProperty("spring.boot.version");
+                        System.out.println("Found spring.boot.version property: " + springBootVersion);
+                    } else if (props.containsKey("spring-boot.version")) {
+                        springBootVersion = props.getProperty("spring-boot.version");
+                        System.out.println("Found spring-boot.version property: " + springBootVersion);
+                    }
+                }
+
+                // Detect JUnit 5 and Slice Test Support
                 for (Dependency dep : model.getDependencies()) {
                     if ("junit-jupiter-api".equals(dep.getArtifactId())
                             || "junit-jupiter-engine".equals(dep.getArtifactId())
                             || "junit-jupiter".equals(dep.getArtifactId())) {
                         isJUnit5 = true;
+                        System.out.println("Detected JUnit 5");
                     }
                     // Detect Mockito 1.x
                     if ("mockito-core".equals(dep.getArtifactId()) || "mockito-all".equals(dep.getArtifactId())) {
                         String version = resolveVersion(model, dep.getVersion());
                         if (version != null && version.startsWith("1.")) {
                             isMockito1 = true;
+                            System.out.println("Detected Mockito 1.x");
                         }
+                    }
+                    // Detect Slice Test Support
+                    if ("spring-boot-starter-test".equals(dep.getArtifactId())
+                            || "spring-boot-test-autoconfigure".equals(dep.getArtifactId())) {
+                        hasSliceTestSupport = true;
+                        System.out.println(
+                                "Detected Slice Test Support (spring-boot-starter-test or spring-boot-test-autoconfigure)");
                     }
                 }
 
-                // Detect Spring Boot Version
-                String detectedVersion = null;
-                if (model.getParent() != null
-                        && "spring-boot-starter-parent".equals(model.getParent().getArtifactId())) {
-                    detectedVersion = resolveVersion(model, model.getParent().getVersion());
-                } else {
-                    for (Dependency dep : model.getDependencies()) {
-                        if ("spring-boot-starter".equals(dep.getArtifactId())) {
-                            detectedVersion = resolveVersion(model, dep.getVersion());
-                            break;
+                // Detect Spring Boot Version if not found in properties
+                if ("2.0.0".equals(springBootVersion)) {
+                    String detectedVersion = null;
+                    if (model.getParent() != null
+                            && "spring-boot-starter-parent".equals(model.getParent().getArtifactId())) {
+                        detectedVersion = resolveVersion(model, model.getParent().getVersion());
+                    } else {
+                        for (Dependency dep : model.getDependencies()) {
+                            if ("spring-boot-starter".equals(dep.getArtifactId())) {
+                                detectedVersion = resolveVersion(model, dep.getVersion());
+                                break;
+                            }
                         }
+                    }
+
+                    if (detectedVersion != null && !detectedVersion.startsWith("${")) {
+                        springBootVersion = detectedVersion;
+                        System.out.println("Detected Spring Boot Version: " + springBootVersion);
                     }
                 }
 
-                if (detectedVersion != null && !detectedVersion.startsWith("${")) {
-                    springBootVersion = detectedVersion;
-                    // Fallback for Mockito detection if not explicitly found
-                    if (compareVersions(springBootVersion, "2.0.0") < 0) {
-                        // Spring Boot 1.x usually uses Mockito 1.x
+                // Fallback for Mockito detection if not explicitly found
+                if (compareVersions(springBootVersion, "2.0.0") < 0) {
+                    // Spring Boot 1.x usually uses Mockito 1.x
+                    if (!isMockito1 && compareVersions(springBootVersion, "1.0.0") > 0) {
                         isMockito1 = true;
+                        System.out.println("Inferred Mockito 1.x from Spring Boot version");
                     }
                 }
+
+                System.out.println("Final Spring Boot Version: " + springBootVersion);
+
+                // Add missing slice test dependency if needed
+                if (!hasSliceTestSupport && compareVersions(springBootVersion, "2.0.0") >= 0) {
+                    System.out.println("Slice test support missing. Adding spring-boot-starter-test dependency...");
+                    addDependencyToPom(model, p.toFile());
+                    hasSliceTestSupport = true;
+                }
+
+            } else {
+                System.out.println("POM file not found at: " + p);
             }
         } catch (Exception e) {
             System.err.println("Failed to detect versions: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    private void addDependencyToPom(Model model, java.io.File pomFile) {
+        try {
+            Dependency dep = new Dependency();
+            dep.setGroupId("org.springframework.boot");
+            dep.setArtifactId("spring-boot-starter-test");
+            dep.setScope("test");
+            // Version is usually managed by parent, but if not we might need to add it.
+            // For now assuming managed or inherited from parent.
+
+            model.addDependency(dep);
+
+            if (dryRun) {
+                System.out.println("[DRY RUN] Would add spring-boot-starter-test to pom.xml");
+            } else {
+                MavenXpp3Writer writer = new MavenXpp3Writer();
+                try (FileWriter fileWriter = new FileWriter(pomFile)) {
+                    writer.write(fileWriter, model);
+                }
+                System.out.println("Added spring-boot-starter-test to pom.xml");
+            }
+        } catch (Exception e) {
+            System.err.println("Failed to add dependency to POM: " + e.getMessage());
             e.printStackTrace();
         }
     }
@@ -157,22 +232,32 @@ public class TestRefactorer {
     }
 
     private boolean analyzeClass(ClassOrInterfaceDeclaration decl) {
+        String annotationName = null;
         if (decl.getAnnotationByName("SpringBootTest").isPresent()) {
+            annotationName = "SpringBootTest";
+        } else if (decl.getAnnotationByName("DataJpaTest").isPresent()) {
+            annotationName = "DataJpaTest";
+        } else if (decl.getAnnotationByName("WebMvcTest").isPresent()) {
+            annotationName = "WebMvcTest";
+        }
+
+        if (annotationName != null) {
             Set<ResourceType> resources = new HashSet<>();
 
             // Analyze all test methods
             for (MethodDeclaration method : decl.getMethods()) {
                 if (method.getAnnotationByName("Test").isPresent()) {
-                    resources.addAll(analyzeInteractions(method, new HashSet<>()));
+                    resources.addAll(analyzeInteractions(method, new HashSet<>(), decl));
                 }
             }
 
-            return applyRefactoring(decl, resources);
+            return applyRefactoring(decl, resources, annotationName);
         }
         return false;
     }
 
-    private Set<ResourceType> analyzeInteractions(MethodDeclaration method, Set<String> visitedMethods) {
+    private Set<ResourceType> analyzeInteractions(MethodDeclaration method, Set<String> visitedMethods,
+            ClassOrInterfaceDeclaration testClass) {
         Set<ResourceType> resources = EnumSet.noneOf(ResourceType.class);
         String methodSig = method.getSignature().asString();
 
@@ -184,12 +269,12 @@ public class TestRefactorer {
         method.accept(new VoidVisitorAdapter<Void>() {
             @Override
             public void visit(MethodCallExpr n, Void arg) {
-                if (isResourceCall(n)) {
-                    resources.add(getResourceType(n));
+                if (isResourceCall(n, testClass)) {
+                    resources.add(getResourceType(n, testClass));
                 } else {
                     Optional<MethodDeclaration> resolvedMethod = resolveMethod(n, method);
                     resolvedMethod.ifPresent(methodDeclaration -> resources
-                            .addAll(analyzeInteractions(methodDeclaration, visitedMethods)));
+                            .addAll(analyzeInteractions(methodDeclaration, visitedMethods, testClass)));
                 }
                 super.visit(n, arg);
             }
@@ -228,18 +313,44 @@ public class TestRefactorer {
         return Optional.empty();
     }
 
-    private boolean isResourceCall(MethodCallExpr n) {
-        return getResourceType(n) != ResourceType.NONE;
+    private boolean isResourceCall(MethodCallExpr n, ClassOrInterfaceDeclaration testClass) {
+        return getResourceType(n, testClass) != ResourceType.NONE;
     }
 
-    private ResourceType getResourceType(MethodCallExpr n) {
+    private ResourceType getResourceType(MethodCallExpr n, ClassOrInterfaceDeclaration testClass) {
         if (n.getScope().isPresent()) {
             String scopeName = n.getScope().get().toString();
-            Optional<ClassOrInterfaceDeclaration> testClass = n.findAncestor(ClassOrInterfaceDeclaration.class);
-            if (testClass.isPresent()) {
-                for (FieldDeclaration field : testClass.get().getFields()) {
+            // The class where the method call is happening (could be SUT)
+            Optional<ClassOrInterfaceDeclaration> currentClass = n.findAncestor(ClassOrInterfaceDeclaration.class);
+
+            if (currentClass.isPresent()) {
+                for (FieldDeclaration field : currentClass.get().getFields()) {
                     if (field.getVariable(0).getNameAsString().equals(scopeName)) {
+
+                        // 1. Check if the field itself is mocked (in current class)
+                        if (field.getAnnotationByName("Mock").isPresent()
+                                || field.getAnnotationByName("MockBean").isPresent()
+                                || field.getAnnotationByName("SpyBean").isPresent()) {
+                            return ResourceType.NONE;
+                        }
+
                         Type type = field.getElementType();
+
+                        // 2. Check if this type is mocked in the Test Class
+                        // This handles the case where we are in SUT, and SUT uses a dependency,
+                        // but that dependency is mocked in the Test Class.
+                        if (testClass != null) {
+                            for (FieldDeclaration testField : testClass.getFields()) {
+                                if (testField.getElementType().asString().equals(type.asString())) {
+                                    if (testField.getAnnotationByName("Mock").isPresent()
+                                            || testField.getAnnotationByName("MockBean").isPresent()
+                                            || testField.getAnnotationByName("SpyBean").isPresent()) {
+                                        return ResourceType.NONE;
+                                    }
+                                }
+                            }
+                        }
+
                         return identifyResourceType(type);
                     }
                 }
@@ -283,52 +394,74 @@ public class TestRefactorer {
         return ResourceType.NONE;
     }
 
-    private boolean applyRefactoring(ClassOrInterfaceDeclaration decl, Set<ResourceType> resources) {
+    private boolean applyRefactoring(ClassOrInterfaceDeclaration decl, Set<ResourceType> resources,
+            String currentAnnotation) {
         String className = decl.getNameAsString();
         boolean modified = false;
 
         if (resources.isEmpty()) {
             System.out.println("Converting " + className + " to Unit Test");
-            modified = convertToUnitTest(decl);
-        } else if (isSpringBootAtLeast("1.4.0")) {
+            modified = convertToUnitTest(decl, currentAnnotation);
+        } else if (isSpringBootAtLeast("1.4.0") && hasSliceTestSupport) {
             if (resources.contains(ResourceType.DATABASE) && !resources.contains(ResourceType.REDIS)
                     && !resources.contains(ResourceType.KAFKA) && !resources.contains(ResourceType.WEB)) {
-                System.out.println("Converting " + className + " to @DataJpaTest");
-                modified = replaceAnnotation(decl, "SpringBootTest", "DataJpaTest",
-                        "org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest");
+                if (!"DataJpaTest".equals(currentAnnotation)) {
+                    System.out.println("Converting " + className + " to @DataJpaTest");
+                    modified = replaceAnnotation(decl, currentAnnotation, "DataJpaTest",
+                            "org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest");
+                }
             } else if (resources.contains(ResourceType.WEB) && !resources.contains(ResourceType.DATABASE)
                     && !resources.contains(ResourceType.REDIS) && !resources.contains(ResourceType.KAFKA)) {
-                System.out.println("Converting " + className + " to @WebMvcTest");
-                modified = replaceAnnotation(decl, "SpringBootTest", "WebMvcTest",
-                        "org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest");
+                if (!"WebMvcTest".equals(currentAnnotation)) {
+                    System.out.println("Converting " + className + " to @WebMvcTest");
+                    modified = replaceAnnotation(decl, currentAnnotation, "WebMvcTest",
+                            "org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest");
+                }
             } else {
-                System.out.println("Keeping " + className + " as @SpringBootTest");
+                if (!"SpringBootTest".equals(currentAnnotation)) {
+                    System.out.println("Reverting " + className + " to @SpringBootTest (Complex resources found)");
+                    modified = replaceAnnotation(decl, currentAnnotation, "SpringBootTest",
+                            "org.springframework.boot.test.context.SpringBootTest");
+                } else {
+                    System.out.println("Keeping " + className + " as @SpringBootTest");
+                }
             }
         } else {
-            System.out.println(
-                    "Keeping " + className + " as @SpringBootTest (Spring Boot < 1.4.0 does not support slice tests)");
+            if (!"SpringBootTest".equals(currentAnnotation)) {
+                System.out.println("Reverting " + className + " to @SpringBootTest (Slice tests not supported)");
+                modified = replaceAnnotation(decl, currentAnnotation, "SpringBootTest",
+                        "org.springframework.boot.test.context.SpringBootTest");
+            } else {
+                if (!hasSliceTestSupport) {
+                    System.out.println(
+                            "Keeping " + className + " as @SpringBootTest (Slice test dependencies not found)");
+                } else {
+                    System.out.println("Keeping " + className
+                            + " as @SpringBootTest (Spring Boot < 1.4.0 does not support slice tests)");
+                }
+            }
         }
         return modified;
     }
 
-    private boolean convertToUnitTest(ClassOrInterfaceDeclaration decl) {
+    private boolean convertToUnitTest(ClassOrInterfaceDeclaration decl, String currentAnnotation) {
         boolean modified = false;
 
-        // 1. Replace @SpringBootTest with appropriate runner/extension
-        Optional<AnnotationExpr> sbTest = decl.getAnnotationByName("SpringBootTest");
-        if (sbTest.isPresent()) {
+        // 1. Replace @SpringBootTest (or other) with appropriate runner/extension
+        Optional<AnnotationExpr> testAnnotation = decl.getAnnotationByName(currentAnnotation);
+        if (testAnnotation.isPresent()) {
             if (isJUnit5) {
                 SingleMemberAnnotationExpr extendWith = new SingleMemberAnnotationExpr(
                         new Name("ExtendWith"),
                         new ClassExpr(new ClassOrInterfaceType(null, "MockitoExtension")));
-                sbTest.get().replace(extendWith);
+                testAnnotation.get().replace(extendWith);
                 decl.findCompilationUnit().ifPresent(cu -> cu.addImport("org.junit.jupiter.api.extension.ExtendWith"));
                 decl.findCompilationUnit().ifPresent(cu -> cu.addImport("org.mockito.junit.jupiter.MockitoExtension"));
             } else {
                 SingleMemberAnnotationExpr runWith = new SingleMemberAnnotationExpr(
                         new Name("RunWith"),
                         new ClassExpr(new ClassOrInterfaceType(null, "MockitoJUnitRunner")));
-                sbTest.get().replace(runWith);
+                testAnnotation.get().replace(runWith);
                 decl.findCompilationUnit().ifPresent(cu -> cu.addImport("org.junit.runner.RunWith"));
                 if (isMockito1) {
                     decl.findCompilationUnit().ifPresent(cu -> cu.addImport("org.mockito.runners.MockitoJUnitRunner"));
