@@ -4,15 +4,8 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
-import com.github.javaparser.ast.expr.AnnotationExpr;
-import com.github.javaparser.ast.expr.ClassExpr;
-import com.github.javaparser.ast.expr.MarkerAnnotationExpr;
 import com.github.javaparser.ast.expr.MethodCallExpr;
-import com.github.javaparser.ast.expr.Name;
-import com.github.javaparser.ast.expr.SingleMemberAnnotationExpr;
-import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.ast.type.Type;
-import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import org.apache.maven.model.Dependency;
 import org.apache.maven.model.Model;
 import org.apache.maven.model.io.xpp3.MavenXpp3Reader;
@@ -22,14 +15,11 @@ import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
 
 import java.io.FileReader;
 import java.io.FileWriter;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import com.github.javaparser.ast.expr.NameExpr;
-import com.github.javaparser.ast.expr.NormalAnnotationExpr;
-import com.github.javaparser.ast.expr.Expression;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
@@ -149,6 +139,57 @@ public class TestRefactorer {
                     hasSliceTestSupport = true;
                 }
 
+                // Validate spring-boot-test-autoconfigure version compatibility
+                if (hasSliceTestSupport) {
+                    String testAutoConfigureVersion = null;
+                    for (Dependency dep : model.getDependencies()) {
+                        if ("spring-boot-test-autoconfigure".equals(dep.getArtifactId())) {
+                            testAutoConfigureVersion = resolveVersion(model, dep.getVersion());
+                            break;
+                        }
+                    }
+
+                    if (testAutoConfigureVersion != null) {
+                        boolean needsUpdate = false;
+                        String updateReason = "";
+
+                        // Check minimum version (1.4.1 has EmbeddedDatabaseConnection)
+                        if (compareVersions(testAutoConfigureVersion, "1.4.1") < 0) {
+                            needsUpdate = true;
+                            updateReason = "Version " + testAutoConfigureVersion
+                                    + " is too old (< 1.4.1) and missing EmbeddedDatabaseConnection class";
+                            System.out.println("INCOMPATIBLE DEPENDENCY DETECTED:");
+                            System.out.println("  spring-boot-test-autoconfigure version " + testAutoConfigureVersion
+                                    + " is too old (< 1.4.1).");
+                            System.out.println(
+                                    "  Slice test annotations require EmbeddedDatabaseConnection class which is missing.");
+                        }
+                        // Check version compatibility with Spring Boot version
+                        else if (!isVersionCompatible(springBootVersion, testAutoConfigureVersion)) {
+                            needsUpdate = true;
+                            updateReason = "Version mismatch: " + testAutoConfigureVersion
+                                    + " is incompatible with Spring Boot " + springBootVersion;
+                            System.out.println("VERSION MISMATCH DETECTED:");
+                            System.out.println("  spring-boot-test-autoconfigure version " + testAutoConfigureVersion
+                                    + " is incompatible with Spring Boot " + springBootVersion);
+                            System.out.println(
+                                    "  Major.minor versions must match for slice test annotations to work correctly.");
+                        }
+
+                        if (needsUpdate) {
+                            System.out.println("");
+                            updateDependencyVersion(model, p.toFile(),
+                                    "org.springframework.boot",
+                                    "spring-boot-test-autoconfigure",
+                                    updateReason);
+                            System.out.println("");
+                        } else {
+                            System.out.println("spring-boot-test-autoconfigure version " + testAutoConfigureVersion
+                                    + " is compatible with Spring Boot " + springBootVersion);
+                        }
+                    }
+                }
+
             } else {
                 System.out.println("POM file not found at: " + p);
             }
@@ -158,28 +199,74 @@ public class TestRefactorer {
         }
     }
 
-    private void addDependencyToPom(Model model, java.io.File pomFile) {
+    private void addDependencyToPom(Model model, java.io.File pomFile) throws IOException {
+        Dependency dep = new Dependency();
+        dep.setGroupId("org.springframework.boot");
+        dep.setArtifactId("spring-boot-starter-test");
+        dep.setScope("test");
+        // Version is usually managed by parent, but if not we might need to add it.
+        // For now assuming managed or inherited from parent.
+
+        model.addDependency(dep);
+
+        if (dryRun) {
+            System.out.println("[DRY RUN] Would add spring-boot-starter-test to pom.xml");
+        } else {
+            MavenXpp3Writer writer = new MavenXpp3Writer();
+            try (FileWriter fileWriter = new FileWriter(pomFile)) {
+                writer.write(fileWriter, model);
+            }
+            System.out.println("Added spring-boot-starter-test to pom.xml");
+        }
+    }
+
+    /**
+     * Update the version of an existing dependency in the POM file.
+     * If the version is explicitly set, it will be removed to inherit from parent.
+     * 
+     * @param model      the Maven model
+     * @param pomFile    the POM file
+     * @param groupId    the dependency groupId
+     * @param artifactId the dependency artifactId
+     * @param reason     explanation for the update
+     */
+    private void updateDependencyVersion(Model model, java.io.File pomFile, String groupId, String artifactId,
+            String reason) {
         try {
-            Dependency dep = new Dependency();
-            dep.setGroupId("org.springframework.boot");
-            dep.setArtifactId("spring-boot-starter-test");
-            dep.setScope("test");
-            // Version is usually managed by parent, but if not we might need to add it.
-            // For now assuming managed or inherited from parent.
-
-            model.addDependency(dep);
-
-            if (dryRun) {
-                System.out.println("[DRY RUN] Would add spring-boot-starter-test to pom.xml");
-            } else {
-                MavenXpp3Writer writer = new MavenXpp3Writer();
-                try (FileWriter fileWriter = new FileWriter(pomFile)) {
-                    writer.write(fileWriter, model);
+            Dependency targetDep = null;
+            for (Dependency dep : model.getDependencies()) {
+                if (groupId.equals(dep.getGroupId()) && artifactId.equals(dep.getArtifactId())) {
+                    targetDep = dep;
+                    break;
                 }
-                System.out.println("Added spring-boot-starter-test to pom.xml");
+            }
+
+            if (targetDep != null) {
+                String oldVersion = targetDep.getVersion();
+
+                if (dryRun) {
+                    System.out.println("[DRY RUN] Would update " + artifactId + " version from "
+                            + oldVersion + " to inherit from parent");
+                    System.out.println("           Reason: " + reason);
+                } else {
+                    // Remove explicit version to inherit from parent
+                    targetDep.setVersion(null);
+
+                    MavenXpp3Writer writer = new MavenXpp3Writer();
+                    try (FileWriter fileWriter = new FileWriter(pomFile)) {
+                        writer.write(fileWriter, model);
+                    }
+                    System.out.println("Updated " + artifactId + " dependency:");
+                    System.out.println("  - Removed explicit version: " + oldVersion);
+                    System.out.println("  - Will now inherit from parent POM");
+                    System.out.println("  - Reason: " + reason);
+
+                    // Update our cached version since we changed it
+                    hasSliceTestSupport = true;
+                }
             }
         } catch (Exception e) {
-            System.err.println("Failed to add dependency to POM: " + e.getMessage());
+            System.err.println("Failed to update dependency in POM: " + e.getMessage());
             e.printStackTrace();
         }
     }
@@ -193,10 +280,6 @@ public class TestRefactorer {
             }
         }
         return version;
-    }
-
-    private boolean isSpringBootAtLeast(String version) {
-        return compareVersions(springBootVersion, version) >= 0;
     }
 
     private int compareVersions(String v1, String v2) {
@@ -223,6 +306,42 @@ public class TestRefactorer {
         } catch (NumberFormatException e) {
             return 0;
         }
+    }
+
+    /**
+     * Check if spring-boot-test-autoconfigure version is compatible with Spring
+     * Boot version.
+     * They must have matching major.minor versions (e.g., 2.7.x matches 2.7.y).
+     *
+     * @param springBootVersion        the Spring Boot version
+     * @param testAutoConfigureVersion the spring-boot-test-autoconfigure version
+     * @return true if versions are compatible, false otherwise
+     */
+    private boolean isVersionCompatible(String springBootVersion, String testAutoConfigureVersion) {
+        if (springBootVersion == null || testAutoConfigureVersion == null) {
+            return false;
+        }
+        String sbMajorMinor = getMajorMinor(springBootVersion);
+        String taMajorMinor = getMajorMinor(testAutoConfigureVersion);
+        return sbMajorMinor.equals(taMajorMinor);
+    }
+
+    /**
+     * Extract major.minor version from a version string.
+     * For example: "2.7.5" -> "2.7", "1.4.0.RELEASE" -> "1.4"
+     *
+     * @param version the version string
+     * @return major.minor version string
+     */
+    private String getMajorMinor(String version) {
+        if (version == null) {
+            return "";
+        }
+        String[] parts = version.split("\\.");
+        if (parts.length >= 2) {
+            return parts[0] + "." + parts[1];
+        }
+        return version;
     }
 
     public static class RefactorOutcome {
@@ -286,7 +405,8 @@ public class TestRefactorer {
         }
 
         if (annotationName != null) {
-            // Temporarily refine JUnit 5 detection per CU imports while analyzing this class
+            // Temporarily refine JUnit 5 detection per CU imports while analyzing this
+            // class
             boolean prevIsJunit5 = this.isJUnit5;
             try {
                 this.isJUnit5 = this.isJUnit5 || detectJUnit5FromImports(currentCu);
@@ -301,39 +421,13 @@ public class TestRefactorer {
                 // Delegate to strategy based on detected test framework
                 TestFramework framework = TestFrameworkDetector.detect(currentCu, this.isJUnit5);
                 TestRefactoringStrategy strategy = TestRefactoringStrategyFactory.get(framework);
-                return strategy.refactor(decl, resources, hasSliceTestSupport, springBootVersion, isMockito1, currentCu, this);
+                return strategy.refactor(decl, resources, hasSliceTestSupport, springBootVersion, isMockito1, currentCu,
+                        this);
             } finally {
                 this.isJUnit5 = prevIsJunit5;
             }
         }
         return null;
-    }
-
-    private Set<ResourceType> analyzeInteractions(MethodDeclaration method, Set<String> visitedMethods,
-            ClassOrInterfaceDeclaration testClass) {
-        Set<ResourceType> resources = EnumSet.noneOf(ResourceType.class);
-        String methodSig = method.getSignature().asString();
-
-        if (visitedMethods.contains(methodSig)) {
-            return resources;
-        }
-        visitedMethods.add(methodSig);
-
-        method.accept(new VoidVisitorAdapter<Void>() {
-            @Override
-            public void visit(MethodCallExpr n, Void arg) {
-                if (isResourceCall(n, testClass)) {
-                    resources.add(getResourceType(n, testClass));
-                } else {
-                    Optional<MethodDeclaration> resolvedMethod = resolveMethod(n, method);
-                    resolvedMethod.ifPresent(methodDeclaration -> resources
-                            .addAll(analyzeInteractions(methodDeclaration, visitedMethods, testClass)));
-                }
-                super.visit(n, arg);
-            }
-        }, null);
-
-        return resources;
     }
 
     private Optional<MethodDeclaration> resolveMethod(MethodCallExpr n, MethodDeclaration context) {
@@ -364,565 +458,5 @@ public class TestRefactorer {
             }
         }
         return Optional.empty();
-    }
-
-    private boolean isResourceCall(MethodCallExpr n, ClassOrInterfaceDeclaration testClass) {
-        return getResourceType(n, testClass) != ResourceType.NONE;
-    }
-
-    private ResourceType getResourceType(MethodCallExpr n, ClassOrInterfaceDeclaration testClass) {
-        if (n.getScope().isPresent()) {
-            String scopeName = n.getScope().get().toString();
-            // The class where the method call is happening (could be SUT)
-            Optional<ClassOrInterfaceDeclaration> currentClass = n.findAncestor(ClassOrInterfaceDeclaration.class);
-
-            if (currentClass.isPresent()) {
-                for (FieldDeclaration field : currentClass.get().getFields()) {
-                    if (field.getVariable(0).getNameAsString().equals(scopeName)) {
-
-                        // 1. Check if the field itself is mocked (in current class)
-                        if (field.getAnnotationByName("Mock").isPresent()
-                                || field.getAnnotationByName("MockBean").isPresent()
-                                || field.getAnnotationByName("SpyBean").isPresent()) {
-                            return ResourceType.NONE;
-                        }
-
-                        Type type = field.getElementType();
-
-                        // 2. Check if this type is mocked in the Test Class
-                        // This handles the case where we are in SUT, and SUT uses a dependency,
-                        // but that dependency is mocked in the Test Class.
-                        if (testClass != null) {
-                            for (FieldDeclaration testField : testClass.getFields()) {
-                                if (testField.getElementType().asString().equals(type.asString())) {
-                                    if (testField.getAnnotationByName("Mock").isPresent()
-                                            || testField.getAnnotationByName("MockBean").isPresent()
-                                            || testField.getAnnotationByName("SpyBean").isPresent()) {
-                                        return ResourceType.NONE;
-                                    }
-                                }
-                            }
-                        }
-
-                        return identifyResourceType(type);
-                    }
-                }
-            }
-        }
-        return ResourceType.NONE;
-    }
-
-    private ResourceType identifyResourceType(Type type) {
-        String typeName = type.asString();
-        // JPA/Repository indicates Data JPA slice
-        if (typeName.endsWith("Repository") || typeName.equals("EntityManager")) {
-            return ResourceType.DATABASE_JPA;
-        }
-        // JDBC-only stack
-        if (typeName.equals("JdbcTemplate") || typeName.equals("NamedParameterJdbcTemplate")
-                || typeName.equals("DataSource")) {
-            return ResourceType.JDBC;
-        }
-        if (typeName.equals("RedisTemplate") || typeName.equals("StringRedisTemplate")) {
-            return ResourceType.REDIS;
-        }
-        if (typeName.equals("KafkaTemplate")) {
-            return ResourceType.KAFKA;
-        }
-        // Servlet MVC / server-side web
-        if (typeName.equals("MockMvc") || typeName.equals("TestRestTemplate")) {
-            return ResourceType.WEB;
-        }
-        // Reactive WebFlux
-        if (typeName.equals("WebTestClient")) {
-            return ResourceType.WEBFLUX;
-        }
-        if (typeName.equals("MockRestServiceServer")) {
-            return ResourceType.REST_CLIENT;
-        }
-        if (typeName.startsWith("JacksonTester") || typeName.startsWith("JsonTester")
-                || typeName.equals("ObjectMapper")) {
-            return ResourceType.JSON;
-        }
-        // GraphQL testing support
-        if (typeName.equals("GraphQlTester")) {
-            return ResourceType.GRAPHQL;
-        }
-        return ResourceType.NONE;
-    }
-
-    public RefactorOutcome applyRefactoring(ClassOrInterfaceDeclaration decl, Set<ResourceType> resources,
-            String currentAnnotation, RefactorOutcome outcome) {
-        String className = decl.getNameAsString();
-        boolean modified = false;
-
-        if (requiresRunningServer(decl)) {
-            if (!"SpringBootTest".equals(currentAnnotation)) {
-                outcome.action = "REVERTED";
-                outcome.newAnnotation = "@SpringBootTest(webEnvironment = RANDOM_PORT)";
-                outcome.reason = "Requires running server (TestRestTemplate/LocalServerPort)";
-                System.out.println("Reverting " + className + " to @SpringBootTest (Requires running server)");
-                modified = replaceAnnotation(decl, currentAnnotation, "SpringBootTest",
-                        "org.springframework.boot.test.context.SpringBootTest");
-                addRandomPortConfig(decl);
-            } else {
-                outcome.action = "KEPT";
-                outcome.newAnnotation = "@SpringBootTest(webEnvironment = RANDOM_PORT)";
-                outcome.reason = "Requires running server";
-                System.out.println("Keeping " + className + " as @SpringBootTest (Requires running server)");
-                addRandomPortConfig(decl);
-            }
-        } else if (resources.isEmpty()) {
-            outcome.action = "CONVERTED";
-            outcome.newAnnotation = "Unit Test";
-            outcome.reason = "No resources detected (all mocked)";
-            System.out.println("Converting " + className + " to Unit Test");
-            modified = convertToUnitTest(decl, currentAnnotation);
-        } else if (isSpringBootAtLeast("1.4.0") && hasSliceTestSupport) {
-            // JPA slice
-            if (resources.contains(ResourceType.DATABASE_JPA)
-                    && !resources.contains(ResourceType.JDBC)
-                    && !resources.contains(ResourceType.REDIS)
-                    && !resources.contains(ResourceType.KAFKA)
-                    && !resources.contains(ResourceType.WEB)
-                    && !resources.contains(ResourceType.WEBFLUX)
-                    && !resources.contains(ResourceType.REST_CLIENT)
-                    && !resources.contains(ResourceType.JSON)
-                    && !resources.contains(ResourceType.GRAPHQL)) {
-                if (!"DataJpaTest".equals(currentAnnotation)) {
-                    outcome.action = "CONVERTED";
-                    outcome.newAnnotation = "@DataJpaTest";
-                    outcome.reason = "Only DATABASE_JPA resource detected";
-                    System.out.println("Converting " + className + " to @DataJpaTest");
-                    modified = replaceAnnotation(decl, currentAnnotation, "DataJpaTest",
-                            "org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest");
-                } else {
-                    outcome.action = "KEPT";
-                    outcome.newAnnotation = "@DataJpaTest";
-                    outcome.reason = "Already optimal";
-                }
-            // JDBC slice
-            } else if (resources.contains(ResourceType.JDBC)
-                    && !resources.contains(ResourceType.DATABASE_JPA)
-                    && !resources.contains(ResourceType.REDIS)
-                    && !resources.contains(ResourceType.KAFKA)
-                    && !resources.contains(ResourceType.WEB)
-                    && !resources.contains(ResourceType.WEBFLUX)
-                    && !resources.contains(ResourceType.REST_CLIENT)
-                    && !resources.contains(ResourceType.JSON)
-                    && !resources.contains(ResourceType.GRAPHQL)) {
-                if (!"JdbcTest".equals(currentAnnotation)) {
-                    outcome.action = "CONVERTED";
-                    outcome.newAnnotation = "@JdbcTest";
-                    outcome.reason = "Only JDBC resource detected";
-                    System.out.println("Converting " + className + " to @JdbcTest");
-                    modified = replaceAnnotation(decl, currentAnnotation, "JdbcTest",
-                            "org.springframework.boot.test.autoconfigure.jdbc.JdbcTest");
-                } else {
-                    outcome.action = "KEPT";
-                    outcome.newAnnotation = "@JdbcTest";
-                    outcome.reason = "Already optimal";
-                }
-            // Web MVC slice
-            } else if (resources.contains(ResourceType.WEB)
-                    && !resources.contains(ResourceType.DATABASE_JPA)
-                    && !resources.contains(ResourceType.JDBC)
-                    && !resources.contains(ResourceType.REDIS)
-                    && !resources.contains(ResourceType.KAFKA)
-                    && !resources.contains(ResourceType.REST_CLIENT)
-                    && !resources.contains(ResourceType.WEBFLUX)) {
-                // WebMvcTest includes JSON support
-                if (!"WebMvcTest".equals(currentAnnotation)) {
-                    outcome.action = "CONVERTED";
-                    outcome.newAnnotation = "@WebMvcTest";
-                    outcome.reason = "Only WEB resource detected (JSON allowed)";
-                    System.out.println("Converting " + className + " to @WebMvcTest");
-                    modified = replaceAnnotation(decl, currentAnnotation, "WebMvcTest",
-                            "org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest");
-                } else {
-                    outcome.action = "KEPT";
-                    outcome.newAnnotation = "@WebMvcTest";
-                    outcome.reason = "Already optimal";
-                }
-            // WebFlux slice
-            } else if (resources.contains(ResourceType.WEBFLUX)
-                    && !resources.contains(ResourceType.DATABASE_JPA)
-                    && !resources.contains(ResourceType.JDBC)
-                    && !resources.contains(ResourceType.REDIS)
-                    && !resources.contains(ResourceType.KAFKA)
-                    && !resources.contains(ResourceType.WEB)
-                    && !resources.contains(ResourceType.REST_CLIENT)) {
-                if (!"WebFluxTest".equals(currentAnnotation)) {
-                    outcome.action = "CONVERTED";
-                    outcome.newAnnotation = "@WebFluxTest";
-                    outcome.reason = "Only WEBFLUX resource detected";
-                    System.out.println("Converting " + className + " to @WebFluxTest");
-                    modified = replaceAnnotation(decl, currentAnnotation, "WebFluxTest",
-                            "org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest");
-                } else {
-                    outcome.action = "KEPT";
-                    outcome.newAnnotation = "@WebFluxTest";
-                    outcome.reason = "Already optimal";
-                }
-            // REST client slice
-            } else if (resources.contains(ResourceType.REST_CLIENT)
-                    && !resources.contains(ResourceType.DATABASE_JPA)
-                    && !resources.contains(ResourceType.JDBC)
-                    && !resources.contains(ResourceType.REDIS)
-                    && !resources.contains(ResourceType.KAFKA)
-                    && !resources.contains(ResourceType.WEB)
-                    && !resources.contains(ResourceType.WEBFLUX)
-                    && !resources.contains(ResourceType.JSON)) {
-                if (!"RestClientTest".equals(currentAnnotation)) {
-                    outcome.action = "CONVERTED";
-                    outcome.newAnnotation = "@RestClientTest";
-                    outcome.reason = "Only REST_CLIENT resource detected";
-                    System.out.println("Converting " + className + " to @RestClientTest");
-                    modified = replaceAnnotation(decl, currentAnnotation, "RestClientTest",
-                            "org.springframework.boot.test.autoconfigure.web.client.RestClientTest");
-                } else {
-                    outcome.action = "KEPT";
-                    outcome.newAnnotation = "@RestClientTest";
-                    outcome.reason = "Already optimal";
-                }
-            // JSON slice
-            } else if (resources.contains(ResourceType.JSON)
-                    && !resources.contains(ResourceType.DATABASE_JPA)
-                    && !resources.contains(ResourceType.JDBC)
-                    && !resources.contains(ResourceType.REDIS)
-                    && !resources.contains(ResourceType.KAFKA)
-                    && !resources.contains(ResourceType.WEB)
-                    && !resources.contains(ResourceType.WEBFLUX)
-                    && !resources.contains(ResourceType.REST_CLIENT)) {
-                if (!"JsonTest".equals(currentAnnotation)) {
-                    outcome.action = "CONVERTED";
-                    outcome.newAnnotation = "@JsonTest";
-                    outcome.reason = "Only JSON resource detected";
-                    System.out.println("Converting " + className + " to @JsonTest");
-                    modified = replaceAnnotation(decl, currentAnnotation, "JsonTest",
-                            "org.springframework.boot.test.autoconfigure.json.JsonTest");
-                } else {
-                    outcome.action = "KEPT";
-                    outcome.newAnnotation = "@JsonTest";
-                    outcome.reason = "Already optimal";
-                }
-            // GraphQL slice
-            } else if (resources.contains(ResourceType.GRAPHQL)
-                    && !resources.contains(ResourceType.DATABASE_JPA)
-                    && !resources.contains(ResourceType.JDBC)
-                    && !resources.contains(ResourceType.REDIS)
-                    && !resources.contains(ResourceType.KAFKA)
-                    && !resources.contains(ResourceType.WEB)
-                    && !resources.contains(ResourceType.WEBFLUX)
-                    && !resources.contains(ResourceType.REST_CLIENT)
-                    && !resources.contains(ResourceType.JSON)) {
-                if (!"GraphQlTest".equals(currentAnnotation)) {
-                    outcome.action = "CONVERTED";
-                    outcome.newAnnotation = "@GraphQlTest";
-                    outcome.reason = "Only GRAPHQL resource detected";
-                    System.out.println("Converting " + className + " to @GraphQlTest");
-                    modified = replaceAnnotation(decl, currentAnnotation, "GraphQlTest",
-                            "org.springframework.boot.test.autoconfigure.graphql.GraphQlTest");
-                } else {
-                    outcome.action = "KEPT";
-                    outcome.newAnnotation = "@GraphQlTest";
-                    outcome.reason = "Already optimal";
-                }
-            } else {
-                if (!"SpringBootTest".equals(currentAnnotation)) {
-                    outcome.action = "REVERTED";
-                    outcome.newAnnotation = "@SpringBootTest";
-                    outcome.reason = "Complex resources found: " + resources;
-                    System.out.println("Reverting " + className + " to @SpringBootTest (Complex resources found)");
-                    modified = replaceAnnotation(decl, currentAnnotation, "SpringBootTest",
-                            "org.springframework.boot.test.context.SpringBootTest");
-                } else {
-                    outcome.action = "KEPT";
-                    outcome.newAnnotation = "@SpringBootTest";
-                    outcome.reason = "Complex resources found: " + resources;
-                    System.out.println("Keeping " + className + " as @SpringBootTest");
-                }
-            }
-        } else {
-            if (!"SpringBootTest".equals(currentAnnotation)) {
-                outcome.action = "REVERTED";
-                outcome.newAnnotation = "@SpringBootTest";
-                outcome.reason = "Slice tests not supported (version/deps)";
-                System.out.println("Reverting " + className + " to @SpringBootTest (Slice tests not supported)");
-                modified = replaceAnnotation(decl, currentAnnotation, "SpringBootTest",
-                        "org.springframework.boot.test.context.SpringBootTest");
-            } else {
-                outcome.action = "KEPT";
-                outcome.newAnnotation = "@SpringBootTest";
-                if (!hasSliceTestSupport) {
-                    outcome.reason = "Slice test dependencies not found";
-                    System.out.println(
-                            "Keeping " + className + " as @SpringBootTest (Slice test dependencies not found)");
-                } else {
-                    outcome.reason = "Spring Boot < 1.4.0";
-                    System.out.println("Keeping " + className
-                            + " as @SpringBootTest (Spring Boot < 1.4.0 does not support slice tests)");
-                }
-            }
-        }
-        outcome.modified = modified;
-        return outcome;
-    }
-
-
-    private boolean convertToUnitTest(ClassOrInterfaceDeclaration decl, String currentAnnotation) {
-        // Legacy path kept for compatibility; real conversion now handled by strategies.
-        // Return false to indicate no in-place modification here.
-        return false;
-    }
-
-    private void injectValueFields(ClassOrInterfaceDeclaration decl, String sutClassName, String sutFieldName) {
-        // Find SUT class definition
-        Optional<TypeWrapper> sutType = Optional
-                .ofNullable(AbstractCompiler.findType(currentCu, new ClassOrInterfaceType(null, sutClassName)));
-
-        if (sutType.isPresent() && sutType.get().getType().isClassOrInterfaceDeclaration()) {
-            ClassOrInterfaceDeclaration sutDecl = sutType.get().getType().asClassOrInterfaceDeclaration();
-            List<String> injectionStatements = new ArrayList<>();
-
-            for (FieldDeclaration field : sutDecl.getFields()) {
-                if (field.getAnnotationByName("Value").isPresent()) {
-                    String fieldName = field.getVariables().get(0).getNameAsString();
-                    String fieldType = field.getElementType().asString();
-                    String valueToInject = getValueForType(fieldType);
-
-                    injectionStatements.add("ReflectionTestUtils.setField(" + sutFieldName + ", \"" + fieldName + "\", "
-                            + valueToInject + ");");
-                }
-            }
-
-            if (!injectionStatements.isEmpty()) {
-                decl.findCompilationUnit()
-                        .ifPresent(cu -> cu.addImport("org.springframework.test.util.ReflectionTestUtils"));
-
-                MethodDeclaration beforeEach = decl.getMethods().stream()
-                        .filter(m -> m.getAnnotationByName("BeforeEach").isPresent()
-                                || m.getAnnotationByName("Before").isPresent())
-                        .findFirst()
-                        .orElseGet(() -> {
-                            MethodDeclaration m = decl.addMethod("setUp",
-                                    com.github.javaparser.ast.Modifier.Keyword.PUBLIC);
-                            if (isJUnit5) {
-                                m.addAnnotation("BeforeEach");
-                                decl.findCompilationUnit()
-                                        .ifPresent(cu -> cu.addImport("org.junit.jupiter.api.BeforeEach"));
-                            } else {
-                                m.addAnnotation("Before");
-                                decl.findCompilationUnit().ifPresent(cu -> cu.addImport("org.junit.Before"));
-                            }
-                            return m;
-                        });
-
-                com.github.javaparser.ast.stmt.BlockStmt body = beforeEach.getBody().orElseGet(() -> {
-                    com.github.javaparser.ast.stmt.BlockStmt b = new com.github.javaparser.ast.stmt.BlockStmt();
-                    beforeEach.setBody(b);
-                    return b;
-                });
-
-                for (String stmt : injectionStatements) {
-                    // Check if statement already exists to avoid duplicates
-                    if (body.getStatements().stream().noneMatch(s -> s.toString().trim().equals(stmt))) {
-                        body.addStatement(stmt);
-                    }
-                }
-            }
-        }
-    }
-
-    private String getValueForType(String type) {
-        switch (type) {
-            case "String":
-                return "\"test-value\"";
-            case "boolean":
-            case "Boolean":
-                return "false";
-            case "int":
-            case "Integer":
-                return "0";
-            case "long":
-            case "Long":
-                return "0L";
-            case "double":
-            case "Double":
-                return "0.0";
-            default:
-                return "null";
-        }
-    }
-
-    private boolean requiresRunningServer(ClassOrInterfaceDeclaration decl) {
-        for (FieldDeclaration field : decl.getFields()) {
-            if (field.getElementType().asString().equals("TestRestTemplate")) {
-                return true;
-            }
-            if (field.getAnnotationByName("LocalServerPort").isPresent()) {
-                return true;
-            }
-            if (field.getAnnotationByName("Value").isPresent()) {
-                AnnotationExpr annotation = field.getAnnotationByName("Value").get();
-                String value = "";
-                if (annotation.isSingleMemberAnnotationExpr()) {
-                    value = annotation.asSingleMemberAnnotationExpr().getMemberValue().toString();
-                } else if (annotation.isNormalAnnotationExpr()) {
-                    for (com.github.javaparser.ast.expr.MemberValuePair pair : annotation.asNormalAnnotationExpr()
-                            .getPairs()) {
-                        if (pair.getNameAsString().equals("value")) {
-                            value = pair.getValue().toString();
-                            break;
-                        }
-                    }
-                }
-
-                if (value.contains("local.server.port")) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    private void addRandomPortConfig(ClassOrInterfaceDeclaration decl) {
-        Optional<AnnotationExpr> springBootTest = decl.getAnnotationByName("SpringBootTest");
-        if (springBootTest.isPresent()) {
-            if (springBootTest.get().isNormalAnnotationExpr()) {
-                NormalAnnotationExpr normal = springBootTest.get().asNormalAnnotationExpr();
-                boolean hasWebEnv = normal.getPairs().stream()
-                        .anyMatch(p -> p.getNameAsString().equals("webEnvironment"));
-                if (!hasWebEnv) {
-                    normal.addPair("webEnvironment", "WebEnvironment.RANDOM_PORT");
-                    decl.findCompilationUnit().ifPresent(
-                            cu -> cu.addImport("org.springframework.boot.test.context.SpringBootTest.WebEnvironment"));
-                }
-            } else if (springBootTest.get().isMarkerAnnotationExpr()) {
-                NormalAnnotationExpr normal = new NormalAnnotationExpr();
-                normal.setName("SpringBootTest");
-                normal.addPair("webEnvironment", "WebEnvironment.RANDOM_PORT");
-                springBootTest.get().replace(normal);
-                decl.findCompilationUnit().ifPresent(
-                        cu -> cu.addImport("org.springframework.boot.test.context.SpringBootTest.WebEnvironment"));
-            }
-        }
-        fixContextConfiguration(decl);
-    }
-
-    private void fixContextConfiguration(ClassOrInterfaceDeclaration decl) {
-        Optional<AnnotationExpr> contextConfig = decl.getAnnotationByName("ContextConfiguration");
-        if (contextConfig.isPresent() && contextConfig.get().isNormalAnnotationExpr()) {
-            NormalAnnotationExpr normal = contextConfig.get().asNormalAnnotationExpr();
-            for (com.github.javaparser.ast.expr.MemberValuePair pair : normal.getPairs()) {
-                if (pair.getNameAsString().equals("classes")) {
-                    // Extract classes
-                    Expression value = pair.getValue();
-                    List<String> classNames = new ArrayList<>();
-                    if (value.isArrayInitializerExpr()) {
-                        for (Expression expr : value.asArrayInitializerExpr().getValues()) {
-                            classNames.add(expr.toString());
-                        }
-                    } else if (value.isClassExpr()) {
-                        classNames.add(value.toString());
-                    }
-
-                    // Remove 'classes' from ContextConfiguration
-                    pair.remove();
-
-                    // Add to @Import
-                    addToImport(decl, classNames);
-                    break;
-                }
-            }
-            // If ContextConfiguration is empty or only has initializers, leave it (or clean
-            // up if empty)
-            if (normal.getPairs().isEmpty()) {
-                normal.remove();
-            }
-        }
-    }
-
-    private void addToImport(ClassOrInterfaceDeclaration decl, List<String> classNames) {
-        if (classNames.isEmpty())
-            return;
-
-        Optional<AnnotationExpr> importAnnotation = decl.getAnnotationByName("Import");
-        if (importAnnotation.isPresent()) {
-            // Add to existing @Import
-            if (importAnnotation.get().isSingleMemberAnnotationExpr()) {
-                // Convert single to array if needed, or just add
-                Expression existing = importAnnotation.get().asSingleMemberAnnotationExpr().getMemberValue();
-                com.github.javaparser.ast.expr.ArrayInitializerExpr array;
-                if (existing.isArrayInitializerExpr()) {
-                    array = existing.asArrayInitializerExpr();
-                } else {
-                    array = new com.github.javaparser.ast.expr.ArrayInitializerExpr();
-                    array.getValues().add(existing);
-                    importAnnotation.get().asSingleMemberAnnotationExpr().setMemberValue(array);
-                }
-                for (String className : classNames) {
-                    if (array.getValues().stream().noneMatch(v -> v.toString().equals(className))) {
-                        array.getValues().add(new NameExpr(className));
-                    }
-                }
-            } else if (importAnnotation.get().isNormalAnnotationExpr()) {
-                // Handle normal annotation @Import(value = ...)
-                for (com.github.javaparser.ast.expr.MemberValuePair pair : importAnnotation.get()
-                        .asNormalAnnotationExpr().getPairs()) {
-                    if (pair.getNameAsString().equals("value")) {
-                        Expression existing = pair.getValue();
-                        com.github.javaparser.ast.expr.ArrayInitializerExpr array;
-                        if (existing.isArrayInitializerExpr()) {
-                            array = existing.asArrayInitializerExpr();
-                        } else {
-                            array = new com.github.javaparser.ast.expr.ArrayInitializerExpr();
-                            array.getValues().add(existing);
-                            pair.setValue(array);
-                        }
-                        for (String className : classNames) {
-                            if (array.getValues().stream().noneMatch(v -> v.toString().equals(className))) {
-                                array.getValues().add(new NameExpr(className));
-                            }
-                        }
-                    }
-                }
-            }
-        } else {
-            // Create new @Import
-            StringBuilder sb = new StringBuilder("@Import({");
-            for (int i = 0; i < classNames.size(); i++) {
-                sb.append(classNames.get(i));
-                if (i < classNames.size() - 1)
-                    sb.append(", ");
-            }
-            sb.append("})");
-
-            // The above construction is a bit clunky with JavaParser API for arrays.
-            // Let's try a simpler approach or fix the AST construction.
-            // Actually, let's just use addAnnotation with string parsing if possible, or
-            // build AST correctly.
-
-            com.github.javaparser.ast.expr.ArrayInitializerExpr array = new com.github.javaparser.ast.expr.ArrayInitializerExpr();
-            for (String className : classNames) {
-                array.getValues().add(new NameExpr(className));
-            }
-            decl.addAnnotation(new com.github.javaparser.ast.expr.SingleMemberAnnotationExpr(
-                    new com.github.javaparser.ast.expr.Name("Import"),
-                    array));
-
-            decl.findCompilationUnit().ifPresent(cu -> cu.addImport("org.springframework.context.annotation.Import"));
-        }
-    }
-
-    private boolean replaceAnnotation(ClassOrInterfaceDeclaration decl, String oldName, String newName,
-            String newImport) {
-        Optional<AnnotationExpr> oldAnnotation = decl.getAnnotationByName(oldName);
-        if (oldAnnotation.isPresent()) {
-            oldAnnotation.get().replace(new MarkerAnnotationExpr(newName));
-            decl.findCompilationUnit().ifPresent(cu -> cu.addImport(newImport));
-            return true;
-        }
-        return false;
     }
 }
