@@ -174,31 +174,17 @@ public class TestRefactorer {
             needsUpdate = true;
             updateReason = "Version " + testAutoConfigureVersion
                     + " is too old (< 1.4.1) and missing EmbeddedDatabaseConnection class";
-            // PRESERVE USER-FACING WARNING
-            System.out.println("INCOMPATIBLE DEPENDENCY DETECTED:");
-            System.out.println("  spring-boot-test-autoconfigure version " + testAutoConfigureVersion
-                    + " is too old (< 1.4.1).");
-            System.out.println(
-                    "  Slice test annotations require EmbeddedDatabaseConnection class which is missing.");
         } else if (!isVersionCompatible(springBootVersion, testAutoConfigureVersion)) {
             needsUpdate = true;
             updateReason = "Version mismatch: " + testAutoConfigureVersion
                     + " is incompatible with Spring Boot " + springBootVersion;
-            // PRESERVE USER-FACING WARNING
-            System.out.println("VERSION MISMATCH DETECTED:");
-            System.out.println("  spring-boot-test-autoconfigure version " + testAutoConfigureVersion
-                    + " is incompatible with Spring Boot " + springBootVersion);
-            System.out.println(
-                    "  Major.minor versions must match for slice test annotations to work correctly.");
         }
 
         if (needsUpdate) {
-            System.out.println("");
             updateDependencyVersion(model, pomFile,
                     "org.springframework.boot",
                     "spring-boot-test-autoconfigure",
                     updateReason);
-            System.out.println("");
         } else {
             logger.debug("spring-boot-test-autoconfigure version {} is compatible with Spring Boot {}",
                     testAutoConfigureVersion, springBootVersion);

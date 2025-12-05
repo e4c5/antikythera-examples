@@ -8,8 +8,6 @@ import com.github.javaparser.ast.expr.AnnotationExpr;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.type.Type;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
-import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
-import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
 import java.util.EnumSet;
 import java.util.HashSet;
