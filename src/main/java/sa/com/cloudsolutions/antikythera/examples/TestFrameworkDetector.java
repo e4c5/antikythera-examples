@@ -8,15 +8,26 @@ import com.github.javaparser.ast.CompilationUnit;
  */
 public final class TestFrameworkDetector {
 
-    private TestFrameworkDetector() {}
+    private TestFrameworkDetector() {
+    }
+
+    /**
+     * Test framework enumeration used to select refactoring strategies.
+     */
+    public enum TestFramework {
+        JUNIT4,
+        JUNIT5
+    }
 
     public static TestFramework detect(CompilationUnit cu, boolean isJUnit5FromPom) {
         boolean hasJupiter = cu.getImports().stream()
                 .anyMatch(i -> i.getNameAsString().startsWith("org.junit.jupiter."));
         boolean hasVintage = cu.getImports().stream()
                 .anyMatch(i -> i.getNameAsString().startsWith("org.junit.")) && !hasJupiter;
-        if (hasJupiter) return TestFramework.JUNIT5;
-        if (hasVintage) return TestFramework.JUNIT4;
+        if (hasJupiter)
+            return TestFramework.JUNIT5;
+        if (hasVintage)
+            return TestFramework.JUNIT4;
         return isJUnit5FromPom ? TestFramework.JUNIT5 : TestFramework.JUNIT4;
     }
 }

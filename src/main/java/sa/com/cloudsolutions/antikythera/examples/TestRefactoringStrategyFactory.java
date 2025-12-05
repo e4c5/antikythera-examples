@@ -4,20 +4,18 @@ import sa.com.cloudsolutions.antikythera.examples.strategies.JUnit4RefactoringSt
 import sa.com.cloudsolutions.antikythera.examples.strategies.JUnit5RefactoringStrategy;
 
 /**
- * Factory for obtaining the appropriate TestRefactoringStrategy implementation
- * for a given test framework.
+ * Factory for selecting the appropriate refactoring strategy based on the test
+ * framework.
  */
-public final class TestRefactoringStrategyFactory {
+public class TestRefactoringStrategyFactory {
 
-    private TestRefactoringStrategyFactory() {}
+    private TestRefactoringStrategyFactory() {
+    }
 
-    public static TestRefactoringStrategy get(TestFramework framework) {
-        switch (framework) {
-            case JUNIT5:
-                return new JUnit5RefactoringStrategy();
-            case JUNIT4:
-            default:
-                return new JUnit4RefactoringStrategy();
-        }
+    public static TestRefactoringStrategy get(TestFrameworkDetector.TestFramework framework) {
+        return switch (framework) {
+            case JUNIT4 -> new JUnit4RefactoringStrategy();
+            case JUNIT5 -> new JUnit5RefactoringStrategy();
+        };
     }
 }

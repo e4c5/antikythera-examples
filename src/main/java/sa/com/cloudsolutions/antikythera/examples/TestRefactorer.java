@@ -415,9 +415,11 @@ public class TestRefactorer {
                 outcome.resourcesDetected = resources;
 
                 // Delegate to strategy based on detected test framework
-                TestFramework framework = TestFrameworkDetector.detect(currentCu, this.isJUnit5);
+                TestFrameworkDetector.TestFramework framework = TestFrameworkDetector.detect(currentCu,
+                        this.isJUnit5);
                 TestRefactoringStrategy strategy = TestRefactoringStrategyFactory.get(framework);
-                return strategy.refactor(decl, resources, hasSliceTestSupport, springBootVersion, isMockito1, currentCu,
+                return strategy.refactor(decl, resources, hasSliceTestSupport, springBootVersion, isMockito1,
+                        currentCu,
                         this);
             } finally {
                 this.isJUnit5 = prevIsJunit5;
