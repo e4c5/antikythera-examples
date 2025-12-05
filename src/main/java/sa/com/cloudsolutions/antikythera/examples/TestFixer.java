@@ -25,7 +25,7 @@ public class TestFixer {
     private static boolean dryRun = false;
     private static boolean refactor = false;
 
-    public static void main(String[] args) throws IOException {
+    public static void main(String[] args) throws Exception {
         for (String arg : args) {
             if (arg.equals("--dry-run")) {
                 dryRun = true;

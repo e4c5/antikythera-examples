@@ -2,17 +2,11 @@ package sa.com.cloudsolutions.antikythera.examples;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
-import com.github.javaparser.ast.body.FieldDeclaration;
-import com.github.javaparser.ast.body.MethodDeclaration;
-import com.github.javaparser.ast.expr.MethodCallExpr;
-import com.github.javaparser.ast.type.Type;
 import org.apache.maven.model.Dependency;
 import org.apache.maven.model.Model;
 import org.apache.maven.model.io.xpp3.MavenXpp3Reader;
 import org.apache.maven.model.io.xpp3.MavenXpp3Writer;
-import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
-import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
-
+import org.codehaus.plexus.util.xml.pull.XmlPullParserException;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -21,7 +15,6 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.HashSet;
-import java.util.Optional;
 import java.util.Set;
 
 public class TestRefactorer {
@@ -37,165 +30,156 @@ public class TestRefactorer {
     private boolean hasSliceTestSupport = false;
     private boolean dryRun = false;
 
-    public TestRefactorer(boolean dryRun) {
+    public TestRefactorer(boolean dryRun) throws Exception {
         this.dryRun = dryRun;
         detectVersions();
     }
 
-    public TestRefactorer() {
-        this(false);
-    }
+    private void detectVersions() throws IOException, XmlPullParserException {
+        MavenXpp3Reader reader = new MavenXpp3Reader();
+        String basePath = sa.com.cloudsolutions.antikythera.configuration.Settings.getBasePath();
+        Path p;
+        if (basePath.contains("src/main/java")) {
+            p = Paths.get(basePath.replace("/src/main/java", ""), "pom.xml");
+        } else if (basePath.contains("src/test/java")) {
+            p = Paths.get(basePath.replace("/src/test/java", ""), "pom.xml");
+        } else {
+            p = Paths.get(basePath, "pom.xml");
+        }
 
-    private void detectVersions() {
-        try {
-            MavenXpp3Reader reader = new MavenXpp3Reader();
-            String basePath = sa.com.cloudsolutions.antikythera.configuration.Settings.getBasePath();
-            Path p;
-            if (basePath.contains("src/main/java")) {
-                p = Paths.get(basePath.replace("/src/main/java", ""), "pom.xml");
-            } else if (basePath.contains("src/test/java")) {
-                p = Paths.get(basePath.replace("/src/test/java", ""), "pom.xml");
-            } else {
-                p = Paths.get(basePath, "pom.xml");
+        if (p.toFile().exists()) {
+            System.out.println("Reading POM from: " + p);
+            Model model = reader.read(new FileReader(p.toFile()));
+
+            // Check properties for version hints
+            java.util.Properties props = model.getProperties();
+            if (props != null) {
+                if (props.containsKey("spring.boot.version")) {
+                    springBootVersion = props.getProperty("spring.boot.version");
+                    System.out.println("Found spring.boot.version property: " + springBootVersion);
+                } else if (props.containsKey("spring-boot.version")) {
+                    springBootVersion = props.getProperty("spring-boot.version");
+                    System.out.println("Found spring-boot.version property: " + springBootVersion);
+                }
             }
 
-            if (p.toFile().exists()) {
-                System.out.println("Reading POM from: " + p);
-                Model model = reader.read(new FileReader(p.toFile()));
-
-                // Check properties for version hints
-                java.util.Properties props = model.getProperties();
-                if (props != null) {
-                    if (props.containsKey("spring.boot.version")) {
-                        springBootVersion = props.getProperty("spring.boot.version");
-                        System.out.println("Found spring.boot.version property: " + springBootVersion);
-                    } else if (props.containsKey("spring-boot.version")) {
-                        springBootVersion = props.getProperty("spring-boot.version");
-                        System.out.println("Found spring-boot.version property: " + springBootVersion);
-                    }
+            // Detect JUnit 5 and Slice Test Support
+            for (Dependency dep : model.getDependencies()) {
+                if ("junit-jupiter-api".equals(dep.getArtifactId())
+                        || "junit-jupiter-engine".equals(dep.getArtifactId())
+                        || "junit-jupiter".equals(dep.getArtifactId())) {
+                    isJUnit5 = true;
+                    System.out.println("Detected JUnit 5");
                 }
-
-                // Detect JUnit 5 and Slice Test Support
-                for (Dependency dep : model.getDependencies()) {
-                    if ("junit-jupiter-api".equals(dep.getArtifactId())
-                            || "junit-jupiter-engine".equals(dep.getArtifactId())
-                            || "junit-jupiter".equals(dep.getArtifactId())) {
-                        isJUnit5 = true;
-                        System.out.println("Detected JUnit 5");
-                    }
-                    // Detect Mockito 1.x
-                    if ("mockito-core".equals(dep.getArtifactId()) || "mockito-all".equals(dep.getArtifactId())) {
-                        String version = resolveVersion(model, dep.getVersion());
-                        if (version != null && version.startsWith("1.")) {
-                            isMockito1 = true;
-                            System.out.println("Detected Mockito 1.x");
-                        }
-                    }
-                    // Detect Slice Test Support
-                    if ("spring-boot-starter-test".equals(dep.getArtifactId())
-                            || "spring-boot-test-autoconfigure".equals(dep.getArtifactId())) {
-                        hasSliceTestSupport = true;
-                        System.out.println(
-                                "Detected Slice Test Support (spring-boot-starter-test or spring-boot-test-autoconfigure)");
-                    }
-                }
-
-                // Detect Spring Boot Version if not found in properties
-                if ("2.0.0".equals(springBootVersion)) {
-                    String detectedVersion = null;
-                    if (model.getParent() != null
-                            && "spring-boot-starter-parent".equals(model.getParent().getArtifactId())) {
-                        detectedVersion = resolveVersion(model, model.getParent().getVersion());
-                    } else {
-                        for (Dependency dep : model.getDependencies()) {
-                            if ("spring-boot-starter".equals(dep.getArtifactId())) {
-                                detectedVersion = resolveVersion(model, dep.getVersion());
-                                break;
-                            }
-                        }
-                    }
-
-                    if (detectedVersion != null && !detectedVersion.startsWith("${")) {
-                        springBootVersion = detectedVersion;
-                        System.out.println("Detected Spring Boot Version: " + springBootVersion);
-                    }
-                }
-
-                // Fallback for Mockito detection if not explicitly found
-                if (compareVersions(springBootVersion, "2.0.0") < 0) {
-                    // Spring Boot 1.x usually uses Mockito 1.x
-                    if (!isMockito1 && compareVersions(springBootVersion, "1.0.0") > 0) {
+                // Detect Mockito 1.x
+                if ("mockito-core".equals(dep.getArtifactId()) || "mockito-all".equals(dep.getArtifactId())) {
+                    String version = resolveVersion(model, dep.getVersion());
+                    if (version != null && version.startsWith("1.")) {
                         isMockito1 = true;
-                        System.out.println("Inferred Mockito 1.x from Spring Boot version");
+                        System.out.println("Detected Mockito 1.x");
                     }
                 }
-
-                System.out.println("Final Spring Boot Version: " + springBootVersion);
-
-                // Add missing slice test dependency if needed
-                if (!hasSliceTestSupport && compareVersions(springBootVersion, "2.0.0") >= 0) {
-                    System.out.println("Slice test support missing. Adding spring-boot-starter-test dependency...");
-                    addDependencyToPom(model, p.toFile());
+                // Detect Slice Test Support
+                if ("spring-boot-starter-test".equals(dep.getArtifactId())
+                        || "spring-boot-test-autoconfigure".equals(dep.getArtifactId())) {
                     hasSliceTestSupport = true;
+                    System.out.println(
+                            "Detected Slice Test Support (spring-boot-starter-test or spring-boot-test-autoconfigure)");
                 }
+            }
 
-                // Validate spring-boot-test-autoconfigure version compatibility
-                if (hasSliceTestSupport) {
-                    String testAutoConfigureVersion = null;
+            // Detect Spring Boot Version if not found in properties
+            if ("2.0.0".equals(springBootVersion)) {
+                String detectedVersion = null;
+                if (model.getParent() != null
+                        && "spring-boot-starter-parent".equals(model.getParent().getArtifactId())) {
+                    detectedVersion = resolveVersion(model, model.getParent().getVersion());
+                } else {
                     for (Dependency dep : model.getDependencies()) {
-                        if ("spring-boot-test-autoconfigure".equals(dep.getArtifactId())) {
-                            testAutoConfigureVersion = resolveVersion(model, dep.getVersion());
+                        if ("spring-boot-starter".equals(dep.getArtifactId())) {
+                            detectedVersion = resolveVersion(model, dep.getVersion());
                             break;
                         }
                     }
+                }
 
-                    if (testAutoConfigureVersion != null) {
-                        boolean needsUpdate = false;
-                        String updateReason = "";
+                if (detectedVersion != null && !detectedVersion.startsWith("${")) {
+                    springBootVersion = detectedVersion;
+                    System.out.println("Detected Spring Boot Version: " + springBootVersion);
+                }
+            }
 
-                        // Check minimum version (1.4.1 has EmbeddedDatabaseConnection)
-                        if (compareVersions(testAutoConfigureVersion, "1.4.1") < 0) {
-                            needsUpdate = true;
-                            updateReason = "Version " + testAutoConfigureVersion
-                                    + " is too old (< 1.4.1) and missing EmbeddedDatabaseConnection class";
-                            System.out.println("INCOMPATIBLE DEPENDENCY DETECTED:");
-                            System.out.println("  spring-boot-test-autoconfigure version " + testAutoConfigureVersion
-                                    + " is too old (< 1.4.1).");
-                            System.out.println(
-                                    "  Slice test annotations require EmbeddedDatabaseConnection class which is missing.");
-                        }
-                        // Check version compatibility with Spring Boot version
-                        else if (!isVersionCompatible(springBootVersion, testAutoConfigureVersion)) {
-                            needsUpdate = true;
-                            updateReason = "Version mismatch: " + testAutoConfigureVersion
-                                    + " is incompatible with Spring Boot " + springBootVersion;
-                            System.out.println("VERSION MISMATCH DETECTED:");
-                            System.out.println("  spring-boot-test-autoconfigure version " + testAutoConfigureVersion
-                                    + " is incompatible with Spring Boot " + springBootVersion);
-                            System.out.println(
-                                    "  Major.minor versions must match for slice test annotations to work correctly.");
-                        }
+            // Fallback for Mockito detection if not explicitly found
+            if (compareVersions(springBootVersion, "2.0.0") < 0) {
+                // Spring Boot 1.x usually uses Mockito 1.x
+                if (!isMockito1 && compareVersions(springBootVersion, "1.0.0") > 0) {
+                    isMockito1 = true;
+                    System.out.println("Inferred Mockito 1.x from Spring Boot version");
+                }
+            }
 
-                        if (needsUpdate) {
-                            System.out.println("");
-                            updateDependencyVersion(model, p.toFile(),
-                                    "org.springframework.boot",
-                                    "spring-boot-test-autoconfigure",
-                                    updateReason);
-                            System.out.println("");
-                        } else {
-                            System.out.println("spring-boot-test-autoconfigure version " + testAutoConfigureVersion
-                                    + " is compatible with Spring Boot " + springBootVersion);
-                        }
+            System.out.println("Final Spring Boot Version: " + springBootVersion);
+
+            // Add missing slice test dependency if needed
+            if (!hasSliceTestSupport && compareVersions(springBootVersion, "2.0.0") >= 0) {
+                System.out.println("Slice test support missing. Adding spring-boot-starter-test dependency...");
+                addDependencyToPom(model, p.toFile());
+                hasSliceTestSupport = true;
+            }
+
+            // Validate spring-boot-test-autoconfigure version compatibility
+            if (hasSliceTestSupport) {
+                String testAutoConfigureVersion = null;
+                for (Dependency dep : model.getDependencies()) {
+                    if ("spring-boot-test-autoconfigure".equals(dep.getArtifactId())) {
+                        testAutoConfigureVersion = resolveVersion(model, dep.getVersion());
+                        break;
                     }
                 }
 
-            } else {
-                System.out.println("POM file not found at: " + p);
+                if (testAutoConfigureVersion != null) {
+                    boolean needsUpdate = false;
+                    String updateReason = "";
+
+                    // Check minimum version (1.4.1 has EmbeddedDatabaseConnection)
+                    if (compareVersions(testAutoConfigureVersion, "1.4.1") < 0) {
+                        needsUpdate = true;
+                        updateReason = "Version " + testAutoConfigureVersion
+                                + " is too old (< 1.4.1) and missing EmbeddedDatabaseConnection class";
+                        System.out.println("INCOMPATIBLE DEPENDENCY DETECTED:");
+                        System.out.println("  spring-boot-test-autoconfigure version " + testAutoConfigureVersion
+                                + " is too old (< 1.4.1).");
+                        System.out.println(
+                                "  Slice test annotations require EmbeddedDatabaseConnection class which is missing.");
+                    }
+                    // Check version compatibility with Spring Boot version
+                    else if (!isVersionCompatible(springBootVersion, testAutoConfigureVersion)) {
+                        needsUpdate = true;
+                        updateReason = "Version mismatch: " + testAutoConfigureVersion
+                                + " is incompatible with Spring Boot " + springBootVersion;
+                        System.out.println("VERSION MISMATCH DETECTED:");
+                        System.out.println("  spring-boot-test-autoconfigure version " + testAutoConfigureVersion
+                                + " is incompatible with Spring Boot " + springBootVersion);
+                        System.out.println(
+                                "  Major.minor versions must match for slice test annotations to work correctly.");
+                    }
+
+                    if (needsUpdate) {
+                        System.out.println("");
+                        updateDependencyVersion(model, p.toFile(),
+                                "org.springframework.boot",
+                                "spring-boot-test-autoconfigure",
+                                updateReason);
+                        System.out.println("");
+                    } else {
+                        System.out.println("spring-boot-test-autoconfigure version " + testAutoConfigureVersion
+                                + " is compatible with Spring Boot " + springBootVersion);
+                    }
+                }
             }
-        } catch (Exception e) {
-            System.err.println("Failed to detect versions: " + e.getMessage());
-            e.printStackTrace();
+
+        } else {
+            System.out.println("POM file not found at: " + p);
         }
     }
 
@@ -231,43 +215,38 @@ public class TestRefactorer {
      * @param reason     explanation for the update
      */
     private void updateDependencyVersion(Model model, java.io.File pomFile, String groupId, String artifactId,
-            String reason) {
-        try {
-            Dependency targetDep = null;
-            for (Dependency dep : model.getDependencies()) {
-                if (groupId.equals(dep.getGroupId()) && artifactId.equals(dep.getArtifactId())) {
-                    targetDep = dep;
-                    break;
-                }
+            String reason) throws IOException{
+        Dependency targetDep = null;
+        for (Dependency dep : model.getDependencies()) {
+            if (groupId.equals(dep.getGroupId()) && artifactId.equals(dep.getArtifactId())) {
+                targetDep = dep;
+                break;
             }
+        }
 
-            if (targetDep != null) {
-                String oldVersion = targetDep.getVersion();
+        if (targetDep != null) {
+            String oldVersion = targetDep.getVersion();
 
-                if (dryRun) {
-                    System.out.println("[DRY RUN] Would update " + artifactId + " version from "
-                            + oldVersion + " to inherit from parent");
-                    System.out.println("           Reason: " + reason);
-                } else {
-                    // Remove explicit version to inherit from parent
-                    targetDep.setVersion(null);
+            if (dryRun) {
+                System.out.println("[DRY RUN] Would update " + artifactId + " version from "
+                        + oldVersion + " to inherit from parent");
+                System.out.println("           Reason: " + reason);
+            } else {
+                // Remove explicit version to inherit from parent
+                targetDep.setVersion(null);
 
-                    MavenXpp3Writer writer = new MavenXpp3Writer();
-                    try (FileWriter fileWriter = new FileWriter(pomFile)) {
-                        writer.write(fileWriter, model);
-                    }
-                    System.out.println("Updated " + artifactId + " dependency:");
-                    System.out.println("  - Removed explicit version: " + oldVersion);
-                    System.out.println("  - Will now inherit from parent POM");
-                    System.out.println("  - Reason: " + reason);
-
-                    // Update our cached version since we changed it
-                    hasSliceTestSupport = true;
+                MavenXpp3Writer writer = new MavenXpp3Writer();
+                try (FileWriter fileWriter = new FileWriter(pomFile)) {
+                    writer.write(fileWriter, model);
                 }
+                System.out.println("Updated " + artifactId + " dependency:");
+                System.out.println("  - Removed explicit version: " + oldVersion);
+                System.out.println("  - Will now inherit from parent POM");
+                System.out.println("  - Reason: " + reason);
+
+                // Update our cached version since we changed it
+                hasSliceTestSupport = true;
             }
-        } catch (Exception e) {
-            System.err.println("Failed to update dependency in POM: " + e.getMessage());
-            e.printStackTrace();
         }
     }
 
@@ -428,35 +407,5 @@ public class TestRefactorer {
             }
         }
         return null;
-    }
-
-    private Optional<MethodDeclaration> resolveMethod(MethodCallExpr n, MethodDeclaration context) {
-        if (n.getScope().isEmpty() || n.getScope().get().isThisExpr()) {
-            return context.findAncestor(ClassOrInterfaceDeclaration.class)
-                    .flatMap(c -> c.getMethodsByName(n.getNameAsString()).stream()
-                            .filter(m -> m.getParameters().size() == n.getArguments().size())
-                            .findFirst());
-        }
-
-        if (n.getScope().isPresent()) {
-            String scopeName = n.getScope().get().toString();
-            Optional<ClassOrInterfaceDeclaration> testClass = context.findAncestor(ClassOrInterfaceDeclaration.class);
-            if (testClass.isPresent()) {
-                for (FieldDeclaration field : testClass.get().getFields()) {
-                    if (field.getVariable(0).getNameAsString().equals(scopeName)) {
-                        Type type = field.getElementType();
-                        TypeWrapper wrapper = AbstractCompiler.findType(currentCu, type);
-                        if (wrapper != null && wrapper.getType() != null
-                                && wrapper.getType().isClassOrInterfaceDeclaration()) {
-                            return wrapper.getType().asClassOrInterfaceDeclaration()
-                                    .getMethodsByName(n.getNameAsString()).stream()
-                                    .filter(m -> m.getParameters().size() == n.getArguments().size())
-                                    .findFirst();
-                        }
-                    }
-                }
-            }
-        }
-        return Optional.empty();
     }
 }
