@@ -27,6 +27,7 @@ public class TestFixer {
     private static final Logger logger = LoggerFactory.getLogger(TestFixer.class);
     private static boolean dryRun = false;
     private static boolean refactor = false;
+    private static boolean convertEmbedded = false;
 
     public static void main(String[] args) throws Exception {
         for (String arg : args) {
@@ -36,6 +37,9 @@ public class TestFixer {
             } else if (arg.equals("--refactor")) {
                 refactor = true;
                 System.out.println("Refactoring enabled.");
+            } else if (arg.equals("--convert-embedded")) {
+                convertEmbedded = true;
+                System.out.println("Embedded resource conversion enabled.");
             }
         }
 
@@ -45,6 +49,12 @@ public class TestFixer {
         TestRefactorer refactorer = new TestRefactorer(dryRun);
         List<TestRefactorer.RefactorOutcome> outcomes = new ArrayList<>();
 
+        EmbeddedResourceRefactorer embeddedRefactorer = null;
+        List<ConversionOutcome> conversionOutcomes = new ArrayList<>();
+        if (convertEmbedded) {
+            embeddedRefactorer = new EmbeddedResourceRefactorer(dryRun);
+        }
+
         for (var entry : AntikytheraRunTime.getResolvedCompilationUnits().entrySet()) {
             boolean modified = processCu(entry.getKey(), entry.getValue());
 
@@ -53,6 +63,16 @@ public class TestFixer {
                 if (localOutcomes != null && !localOutcomes.isEmpty()) {
                     outcomes.addAll(localOutcomes);
                     if (localOutcomes.stream().anyMatch(o -> o.modified)) {
+                        modified = true;
+                    }
+                }
+            }
+
+            if (convertEmbedded && embeddedRefactorer != null) {
+                List<ConversionOutcome> localConversions = embeddedRefactorer.refactorAll(entry.getValue());
+                if (localConversions != null && !localConversions.isEmpty()) {
+                    conversionOutcomes.addAll(localConversions);
+                    if (localConversions.stream().anyMatch(o -> o.modified)) {
                         modified = true;
                     }
                 }
@@ -69,6 +89,16 @@ public class TestFixer {
             System.out.println(
                     "----------------------------------------------------------------------------------------------------------------------------------");
             for (TestRefactorer.RefactorOutcome outcome : outcomes) {
+                System.out.println(outcome);
+            }
+        }
+
+        if (convertEmbedded) {
+            System.out.println("\nEmbedded Resource Conversion Summary:");
+            System.out.printf("%-40s | %-20s | %-20s | %s%n", "Class", "Action", "Embedded Alternative", "Reason");
+            System.out.println(
+                    "----------------------------------------------------------------------------------------------------------------------------------");
+            for (ConversionOutcome outcome : conversionOutcomes) {
                 System.out.println(outcome);
             }
         }
