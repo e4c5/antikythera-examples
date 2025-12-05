@@ -46,10 +46,10 @@ public class TestFixer {
             boolean modified = processCu(entry.getKey(), entry.getValue());
 
             if (refactor) {
-                TestRefactorer.RefactorOutcome outcome = refactorer.refactor(entry.getValue());
-                if (outcome != null) {
-                    outcomes.add(outcome);
-                    if (outcome.modified) {
+                List<TestRefactorer.RefactorOutcome> localOutcomes = refactorer.refactorAll(entry.getValue());
+                if (localOutcomes != null && !localOutcomes.isEmpty()) {
+                    outcomes.addAll(localOutcomes);
+                    if (localOutcomes.stream().anyMatch(o -> o.modified)) {
                         modified = true;
                     }
                 }
