@@ -10,8 +10,10 @@ import java.util.Set;
 /**
  * Abstract base for framework-specific refactoring strategies.
  *
- * For the first wiring step, we delegate to the existing TestRefactorer.applyRefactoring
- * to keep behavior unchanged, while enabling per-framework strategies to be plugged in.
+ * For the first wiring step, we delegate to the existing
+ * TestRefactorer.applyRefactoring
+ * to keep behavior unchanged, while enabling per-framework strategies to be
+ * plugged in.
  */
 public abstract class AbstractTestRefactoringStrategy implements TestRefactoringStrategy {
 
@@ -20,22 +22,25 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
     protected abstract boolean isJunit5();
 
     /**
-     * Framework-specific hook to apply unit-test style (runner/extension) when converting
+     * Framework-specific hook to apply unit-test style (runner/extension) when
+     * converting
      * a Spring test to a pure unit test.
      */
-    protected abstract boolean applyFrameworkUnitStyle(ClassOrInterfaceDeclaration decl, boolean isMockito1, String currentAnnotation);
+    protected abstract boolean applyFrameworkUnitStyle(ClassOrInterfaceDeclaration decl, boolean isMockito1,
+            String currentAnnotation);
 
     /**
-     * New shared decision pipeline (Template Method). Mirrors TestRefactorer.applyRefactoring behavior.
+     * New shared decision pipeline (Template Method). Mirrors
+     * TestRefactorer.applyRefactoring behavior.
      */
     @Override
     public TestRefactorer.RefactorOutcome refactor(ClassOrInterfaceDeclaration decl,
-                                                   Set<TestRefactorer.ResourceType> resources,
-                                                   boolean hasSliceSupport,
-                                                   String springBootVersion,
-                                                   boolean isMockito1,
-                                                   CompilationUnit cu,
-                                                   TestRefactorer refactorer) {
+            Set<TestRefactorer.ResourceType> resources,
+            boolean hasSliceSupport,
+            String springBootVersion,
+            boolean isMockito1,
+            CompilationUnit cu,
+            TestRefactorer refactorer) {
         this.currentCu = cu;
         String currentAnnotation = determineCurrentAnnotation(decl);
         TestRefactorer.RefactorOutcome outcome = new TestRefactorer.RefactorOutcome(decl.getNameAsString());
@@ -95,7 +100,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                     outcome.newAnnotation = "@DataJpaTest";
                     outcome.reason = "Already optimal";
                 }
-            // JDBC slice
+                // JDBC slice
             } else if (resources.contains(TestRefactorer.ResourceType.JDBC)
                     && !resources.contains(TestRefactorer.ResourceType.DATABASE_JPA)
                     && !resources.contains(TestRefactorer.ResourceType.REDIS)
@@ -117,7 +122,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                     outcome.newAnnotation = "@JdbcTest";
                     outcome.reason = "Already optimal";
                 }
-            // Web MVC slice (JSON allowed)
+                // Web MVC slice (JSON allowed)
             } else if (resources.contains(TestRefactorer.ResourceType.WEB)
                     && !resources.contains(TestRefactorer.ResourceType.DATABASE_JPA)
                     && !resources.contains(TestRefactorer.ResourceType.JDBC)
@@ -137,7 +142,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                     outcome.newAnnotation = "@WebMvcTest";
                     outcome.reason = "Already optimal";
                 }
-            // WebFlux slice
+                // WebFlux slice
             } else if (resources.contains(TestRefactorer.ResourceType.WEBFLUX)
                     && !resources.contains(TestRefactorer.ResourceType.DATABASE_JPA)
                     && !resources.contains(TestRefactorer.ResourceType.JDBC)
@@ -157,7 +162,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                     outcome.newAnnotation = "@WebFluxTest";
                     outcome.reason = "Already optimal";
                 }
-            // REST client slice
+                // REST client slice
             } else if (resources.contains(TestRefactorer.ResourceType.REST_CLIENT)
                     && !resources.contains(TestRefactorer.ResourceType.DATABASE_JPA)
                     && !resources.contains(TestRefactorer.ResourceType.JDBC)
@@ -178,7 +183,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                     outcome.newAnnotation = "@RestClientTest";
                     outcome.reason = "Already optimal";
                 }
-            // JSON slice
+                // JSON slice
             } else if (resources.contains(TestRefactorer.ResourceType.JSON)
                     && !resources.contains(TestRefactorer.ResourceType.DATABASE_JPA)
                     && !resources.contains(TestRefactorer.ResourceType.JDBC)
@@ -199,7 +204,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                     outcome.newAnnotation = "@JsonTest";
                     outcome.reason = "Already optimal";
                 }
-            // GraphQL slice
+                // GraphQL slice
             } else if (resources.contains(TestRefactorer.ResourceType.GRAPHQL)
                     && !resources.contains(TestRefactorer.ResourceType.DATABASE_JPA)
                     && !resources.contains(TestRefactorer.ResourceType.JDBC)
@@ -249,9 +254,11 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                 outcome.newAnnotation = "@SpringBootTest";
                 outcome.reason = hasSliceSupport ? "Spring Boot < 1.4.0" : "Slice test dependencies not found";
                 if (!hasSliceSupport) {
-                    System.out.println("Keeping " + className + " as @SpringBootTest (Slice test dependencies not found)");
+                    System.out.println(
+                            "Keeping " + className + " as @SpringBootTest (Slice test dependencies not found)");
                 } else {
-                    System.out.println("Keeping " + className + " as @SpringBootTest (Spring Boot < 1.4.0 does not support slice tests)");
+                    System.out.println("Keeping " + className
+                            + " as @SpringBootTest (Spring Boot < 1.4.0 does not support slice tests)");
                 }
             }
         }
@@ -260,14 +267,22 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
     }
 
     protected String determineCurrentAnnotation(ClassOrInterfaceDeclaration decl) {
-        if (decl.getAnnotationByName("SpringBootTest").isPresent()) return "SpringBootTest";
-        if (decl.getAnnotationByName("DataJpaTest").isPresent()) return "DataJpaTest";
-        if (decl.getAnnotationByName("JdbcTest").isPresent()) return "JdbcTest";
-        if (decl.getAnnotationByName("WebMvcTest").isPresent()) return "WebMvcTest";
-        if (decl.getAnnotationByName("WebFluxTest").isPresent()) return "WebFluxTest";
-        if (decl.getAnnotationByName("RestClientTest").isPresent()) return "RestClientTest";
-        if (decl.getAnnotationByName("JsonTest").isPresent()) return "JsonTest";
-        if (decl.getAnnotationByName("GraphQlTest").isPresent()) return "GraphQlTest";
+        if (decl.getAnnotationByName("SpringBootTest").isPresent())
+            return "SpringBootTest";
+        if (decl.getAnnotationByName("DataJpaTest").isPresent())
+            return "DataJpaTest";
+        if (decl.getAnnotationByName("JdbcTest").isPresent())
+            return "JdbcTest";
+        if (decl.getAnnotationByName("WebMvcTest").isPresent())
+            return "WebMvcTest";
+        if (decl.getAnnotationByName("WebFluxTest").isPresent())
+            return "WebFluxTest";
+        if (decl.getAnnotationByName("RestClientTest").isPresent())
+            return "RestClientTest";
+        if (decl.getAnnotationByName("JsonTest").isPresent())
+            return "JsonTest";
+        if (decl.getAnnotationByName("GraphQlTest").isPresent())
+            return "GraphQlTest";
         return null;
     }
 
@@ -276,8 +291,10 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
     }
 
     private int compareVersions(String v1, String v2) {
-        if (v1 == null) return -1;
-        if (v2 == null) return 1;
+        if (v1 == null)
+            return -1;
+        if (v2 == null)
+            return 1;
         String[] parts1 = v1.split("\\.");
         String[] parts2 = v2.split("\\.");
         int length = Math.max(parts1.length, parts2.length);
@@ -299,13 +316,18 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
         }
     }
 
-    /** Convert to pure unit test using Mockito annotations and framework-specific unit style. */
-    protected boolean convertToUnitTest(ClassOrInterfaceDeclaration decl, String currentAnnotation, boolean isMockito1) {
+    /**
+     * Convert to pure unit test using Mockito annotations and framework-specific
+     * unit style.
+     */
+    protected boolean convertToUnitTest(ClassOrInterfaceDeclaration decl, String currentAnnotation,
+            boolean isMockito1) {
         boolean modified = false;
         // Replace class-level annotation with Mockito runner/extension
         modified |= applyFrameworkUnitStyle(decl, isMockito1, currentAnnotation);
 
-        // Convert field annotations @Autowired/@Inject to @Mock/@InjectMocks; @MockBean -> @Mock
+        // Convert field annotations @Autowired/@Inject to @Mock/@InjectMocks; @MockBean
+        // -> @Mock
         String testClassName = decl.getNameAsString();
         String sutName = testClassName.endsWith("Test") ? testClassName.substring(0, testClassName.length() - 4)
                 : testClassName.endsWith("Tests") ? testClassName.substring(0, testClassName.length() - 5) : "";
@@ -313,8 +335,10 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
         String sutFieldName = null;
 
         for (com.github.javaparser.ast.body.FieldDeclaration field : decl.getFields()) {
-            java.util.Optional<com.github.javaparser.ast.expr.AnnotationExpr> autowired = field.getAnnotationByName("Autowired");
-            java.util.Optional<com.github.javaparser.ast.expr.AnnotationExpr> inject = field.getAnnotationByName("Inject");
+            java.util.Optional<com.github.javaparser.ast.expr.AnnotationExpr> autowired = field
+                    .getAnnotationByName("Autowired");
+            java.util.Optional<com.github.javaparser.ast.expr.AnnotationExpr> inject = field
+                    .getAnnotationByName("Inject");
 
             if (autowired.isPresent() || inject.isPresent()) {
                 com.github.javaparser.ast.expr.AnnotationExpr annotationToReplace = autowired.orElseGet(inject::get);
@@ -330,7 +354,8 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                 }
                 modified = true;
             }
-            java.util.Optional<com.github.javaparser.ast.expr.AnnotationExpr> mockBean = field.getAnnotationByName("MockBean");
+            java.util.Optional<com.github.javaparser.ast.expr.AnnotationExpr> mockBean = field
+                    .getAnnotationByName("MockBean");
             if (mockBean.isPresent()) {
                 mockBean.get().replace(new com.github.javaparser.ast.expr.MarkerAnnotationExpr("Mock"));
                 decl.findCompilationUnit().ifPresent(cu2 -> cu2.addImport("org.mockito.Mock"));
@@ -345,15 +370,41 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
         return modified;
     }
 
-    // ===== Shared helper methods extracted/mirrored from TestRefactorer (available for strategies) =====
+    // ===== Shared helper methods extracted/mirrored from TestRefactorer (available
+    // for strategies) =====
 
     protected boolean replaceAnnotation(ClassOrInterfaceDeclaration decl, String oldName, String newName,
-                                        String newImport) {
+            String newImport) {
         return decl.getAnnotationByName(oldName).map(oldAnnotation -> {
             oldAnnotation.replace(new com.github.javaparser.ast.expr.MarkerAnnotationExpr(newName));
             decl.findCompilationUnit().ifPresent(cu -> cu.addImport(newImport));
+
+            // Remove @RunWith annotation when converting to slice tests
+            // Slice tests (@DataJpaTest, @WebMvcTest, etc.) have built-in test runners
+            // and are incompatible with @RunWith(SpringJUnit4ClassRunner.class)
+            if (isSliceTestAnnotation(newName)) {
+                decl.getAnnotationByName("RunWith").ifPresent(runWith -> {
+                    runWith.remove();
+                    System.out.println("  Removed @RunWith annotation (not needed with " + newName + ")");
+                });
+            }
+
             return true;
         }).orElse(false);
+    }
+
+    /**
+     * Check if the annotation is a Spring Boot slice test annotation.
+     * These annotations have built-in test configuration and don't need @RunWith.
+     */
+    private boolean isSliceTestAnnotation(String annotationName) {
+        return annotationName.equals("DataJpaTest")
+                || annotationName.equals("JdbcTest")
+                || annotationName.equals("WebMvcTest")
+                || annotationName.equals("WebFluxTest")
+                || annotationName.equals("RestClientTest")
+                || annotationName.equals("JsonTest")
+                || annotationName.equals("GraphQlTest");
     }
 
     protected boolean requiresRunningServer(ClassOrInterfaceDeclaration decl) {
@@ -388,10 +439,12 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
     }
 
     protected void addRandomPortConfig(ClassOrInterfaceDeclaration decl) {
-        java.util.Optional<com.github.javaparser.ast.expr.AnnotationExpr> springBootTest = decl.getAnnotationByName("SpringBootTest");
+        java.util.Optional<com.github.javaparser.ast.expr.AnnotationExpr> springBootTest = decl
+                .getAnnotationByName("SpringBootTest");
         if (springBootTest.isPresent()) {
             if (springBootTest.get().isNormalAnnotationExpr()) {
-                com.github.javaparser.ast.expr.NormalAnnotationExpr normal = springBootTest.get().asNormalAnnotationExpr();
+                com.github.javaparser.ast.expr.NormalAnnotationExpr normal = springBootTest.get()
+                        .asNormalAnnotationExpr();
                 boolean hasWebEnv = normal.getPairs().stream()
                         .anyMatch(p -> p.getNameAsString().equals("webEnvironment"));
                 if (!hasWebEnv) {
@@ -412,7 +465,8 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
     }
 
     protected void fixContextConfiguration(ClassOrInterfaceDeclaration decl) {
-        java.util.Optional<com.github.javaparser.ast.expr.AnnotationExpr> contextConfig = decl.getAnnotationByName("ContextConfiguration");
+        java.util.Optional<com.github.javaparser.ast.expr.AnnotationExpr> contextConfig = decl
+                .getAnnotationByName("ContextConfiguration");
         if (contextConfig.isPresent() && contextConfig.get().isNormalAnnotationExpr()) {
             com.github.javaparser.ast.expr.NormalAnnotationExpr normal = contextConfig.get().asNormalAnnotationExpr();
             for (com.github.javaparser.ast.expr.MemberValuePair pair : normal.getPairs()) {
@@ -421,7 +475,8 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                     com.github.javaparser.ast.expr.Expression value = pair.getValue();
                     java.util.List<String> classNames = new java.util.ArrayList<>();
                     if (value.isArrayInitializerExpr()) {
-                        for (com.github.javaparser.ast.expr.Expression expr : value.asArrayInitializerExpr().getValues()) {
+                        for (com.github.javaparser.ast.expr.Expression expr : value.asArrayInitializerExpr()
+                                .getValues()) {
                             classNames.add(expr.toString());
                         }
                     } else if (value.isClassExpr()) {
@@ -443,12 +498,15 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
     }
 
     protected void addToImport(ClassOrInterfaceDeclaration decl, java.util.List<String> classNames) {
-        if (classNames.isEmpty()) return;
+        if (classNames.isEmpty())
+            return;
 
-        java.util.Optional<com.github.javaparser.ast.expr.AnnotationExpr> importAnnotation = decl.getAnnotationByName("Import");
+        java.util.Optional<com.github.javaparser.ast.expr.AnnotationExpr> importAnnotation = decl
+                .getAnnotationByName("Import");
         if (importAnnotation.isPresent()) {
             if (importAnnotation.get().isSingleMemberAnnotationExpr()) {
-                com.github.javaparser.ast.expr.Expression existing = importAnnotation.get().asSingleMemberAnnotationExpr().getMemberValue();
+                com.github.javaparser.ast.expr.Expression existing = importAnnotation.get()
+                        .asSingleMemberAnnotationExpr().getMemberValue();
                 com.github.javaparser.ast.expr.ArrayInitializerExpr array;
                 if (existing.isArrayInitializerExpr()) {
                     array = existing.asArrayInitializerExpr();
@@ -463,7 +521,8 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                     }
                 }
             } else if (importAnnotation.get().isNormalAnnotationExpr()) {
-                for (com.github.javaparser.ast.expr.MemberValuePair pair : importAnnotation.get().asNormalAnnotationExpr().getPairs()) {
+                for (com.github.javaparser.ast.expr.MemberValuePair pair : importAnnotation.get()
+                        .asNormalAnnotationExpr().getPairs()) {
                     if (pair.getNameAsString().equals("value")) {
                         com.github.javaparser.ast.expr.Expression existing = pair.getValue();
                         com.github.javaparser.ast.expr.ArrayInitializerExpr array;
@@ -497,10 +556,12 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
 
     protected void injectValueFields(ClassOrInterfaceDeclaration decl, String sutClassName, String sutFieldName) {
         java.util.Optional<sa.com.cloudsolutions.antikythera.generator.TypeWrapper> sutType = java.util.Optional
-                .ofNullable(sa.com.cloudsolutions.antikythera.parser.AbstractCompiler.findType(currentCu, new com.github.javaparser.ast.type.ClassOrInterfaceType(null, sutClassName)));
+                .ofNullable(sa.com.cloudsolutions.antikythera.parser.AbstractCompiler.findType(currentCu,
+                        new com.github.javaparser.ast.type.ClassOrInterfaceType(null, sutClassName)));
 
         if (sutType.isPresent() && sutType.get().getType().isClassOrInterfaceDeclaration()) {
-            com.github.javaparser.ast.body.ClassOrInterfaceDeclaration sutDecl = sutType.get().getType().asClassOrInterfaceDeclaration();
+            com.github.javaparser.ast.body.ClassOrInterfaceDeclaration sutDecl = sutType.get().getType()
+                    .asClassOrInterfaceDeclaration();
             java.util.List<String> injectionStatements = new java.util.ArrayList<>();
 
             for (com.github.javaparser.ast.body.FieldDeclaration field : sutDecl.getFields()) {
@@ -515,7 +576,8 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
             }
 
             if (!injectionStatements.isEmpty()) {
-                decl.findCompilationUnit().ifPresent(cu -> cu.addImport("org.springframework.test.util.ReflectionTestUtils"));
+                decl.findCompilationUnit()
+                        .ifPresent(cu -> cu.addImport("org.springframework.test.util.ReflectionTestUtils"));
 
                 com.github.javaparser.ast.body.MethodDeclaration beforeEach = decl.getMethods().stream()
                         .filter(m -> m.getAnnotationByName("BeforeEach").isPresent()
@@ -526,7 +588,8 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                                     com.github.javaparser.ast.Modifier.Keyword.PUBLIC);
                             if (isJunit5()) {
                                 m.addAnnotation("BeforeEach");
-                                decl.findCompilationUnit().ifPresent(cu -> cu.addImport("org.junit.jupiter.api.BeforeEach"));
+                                decl.findCompilationUnit()
+                                        .ifPresent(cu -> cu.addImport("org.junit.jupiter.api.BeforeEach"));
                             } else {
                                 m.addAnnotation("Before");
                                 decl.findCompilationUnit().ifPresent(cu -> cu.addImport("org.junit.Before"));
