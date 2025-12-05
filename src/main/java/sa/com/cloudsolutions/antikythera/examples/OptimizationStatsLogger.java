@@ -40,7 +40,11 @@ public class OptimizationStatsLogger {
          */
         private int methodCallsChanged = 0;
         /**
-         * The number of classes changed so far!
+         * The number of repository files that were actually modified.
+         */
+        private int repositoriesModified = 0;
+        /**
+         * The number of dependent classes changed (not including repositories).
          */
         private int dependentClassesModified = 0;
         /**
@@ -92,8 +96,8 @@ public class OptimizationStatsLogger {
                     current.liquibaseIndexesGenerated,
                     current.liquibaseIndexesDropped));
             current = new Stats(repo);
-            totalRepositoriesProcessed++;
         }
+        totalRepositoriesProcessed++;
         out.close();
         fw.close();
     }
@@ -116,6 +120,11 @@ public class OptimizationStatsLogger {
     public static void updateMethodCallsChanged(int i) {
         current.methodCallsChanged += i;
         total.methodCallsChanged += i;
+    }
+
+    public static void updateRepositoriesModified(int i) {
+        current.repositoriesModified += i;
+        total.repositoriesModified += i;
     }
 
     public static void updateDependentClassesChanged(int i) {
@@ -148,7 +157,7 @@ public class OptimizationStatsLogger {
         out.println("📝 CODE MODIFICATION SUMMARY");
         out.println("=".repeat(80));
         out.printf("Repositories processed:      %d%n", totalRepositoriesProcessed);
-        out.printf("Dependent Files modified:    %d%n", total.dependentClassesModified);
+        out.printf("Repository files modified:   %d%n", total.repositoriesModified);
         out.printf("@Query annotations changed:  %d%n", total.queryAnnotationsChanged);
         out.printf("Method signatures changed:   %d%n", total.methodSignaturesChanged);
         out.printf("Method calls updated:        %d%n", total.methodCallsChanged);
