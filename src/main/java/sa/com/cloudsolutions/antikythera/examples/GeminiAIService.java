@@ -153,6 +153,7 @@ public class GeminiAIService {
      * Builds the Gemini API request with proper message structure.
      * Uses Gemini's contents format with separate parts for system and user
      * content.
+     * Enables JSON Mode via responseMimeType to guarantee valid JSON output.
      */
     String buildGeminiApiRequest(String userQueryData) {
         // Escape strings for JSON
@@ -173,7 +174,28 @@ public class GeminiAIService {
                         { "text": "%s" }
                       ]
                     }
-                  ]
+                  ],
+                  "generationConfig": {
+                    "responseMimeType": "application/json",
+                    "responseSchema": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "originalMethod": {
+                            "type": "string"
+                          },
+                          "optimizedCodeElement": {
+                            "type": "string"
+                          },
+                          "notes": {
+                            "type": "string"
+                          }
+                        },
+                        "required": ["originalMethod", "optimizedCodeElement", "notes"]
+                      }
+                    }
+                  }
                 }
                 """, escapedSystemPrompt, escapedUserData);
     }
@@ -491,7 +513,12 @@ public class GeminiAIService {
         CompilationUnit cu = new CompilationUnit();
         cu.addType(cdecl);
 
-        CompilationUnit tmp = StaticJavaParser.parse(String.format("interface Dummy{ %s }", optimizedCodeElement));
+        // Jackson converts JSON \n to actual newlines, but StaticJavaParser needs them
+        // escaped
+        // Convert actual newlines back to \\n for parsing
+        String escapedForParsing = optimizedCodeElement.replace("\n", "\\n");
+
+        CompilationUnit tmp = StaticJavaParser.parse(String.format("interface Dummy{ %s }", escapedForParsing));
         for (ImportDeclaration importDecl : originalCompilationUnit.getImports()) {
             cu.addImport(importDecl);
         }

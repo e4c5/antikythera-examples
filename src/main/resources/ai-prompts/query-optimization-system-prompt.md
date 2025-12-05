@@ -94,8 +94,7 @@ Analyze each input query and provide the optimized code element.
 Return your entire response as a single, structured JSON array ([]). Do not add any introductory text, conversation, or
 closing remarks.
 
-The array must contain one JSON object per input query, in the exact same order as the input. Try to break long queries
-to be multi line/
+The array must contain one JSON object per input query, in the exact same order as the input. For long queries, use \n to break them into multiple lines within the JSON string values.
 
 `
 [{
