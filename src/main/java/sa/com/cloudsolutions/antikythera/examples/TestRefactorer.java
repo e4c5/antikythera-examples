@@ -36,8 +36,8 @@ import java.util.Set;
 
 public class TestRefactorer {
 
-    enum ResourceType {
-        DATABASE, REDIS, KAFKA, WEB, REST_CLIENT, JSON, NONE
+    public static enum ResourceType {
+        DATABASE_JPA, JDBC, REDIS, KAFKA, WEB, WEBFLUX, REST_CLIENT, JSON, GRAPHQL, NONE
     }
 
     private CompilationUnit currentCu;
@@ -254,15 +254,25 @@ public class TestRefactorer {
     }
 
     public RefactorOutcome refactor(CompilationUnit cu) {
+        // Backwards-compatible: return the first outcome if multiple classes
+        List<RefactorOutcome> all = refactorAll(cu);
+        return all.isEmpty() ? null : all.get(0);
+    }
+
+    public List<RefactorOutcome> refactorAll(CompilationUnit cu) {
         this.currentCu = cu;
-        RefactorOutcome outcome = null;
+        List<RefactorOutcome> outcomes = new ArrayList<>();
         for (ClassOrInterfaceDeclaration decl : cu.findAll(ClassOrInterfaceDeclaration.class)) {
-            outcome = analyzeClass(decl);
+            RefactorOutcome outcome = analyzeClass(decl);
             if (outcome != null) {
-                return outcome; // Assuming one test class per file usually
+                outcomes.add(outcome);
             }
         }
-        return null;
+        return outcomes;
+    }
+
+    private boolean detectJUnit5FromImports(CompilationUnit cu) {
+        return cu.getImports().stream().anyMatch(i -> i.getNameAsString().startsWith("org.junit.jupiter."));
     }
 
     private RefactorOutcome analyzeClass(ClassOrInterfaceDeclaration decl) {
@@ -276,20 +286,25 @@ public class TestRefactorer {
         }
 
         if (annotationName != null) {
-            RefactorOutcome outcome = new RefactorOutcome(decl.getNameAsString());
-            outcome.originalAnnotation = annotationName;
+            // Temporarily refine JUnit 5 detection per CU imports while analyzing this class
+            boolean prevIsJunit5 = this.isJUnit5;
+            try {
+                this.isJUnit5 = this.isJUnit5 || detectJUnit5FromImports(currentCu);
 
-            Set<ResourceType> resources = new HashSet<>();
+                RefactorOutcome outcome = new RefactorOutcome(decl.getNameAsString());
+                outcome.originalAnnotation = annotationName;
 
-            // Analyze all test methods
-            for (MethodDeclaration method : decl.getMethods()) {
-                if (method.getAnnotationByName("Test").isPresent()) {
-                    resources.addAll(analyzeInteractions(method, new HashSet<>(), decl));
-                }
+                TestResourceAnalyzer analyzer = new TestResourceAnalyzer(currentCu);
+                Set<ResourceType> resources = analyzer.analyzeClass(decl);
+                outcome.resourcesDetected = resources;
+
+                // Delegate to strategy based on detected test framework
+                TestFramework framework = TestFrameworkDetector.detect(currentCu, this.isJUnit5);
+                TestRefactoringStrategy strategy = TestRefactoringStrategyFactory.get(framework);
+                return strategy.refactor(decl, resources, hasSliceTestSupport, springBootVersion, isMockito1, currentCu, this);
+            } finally {
+                this.isJUnit5 = prevIsJunit5;
             }
-            outcome.resourcesDetected = resources;
-
-            return applyRefactoring(decl, resources, annotationName, outcome);
         }
         return null;
     }
@@ -399,9 +414,14 @@ public class TestRefactorer {
 
     private ResourceType identifyResourceType(Type type) {
         String typeName = type.asString();
-        if (typeName.endsWith("Repository") || typeName.equals("JdbcTemplate") || typeName.equals("EntityManager")
-                || typeName.equals("DataSource") || typeName.equals("NamedParameterJdbcTemplate")) {
-            return ResourceType.DATABASE;
+        // JPA/Repository indicates Data JPA slice
+        if (typeName.endsWith("Repository") || typeName.equals("EntityManager")) {
+            return ResourceType.DATABASE_JPA;
+        }
+        // JDBC-only stack
+        if (typeName.equals("JdbcTemplate") || typeName.equals("NamedParameterJdbcTemplate")
+                || typeName.equals("DataSource")) {
+            return ResourceType.JDBC;
         }
         if (typeName.equals("RedisTemplate") || typeName.equals("StringRedisTemplate")) {
             return ResourceType.REDIS;
@@ -409,8 +429,13 @@ public class TestRefactorer {
         if (typeName.equals("KafkaTemplate")) {
             return ResourceType.KAFKA;
         }
+        // Servlet MVC / server-side web
         if (typeName.equals("MockMvc") || typeName.equals("TestRestTemplate")) {
             return ResourceType.WEB;
+        }
+        // Reactive WebFlux
+        if (typeName.equals("WebTestClient")) {
+            return ResourceType.WEBFLUX;
         }
         if (typeName.equals("MockRestServiceServer")) {
             return ResourceType.REST_CLIENT;
@@ -419,10 +444,14 @@ public class TestRefactorer {
                 || typeName.equals("ObjectMapper")) {
             return ResourceType.JSON;
         }
+        // GraphQL testing support
+        if (typeName.equals("GraphQlTester")) {
+            return ResourceType.GRAPHQL;
+        }
         return ResourceType.NONE;
     }
 
-    private RefactorOutcome applyRefactoring(ClassOrInterfaceDeclaration decl, Set<ResourceType> resources,
+    public RefactorOutcome applyRefactoring(ClassOrInterfaceDeclaration decl, Set<ResourceType> resources,
             String currentAnnotation, RefactorOutcome outcome) {
         String className = decl.getNameAsString();
         boolean modified = false;
@@ -450,13 +479,20 @@ public class TestRefactorer {
             System.out.println("Converting " + className + " to Unit Test");
             modified = convertToUnitTest(decl, currentAnnotation);
         } else if (isSpringBootAtLeast("1.4.0") && hasSliceTestSupport) {
-            if (resources.contains(ResourceType.DATABASE) && !resources.contains(ResourceType.REDIS)
-                    && !resources.contains(ResourceType.KAFKA) && !resources.contains(ResourceType.WEB)
-                    && !resources.contains(ResourceType.REST_CLIENT) && !resources.contains(ResourceType.JSON)) {
+            // JPA slice
+            if (resources.contains(ResourceType.DATABASE_JPA)
+                    && !resources.contains(ResourceType.JDBC)
+                    && !resources.contains(ResourceType.REDIS)
+                    && !resources.contains(ResourceType.KAFKA)
+                    && !resources.contains(ResourceType.WEB)
+                    && !resources.contains(ResourceType.WEBFLUX)
+                    && !resources.contains(ResourceType.REST_CLIENT)
+                    && !resources.contains(ResourceType.JSON)
+                    && !resources.contains(ResourceType.GRAPHQL)) {
                 if (!"DataJpaTest".equals(currentAnnotation)) {
                     outcome.action = "CONVERTED";
                     outcome.newAnnotation = "@DataJpaTest";
-                    outcome.reason = "Only DATABASE resource detected";
+                    outcome.reason = "Only DATABASE_JPA resource detected";
                     System.out.println("Converting " + className + " to @DataJpaTest");
                     modified = replaceAnnotation(decl, currentAnnotation, "DataJpaTest",
                             "org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest");
@@ -465,9 +501,36 @@ public class TestRefactorer {
                     outcome.newAnnotation = "@DataJpaTest";
                     outcome.reason = "Already optimal";
                 }
-            } else if (resources.contains(ResourceType.WEB) && !resources.contains(ResourceType.DATABASE)
-                    && !resources.contains(ResourceType.REDIS) && !resources.contains(ResourceType.KAFKA)
-                    && !resources.contains(ResourceType.REST_CLIENT)) {
+            // JDBC slice
+            } else if (resources.contains(ResourceType.JDBC)
+                    && !resources.contains(ResourceType.DATABASE_JPA)
+                    && !resources.contains(ResourceType.REDIS)
+                    && !resources.contains(ResourceType.KAFKA)
+                    && !resources.contains(ResourceType.WEB)
+                    && !resources.contains(ResourceType.WEBFLUX)
+                    && !resources.contains(ResourceType.REST_CLIENT)
+                    && !resources.contains(ResourceType.JSON)
+                    && !resources.contains(ResourceType.GRAPHQL)) {
+                if (!"JdbcTest".equals(currentAnnotation)) {
+                    outcome.action = "CONVERTED";
+                    outcome.newAnnotation = "@JdbcTest";
+                    outcome.reason = "Only JDBC resource detected";
+                    System.out.println("Converting " + className + " to @JdbcTest");
+                    modified = replaceAnnotation(decl, currentAnnotation, "JdbcTest",
+                            "org.springframework.boot.test.autoconfigure.jdbc.JdbcTest");
+                } else {
+                    outcome.action = "KEPT";
+                    outcome.newAnnotation = "@JdbcTest";
+                    outcome.reason = "Already optimal";
+                }
+            // Web MVC slice
+            } else if (resources.contains(ResourceType.WEB)
+                    && !resources.contains(ResourceType.DATABASE_JPA)
+                    && !resources.contains(ResourceType.JDBC)
+                    && !resources.contains(ResourceType.REDIS)
+                    && !resources.contains(ResourceType.KAFKA)
+                    && !resources.contains(ResourceType.REST_CLIENT)
+                    && !resources.contains(ResourceType.WEBFLUX)) {
                 // WebMvcTest includes JSON support
                 if (!"WebMvcTest".equals(currentAnnotation)) {
                     outcome.action = "CONVERTED";
@@ -481,9 +544,35 @@ public class TestRefactorer {
                     outcome.newAnnotation = "@WebMvcTest";
                     outcome.reason = "Already optimal";
                 }
-            } else if (resources.contains(ResourceType.REST_CLIENT) && !resources.contains(ResourceType.DATABASE)
-                    && !resources.contains(ResourceType.REDIS) && !resources.contains(ResourceType.KAFKA)
-                    && !resources.contains(ResourceType.WEB) && !resources.contains(ResourceType.JSON)) {
+            // WebFlux slice
+            } else if (resources.contains(ResourceType.WEBFLUX)
+                    && !resources.contains(ResourceType.DATABASE_JPA)
+                    && !resources.contains(ResourceType.JDBC)
+                    && !resources.contains(ResourceType.REDIS)
+                    && !resources.contains(ResourceType.KAFKA)
+                    && !resources.contains(ResourceType.WEB)
+                    && !resources.contains(ResourceType.REST_CLIENT)) {
+                if (!"WebFluxTest".equals(currentAnnotation)) {
+                    outcome.action = "CONVERTED";
+                    outcome.newAnnotation = "@WebFluxTest";
+                    outcome.reason = "Only WEBFLUX resource detected";
+                    System.out.println("Converting " + className + " to @WebFluxTest");
+                    modified = replaceAnnotation(decl, currentAnnotation, "WebFluxTest",
+                            "org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest");
+                } else {
+                    outcome.action = "KEPT";
+                    outcome.newAnnotation = "@WebFluxTest";
+                    outcome.reason = "Already optimal";
+                }
+            // REST client slice
+            } else if (resources.contains(ResourceType.REST_CLIENT)
+                    && !resources.contains(ResourceType.DATABASE_JPA)
+                    && !resources.contains(ResourceType.JDBC)
+                    && !resources.contains(ResourceType.REDIS)
+                    && !resources.contains(ResourceType.KAFKA)
+                    && !resources.contains(ResourceType.WEB)
+                    && !resources.contains(ResourceType.WEBFLUX)
+                    && !resources.contains(ResourceType.JSON)) {
                 if (!"RestClientTest".equals(currentAnnotation)) {
                     outcome.action = "CONVERTED";
                     outcome.newAnnotation = "@RestClientTest";
@@ -496,9 +585,15 @@ public class TestRefactorer {
                     outcome.newAnnotation = "@RestClientTest";
                     outcome.reason = "Already optimal";
                 }
-            } else if (resources.contains(ResourceType.JSON) && !resources.contains(ResourceType.DATABASE)
-                    && !resources.contains(ResourceType.REDIS) && !resources.contains(ResourceType.KAFKA)
-                    && !resources.contains(ResourceType.WEB) && !resources.contains(ResourceType.REST_CLIENT)) {
+            // JSON slice
+            } else if (resources.contains(ResourceType.JSON)
+                    && !resources.contains(ResourceType.DATABASE_JPA)
+                    && !resources.contains(ResourceType.JDBC)
+                    && !resources.contains(ResourceType.REDIS)
+                    && !resources.contains(ResourceType.KAFKA)
+                    && !resources.contains(ResourceType.WEB)
+                    && !resources.contains(ResourceType.WEBFLUX)
+                    && !resources.contains(ResourceType.REST_CLIENT)) {
                 if (!"JsonTest".equals(currentAnnotation)) {
                     outcome.action = "CONVERTED";
                     outcome.newAnnotation = "@JsonTest";
@@ -509,6 +604,28 @@ public class TestRefactorer {
                 } else {
                     outcome.action = "KEPT";
                     outcome.newAnnotation = "@JsonTest";
+                    outcome.reason = "Already optimal";
+                }
+            // GraphQL slice
+            } else if (resources.contains(ResourceType.GRAPHQL)
+                    && !resources.contains(ResourceType.DATABASE_JPA)
+                    && !resources.contains(ResourceType.JDBC)
+                    && !resources.contains(ResourceType.REDIS)
+                    && !resources.contains(ResourceType.KAFKA)
+                    && !resources.contains(ResourceType.WEB)
+                    && !resources.contains(ResourceType.WEBFLUX)
+                    && !resources.contains(ResourceType.REST_CLIENT)
+                    && !resources.contains(ResourceType.JSON)) {
+                if (!"GraphQlTest".equals(currentAnnotation)) {
+                    outcome.action = "CONVERTED";
+                    outcome.newAnnotation = "@GraphQlTest";
+                    outcome.reason = "Only GRAPHQL resource detected";
+                    System.out.println("Converting " + className + " to @GraphQlTest");
+                    modified = replaceAnnotation(decl, currentAnnotation, "GraphQlTest",
+                            "org.springframework.boot.test.autoconfigure.graphql.GraphQlTest");
+                } else {
+                    outcome.action = "KEPT";
+                    outcome.newAnnotation = "@GraphQlTest";
                     outcome.reason = "Already optimal";
                 }
             } else {
@@ -552,83 +669,11 @@ public class TestRefactorer {
         return outcome;
     }
 
+
     private boolean convertToUnitTest(ClassOrInterfaceDeclaration decl, String currentAnnotation) {
-        boolean modified = false;
-
-        // 1. Replace @SpringBootTest (or other) with appropriate runner/extension
-        Optional<AnnotationExpr> testAnnotation = decl.getAnnotationByName(currentAnnotation);
-        if (testAnnotation.isPresent()) {
-            if (isJUnit5) {
-                SingleMemberAnnotationExpr extendWith = new SingleMemberAnnotationExpr(
-                        new Name("ExtendWith"),
-                        new ClassExpr(new ClassOrInterfaceType(null, "MockitoExtension")));
-                testAnnotation.get().replace(extendWith);
-                decl.findCompilationUnit().ifPresent(cu -> cu.addImport("org.junit.jupiter.api.extension.ExtendWith"));
-                decl.findCompilationUnit().ifPresent(cu -> cu.addImport("org.mockito.junit.jupiter.MockitoExtension"));
-
-                // Add @MockitoSettings(strictness = Strictness.LENIENT)
-                decl.addAnnotation(new SingleMemberAnnotationExpr(
-                        new Name("MockitoSettings"),
-                        new NameExpr("strictness = Strictness.LENIENT")));
-                decl.findCompilationUnit().ifPresent(cu -> {
-                    cu.addImport("org.mockito.junit.jupiter.MockitoSettings");
-                    cu.addImport("org.mockito.quality.Strictness");
-                });
-            } else {
-                SingleMemberAnnotationExpr runWith = new SingleMemberAnnotationExpr(
-                        new Name("RunWith"),
-                        new ClassExpr(new ClassOrInterfaceType(null, "MockitoJUnitRunner")));
-                testAnnotation.get().replace(runWith);
-                decl.findCompilationUnit().ifPresent(cu -> cu.addImport("org.junit.runner.RunWith"));
-                if (isMockito1) {
-                    decl.findCompilationUnit().ifPresent(cu -> cu.addImport("org.mockito.runners.MockitoJUnitRunner"));
-                } else {
-                    decl.findCompilationUnit().ifPresent(cu -> cu.addImport("org.mockito.junit.MockitoJUnitRunner"));
-                }
-            }
-            modified = true;
-        }
-
-        // 3. Convert @Autowired to @Mock / @InjectMocks
-        String testClassName = decl.getNameAsString();
-        String sutName = testClassName.endsWith("Test") ? testClassName.substring(0, testClassName.length() - 4)
-                : testClassName.endsWith("Tests") ? testClassName.substring(0, testClassName.length() - 5) : "";
-
-        String sutFieldName = null;
-
-        for (FieldDeclaration field : decl.getFields()) {
-            Optional<AnnotationExpr> autowired = field.getAnnotationByName("Autowired");
-            Optional<AnnotationExpr> inject = field.getAnnotationByName("Inject");
-
-            if (autowired.isPresent() || inject.isPresent()) {
-                AnnotationExpr annotationToReplace = autowired.orElseGet(inject::get);
-
-                String fieldType = field.getElementType().asString();
-                if (!sutName.isEmpty() && fieldType.equals(sutName)) {
-                    annotationToReplace.replace(new MarkerAnnotationExpr("InjectMocks"));
-                    decl.findCompilationUnit().ifPresent(cu -> cu.addImport("org.mockito.InjectMocks"));
-                    sutFieldName = field.getVariables().get(0).getNameAsString();
-                } else {
-                    annotationToReplace.replace(new MarkerAnnotationExpr("Mock"));
-                    decl.findCompilationUnit().ifPresent(cu -> cu.addImport("org.mockito.Mock"));
-                }
-                modified = true;
-            }
-            // Also handle @MockBean -> @Mock
-            Optional<AnnotationExpr> mockBean = field.getAnnotationByName("MockBean");
-            if (mockBean.isPresent()) {
-                mockBean.get().replace(new MarkerAnnotationExpr("Mock"));
-                decl.findCompilationUnit().ifPresent(cu -> cu.addImport("org.mockito.Mock"));
-                modified = true;
-            }
-        }
-
-        // 4. Inject @Value fields if SUT is identified
-        if (sutFieldName != null) {
-            injectValueFields(decl, sutName, sutFieldName);
-        }
-
-        return modified;
+        // Legacy path kept for compatibility; real conversion now handled by strategies.
+        // Return false to indicate no in-place modification here.
+        return false;
     }
 
     private void injectValueFields(ClassOrInterfaceDeclaration decl, String sutClassName, String sutFieldName) {
