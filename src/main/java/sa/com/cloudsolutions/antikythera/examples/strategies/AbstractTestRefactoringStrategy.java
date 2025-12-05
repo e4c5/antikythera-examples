@@ -21,6 +21,19 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
     private static final Logger logger = LoggerFactory.getLogger(AbstractTestRefactoringStrategy.class);
     public static final String CONVERTED = "CONVERTED";
     public static final String REVERTED = "REVERTED";
+    public static final String WEB_FLUX_TEST = "WebFluxTest";
+    
+    // Spring Boot test annotations in priority order
+    private static final String[] TEST_ANNOTATIONS = {
+        "SpringBootTest",
+        "DataJpaTest",
+        "JdbcTest",
+        "WebMvcTest",
+        WEB_FLUX_TEST,
+        "RestClientTest",
+        "JsonTest",
+        "GraphQlTest"
+    };
 
     protected CompilationUnit currentCu;
 
@@ -84,15 +97,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
             modified = convertToUnitTest(decl, currentAnnotation, isMockito1);
         } else if (isSpringBootAtLeast(springBootVersion, "1.4.0") && hasSliceSupport) {
             // JPA slice
-            if (resources.contains(TestRefactorer.ResourceType.DATABASE_JPA)
-                    && !resources.contains(TestRefactorer.ResourceType.JDBC)
-                    && !resources.contains(TestRefactorer.ResourceType.REDIS)
-                    && !resources.contains(TestRefactorer.ResourceType.KAFKA)
-                    && !resources.contains(TestRefactorer.ResourceType.WEB)
-                    && !resources.contains(TestRefactorer.ResourceType.WEBFLUX)
-                    && !resources.contains(TestRefactorer.ResourceType.REST_CLIENT)
-                    && !resources.contains(TestRefactorer.ResourceType.JSON)
-                    && !resources.contains(TestRefactorer.ResourceType.GRAPHQL)) {
+            if (isOnlyResource(resources, TestRefactorer.ResourceType.DATABASE_JPA)) {
                 if (!"DataJpaTest".equals(currentAnnotation)) {
                     outcome.action = CONVERTED;
                     outcome.newAnnotation = "@DataJpaTest";
@@ -106,15 +111,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                     outcome.reason = "Already optimal";
                 }
                 // JDBC slice
-            } else if (resources.contains(TestRefactorer.ResourceType.JDBC)
-                    && !resources.contains(TestRefactorer.ResourceType.DATABASE_JPA)
-                    && !resources.contains(TestRefactorer.ResourceType.REDIS)
-                    && !resources.contains(TestRefactorer.ResourceType.KAFKA)
-                    && !resources.contains(TestRefactorer.ResourceType.WEB)
-                    && !resources.contains(TestRefactorer.ResourceType.WEBFLUX)
-                    && !resources.contains(TestRefactorer.ResourceType.REST_CLIENT)
-                    && !resources.contains(TestRefactorer.ResourceType.JSON)
-                    && !resources.contains(TestRefactorer.ResourceType.GRAPHQL)) {
+            } else if (isOnlyResource(resources, TestRefactorer.ResourceType.JDBC)) {
                 if (!"JdbcTest".equals(currentAnnotation)) {
                     outcome.action = CONVERTED;
                     outcome.newAnnotation = "@JdbcTest";
@@ -148,19 +145,13 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                     outcome.reason = "Already optimal";
                 }
                 // WebFlux slice
-            } else if (resources.contains(TestRefactorer.ResourceType.WEBFLUX)
-                    && !resources.contains(TestRefactorer.ResourceType.DATABASE_JPA)
-                    && !resources.contains(TestRefactorer.ResourceType.JDBC)
-                    && !resources.contains(TestRefactorer.ResourceType.REDIS)
-                    && !resources.contains(TestRefactorer.ResourceType.KAFKA)
-                    && !resources.contains(TestRefactorer.ResourceType.WEB)
-                    && !resources.contains(TestRefactorer.ResourceType.REST_CLIENT)) {
-                if (!"WebFluxTest".equals(currentAnnotation)) {
+            } else if (isOnlyResource(resources, TestRefactorer.ResourceType.WEBFLUX)) {
+                if (!WEB_FLUX_TEST.equals(currentAnnotation)) {
                     outcome.action = CONVERTED;
                     outcome.newAnnotation = "@WebFluxTest";
                     outcome.reason = "Only WEBFLUX resource detected";
                     logger.info("Converting {} to @WebFluxTest", className);
-                    modified = replaceAnnotation(decl, currentAnnotation, "WebFluxTest",
+                    modified = replaceAnnotation(decl, currentAnnotation, WEB_FLUX_TEST,
                             "org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest");
                 } else {
                     outcome.action = "KEPT";
@@ -168,14 +159,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                     outcome.reason = "Already optimal";
                 }
                 // REST client slice
-            } else if (resources.contains(TestRefactorer.ResourceType.REST_CLIENT)
-                    && !resources.contains(TestRefactorer.ResourceType.DATABASE_JPA)
-                    && !resources.contains(TestRefactorer.ResourceType.JDBC)
-                    && !resources.contains(TestRefactorer.ResourceType.REDIS)
-                    && !resources.contains(TestRefactorer.ResourceType.KAFKA)
-                    && !resources.contains(TestRefactorer.ResourceType.WEB)
-                    && !resources.contains(TestRefactorer.ResourceType.WEBFLUX)
-                    && !resources.contains(TestRefactorer.ResourceType.JSON)) {
+            } else if (isOnlyResource(resources, TestRefactorer.ResourceType.REST_CLIENT)) {
                 if (!"RestClientTest".equals(currentAnnotation)) {
                     outcome.action = CONVERTED;
                     outcome.newAnnotation = "@RestClientTest";
@@ -189,14 +173,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                     outcome.reason = "Already optimal";
                 }
                 // JSON slice
-            } else if (resources.contains(TestRefactorer.ResourceType.JSON)
-                    && !resources.contains(TestRefactorer.ResourceType.DATABASE_JPA)
-                    && !resources.contains(TestRefactorer.ResourceType.JDBC)
-                    && !resources.contains(TestRefactorer.ResourceType.REDIS)
-                    && !resources.contains(TestRefactorer.ResourceType.KAFKA)
-                    && !resources.contains(TestRefactorer.ResourceType.WEB)
-                    && !resources.contains(TestRefactorer.ResourceType.WEBFLUX)
-                    && !resources.contains(TestRefactorer.ResourceType.REST_CLIENT)) {
+            } else if (isOnlyResource(resources, TestRefactorer.ResourceType.JSON)) {
                 if (!"JsonTest".equals(currentAnnotation)) {
                     outcome.action = CONVERTED;
                     outcome.newAnnotation = "@JsonTest";
@@ -210,15 +187,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                     outcome.reason = "Already optimal";
                 }
                 // GraphQL slice
-            } else if (resources.contains(TestRefactorer.ResourceType.GRAPHQL)
-                    && !resources.contains(TestRefactorer.ResourceType.DATABASE_JPA)
-                    && !resources.contains(TestRefactorer.ResourceType.JDBC)
-                    && !resources.contains(TestRefactorer.ResourceType.REDIS)
-                    && !resources.contains(TestRefactorer.ResourceType.KAFKA)
-                    && !resources.contains(TestRefactorer.ResourceType.WEB)
-                    && !resources.contains(TestRefactorer.ResourceType.WEBFLUX)
-                    && !resources.contains(TestRefactorer.ResourceType.REST_CLIENT)
-                    && !resources.contains(TestRefactorer.ResourceType.JSON)) {
+            } else if (isOnlyResource(resources, TestRefactorer.ResourceType.GRAPHQL)) {
                 if (!"GraphQlTest".equals(currentAnnotation)) {
                     outcome.action = CONVERTED;
                     outcome.newAnnotation = "@GraphQlTest";
@@ -271,22 +240,11 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
     }
 
     protected String determineCurrentAnnotation(ClassOrInterfaceDeclaration decl) {
-        if (decl.getAnnotationByName("SpringBootTest").isPresent())
-            return "SpringBootTest";
-        if (decl.getAnnotationByName("DataJpaTest").isPresent())
-            return "DataJpaTest";
-        if (decl.getAnnotationByName("JdbcTest").isPresent())
-            return "JdbcTest";
-        if (decl.getAnnotationByName("WebMvcTest").isPresent())
-            return "WebMvcTest";
-        if (decl.getAnnotationByName("WebFluxTest").isPresent())
-            return "WebFluxTest";
-        if (decl.getAnnotationByName("RestClientTest").isPresent())
-            return "RestClientTest";
-        if (decl.getAnnotationByName("JsonTest").isPresent())
-            return "JsonTest";
-        if (decl.getAnnotationByName("GraphQlTest").isPresent())
-            return "GraphQlTest";
+        for (String annotation : TEST_ANNOTATIONS) {
+            if (decl.getAnnotationByName(annotation).isPresent()) {
+                return annotation;
+            }
+        }
         return null;
     }
 
@@ -405,10 +363,46 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
         return annotationName.equals("DataJpaTest")
                 || annotationName.equals("JdbcTest")
                 || annotationName.equals("WebMvcTest")
-                || annotationName.equals("WebFluxTest")
+                || annotationName.equals(WEB_FLUX_TEST)
                 || annotationName.equals("RestClientTest")
                 || annotationName.equals("JsonTest")
                 || annotationName.equals("GraphQlTest");
+    }
+
+    /**
+     * Check if resources contains ONLY the specified resource type and no other
+     * slice test-related resources.
+     * This is the inverse of the resource types checked in isSliceTestAnnotation.
+     * 
+     * @param resources  The set of resources to check
+     * @param targetType The single resource type that should be present
+     * @return true if only the target resource type is present (and possibly NONE),
+     *         false otherwise
+     */
+    private boolean isOnlyResource(Set<TestRefactorer.ResourceType> resources, TestRefactorer.ResourceType targetType) {
+        if (!resources.contains(targetType)) {
+            return false;
+        }
+
+        // Check that no other slice test resource types are present
+        for (TestRefactorer.ResourceType type : resources) {
+            if (type == targetType || type == TestRefactorer.ResourceType.NONE) {
+                continue; // Skip the target type and NONE
+            }
+            // If it's a slice test resource type, return false
+            if (type == TestRefactorer.ResourceType.DATABASE_JPA
+                    || type == TestRefactorer.ResourceType.JDBC
+                    || type == TestRefactorer.ResourceType.REDIS
+                    || type == TestRefactorer.ResourceType.KAFKA
+                    || type == TestRefactorer.ResourceType.WEB
+                    || type == TestRefactorer.ResourceType.WEBFLUX
+                    || type == TestRefactorer.ResourceType.REST_CLIENT
+                    || type == TestRefactorer.ResourceType.JSON
+                    || type == TestRefactorer.ResourceType.GRAPHQL) {
+                return false;
+            }
+        }
+        return true;
     }
 
     protected boolean requiresRunningServer(ClassOrInterfaceDeclaration decl) {
@@ -511,50 +505,53 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
             if (importAnnotation.get().isSingleMemberAnnotationExpr()) {
                 com.github.javaparser.ast.expr.Expression existing = importAnnotation.get()
                         .asSingleMemberAnnotationExpr().getMemberValue();
-                com.github.javaparser.ast.expr.ArrayInitializerExpr array;
-                if (existing.isArrayInitializerExpr()) {
-                    array = existing.asArrayInitializerExpr();
-                } else {
-                    array = new com.github.javaparser.ast.expr.ArrayInitializerExpr();
-                    array.getValues().add(existing);
-                    importAnnotation.get().asSingleMemberAnnotationExpr().setMemberValue(array);
-                }
-                for (String className : classNames) {
-                    if (array.getValues().stream().noneMatch(v -> v.toString().equals(className))) {
-                        array.getValues().add(new com.github.javaparser.ast.expr.NameExpr(className));
-                    }
-                }
+                com.github.javaparser.ast.expr.ArrayInitializerExpr array = ensureArrayInitializer(existing);
+                importAnnotation.get().asSingleMemberAnnotationExpr().setMemberValue(array);
+                addClassNamesToArray(array, classNames);
             } else if (importAnnotation.get().isNormalAnnotationExpr()) {
                 for (com.github.javaparser.ast.expr.MemberValuePair pair : importAnnotation.get()
                         .asNormalAnnotationExpr().getPairs()) {
                     if (pair.getNameAsString().equals("value")) {
                         com.github.javaparser.ast.expr.Expression existing = pair.getValue();
-                        com.github.javaparser.ast.expr.ArrayInitializerExpr array;
-                        if (existing.isArrayInitializerExpr()) {
-                            array = existing.asArrayInitializerExpr();
-                        } else {
-                            array = new com.github.javaparser.ast.expr.ArrayInitializerExpr();
-                            array.getValues().add(existing);
-                            pair.setValue(array);
-                        }
-                        for (String className : classNames) {
-                            if (array.getValues().stream().noneMatch(v -> v.toString().equals(className))) {
-                                array.getValues().add(new com.github.javaparser.ast.expr.NameExpr(className));
-                            }
-                        }
+                        com.github.javaparser.ast.expr.ArrayInitializerExpr array = ensureArrayInitializer(existing);
+                        pair.setValue(array);
+                        addClassNamesToArray(array, classNames);
                     }
                 }
             }
         } else {
             com.github.javaparser.ast.expr.ArrayInitializerExpr array = new com.github.javaparser.ast.expr.ArrayInitializerExpr();
-            for (String className : classNames) {
-                array.getValues().add(new com.github.javaparser.ast.expr.NameExpr(className));
-            }
+            addClassNamesToArray(array, classNames);
             decl.addAnnotation(new com.github.javaparser.ast.expr.SingleMemberAnnotationExpr(
                     new com.github.javaparser.ast.expr.Name("Import"),
                     array));
 
             decl.findCompilationUnit().ifPresent(cu -> cu.addImport("org.springframework.context.annotation.Import"));
+        }
+    }
+    
+    /**
+     * Ensures the expression is an ArrayInitializerExpr, converting if necessary.
+     */
+    private com.github.javaparser.ast.expr.ArrayInitializerExpr ensureArrayInitializer(
+            com.github.javaparser.ast.expr.Expression existing) {
+        if (existing.isArrayInitializerExpr()) {
+            return existing.asArrayInitializerExpr();
+        }
+        com.github.javaparser.ast.expr.ArrayInitializerExpr array = new com.github.javaparser.ast.expr.ArrayInitializerExpr();
+        array.getValues().add(existing);
+        return array;
+    }
+    
+    /**
+     * Adds class names to an array, avoiding duplicates.
+     */
+    private void addClassNamesToArray(com.github.javaparser.ast.expr.ArrayInitializerExpr array,
+            java.util.List<String> classNames) {
+        for (String className : classNames) {
+            if (array.getValues().stream().noneMatch(v -> v.toString().equals(className))) {
+                array.getValues().add(new com.github.javaparser.ast.expr.NameExpr(className));
+            }
         }
     }
 
