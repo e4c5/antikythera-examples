@@ -2,6 +2,8 @@ package sa.com.cloudsolutions.antikythera.examples.strategies;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.examples.TestRefactorer;
 import sa.com.cloudsolutions.antikythera.examples.TestRefactoringStrategy;
 
@@ -16,6 +18,7 @@ import java.util.Set;
  * plugged in.
  */
 public abstract class AbstractTestRefactoringStrategy implements TestRefactoringStrategy {
+    private static final Logger logger = LoggerFactory.getLogger(AbstractTestRefactoringStrategy.class);
 
     protected CompilationUnit currentCu;
 
@@ -60,7 +63,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                 outcome.action = "REVERTED";
                 outcome.newAnnotation = "@SpringBootTest(webEnvironment = RANDOM_PORT)";
                 outcome.reason = "Requires running server (TestRestTemplate/LocalServerPort)";
-                System.out.println("Reverting " + className + " to @SpringBootTest (Requires running server)");
+                logger.info("Reverting {} to @SpringBootTest (Requires running server)", className);
                 modified = replaceAnnotation(decl, currentAnnotation, "SpringBootTest",
                         "org.springframework.boot.test.context.SpringBootTest");
                 addRandomPortConfig(decl);
@@ -68,14 +71,14 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                 outcome.action = "KEPT";
                 outcome.newAnnotation = "@SpringBootTest(webEnvironment = RANDOM_PORT)";
                 outcome.reason = "Requires running server";
-                System.out.println("Keeping " + className + " as @SpringBootTest (Requires running server)");
+                logger.info("Keeping {} as @SpringBootTest (Requires running server)", className);
                 addRandomPortConfig(decl);
             }
         } else if (resources.isEmpty()) {
             outcome.action = "CONVERTED";
             outcome.newAnnotation = "Unit Test";
             outcome.reason = "No resources detected (all mocked)";
-            System.out.println("Converting " + className + " to Unit Test");
+            logger.info("Converting {} to Unit Test", className);
             modified = convertToUnitTest(decl, currentAnnotation, isMockito1);
         } else if (isSpringBootAtLeast(springBootVersion, "1.4.0") && hasSliceSupport) {
             // JPA slice
@@ -92,7 +95,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                     outcome.action = "CONVERTED";
                     outcome.newAnnotation = "@DataJpaTest";
                     outcome.reason = "Only DATABASE_JPA resource detected";
-                    System.out.println("Converting " + className + " to @DataJpaTest");
+                    logger.info("Converting {} to @DataJpaTest", className);
                     modified = replaceAnnotation(decl, currentAnnotation, "DataJpaTest",
                             "org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest");
                 } else {
@@ -114,7 +117,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                     outcome.action = "CONVERTED";
                     outcome.newAnnotation = "@JdbcTest";
                     outcome.reason = "Only JDBC resource detected";
-                    System.out.println("Converting " + className + " to @JdbcTest");
+                    logger.info("Converting {} to @JdbcTest", className);
                     modified = replaceAnnotation(decl, currentAnnotation, "JdbcTest",
                             "org.springframework.boot.test.autoconfigure.jdbc.JdbcTest");
                 } else {
@@ -134,7 +137,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                     outcome.action = "CONVERTED";
                     outcome.newAnnotation = "@WebMvcTest";
                     outcome.reason = "Only WEB resource detected (JSON allowed)";
-                    System.out.println("Converting " + className + " to @WebMvcTest");
+                    logger.info("Converting {} to @WebMvcTest", className);
                     modified = replaceAnnotation(decl, currentAnnotation, "WebMvcTest",
                             "org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest");
                 } else {
@@ -154,7 +157,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                     outcome.action = "CONVERTED";
                     outcome.newAnnotation = "@WebFluxTest";
                     outcome.reason = "Only WEBFLUX resource detected";
-                    System.out.println("Converting " + className + " to @WebFluxTest");
+                    logger.info("Converting {} to @WebFluxTest", className);
                     modified = replaceAnnotation(decl, currentAnnotation, "WebFluxTest",
                             "org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest");
                 } else {
@@ -175,7 +178,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                     outcome.action = "CONVERTED";
                     outcome.newAnnotation = "@RestClientTest";
                     outcome.reason = "Only REST_CLIENT resource detected";
-                    System.out.println("Converting " + className + " to @RestClientTest");
+                    logger.info("Converting {} to @RestClientTest", className);
                     modified = replaceAnnotation(decl, currentAnnotation, "RestClientTest",
                             "org.springframework.boot.test.autoconfigure.web.client.RestClientTest");
                 } else {
@@ -196,7 +199,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                     outcome.action = "CONVERTED";
                     outcome.newAnnotation = "@JsonTest";
                     outcome.reason = "Only JSON resource detected";
-                    System.out.println("Converting " + className + " to @JsonTest");
+                    logger.info("Converting {} to @JsonTest", className);
                     modified = replaceAnnotation(decl, currentAnnotation, "JsonTest",
                             "org.springframework.boot.test.autoconfigure.json.JsonTest");
                 } else {
@@ -218,7 +221,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                     outcome.action = "CONVERTED";
                     outcome.newAnnotation = "@GraphQlTest";
                     outcome.reason = "Only GRAPHQL resource detected";
-                    System.out.println("Converting " + className + " to @GraphQlTest");
+                    logger.info("Converting {} to @GraphQlTest", className);
                     modified = replaceAnnotation(decl, currentAnnotation, "GraphQlTest",
                             "org.springframework.boot.test.autoconfigure.graphql.GraphQlTest");
                 } else {
@@ -231,14 +234,14 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                     outcome.action = "REVERTED";
                     outcome.newAnnotation = "@SpringBootTest";
                     outcome.reason = "Complex resources found: " + resources;
-                    System.out.println("Reverting " + className + " to @SpringBootTest (Complex resources found)");
+                    logger.info("Reverting {} to @SpringBootTest (Complex resources found)", className);
                     modified = replaceAnnotation(decl, currentAnnotation, "SpringBootTest",
                             "org.springframework.boot.test.context.SpringBootTest");
                 } else {
                     outcome.action = "KEPT";
                     outcome.newAnnotation = "@SpringBootTest";
                     outcome.reason = "Complex resources found: " + resources;
-                    System.out.println("Keeping " + className + " as @SpringBootTest");
+                    logger.debug("Keeping {} as @SpringBootTest", className);
                 }
             }
         } else {
@@ -246,7 +249,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                 outcome.action = "REVERTED";
                 outcome.newAnnotation = "@SpringBootTest";
                 outcome.reason = "Slice tests not supported (version/deps)";
-                System.out.println("Reverting " + className + " to @SpringBootTest (Slice tests not supported)");
+                logger.info("Reverting {} to @SpringBootTest (Slice tests not supported)", className);
                 modified = replaceAnnotation(decl, currentAnnotation, "SpringBootTest",
                         "org.springframework.boot.test.context.SpringBootTest");
             } else {
@@ -254,11 +257,10 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                 outcome.newAnnotation = "@SpringBootTest";
                 outcome.reason = hasSliceSupport ? "Spring Boot < 1.4.0" : "Slice test dependencies not found";
                 if (!hasSliceSupport) {
-                    System.out.println(
-                            "Keeping " + className + " as @SpringBootTest (Slice test dependencies not found)");
+                    logger.debug("Keeping {} as @SpringBootTest (Slice test dependencies not found)", className);
                 } else {
-                    System.out.println("Keeping " + className
-                            + " as @SpringBootTest (Spring Boot < 1.4.0 does not support slice tests)");
+                    logger.debug("Keeping {} as @SpringBootTest (Spring Boot < 1.4.0 does not support slice tests)",
+                            className);
                 }
             }
         }
@@ -385,7 +387,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
             if (isSliceTestAnnotation(newName)) {
                 decl.getAnnotationByName("RunWith").ifPresent(runWith -> {
                     runWith.remove();
-                    System.out.println("  Removed @RunWith annotation (not needed with " + newName + ")");
+                    logger.info("  Removed @RunWith annotation (not needed with {})", newName);
                 });
             }
 

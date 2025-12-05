@@ -7,6 +7,8 @@ import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import com.github.javaparser.printer.lexicalpreservation.LexicalPreservingPrinter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
@@ -22,6 +24,7 @@ import java.util.Set;
 
 @SuppressWarnings("java:S106")
 public class TestFixer {
+    private static final Logger logger = LoggerFactory.getLogger(TestFixer.class);
     private static boolean dryRun = false;
     private static boolean refactor = false;
 
@@ -99,8 +102,7 @@ public class TestFixer {
             for (MethodDeclaration method : decl.getMethods()) {
                 if (method.getAnnotationByName("Test").isPresent() &&
                         !hasAssertion(method, decl.asClassOrInterfaceDeclaration())) {
-                    System.out.println(
-                            "Found test without assertions: " + classname + "#" + method.getNameAsString());
+                    logger.info("Found test without assertions: {}#{}", classname, method.getNameAsString());
                     toRemove.add(method);
                 }
             }
@@ -125,7 +127,7 @@ public class TestFixer {
             try (PrintWriter writer = new PrintWriter(file)) {
                 writer.print(LexicalPreservingPrinter.print(cu));
             }
-            System.out.println("Saved changes to " + file.getAbsolutePath());
+            logger.debug("Saved changes to {}", file.getAbsolutePath());
         } else {
             System.err.println("Could not find file to save: " + relativePath);
         }
