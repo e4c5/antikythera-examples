@@ -19,6 +19,8 @@ import java.util.Set;
  */
 public abstract class AbstractTestRefactoringStrategy implements TestRefactoringStrategy {
     private static final Logger logger = LoggerFactory.getLogger(AbstractTestRefactoringStrategy.class);
+    public static final String CONVERTED = "CONVERTED";
+    public static final String REVERTED = "REVERTED";
 
     protected CompilationUnit currentCu;
 
@@ -60,7 +62,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
 
         if (requiresRunningServer(decl)) {
             if (!"SpringBootTest".equals(currentAnnotation)) {
-                outcome.action = "REVERTED";
+                outcome.action = REVERTED;
                 outcome.newAnnotation = "@SpringBootTest(webEnvironment = RANDOM_PORT)";
                 outcome.reason = "Requires running server (TestRestTemplate/LocalServerPort)";
                 logger.info("Reverting {} to @SpringBootTest (Requires running server)", className);
@@ -75,7 +77,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                 addRandomPortConfig(decl);
             }
         } else if (resources.isEmpty()) {
-            outcome.action = "CONVERTED";
+            outcome.action = CONVERTED;
             outcome.newAnnotation = "Unit Test";
             outcome.reason = "No resources detected (all mocked)";
             logger.info("Converting {} to Unit Test", className);
@@ -92,7 +94,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                     && !resources.contains(TestRefactorer.ResourceType.JSON)
                     && !resources.contains(TestRefactorer.ResourceType.GRAPHQL)) {
                 if (!"DataJpaTest".equals(currentAnnotation)) {
-                    outcome.action = "CONVERTED";
+                    outcome.action = CONVERTED;
                     outcome.newAnnotation = "@DataJpaTest";
                     outcome.reason = "Only DATABASE_JPA resource detected";
                     logger.info("Converting {} to @DataJpaTest", className);
@@ -114,7 +116,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                     && !resources.contains(TestRefactorer.ResourceType.JSON)
                     && !resources.contains(TestRefactorer.ResourceType.GRAPHQL)) {
                 if (!"JdbcTest".equals(currentAnnotation)) {
-                    outcome.action = "CONVERTED";
+                    outcome.action = CONVERTED;
                     outcome.newAnnotation = "@JdbcTest";
                     outcome.reason = "Only JDBC resource detected";
                     logger.info("Converting {} to @JdbcTest", className);
@@ -134,7 +136,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                     && !resources.contains(TestRefactorer.ResourceType.REST_CLIENT)
                     && !resources.contains(TestRefactorer.ResourceType.WEBFLUX)) {
                 if (!"WebMvcTest".equals(currentAnnotation)) {
-                    outcome.action = "CONVERTED";
+                    outcome.action = CONVERTED;
                     outcome.newAnnotation = "@WebMvcTest";
                     outcome.reason = "Only WEB resource detected (JSON allowed)";
                     logger.info("Converting {} to @WebMvcTest", className);
@@ -154,7 +156,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                     && !resources.contains(TestRefactorer.ResourceType.WEB)
                     && !resources.contains(TestRefactorer.ResourceType.REST_CLIENT)) {
                 if (!"WebFluxTest".equals(currentAnnotation)) {
-                    outcome.action = "CONVERTED";
+                    outcome.action = CONVERTED;
                     outcome.newAnnotation = "@WebFluxTest";
                     outcome.reason = "Only WEBFLUX resource detected";
                     logger.info("Converting {} to @WebFluxTest", className);
@@ -175,7 +177,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                     && !resources.contains(TestRefactorer.ResourceType.WEBFLUX)
                     && !resources.contains(TestRefactorer.ResourceType.JSON)) {
                 if (!"RestClientTest".equals(currentAnnotation)) {
-                    outcome.action = "CONVERTED";
+                    outcome.action = CONVERTED;
                     outcome.newAnnotation = "@RestClientTest";
                     outcome.reason = "Only REST_CLIENT resource detected";
                     logger.info("Converting {} to @RestClientTest", className);
@@ -196,7 +198,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                     && !resources.contains(TestRefactorer.ResourceType.WEBFLUX)
                     && !resources.contains(TestRefactorer.ResourceType.REST_CLIENT)) {
                 if (!"JsonTest".equals(currentAnnotation)) {
-                    outcome.action = "CONVERTED";
+                    outcome.action = CONVERTED;
                     outcome.newAnnotation = "@JsonTest";
                     outcome.reason = "Only JSON resource detected";
                     logger.info("Converting {} to @JsonTest", className);
@@ -218,7 +220,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                     && !resources.contains(TestRefactorer.ResourceType.REST_CLIENT)
                     && !resources.contains(TestRefactorer.ResourceType.JSON)) {
                 if (!"GraphQlTest".equals(currentAnnotation)) {
-                    outcome.action = "CONVERTED";
+                    outcome.action = CONVERTED;
                     outcome.newAnnotation = "@GraphQlTest";
                     outcome.reason = "Only GRAPHQL resource detected";
                     logger.info("Converting {} to @GraphQlTest", className);
@@ -231,7 +233,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                 }
             } else {
                 if (!"SpringBootTest".equals(currentAnnotation)) {
-                    outcome.action = "REVERTED";
+                    outcome.action = REVERTED;
                     outcome.newAnnotation = "@SpringBootTest";
                     outcome.reason = "Complex resources found: " + resources;
                     logger.info("Reverting {} to @SpringBootTest (Complex resources found)", className);
@@ -246,7 +248,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
             }
         } else {
             if (!"SpringBootTest".equals(currentAnnotation)) {
-                outcome.action = "REVERTED";
+                outcome.action = REVERTED;
                 outcome.newAnnotation = "@SpringBootTest";
                 outcome.reason = "Slice tests not supported (version/deps)";
                 logger.info("Reverting {} to @SpringBootTest (Slice tests not supported)", className);
