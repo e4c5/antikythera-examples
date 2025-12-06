@@ -1,4 +1,4 @@
-package sa.com.cloudsolutions.antikythera.examples;
+package com.raditha.cleanunit;
 
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.expr.AnnotationExpr;
