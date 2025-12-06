@@ -1,4 +1,4 @@
-How does method signature work?
+How does method signature changes work?
 --
 ```
 ┌─────────────────────────────────────────────────────────────────┐

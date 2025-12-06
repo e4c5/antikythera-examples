@@ -11,7 +11,7 @@ A **hard delete** permanently removes data from the database using SQL `DELETE` 
 ### Why Detect Hard Deletes?
 
 - **Data Recovery**: Soft deletes allow data recovery
-- **Audit Trails**: Maintain complete history for compliance
+- **Audit Trails**: Maintain a complete history for compliance
 - **Referential Integrity**: Avoid cascading delete issues
 - **Analytics**: Preserve historical data for reporting
 

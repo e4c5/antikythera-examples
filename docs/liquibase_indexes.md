@@ -2,7 +2,8 @@
 
 ## Overview
 
-The Indexes tool parses Liquibase XML changelog files to extract and display all database indexes, primary keys, and unique constraints. It provides a comprehensive view of database index structure by processing the master changelog and all included files.
+The Indexes tool parses Liquibase XML changelog files to extract and display all database indexes, primary keys, and unique constraints. It provides a comprehensive view of 
+the database index structure by processing the master changelog and all included files.
 
 ## Features
 
