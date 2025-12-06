@@ -20,6 +20,7 @@ import java.util.Set;
  */
 public class DatabaseToEmbeddedConverter implements EmbeddedResourceConverter {
     private static final Logger logger = LoggerFactory.getLogger(DatabaseToEmbeddedConverter.class);
+    public static final String ORG_TESTCONTAINERS = "org.testcontainers";
 
     @Override
     public boolean canConvert(Set<TestContainerDetector.ContainerType> containerTypes,
@@ -162,10 +163,10 @@ public class DatabaseToEmbeddedConverter implements EmbeddedResourceConverter {
         List<Dependency> deps = new ArrayList<>();
 
         // Testcontainers database modules
-        deps.add(createDependency("org.testcontainers", "postgresql"));
-        deps.add(createDependency("org.testcontainers", "mysql"));
-        deps.add(createDependency("org.testcontainers", "mariadb"));
-        deps.add(createDependency("org.testcontainers", "testcontainers"));
+        deps.add(createDependency(ORG_TESTCONTAINERS, "postgresql"));
+        deps.add(createDependency(ORG_TESTCONTAINERS, "mysql"));
+        deps.add(createDependency(ORG_TESTCONTAINERS, "mariadb"));
+        deps.add(createDependency(ORG_TESTCONTAINERS, "testcontainers"));
 
         return deps;
     }
