@@ -49,6 +49,8 @@ public class EmbeddedResourceRefactorer {
         List<EmbeddedResourceConverter> list = new ArrayList<>();
         list.add(new DatabaseToEmbeddedConverter());
         list.add(new KafkaToEmbeddedConverter());
+        list.add(new RedisToEmbeddedConverter());
+        list.add(new MongoToEmbeddedConverter());
         return list;
     }
 
@@ -144,7 +146,7 @@ public class EmbeddedResourceRefactorer {
         for (EmbeddedResourceConverter converter : converters) {
             if (converter.canConvert(containers, connections)) {
                 EmbeddedResourceConverter.ConversionResult result = converter.convert(testClass, cu, containers,
-                        connections);
+                        connections, projectRoot);
 
                 outcome.modified = result.modified;
                 outcome.embeddedAlternative = result.embeddedAlternative;

@@ -32,12 +32,14 @@ public interface EmbeddedResourceConverter {
      * @param cu              the compilation unit
      * @param containerTypes  detected container types
      * @param connectionTypes detected live connection types
+     * @param projectRoot     the project root directory
      * @return conversion result with details
      */
     ConversionResult convert(ClassOrInterfaceDeclaration testClass,
             CompilationUnit cu,
             Set<TestContainerDetector.ContainerType> containerTypes,
-            Set<LiveConnectionDetector.LiveConnectionType> connectionTypes);
+            Set<LiveConnectionDetector.LiveConnectionType> connectionTypes,
+            java.nio.file.Path projectRoot);
 
     /**
      * Get dependencies that should be added to pom.xml.

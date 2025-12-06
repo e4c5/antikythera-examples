@@ -5,6 +5,7 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import org.junit.jupiter.api.Test;
 
+import java.util.EnumSet;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -57,10 +58,14 @@ class DatabaseToEmbeddedConverterTest {
         ClassOrInterfaceDeclaration testClass = cu.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
 
         DatabaseToEmbeddedConverter converter = new DatabaseToEmbeddedConverter();
-        Set<TestContainerDetector.ContainerType> containers = Set.of(TestContainerDetector.ContainerType.POSTGRESQL);
-        Set<LiveConnectionDetector.LiveConnectionType> connections = Set.of();
+        Set<TestContainerDetector.ContainerType> containerTypes = EnumSet.of(
+                TestContainerDetector.ContainerType.POSTGRESQL);
+        Set<LiveConnectionDetector.LiveConnectionType> connectionTypes = EnumSet.noneOf(
+                LiveConnectionDetector.LiveConnectionType.class);
 
-        EmbeddedResourceConverter.ConversionResult result = converter.convert(testClass, cu, containers, connections);
+        // When
+        EmbeddedResourceConverter.ConversionResult result = converter.convert(testClass, cu, containerTypes,
+                connectionTypes, null);
 
         assertTrue(result.modified);
         assertEquals("@AutoConfigureTestDatabase with H2", result.embeddedAlternative);
