@@ -8,7 +8,7 @@ import java.util.Set;
 public class ConversionOutcome {
     public String className;
     public Set<TestContainerDetector.ContainerType> containersRemoved;
-    public Set<LiveConnectionDetector.LiveConnectionType> connectionsReplaced;
+    public Set< LiveConnectionDetector.LiveConnectionType> connectionsReplaced;
     public String embeddedAlternative;
     public boolean modified;
     public String action;

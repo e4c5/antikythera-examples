@@ -76,7 +76,16 @@ public class LiveConnectionDetector {
             for (MemberValuePair pair : annotation.asNormalAnnotationExpr().getPairs()) {
                 if ("properties".equals(pair.getNameAsString())) {
                     String value = pair.getValue().toString();
-                    return detectConnectionTypeFromValue(value);
+
+                    // Check for Kafka properties
+                    if (value.contains("kafka.bootstrap-servers") || value.contains("spring.kafka.bootstrap-servers")) {
+                        return LiveConnectionType.KAFKA;
+                    }
+
+                    // Check for database properties
+                    if (value.contains("spring.datasource.url")) {
+                        return LiveConnectionType.DATABASE;
+                    }
                 }
             }
         }
@@ -84,42 +93,58 @@ public class LiveConnectionDetector {
     }
 
     /**
-     * Check application-test.properties for live connections.
+     * Check various application properties files for live connections.
+     * Checks both application-test.properties and application.properties.
      */
     private void addConnectionsFromPropertiesFile(Path projectRoot, Set<LiveConnectionType> connections) {
-        Path propertiesPath = projectRoot.resolve("src/test/resources/application-test.properties");
-        if (!Files.exists(propertiesPath)) {
-            return;
-        }
+        String[] propertyFiles = { "application-test.properties", "application.properties" };
 
-        try {
-            LiveConnectionType type = analyzePropertyFile(propertiesPath);
-            if (type != LiveConnectionType.NONE) {
-                connections.add(type);
-                logger.debug("Detected {} connection in application-test.properties", type);
+        for (String filename : propertyFiles) {
+            Path propertiesPath = projectRoot.resolve("src/test/resources/" + filename);
+            if (!Files.exists(propertiesPath)) {
+                continue;
             }
-        } catch (IOException e) {
-            logger.warn("Failed to read application-test.properties: {}", e.getMessage());
+
+            try {
+                LiveConnectionType type = analyzePropertyFile(propertiesPath);
+                if (type != LiveConnectionType.NONE) {
+                    connections.add(type);
+                    logger.debug("Detected {} connection in {}", type, filename);
+                }
+            } catch (IOException e) {
+                logger.warn("Failed to read {}: {}", filename, e.getMessage());
+            }
         }
     }
 
     /**
-     * Check application-test.yml for live connections.
+     * Check various application YAML files for live connections.
+     * Checks application-test.yml, application.yml, and common profile-specific
+     * files.
      */
     private void addConnectionsFromYmlFile(Path projectRoot, Set<LiveConnectionType> connections) {
-        Path ymlPath = projectRoot.resolve("src/test/resources/application-test.yml");
-        if (!Files.exists(ymlPath)) {
-            return;
-        }
+        String[] ymlFiles = {
+                "application-test.yml",
+                "application.yml",
+                "application-dev.yml",
+                "application-h2.yml"
+        };
 
-        try {
-            LiveConnectionType type = analyzeYmlFile(ymlPath);
-            if (type != LiveConnectionType.NONE) {
-                connections.add(type);
-                logger.debug("Detected {} connection in application-test.yml", type);
+        for (String filename : ymlFiles) {
+            Path ymlPath = projectRoot.resolve("src/test/resources/" + filename);
+            if (!Files.exists(ymlPath)) {
+                continue;
             }
-        } catch (IOException e) {
-            logger.warn("Failed to read application-test.yml: {}", e.getMessage());
+
+            try {
+                LiveConnectionType type = analyzeYmlFile(ymlPath);
+                if (type != LiveConnectionType.NONE) {
+                    connections.add(type);
+                    logger.debug("Detected {} connection in {}", type, filename);
+                }
+            } catch (IOException e) {
+                logger.warn("Failed to read {}: {}", filename, e.getMessage());
+            }
         }
     }
 
@@ -138,9 +163,15 @@ public class LiveConnectionDetector {
             return LiveConnectionType.DATABASE;
         }
 
-        // Check Kafka bootstrap servers
+        // Check Kafka bootstrap servers (both standard Spring Boot and custom property
+        // names)
+        // Just check if the property exists - if it's configured, assume it's a live
+        // connection
         String kafkaServers = props.getProperty("spring.kafka.bootstrap-servers");
-        if (isLiveKafkaUrl(kafkaServers)) {
+        if (kafkaServers == null) {
+            kafkaServers = props.getProperty("kafka.bootstrap-servers");
+        }
+        if (kafkaServers != null && !kafkaServers.trim().isEmpty()) {
             return LiveConnectionType.KAFKA;
         }
 
@@ -149,35 +180,18 @@ public class LiveConnectionDetector {
 
     /**
      * Analyze a YAML file for connection URLs.
-     * Simple string-based detection for now.
+     * Simple string-based detection - checks for property names.
      */
     private LiveConnectionType analyzeYmlFile(Path ymlFile) throws IOException {
         String content = Files.readString(ymlFile);
 
+        // Check for database configuration
         if (containsLiveDatabaseUrl(content)) {
             return LiveConnectionType.DATABASE;
         }
 
-        if (containsLiveKafkaUrl(content)) {
-            return LiveConnectionType.KAFKA;
-        }
-
-        return LiveConnectionType.NONE;
-    }
-
-    /**
-     * Check if a value contains connection configuration.
-     */
-    private LiveConnectionType detectConnectionTypeFromValue(String value) {
-        if (value == null) {
-            return LiveConnectionType.NONE;
-        }
-
-        if (isLiveDatabaseUrl(value)) {
-            return LiveConnectionType.DATABASE;
-        }
-
-        if (isLiveKafkaUrl(value)) {
+        // Check for Kafka configuration - just look for bootstrap-servers property
+        if (content.contains("bootstrap-servers:")) {
             return LiveConnectionType.KAFKA;
         }
 
@@ -199,34 +213,11 @@ public class LiveConnectionDetector {
     }
 
     /**
-     * Check if URL points to a live Kafka broker (not embedded).
-     */
-    private boolean isLiveKafkaUrl(String url) {
-        if (url == null || url.isEmpty()) {
-            return false;
-        }
-
-        // Live Kafka indicators (localhost:9092, etc.)
-        return url.contains("localhost:9092")
-                || url.contains("kafka:")
-                || (url.contains(":9092") && !url.contains("${"));
-    }
-
-    /**
      * Check if YAML content contains live database URL.
      */
     private boolean containsLiveDatabaseUrl(String content) {
         return content.contains("jdbc:postgresql:")
                 || content.contains("jdbc:mysql:")
                 || content.contains("jdbc:mariadb:");
-    }
-
-    /**
-     * Check if YAML content contains live Kafka URL.
-     */
-    private boolean containsLiveKafkaUrl(String content) {
-        return content.contains("localhost:9092")
-                || content.contains("kafka:")
-                || content.contains("bootstrap-servers");
     }
 }

@@ -3,7 +3,6 @@ package com.raditha.cleanunit;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
-import com.github.javaparser.ast.expr.MarkerAnnotationExpr;
 import com.github.javaparser.ast.expr.NormalAnnotationExpr;
 import org.apache.maven.model.Dependency;
 import org.slf4j.Logger;
@@ -122,11 +121,27 @@ public class KafkaToEmbeddedConverter implements EmbeddedResourceConverter {
         NormalAnnotationExpr embeddedKafka = new NormalAnnotationExpr();
         embeddedKafka.setName("EmbeddedKafka");
         embeddedKafka.addPair("partitions", "1");
-
         testClass.addAnnotation(embeddedKafka);
         cu.addImport("org.springframework.kafka.test.context.EmbeddedKafka");
 
-        logger.info("Added @EmbeddedKafka to {}", testClass.getNameAsString());
+        // Add @TestPropertySource to override kafka.bootstrap-servers with embedded
+        // broker
+        // This resolves "${kafka.bootstrap-servers}" placeholders in the application
+        // code
+        NormalAnnotationExpr testPropertySource = new NormalAnnotationExpr();
+        testPropertySource.setName("TestPropertySource");
+
+        // Create array of properties using proper syntax
+        testPropertySource.addPair("properties",
+                "{" +
+                        "\"kafka.bootstrap-servers=${spring.embedded.kafka.brokers}\", " +
+                        "\"spring.kafka.bootstrap-servers=${spring.embedded.kafka.brokers}\"" +
+                        "}");
+
+        testClass.addAnnotation(testPropertySource);
+        cu.addImport("org.springframework.test.context.TestPropertySource");
+
+        logger.info("Added @EmbeddedKafka and @TestPropertySource to {}", testClass.getNameAsString());
         return true;
     }
 
