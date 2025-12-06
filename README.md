@@ -194,7 +194,7 @@ The system classifies columns into three cardinality levels:
 
 Identifies and fixes common test anti-patterns including tests without assertions, framework migration, and embedded resource conversion. Supports JUnit 4/5 and Spring Boot tests.
 
-📖 **[Complete TestFixer Documentation](docs/TESTFIXER_DOCUMENTATION.md)**
+📖 **[Complete TestFixer Documentation](docs/test_fixer.md)**
 
 **Quick Start:**
 ```bash
@@ -206,7 +206,7 @@ mvn exec:java -Dexec.mainClass="sa.com.cloudsolutions.antikythera.examples.TestF
 
 Parses Liquibase changelog files to display all database indexes, primary keys, and unique constraints. Useful for index audits and migration planning.
 
-📖 **[Complete Indexes Documentation](docs/INDEXES_DOCUMENTATION.md)**
+📖 **[Complete Indexes Documentation](docs/liquibase_indexes.md)**
 
 **Quick Start:**
 ```bash
@@ -218,7 +218,7 @@ mvn exec:java -Dexec.mainClass="sa.com.cloudsolutions.liquibase.Indexes" \
 
 Scans Java code to identify hard delete operations in JPA repositories, distinguishing them from soft deletes. Helps enforce soft delete policies and prevent data loss.
 
-📖 **[Complete HardDelete Documentation](docs/HARDDELETE_DOCUMENTATION.md)**
+📖 **[Complete HardDelete Documentation](docs/hard_delete.md)**
 
 **Quick Start:**
 ```bash
@@ -229,7 +229,7 @@ mvn exec:java -Dexec.mainClass="sa.com.cloudsolutions.antikythera.examples.HardD
 
 Identifies collection fields (List, Set, Map) in non-entity classes. Useful for memory analysis, N+1 query detection, and collection type optimization.
 
-📖 **[Complete UsageFinder Documentation](docs/USAGEFINDER_DOCUMENTATION.md)**
+📖 **[Complete UsageFinder Documentation](docs/usage_finder.md)**
 
 **Quick Start:**
 ```bash

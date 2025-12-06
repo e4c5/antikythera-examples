@@ -2,7 +2,8 @@
 
 ## Overview
 
-The Logger cleanup tool processes Java source files to standardize and optimize logging statements. It handles both SLF4J logger calls and console output (System.out/System.err), applying context-aware transformations.
+The Logger cleanup tool processes Java source files to standardize and optimize logging statements. It handles both SLF4J logger calls and console output 
+(System.out/System.err), applying context-aware transformations.
 
 ---
 
