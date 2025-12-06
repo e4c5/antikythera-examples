@@ -1,7 +1,7 @@
 package com.raditha.cleanunit;
 
-import sa.com.cloudsolutions.antikythera.examples.strategies.JUnit4RefactoringStrategy;
-import sa.com.cloudsolutions.antikythera.examples.strategies.JUnit5RefactoringStrategy;
+import com.raditha.cleanunit.strategies.JUnit4RefactoringStrategy;
+import com.raditha.cleanunit.strategies.JUnit5RefactoringStrategy;
 
 /**
  * Factory for selecting the appropriate refactoring strategy based on the test
