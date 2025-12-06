@@ -1,4 +1,4 @@
-package sa.com.cloudsolutions.antikythera.examples.strategies;
+package com.raditha.cleanunit.strategies;
 
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 
