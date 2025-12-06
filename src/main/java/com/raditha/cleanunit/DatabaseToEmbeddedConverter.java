@@ -34,7 +34,8 @@ public class DatabaseToEmbeddedConverter implements EmbeddedResourceConverter {
     public ConversionResult convert(ClassOrInterfaceDeclaration testClass,
             CompilationUnit cu,
             Set<TestContainerDetector.ContainerType> containerTypes,
-            Set<LiveConnectionDetector.LiveConnectionType> connectionTypes) {
+            Set<LiveConnectionDetector.LiveConnectionType> connectionTypes,
+            java.nio.file.Path projectRoot) {
         if (testClass == null) {
             return ConversionResult.noChange("Test class is null");
         }
@@ -49,6 +50,11 @@ public class DatabaseToEmbeddedConverter implements EmbeddedResourceConverter {
 
         // Add embedded database annotation
         modified |= addEmbeddedDatabaseAnnotation(testClass, cu);
+
+        // Modify test property files
+        if (projectRoot != null) {
+            modified |= modifyPropertyFiles(projectRoot);
+        }
 
         if (!modified) {
             return ConversionResult.noChange("No database containers or live connections found");
@@ -142,6 +148,52 @@ public class DatabaseToEmbeddedConverter implements EmbeddedResourceConverter {
         }
 
         return String.join("; ", reasons);
+    }
+
+    /**
+     * Modify test property files to use H2 database.
+     */
+    private boolean modifyPropertyFiles(java.nio.file.Path projectRoot) {
+        boolean modified = false;
+        PropertyFileManager propManager = new PropertyFileManager();
+
+        // Check for YAML files
+        String[] yamlFiles = { "application-test.yml", "application.yml" };
+        for (String filename : yamlFiles) {
+            java.nio.file.Path yamlPath = projectRoot.resolve("src/test/resources/" + filename);
+            if (java.nio.file.Files.exists(yamlPath)) {
+                try {
+                    java.util.Map<String, Object> config = propManager.readYaml(yamlPath);
+                    if (propManager.replaceDatabaseWithH2(config)) {
+                        propManager.writeYaml(yamlPath, config);
+                        modified = true;
+                        logger.info("Modified {} to use H2 database", filename);
+                    }
+                } catch (java.io.IOException e) {
+                    logger.warn("Failed to modify {}: {}", filename, e.getMessage());
+                }
+            }
+        }
+
+        // Check for properties files
+        String[] propFiles = { "application-test.properties", "application.properties" };
+        for (String filename : propFiles) {
+            java.nio.file.Path propPath = projectRoot.resolve("src/test/resources/" + filename);
+            if (java.nio.file.Files.exists(propPath)) {
+                try {
+                    java.util.Properties props = propManager.readProperties(propPath);
+                    if (propManager.replaceDatabaseWithH2(props)) {
+                        propManager.writeProperties(propPath, props);
+                        modified = true;
+                        logger.info("Modified {} to use H2 database", filename);
+                    }
+                } catch (java.io.IOException e) {
+                    logger.warn("Failed to modify {}: {}", filename, e.getMessage());
+                }
+            }
+        }
+
+        return modified;
     }
 
     @Override

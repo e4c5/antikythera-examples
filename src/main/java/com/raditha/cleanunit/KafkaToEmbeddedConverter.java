@@ -33,7 +33,8 @@ public class KafkaToEmbeddedConverter implements EmbeddedResourceConverter {
     public ConversionResult convert(ClassOrInterfaceDeclaration testClass,
             CompilationUnit cu,
             Set<TestContainerDetector.ContainerType> containerTypes,
-            Set<LiveConnectionDetector.LiveConnectionType> connectionTypes) {
+            Set<LiveConnectionDetector.LiveConnectionType> connectionTypes,
+            java.nio.file.Path projectRoot) {
         if (testClass == null) {
             return ConversionResult.noChange("Test class is null");
         }
@@ -48,6 +49,11 @@ public class KafkaToEmbeddedConverter implements EmbeddedResourceConverter {
 
         // Add embedded Kafka annotation
         modified |= addEmbeddedKafkaAnnotation(testClass, cu);
+
+        // Modify test property files
+        if (projectRoot != null) {
+            modified |= modifyPropertyFiles(projectRoot);
+        }
 
         if (!modified) {
             return ConversionResult.noChange("No Kafka containers or live connections found");
@@ -175,6 +181,52 @@ public class KafkaToEmbeddedConverter implements EmbeddedResourceConverter {
         deps.add(kafkaTest);
 
         return deps;
+    }
+
+    /**
+     * Modify test property files to use embedded Kafka.
+     */
+    private boolean modifyPropertyFiles(java.nio.file.Path projectRoot) {
+        boolean modified = false;
+        PropertyFileManager propManager = new PropertyFileManager();
+
+        // Check for YAML files
+        String[] yamlFiles = { "application-test.yml", "application.yml" };
+        for (String filename : yamlFiles) {
+            java.nio.file.Path yamlPath = projectRoot.resolve("src/test/resources/" + filename);
+            if (java.nio.file.Files.exists(yamlPath)) {
+                try {
+                    java.util.Map<String, Object> config = propManager.readYaml(yamlPath);
+                    if (propManager.replaceKafkaWithEmbedded(config)) {
+                        propManager.writeYaml(yamlPath, config);
+                        modified = true;
+                        logger.info("Modified {} to use embedded Kafka", filename);
+                    }
+                } catch (java.io.IOException e) {
+                    logger.warn("Failed to modify {}: {}", filename, e.getMessage());
+                }
+            }
+        }
+
+        // Check for properties files
+        String[] propFiles = { "application-test.properties", "application.properties" };
+        for (String filename : propFiles) {
+            java.nio.file.Path propPath = projectRoot.resolve("src/test/resources/" + filename);
+            if (java.nio.file.Files.exists(propPath)) {
+                try {
+                    java.util.Properties props = propManager.readProperties(propPath);
+                    if (propManager.replaceKafkaWithEmbedded(props)) {
+                        propManager.writeProperties(propPath, props);
+                        modified = true;
+                        logger.info("Modified {} to use embedded Kafka", filename);
+                    }
+                } catch (java.io.IOException e) {
+                    logger.warn("Failed to modify {}: {}", filename, e.getMessage());
+                }
+            }
+        }
+
+        return modified;
     }
 
     @Override

@@ -23,6 +23,8 @@ public class TestContainerDetector {
         MYSQL,
         MARIADB,
         KAFKA,
+        REDIS,
+        MONGODB,
         NONE
     }
 
@@ -96,6 +98,22 @@ public class TestContainerDetector {
         }
         if (typeName.contains("KafkaContainer")) {
             return ContainerType.KAFKA;
+        }
+        if (typeName.contains("GenericContainer")) {
+            // Check for Redis or MongoDB in generic containers
+            if (typeName.toLowerCase().contains("redis")) {
+                return ContainerType.REDIS;
+            }
+            if (typeName.toLowerCase().contains("mongo")) {
+                return ContainerType.MONGODB;
+            }
+        }
+        // Dedicated container types (if they exist in testcontainers)
+        if (typeName.contains("RedisContainer")) {
+            return ContainerType.REDIS;
+        }
+        if (typeName.contains("MongoDBContainer")) {
+            return ContainerType.MONGODB;
         }
 
         return ContainerType.NONE;

@@ -26,6 +26,8 @@ public class LiveConnectionDetector {
     public enum LiveConnectionType {
         DATABASE,
         KAFKA,
+        REDIS,
+        MONGODB,
         NONE
     }
 
@@ -165,14 +167,26 @@ public class LiveConnectionDetector {
 
         // Check Kafka bootstrap servers (both standard Spring Boot and custom property
         // names)
-        // Just check if the property exists - if it's configured, assume it's a live
-        // connection
+        // Check if configured AND not pointing to embedded
         String kafkaServers = props.getProperty("spring.kafka.bootstrap-servers");
         if (kafkaServers == null) {
             kafkaServers = props.getProperty("kafka.bootstrap-servers");
         }
-        if (kafkaServers != null && !kafkaServers.trim().isEmpty()) {
+        if (kafkaServers != null && !kafkaServers.trim().isEmpty() && !isEmbeddedKafkaConfig(kafkaServers)) {
             return LiveConnectionType.KAFKA;
+        }
+
+        // Check Redis
+        String redisHost = props.getProperty("spring.redis.host");
+        String redisPort = props.getProperty("spring.redis.port");
+        if (redisHost != null && !isEmbeddedRedisConfig(redisHost, redisPort)) {
+            return LiveConnectionType.REDIS;
+        }
+
+        // Check MongoDB
+        String mongoUri = props.getProperty("spring.data.mongodb.uri");
+        if (mongoUri != null && !isEmbeddedMongoConfig(mongoUri)) {
+            return LiveConnectionType.MONGODB;
         }
 
         return LiveConnectionType.NONE;
@@ -190,9 +204,25 @@ public class LiveConnectionDetector {
             return LiveConnectionType.DATABASE;
         }
 
-        // Check for Kafka configuration - just look for bootstrap-servers property
-        if (content.contains("bootstrap-servers:")) {
+        // Check for Kafka configuration - look for bootstrap-servers property
+        // but verify it's not already pointing to embedded
+        if (content.contains("bootstrap-servers:") && !content.contains("${spring.embedded.kafka.brokers}")) {
             return LiveConnectionType.KAFKA;
+        }
+
+        // Check for Redis configuration
+        if (content.contains("spring:\n  redis:") || content.contains("spring.redis")) {
+            // Simple heuristic: if port is 6370 (embedded default), likely embedded
+            if (!content.contains("port: 6370")) {
+                return LiveConnectionType.REDIS;
+            }
+        }
+
+        // Check for MongoDB configuration
+        if (content.contains("spring:\n  data:\n    mongodb:") || content.contains("mongodb.uri")) {
+            if (content.contains("mongodb://")) {
+                return LiveConnectionType.MONGODB;
+            }
         }
 
         return LiveConnectionType.NONE;
@@ -219,5 +249,42 @@ public class LiveConnectionDetector {
         return content.contains("jdbc:postgresql:")
                 || content.contains("jdbc:mysql:")
                 || content.contains("jdbc:mariadb:");
+    }
+
+    /**
+     * Check if Kafka configuration is pointing to embedded Kafka.
+     */
+    private boolean isEmbeddedKafkaConfig(String value) {
+        if (value == null) {
+            return false;
+        }
+        // Check for Spring embedded Kafka placeholder
+        return value.contains("${spring.embedded.kafka.brokers}");
+    }
+
+    /**
+     * Check if Redis configuration is pointing to embedded Redis.
+     */
+    private boolean isEmbeddedRedisConfig(String host, String port) {
+        if (host == null) {
+            return false;
+        }
+        // Embedded Redis typically runs on localhost:6370
+        if (host.equals("localhost") && port != null && port.equals("6370")) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Check if MongoDB URI is pointing to embedded MongoDB.
+     */
+    private boolean isEmbeddedMongoConfig(String uri) {
+        if (uri == null || uri.isEmpty()) {
+            // No URI means likely using embedded auto-configuration
+            return true;
+        }
+        // Flapdoodle embedded MongoDB typically uses localhost with dynamic port
+        return uri.contains("localhost") && !uri.contains("mongodb.net");
     }
 }
