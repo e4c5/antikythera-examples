@@ -1,10 +1,8 @@
 package com.raditha.cleanunit;
 
 import com.github.javaparser.ast.CompilationUnit;
-import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
-import com.github.javaparser.ast.expr.MarkerAnnotationExpr;
 import org.apache.maven.model.Dependency;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
