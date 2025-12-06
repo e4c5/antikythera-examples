@@ -39,24 +39,33 @@ public class KafkaToEmbeddedConverter implements EmbeddedResourceConverter {
             return ConversionResult.noChange("Test class is null");
         }
 
+        // Only convert if Kafka is actually detected
+        boolean hasKafkaContainer = containerTypes.contains(TestContainerDetector.ContainerType.KAFKA);
+        boolean hasKafkaConnection = connectionTypes.contains(LiveConnectionDetector.LiveConnectionType.KAFKA);
+
+        if (!hasKafkaContainer && !hasKafkaConnection) {
+            return ConversionResult.noChange("No Kafka containers or live connections found");
+        }
+
         boolean modified = false;
 
         // Remove container fields
-        if (containerTypes.contains(TestContainerDetector.ContainerType.KAFKA)) {
+        if (hasKafkaContainer) {
             modified |= removeKafkaContainerFields(testClass);
             modified |= removeTestcontainersAnnotation(testClass);
         }
 
-        // Add embedded Kafka annotation
+        // Add embedded Kafka annotation - needed for both container and connection
+        // cases
         modified |= addEmbeddedKafkaAnnotation(testClass, cu);
 
-        // Modify test property files
-        if (projectRoot != null) {
+        // Modify test property files - only once globally
+        if (projectRoot != null && hasKafkaConnection) {
             modified |= modifyPropertyFiles(projectRoot);
         }
 
         if (!modified) {
-            return ConversionResult.noChange("No Kafka containers or live connections found");
+            return ConversionResult.noChange("No changes made");
         }
 
         String reason = buildConversionReason(containerTypes, connectionTypes);

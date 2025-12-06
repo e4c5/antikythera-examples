@@ -95,26 +95,24 @@ public class LiveConnectionDetector {
     }
 
     /**
-     * Check various application properties files for live connections.
-     * Checks both application-test.properties and application.properties.
+     * Check for live connections in properties files.
      */
     private void addConnectionsFromPropertiesFile(Path projectRoot, Set<LiveConnectionType> connections) {
-        String[] propertyFiles = { "application-test.properties", "application.properties" };
+        // Check both application.properties and application-test.properties
+        String[] propertyFiles = { "application.properties", "application-test.properties" };
 
         for (String filename : propertyFiles) {
-            Path propertiesPath = projectRoot.resolve("src/test/resources/" + filename);
-            if (!Files.exists(propertiesPath)) {
-                continue;
-            }
-
-            try {
-                LiveConnectionType type = analyzePropertyFile(propertiesPath);
-                if (type != LiveConnectionType.NONE) {
-                    connections.add(type);
-                    logger.debug("Detected {} connection in {}", type, filename);
+            Path propsPath = projectRoot.resolve("src/test/resources/" + filename);
+            if (Files.exists(propsPath)) {
+                try {
+                    LiveConnectionType type = analyzePropertyFile(propsPath);
+                    if (type != LiveConnectionType.NONE) {
+                        connections.add(type);
+                        logger.debug("Found {} connection in {}", type, filename);
+                    }
+                } catch (IOException e) {
+                    logger.warn("Failed to read {}: {}", filename, e.getMessage());
                 }
-            } catch (IOException e) {
-                logger.warn("Failed to read {}: {}", filename, e.getMessage());
             }
         }
     }
@@ -122,30 +120,24 @@ public class LiveConnectionDetector {
     /**
      * Check various application YAML files for live connections.
      * Checks application-test.yml, application.yml, and common profile-specific
-     * files.
+     * Check for live connections in YAML files.
      */
     private void addConnectionsFromYmlFile(Path projectRoot, Set<LiveConnectionType> connections) {
-        String[] ymlFiles = {
-                "application-test.yml",
-                "application.yml",
-                "application-dev.yml",
-                "application-h2.yml"
-        };
+        // Check both application.yml and application-test.yml
+        String[] yamlFiles = { "application.yml", "application-test.yml" };
 
-        for (String filename : ymlFiles) {
+        for (String filename : yamlFiles) {
             Path ymlPath = projectRoot.resolve("src/test/resources/" + filename);
-            if (!Files.exists(ymlPath)) {
-                continue;
-            }
-
-            try {
-                LiveConnectionType type = analyzeYmlFile(ymlPath);
-                if (type != LiveConnectionType.NONE) {
-                    connections.add(type);
-                    logger.debug("Detected {} connection in {}", type, filename);
+            if (Files.exists(ymlPath)) {
+                try {
+                    LiveConnectionType type = analyzeYmlFile(ymlPath);
+                    if (type != LiveConnectionType.NONE) {
+                        connections.add(type);
+                        logger.debug("Found {} connection in {}", type, filename);
+                    }
+                } catch (IOException e) {
+                    logger.warn("Failed to read {}: {}", filename, e.getMessage());
                 }
-            } catch (IOException e) {
-                logger.warn("Failed to read {}: {}", filename, e.getMessage());
             }
         }
     }

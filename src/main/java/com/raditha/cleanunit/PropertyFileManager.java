@@ -244,16 +244,26 @@ public class PropertyFileManager {
     public boolean replaceKafkaWithEmbedded(Properties props) {
         boolean modified = false;
 
+        // Check spring.kafka.bootstrap-servers
         if (props.containsKey("spring.kafka.bootstrap-servers")) {
-            props.setProperty("spring.kafka.bootstrap-servers", "${spring.embedded.kafka.brokers}");
-            modified = true;
-            logger.info("Replaced spring.kafka.bootstrap-servers in properties");
+            String value = props.getProperty("spring.kafka.bootstrap-servers");
+            // Don't modify if already pointing to embedded
+            if (!value.contains("${spring.embedded.kafka.brokers}")) {
+                props.setProperty("spring.kafka.bootstrap-servers", "${spring.embedded.kafka.brokers}");
+                modified = true;
+                logger.debug("Updated spring.kafka.bootstrap-servers to embedded");
+            }
         }
 
+        // Check kafka.bootstrap-servers
         if (props.containsKey("kafka.bootstrap-servers")) {
-            props.setProperty("kafka.bootstrap-servers", "${spring.embedded.kafka.brokers}");
-            modified = true;
-            logger.info("Replaced kafka.bootstrap-servers in properties");
+            String value = props.getProperty("kafka.bootstrap-servers");
+            // Don't modify if already pointing to embedded
+            if (!value.contains("${spring.embedded.kafka.brokers}")) {
+                props.setProperty("kafka.bootstrap-servers", "${spring.embedded.kafka.brokers}");
+                modified = true;
+                logger.debug("Updated kafka.bootstrap-servers to embedded");
+            }
         }
 
         return modified;
