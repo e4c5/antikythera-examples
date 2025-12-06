@@ -7,7 +7,6 @@ import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import com.github.javaparser.printer.lexicalpreservation.LexicalPreservingPrinter;
-import com.raditha.cleanunit.TestRefactorer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
@@ -31,18 +30,7 @@ public class TestFixer {
     private static boolean convertEmbedded = false;
 
     public static void main(String[] args) throws Exception {
-        for (String arg : args) {
-            if (arg.equals("--dry-run")) {
-                dryRun = true;
-                System.out.println("Running in DRY RUN mode. No changes will be made.");
-            } else if (arg.equals("--refactor")) {
-                refactor = true;
-                System.out.println("Refactoring enabled.");
-            } else if (arg.equals("--convert-embedded")) {
-                convertEmbedded = true;
-                System.out.println("Embedded resource conversion enabled.");
-            }
-        }
+        detectArguments(args);
 
         Settings.loadConfigMap();
         AbstractCompiler.preProcess();
@@ -84,6 +72,10 @@ public class TestFixer {
             }
         }
 
+        displayStats(outcomes, conversionOutcomes);
+    }
+
+    private static void displayStats(List<TestRefactorer.RefactorOutcome> outcomes, List<ConversionOutcome> conversionOutcomes) {
         if (refactor) {
             System.out.println("\nRefactoring Summary:");
             System.out.printf("%-40s | %-15s -> %-15s | %-20s | %s%n", "Class", "Original", "New", "Action", "Reason");
@@ -101,6 +93,28 @@ public class TestFixer {
                     "----------------------------------------------------------------------------------------------------------------------------------");
             for (ConversionOutcome outcome : conversionOutcomes) {
                 System.out.println(outcome);
+            }
+        }
+    }
+
+    private static void detectArguments(String[] args) {
+        for (String arg : args) {
+            switch (arg) {
+                case "--dry-run" -> {
+                    dryRun = true;
+                    System.out.println("Running in DRY RUN mode. No changes will be made.");
+                }
+                case "--refactor" -> {
+                    refactor = true;
+                    System.out.println("Refactoring enabled.");
+                }
+                case "--convert-embedded" -> {
+                    convertEmbedded = true;
+                    System.out.println("Embedded resource conversion enabled.");
+                }
+                default -> {
+                    System.err.println("Unknown argument: " + arg);
+                }
             }
         }
     }
