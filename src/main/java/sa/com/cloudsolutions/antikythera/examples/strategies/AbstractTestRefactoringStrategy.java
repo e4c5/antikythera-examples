@@ -4,8 +4,8 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import sa.com.cloudsolutions.antikythera.examples.TestRefactorer;
-import sa.com.cloudsolutions.antikythera.examples.TestRefactoringStrategy;
+import com.raditha.cleanunit.TestRefactorer;
+import com.raditha.cleanunit.TestRefactoringStrategy;
 
 import java.util.Set;
 
@@ -621,23 +621,13 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
     }
 
     protected String getValueForType(String type) {
-        switch (type) {
-            case "String":
-                return "\"test-value\"";
-            case "boolean":
-            case "Boolean":
-                return "false";
-            case "int":
-            case "Integer":
-                return "0";
-            case "long":
-            case "Long":
-                return "0L";
-            case "double":
-            case "Double":
-                return "0.0";
-            default:
-                return "null";
-        }
+        return switch (type) {
+            case "String" -> "\"test-value\"";
+            case "boolean", "Boolean" -> "false";
+            case "int", "Integer" -> "0";
+            case "long", "Long" -> "0L";
+            case "double", "Double" -> "0.0";
+            default -> "null";
+        };
     }
 }

@@ -1,4 +1,4 @@
-package sa.com.cloudsolutions.antikythera.examples;
+package com.raditha.cleanunit;
 
 import sa.com.cloudsolutions.antikythera.examples.strategies.JUnit4RefactoringStrategy;
 import sa.com.cloudsolutions.antikythera.examples.strategies.JUnit5RefactoringStrategy;

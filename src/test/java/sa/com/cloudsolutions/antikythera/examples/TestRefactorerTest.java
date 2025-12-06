@@ -2,9 +2,10 @@ package sa.com.cloudsolutions.antikythera.examples;
 
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
+import com.raditha.cleanunit.TestRefactorer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import sa.com.cloudsolutions.antikythera.examples.TestRefactorer.RefactorOutcome;
+import com.raditha.cleanunit.TestRefactorer.RefactorOutcome;
 
 import static org.junit.jupiter.api.Assertions.*;
 
