@@ -410,7 +410,7 @@ public class TestRefactorer {
                 RefactorOutcome outcome = new RefactorOutcome(decl.getNameAsString());
                 outcome.originalAnnotation = annotationName;
 
-                TestResourceAnalyzer analyzer = new TestResourceAnalyzer(currentCu);
+                TestResourceAnalyzer analyzer = new TestResourceAnalyzer();
                 Set<ResourceType> resources = analyzer.analyzeClass(decl);
                 outcome.resourcesDetected = resources;
 
