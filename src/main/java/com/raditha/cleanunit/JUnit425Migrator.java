@@ -79,6 +79,12 @@ public class JUnit425Migrator {
                 modified = true;
             }
 
+            // 1b. Convert assertion method calls (Assert.assertEquals -> assertEquals)
+            if (importMigrator.convertAssertionCalls(cu)) {
+                allConversions.addAll(importMigrator.getConversions());
+                modified = true;
+            }
+
             // 2. Migrate annotations (@Before, @After, @RunWith, etc.)
             AnnotationMigrator annotationMigrator = new AnnotationMigrator();
             if (annotationMigrator.migrateAnnotations(testClass)) {

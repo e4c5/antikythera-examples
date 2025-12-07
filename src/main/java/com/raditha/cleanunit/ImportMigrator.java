@@ -2,6 +2,8 @@ package com.raditha.cleanunit;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.ImportDeclaration;
+import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.ast.expr.Expression;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -52,18 +54,33 @@ public class ImportMigrator {
     public boolean migrateImports(CompilationUnit cu) {
         boolean modified = false;
         List<ImportDeclaration> importsToRemove = new ArrayList<>();
-        Map<String, Boolean> importsToAdd = new HashMap<>(); // Import -> isStatic
+
+        // Track imports to add with their static and wildcard flags
+        class ImportInfo {
+            String name;
+            boolean isStatic;
+            boolean isWildcard;
+
+            ImportInfo(String name, boolean isStatic, boolean isWildcard) {
+                this.name = name;
+                this.isStatic = isStatic;
+                this.isWildcard = isWildcard;
+            }
+        }
+        List<ImportInfo> importsToAdd = new ArrayList<>();
 
         // Process existing imports
         for (ImportDeclaration importDecl : cu.getImports()) {
             String importName = importDecl.getNameAsString();
+            boolean isStatic = importDecl.isStatic();
+            boolean isWildcard = importDecl.isAsterisk();
 
             // Handle static imports from JUnit 4 Assert/Assume
-            if (importDecl.isStatic()) {
+            if (isStatic) {
                 String newStaticImport = convertStaticImport(importDecl);
                 if (newStaticImport != null) {
                     importsToRemove.add(importDecl);
-                    importsToAdd.put(newStaticImport, true);
+                    importsToAdd.add(new ImportInfo(newStaticImport, true, isWildcard));
                     conversions.add(importName + " → " + newStaticImport);
                     modified = true;
                     continue;
@@ -74,28 +91,10 @@ public class ImportMigrator {
             if (IMPORT_MAPPINGS.containsKey(importName)) {
                 String newImport = IMPORT_MAPPINGS.get(importName);
                 importsToRemove.add(importDecl);
-                importsToAdd.put(newImport, false);
+                importsToAdd.add(new ImportInfo(newImport, false, false));
                 conversions.add(importName + " → " + newImport);
                 modified = true;
                 continue;
-            }
-
-            // Handle wildcard imports
-            if (importDecl.isAsterisk()) {
-                String packageName = importDecl.getNameAsString();
-                if (packageName.equals("org.junit.Assert")) {
-                    importsToRemove.add(importDecl);
-                    importsToAdd.put("org.junit.jupiter.api.Assertions", false);
-                    conversions.add("org.junit.Assert.* → org.junit.jupiter.api.Assertions.*");
-                    modified = true;
-                    continue;
-                } else if (packageName.equals("org.junit.Assume")) {
-                    importsToRemove.add(importDecl);
-                    importsToAdd.put("org.junit.jupiter.api.Assumptions", false);
-                    conversions.add("org.junit.Assume.* → org.junit.jupiter.api.Assumptions.*");
-                    modified = true;
-                    continue;
-                }
             }
 
             // Check if import should be removed (runners, rules, etc.)
@@ -108,19 +107,13 @@ public class ImportMigrator {
 
         // Remove old imports
         for (ImportDeclaration importDecl : importsToRemove) {
-            importDecl.remove();
+            cu.remove(importDecl);
         }
 
-        // Add new imports
-        for (Map.Entry<String, Boolean> entry : importsToAdd.entrySet()) {
-            String newImport = entry.getKey();
-            boolean isStatic = entry.getValue();
-            if (!hasImport(cu, newImport)) {
-                if (isStatic) {
-                    cu.addImport(newImport, true, false);
-                } else {
-                    cu.addImport(newImport);
-                }
+        // Add new imports with correct static/wildcard flags
+        for (ImportInfo info : importsToAdd) {
+            if (!hasImport(cu, info.name)) {
+                cu.addImport(info.name, info.isStatic, info.isWildcard);
             }
         }
 
@@ -135,8 +128,21 @@ public class ImportMigrator {
      */
     private String convertStaticImport(ImportDeclaration importDecl) {
         var name = importDecl.getName();
+        String fullName = name.asString();
 
-        // Get the qualifier (package + class) and identifier (method/field)
+        // Handle wildcard static imports
+        if (importDecl.isAsterisk()) {
+            if (fullName.equals("org.junit.Assert")) {
+                return "org.junit.jupiter.api.Assertions";
+            }
+            if (fullName.equals("org.junit.Assume")) {
+                return "org.junit.jupiter.api.Assumptions";
+            }
+            return null;
+        }
+
+        // Handle specific static imports (e.g., import static
+        // org.junit.Assert.assertEquals)
         if (name.getQualifier().isEmpty()) {
             return null;
         }
@@ -242,5 +248,47 @@ public class ImportMigrator {
     private boolean hasImport(CompilationUnit cu, String importName) {
         return cu.getImports().stream()
                 .anyMatch(imp -> imp.getNameAsString().equals(importName));
+    }
+
+    /**
+     * Convert qualified assertion method calls to static imports.
+     * e.g., Assert.assertEquals() -> assertEquals()
+     * org.junit.Assert.assertEquals() -> assertEquals()
+     */
+    public boolean convertAssertionCalls(CompilationUnit cu) {
+        boolean modified = false;
+
+        // Find all method call expressions
+        List<MethodCallExpr> methodCalls = cu.findAll(MethodCallExpr.class);
+
+        for (MethodCallExpr call : methodCalls) {
+            // Check if this is a qualified assertion call
+            if (call.getScope().isPresent()) {
+                Expression scope = call.getScope().get();
+
+                // Check if scope is "Assert" or "org.junit.Assert"
+                if (scope.isNameExpr()) {
+                    String scopeName = scope.asNameExpr().getNameAsString();
+                    if (scopeName.equals("Assert") || scopeName.equals("Assume")) {
+                        call.removeScope();
+                        conversions
+                                .add("Converted " + scopeName + "." + call.getNameAsString() + "() to static import");
+                        modified = true;
+                    }
+                }
+                // Check if scope is a fully qualified name like "org.junit.Assert"
+                else if (scope.isFieldAccessExpr()) {
+                    String fullScope = scope.toString();
+                    if (fullScope.equals("org.junit.Assert") || fullScope.equals("org.junit.Assume")) {
+                        call.removeScope();
+                        conversions
+                                .add("Converted " + fullScope + "." + call.getNameAsString() + "() to static import");
+                        modified = true;
+                    }
+                }
+            }
+        }
+
+        return modified;
     }
 }
