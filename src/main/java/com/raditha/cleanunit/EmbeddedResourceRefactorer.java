@@ -75,10 +75,6 @@ public class EmbeddedResourceRefactorer {
      * @return list of conversion outcomes
      */
     public List<ConversionOutcome> refactorAll(CompilationUnit cu) {
-        if (cu == null) {
-            return new ArrayList<>();
-        }
-
         List<ConversionOutcome> outcomes = new ArrayList<>();
         for (ClassOrInterfaceDeclaration testClass : cu.findAll(ClassOrInterfaceDeclaration.class)) {
             ConversionOutcome outcome = processTestClass(testClass, cu);
