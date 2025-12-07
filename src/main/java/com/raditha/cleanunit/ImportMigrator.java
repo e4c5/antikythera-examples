@@ -2,8 +2,6 @@ package com.raditha.cleanunit;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.ImportDeclaration;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -21,10 +19,10 @@ import java.util.Map;
  * - Adds extension imports as needed
  */
 public class ImportMigrator {
-    private static final Logger logger = LoggerFactory.getLogger(ImportMigrator.class);
 
     // Mapping of JUnit 4 imports to JUnit 5 equivalents
     private static final Map<String, String> IMPORT_MAPPINGS = new HashMap<>();
+    public static final String EXTEND_WITH = "org.junit.jupiter.api.extension.ExtendWith";
 
     static {
         // Core annotations
@@ -123,8 +121,8 @@ public class ImportMigrator {
      */
     public void addExtensionImports(CompilationUnit cu, boolean addMockitoExtension, boolean addSpringExtension) {
         if (addMockitoExtension) {
-            if (!hasImport(cu, "org.junit.jupiter.api.extension.ExtendWith")) {
-                cu.addImport("org.junit.jupiter.api.extension.ExtendWith");
+            if (!hasImport(cu, EXTEND_WITH)) {
+                cu.addImport(EXTEND_WITH);
                 conversions.add("Added: org.junit.jupiter.api.extension.ExtendWith");
             }
             if (!hasImport(cu, "org.mockito.junit.jupiter.MockitoExtension")) {
@@ -134,8 +132,8 @@ public class ImportMigrator {
         }
 
         if (addSpringExtension) {
-            if (!hasImport(cu, "org.junit.jupiter.api.extension.ExtendWith")) {
-                cu.addImport("org.junit.jupiter.api.extension.ExtendWith");
+            if (!hasImport(cu, EXTEND_WITH)) {
+                cu.addImport(EXTEND_WITH);
                 conversions.add("Added: org.junit.jupiter.api.extension.ExtendWith");
             }
             if (!hasImport(cu, "org.springframework.test.context.junit.jupiter.SpringExtension")) {
@@ -152,7 +150,7 @@ public class ImportMigrator {
     // Check if import should be removed
     private boolean shouldRemoveImport(String importName) {
         for (String pattern : IMPORTS_TO_REMOVE) {
-            if (importName.startsWith(pattern) || importName.equals(pattern)) {
+            if (importName.equals(pattern)) {
                 return true;
             }
         }

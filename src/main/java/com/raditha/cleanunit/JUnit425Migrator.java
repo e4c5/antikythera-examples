@@ -52,9 +52,7 @@ public class JUnit425Migrator {
                 // Only process test classes
                 if (isTestClass(classDecl)) {
                     ConversionOutcome outcome = migrateTestClass(classDecl, cu);
-                    if (outcome != null) {
-                        outcomes.add(outcome);
-                    }
+                    outcomes.add(outcome);
                 }
             }
         }
@@ -132,7 +130,7 @@ public class JUnit425Migrator {
                 if (dryRun) {
                     logger.info("POM changes (dry run):");
                     for (String change : pomMigrator.getChanges()) {
-                        logger.info("  " + change);
+                        logger.info("  {}", change);
                     }
                 }
             }
