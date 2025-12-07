@@ -81,18 +81,12 @@ public class AnnotationMigrator {
      * Convert @RunWith to @ExtendWith.
      */
     private boolean convertRunWithToExtendWith(ClassOrInterfaceDeclaration testClass, AnnotationExpr runWith) {
-        if (!(runWith instanceof SingleMemberAnnotationExpr)) {
-            logger.warn("Unexpected @RunWith format in class: " + testClass.getNameAsString());
+        if (!(runWith instanceof SingleMemberAnnotationExpr runWithExpr)) {
+            logger.warn("Unexpected @RunWith format in class: {}", testClass.getNameAsString());
             return false;
         }
 
-        SingleMemberAnnotationExpr runWithExpr = (SingleMemberAnnotationExpr) runWith;
         String runnerClass = extractRunnerClass(runWithExpr);
-
-        if (runnerClass == null) {
-            logger.warn("Could not extract runner class from @RunWith");
-            return false;
-        }
 
         // Determine extension class based on runner
         String extensionClass = mapRunnerToExtension(runnerClass);
@@ -175,11 +169,8 @@ public class AnnotationMigrator {
 
             Optional<AnnotationExpr> annotation = method.getAnnotationByName(oldAnnotation);
             if (annotation.isPresent()) {
-                // Create new annotation
                 AnnotationExpr newAnnotationExpr;
-                if (annotation.get() instanceof SingleMemberAnnotationExpr) {
-                    // Preserve annotation value (e.g., @Ignore("reason") → @Disabled("reason"))
-                    SingleMemberAnnotationExpr oldExpr = (SingleMemberAnnotationExpr) annotation.get();
+                if (annotation.get() instanceof SingleMemberAnnotationExpr oldExpr) {
                     newAnnotationExpr = new SingleMemberAnnotationExpr(
                             new Name(newAnnotation),
                             oldExpr.getMemberValue());
