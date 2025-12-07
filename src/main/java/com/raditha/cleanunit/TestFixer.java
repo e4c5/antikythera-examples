@@ -28,6 +28,7 @@ public class TestFixer {
     private static boolean dryRun = false;
     private static boolean refactor = false;
     private static boolean convertEmbedded = false;
+    private static boolean migrate425 = false;
 
     public static void main(String[] args) throws Exception {
         detectArguments(args);
@@ -37,12 +38,9 @@ public class TestFixer {
 
         TestRefactorer refactorer = new TestRefactorer(dryRun);
         List<TestRefactorer.RefactorOutcome> outcomes = new ArrayList<>();
-
-        EmbeddedResourceRefactorer embeddedRefactorer = null;
         List<ConversionOutcome> conversionOutcomes = new ArrayList<>();
-        if (convertEmbedded) {
-            embeddedRefactorer = new EmbeddedResourceRefactorer(dryRun);
-        }
+        List<ConversionOutcome> migrationOutcomes = new ArrayList<>();
+        JUnit425Migrator migrator = migrate425 ? new JUnit425Migrator(dryRun) : null;
 
         for (var entry : AntikytheraRunTime.getResolvedCompilationUnits().entrySet()) {
             boolean modified = processCu(entry.getKey(), entry.getValue());
@@ -57,11 +55,22 @@ public class TestFixer {
                 }
             }
 
-            if (convertEmbedded && embeddedRefactorer != null) {
+            if (convertEmbedded) {
+                EmbeddedResourceRefactorer embeddedRefactorer = new EmbeddedResourceRefactorer(dryRun);
                 List<ConversionOutcome> localConversions = embeddedRefactorer.refactorAll(entry.getValue());
                 if (localConversions != null && !localConversions.isEmpty()) {
                     conversionOutcomes.addAll(localConversions);
                     if (localConversions.stream().anyMatch(o -> o.modified)) {
+                        modified = true;
+                    }
+                }
+            }
+
+            if (migrate425 && migrator != null) {
+                List<ConversionOutcome> localMigrations = migrator.migrateAll(entry.getValue());
+                if (localMigrations != null && !localMigrations.isEmpty()) {
+                    migrationOutcomes.addAll(localMigrations);
+                    if (localMigrations.stream().anyMatch(o -> o.modified)) {
                         modified = true;
                     }
                 }
@@ -72,10 +81,12 @@ public class TestFixer {
             }
         }
 
-        displayStats(outcomes, conversionOutcomes);
+        displayStats(outcomes, conversionOutcomes, migrationOutcomes, migrator);
     }
 
-    private static void displayStats(List<TestRefactorer.RefactorOutcome> outcomes, List<ConversionOutcome> conversionOutcomes) {
+    private static void displayStats(List<TestRefactorer.RefactorOutcome> outcomes,
+            List<ConversionOutcome> conversionOutcomes, List<ConversionOutcome> migrationOutcomes,
+            JUnit425Migrator migrator) {
         if (refactor) {
             System.out.println("\nRefactoring Summary:");
             System.out.printf("%-40s | %-15s -> %-15s | %-20s | %s%n", "Class", "Original", "New", "Action", "Reason");
@@ -95,6 +106,44 @@ public class TestFixer {
                 System.out.println(outcome);
             }
         }
+
+        if (migrate425) {
+            System.out.println("\nJUnit 4 to 5 Migration Summary:");
+            System.out.println("================================================================================");
+
+            // Display POM changes
+            if (migrator != null && !migrator.getPomChanges().isEmpty()) {
+                System.out.println("POM Dependencies:");
+                for (String change : migrator.getPomChanges()) {
+                    System.out.println("  ✓ " + change);
+                }
+                System.out.println();
+            }
+
+            // Display class migrations
+            System.out.printf("%-50s | %-15s | %s%n", "Class", "Action", "Details");
+            System.out.println(
+                    "----------------------------------------------------------------------------------------------------------------------------------");
+            for (ConversionOutcome outcome : migrationOutcomes) {
+                System.out.printf("%-50s | %-15s | %s%n",
+                        outcome.className,
+                        outcome.action != null ? outcome.action : "NONE",
+                        outcome.reason != null ? outcome.reason : "No changes");
+            }
+
+            // Summary statistics
+            long migrated = migrationOutcomes.stream().filter(o -> "MIGRATED".equals(o.action)).count();
+            long skipped = migrationOutcomes.stream().filter(o -> "SKIPPED".equals(o.action)).count();
+            long warnings = migrationOutcomes.stream()
+                    .filter(o -> o.reason != null && o.reason.contains("⚠"))
+                    .count();
+
+            System.out.println();
+            System.out.println("Total: " + migrated + " classes migrated, " + skipped + " skipped");
+            if (warnings > 0) {
+                System.out.println("Warnings: " + warnings + " items require manual review");
+            }
+        }
     }
 
     private static void detectArguments(String[] args) {
@@ -111,6 +160,10 @@ public class TestFixer {
                 case "--convert-embedded" -> {
                     convertEmbedded = true;
                     System.out.println("Embedded resource conversion enabled.");
+                }
+                case "--425" -> {
+                    migrate425 = true;
+                    System.out.println("JUnit 4 to 5 migration enabled.");
                 }
                 default -> {
                     System.err.println("Unknown argument: " + arg);
