@@ -108,41 +108,45 @@ public class TestFixer {
         }
 
         if (migrate425) {
-            System.out.println("\nJUnit 4 to 5 Migration Summary:");
-            System.out.println("================================================================================");
+            junitUpgradeStats(migrationOutcomes, migrator);
+        }
+    }
 
-            // Display POM changes
-            if (migrator != null && !migrator.getPomChanges().isEmpty()) {
-                System.out.println("POM Dependencies:");
-                for (String change : migrator.getPomChanges()) {
-                    System.out.println("  ✓ " + change);
-                }
-                System.out.println();
+    private static void junitUpgradeStats(List<ConversionOutcome> migrationOutcomes, JUnit425Migrator migrator) {
+        System.out.println("\nJUnit 4 to 5 Migration Summary:");
+        System.out.println("================================================================================");
+
+        // Display POM changes
+        if (migrator != null && !migrator.getPomChanges().isEmpty()) {
+            System.out.println("POM Dependencies:");
+            for (String change : migrator.getPomChanges()) {
+                System.out.println("  ✓ " + change);
             }
-
-            // Display class migrations
-            System.out.printf("%-50s | %-15s | %s%n", "Class", "Action", "Details");
-            System.out.println(
-                    "----------------------------------------------------------------------------------------------------------------------------------");
-            for (ConversionOutcome outcome : migrationOutcomes) {
-                System.out.printf("%-50s | %-15s | %s%n",
-                        outcome.className,
-                        outcome.action != null ? outcome.action : "NONE",
-                        outcome.reason != null ? outcome.reason : "No changes");
-            }
-
-            // Summary statistics
-            long migrated = migrationOutcomes.stream().filter(o -> "MIGRATED".equals(o.action)).count();
-            long skipped = migrationOutcomes.stream().filter(o -> "SKIPPED".equals(o.action)).count();
-            long warnings = migrationOutcomes.stream()
-                    .filter(o -> o.reason != null && o.reason.contains("⚠"))
-                    .count();
-
             System.out.println();
-            System.out.println("Total: " + migrated + " classes migrated, " + skipped + " skipped");
-            if (warnings > 0) {
-                System.out.println("Warnings: " + warnings + " items require manual review");
-            }
+        }
+
+        // Display class migrations
+        System.out.printf("%-50s | %-15s | %s%n", "Class", "Action", "Details");
+        System.out.println(
+                "----------------------------------------------------------------------------------------------------------------------------------");
+        for (ConversionOutcome outcome : migrationOutcomes) {
+            System.out.printf("%-50s | %-15s | %s%n",
+                    outcome.className,
+                    outcome.action != null ? outcome.action : "NONE",
+                    outcome.reason != null ? outcome.reason : "No changes");
+        }
+
+        // Summary statistics
+        long migrated = migrationOutcomes.stream().filter(o -> "MIGRATED".equals(o.action)).count();
+        long skipped = migrationOutcomes.stream().filter(o -> "SKIPPED".equals(o.action)).count();
+        long warnings = migrationOutcomes.stream()
+                .filter(o -> o.reason != null && o.reason.contains("⚠"))
+                .count();
+
+        System.out.println();
+        System.out.println("Total: " + migrated + " classes migrated, " + skipped + " skipped");
+        if (warnings > 0) {
+            System.out.println("Warnings: " + warnings + " items require manual review");
         }
     }
 

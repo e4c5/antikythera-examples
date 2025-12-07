@@ -2,6 +2,7 @@ package com.raditha.cleanunit;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.TypeDeclaration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -70,6 +71,8 @@ public class JUnit425Migrator {
         try {
             List<String> allConversions = new ArrayList<>();
             boolean modified = false;
+            boolean needsAssertThrows = false;
+            boolean needsTimeout = false;
 
             // 1. Migrate imports
             ImportMigrator importMigrator = new ImportMigrator();
@@ -91,6 +94,40 @@ public class JUnit425Migrator {
                 allConversions.addAll(importMigrator.getConversions());
             }
 
+            // 3. Migrate @Test annotation parameters (expected, timeout)
+            TestAnnotationMigrator testAnnotationMigrator = new TestAnnotationMigrator();
+            for (MethodDeclaration method : testClass.getMethods()) {
+                if (testAnnotationMigrator.migrateTestAnnotation(method)) {
+                    modified = true;
+                    // Check if we need additional imports
+                    for (String conversion : testAnnotationMigrator.getConversions()) {
+                        if (conversion.contains("assertThrows")) {
+                            needsAssertThrows = true;
+                        }
+                        if (conversion.contains("@Timeout")) {
+                            needsTimeout = true;
+                        }
+                    }
+                }
+            }
+            allConversions.addAll(testAnnotationMigrator.getConversions());
+
+            // Add imports for assertThrows and @Timeout if needed
+            if (needsAssertThrows && !hasImport(cu, "org.junit.jupiter.api.Assertions")) {
+                cu.addImport("org.junit.jupiter.api.Assertions", true, true); // static wildcard
+                allConversions.add("Added: static import org.junit.jupiter.api.Assertions.*");
+            }
+            if (needsTimeout) {
+                if (!hasImport(cu, "org.junit.jupiter.api.Timeout")) {
+                    cu.addImport("org.junit.jupiter.api.Timeout");
+                    allConversions.add("Added: org.junit.jupiter.api.Timeout");
+                }
+                if (!hasImport(cu, "java.util.concurrent.TimeUnit")) {
+                    cu.addImport("java.util.concurrent.TimeUnit");
+                    allConversions.add("Added: java.util.concurrent.TimeUnit");
+                }
+            }
+
             // Populate outcome
             if (modified) {
                 outcome.modified = true;
@@ -109,6 +146,15 @@ public class JUnit425Migrator {
         }
 
         return outcome;
+    }
+
+    /**
+     * Check if compilation unit has import.
+     */
+    private boolean hasImport(CompilationUnit cu, String importName) {
+        return cu.getImports().stream()
+                .anyMatch(imp -> imp.getNameAsString().equals(importName) ||
+                        imp.getNameAsString().startsWith(importName + "."));
     }
 
     /**

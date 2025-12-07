@@ -34,12 +34,14 @@ public class PomDependencyMigrator {
     private static final String JUNIT4_ARTIFACT = "junit";
     private static final String JUNIT5_GROUP = "org.junit.jupiter";
     private static final String JUNIT5_JUPITER = "junit-jupiter";
-    private static final String JUNIT5_VERSION = "5.9.3";
+    private static final String JUNIT5_VERSION = "5.11.3";
+    private static final String JUNIT_VINTAGE_GROUP = "org.junit.vintage";
+    private static final String JUNIT_VINTAGE_ARTIFACT = "junit-vintage-engine";
 
     private static final String MOCKITO_GROUP = "org.mockito";
     private static final String MOCKITO_CORE = "mockito-core";
     private static final String MOCKITO_JUPITER = "mockito-junit-jupiter";
-    private static final String MOCKITO_VERSION = "5.11.0";
+    private static final String MOCKITO_VERSION = "5.14.2";
     private static final int MOCKITO_MIN_MAJOR_VERSION = 3;
 
     private static final String SUREFIRE_GROUP = "org.apache.maven.plugins";
@@ -83,6 +85,12 @@ public class PomDependencyMigrator {
                     modified = true;
                 }
 
+                // Remove JUnit Vintage if present
+                if (removeJUnitVintage(model)) {
+                    changes.add("Removed: " + JUNIT_VINTAGE_GROUP + ":" + JUNIT_VINTAGE_ARTIFACT);
+                    modified = true;
+                }
+
                 // Add JUnit 5
                 if (addJUnit5(model)) {
                     changes.add("Added: " + JUNIT5_GROUP + ":" + JUNIT5_JUPITER + ":" + JUNIT5_VERSION);
@@ -106,6 +114,11 @@ public class PomDependencyMigrator {
             } else {
                 // Dry run mode - just report what would be done
                 changes.add("Would remove: " + JUNIT4_GROUP + ":" + JUNIT4_ARTIFACT);
+
+                if (hasJUnitVintage(model)) {
+                    changes.add("Would remove: " + JUNIT_VINTAGE_GROUP + ":" + JUNIT_VINTAGE_ARTIFACT);
+                }
+
                 changes.add("Would add: " + JUNIT5_GROUP + ":" + JUNIT5_JUPITER + ":" + JUNIT5_VERSION);
 
                 if (needsMockitoUpgrade(model)) {
@@ -142,6 +155,20 @@ public class PomDependencyMigrator {
     private boolean removeJUnit4(Model model) {
         return model.getDependencies()
                 .removeIf(dep -> JUNIT4_GROUP.equals(dep.getGroupId()) && JUNIT4_ARTIFACT.equals(dep.getArtifactId()));
+    }
+
+    // Check if JUnit Vintage is present
+    private boolean hasJUnitVintage(Model model) {
+        return model.getDependencies().stream()
+                .anyMatch(dep -> JUNIT_VINTAGE_GROUP.equals(dep.getGroupId()) &&
+                        JUNIT_VINTAGE_ARTIFACT.equals(dep.getArtifactId()));
+    }
+
+    // Remove JUnit Vintage engine dependency
+    private boolean removeJUnitVintage(Model model) {
+        return model.getDependencies()
+                .removeIf(dep -> JUNIT_VINTAGE_GROUP.equals(dep.getGroupId()) &&
+                        JUNIT_VINTAGE_ARTIFACT.equals(dep.getArtifactId()));
     }
 
     // Add JUnit 5 dependencies
