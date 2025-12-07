@@ -42,8 +42,7 @@ public class PomDependencyMigrator {
     private static final String MOCKITO_CORE = "mockito-core";
     private static final String MOCKITO_JUPITER = "mockito-junit-jupiter";
     private static final String MOCKITO_VERSION = "5.14.2";
-    private static final int MOCKITO_MIN_MAJOR_VERSION = 3;
-
+    private static final int MOCKITO_MIN_MAJOR_VERSION = 5; // Upgrade to 5.x for JUnit 5 compatibility
     private static final String SUREFIRE_GROUP = "org.apache.maven.plugins";
     private static final String SUREFIRE_ARTIFACT = "maven-surefire-plugin";
     private static final String SUREFIRE_MIN_VERSION = "2.22.0";
@@ -102,6 +101,13 @@ public class PomDependencyMigrator {
                     modified = true;
                 }
 
+                // Always add mockito-junit-jupiter if Mockito is present (for JUnit 5
+                // integration)
+                if (hasMockito(model) && addMockitoJupiter(model)) {
+                    changes.add("Added: " + MOCKITO_GROUP + ":" + MOCKITO_JUPITER + ":" + MOCKITO_VERSION);
+                    modified = true;
+                }
+
                 // Upgrade Surefire plugin if needed
                 if (upgradeSurefireIfNeeded(model)) {
                     modified = true;
@@ -144,11 +150,13 @@ public class PomDependencyMigrator {
         return changes;
     }
 
-    // Check if JUnit 4 is present
+    // Check if JUnit 4 is present (either junit:junit or junit-vintage-engine)
     private boolean hasJUnit4(Model model) {
         return model.getDependencies().stream()
-                .anyMatch(dep -> JUNIT4_GROUP.equals(dep.getGroupId()) &&
-                        JUNIT4_ARTIFACT.equals(dep.getArtifactId()));
+                .anyMatch(dep -> (JUNIT4_GROUP.equals(dep.getGroupId()) &&
+                        JUNIT4_ARTIFACT.equals(dep.getArtifactId())) ||
+                        (JUNIT_VINTAGE_GROUP.equals(dep.getGroupId()) &&
+                                JUNIT_VINTAGE_ARTIFACT.equals(dep.getArtifactId())));
     }
 
     // Remove JUnit 4 dependency
@@ -171,26 +179,74 @@ public class PomDependencyMigrator {
                         JUNIT_VINTAGE_ARTIFACT.equals(dep.getArtifactId()));
     }
 
+    // Check if Mockito is present
+    private boolean hasMockito(Model model) {
+        return model.getDependencies().stream()
+                .anyMatch(dep -> MOCKITO_GROUP.equals(dep.getGroupId()) &&
+                        MOCKITO_CORE.equals(dep.getArtifactId()));
+    }
+
     // Add JUnit 5 dependencies
     private boolean addJUnit5(Model model) {
-        // Check if already present
-        boolean hasJUnit5 = model.getDependencies().stream()
-                .anyMatch(dep -> JUNIT5_GROUP.equals(dep.getGroupId()) &&
-                        JUNIT5_JUPITER.equals(dep.getArtifactId()));
+        boolean added = false;
 
-        if (hasJUnit5) {
-            logger.info("JUnit 5 already present, skipping addition");
-            return false;
+        // Check if junit-jupiter already present and upgrade if needed
+        Dependency existingJupiter = model.getDependencies().stream()
+                .filter(dep -> JUNIT5_GROUP.equals(dep.getGroupId()) &&
+                        JUNIT5_JUPITER.equals(dep.getArtifactId()))
+                .findFirst()
+                .orElse(null);
+
+        if (existingJupiter != null) {
+            // Upgrade version if different
+            String currentVersion = existingJupiter.getVersion();
+            if (currentVersion != null && !currentVersion.equals(JUNIT5_VERSION)) {
+                existingJupiter.setVersion(JUNIT5_VERSION);
+                logger.info("Upgraded junit-jupiter from {} to {}", currentVersion, JUNIT5_VERSION);
+                added = true;
+            }
+        } else {
+            // Add junit-jupiter (aggregator dependency)
+            Dependency junit5 = new Dependency();
+            junit5.setGroupId(JUNIT5_GROUP);
+            junit5.setArtifactId(JUNIT5_JUPITER);
+            junit5.setVersion(JUNIT5_VERSION);
+            junit5.setScope("test");
+            model.addDependency(junit5);
+            added = true;
         }
 
-        Dependency junit5 = new Dependency();
-        junit5.setGroupId(JUNIT5_GROUP);
-        junit5.setArtifactId(JUNIT5_JUPITER);
-        junit5.setVersion(JUNIT5_VERSION);
-        junit5.setScope("test");
+        // Check if junit-jupiter-engine exists and upgrade if needed
+        Dependency existingEngine = model.getDependencies().stream()
+                .filter(dep -> JUNIT5_GROUP.equals(dep.getGroupId()) &&
+                        "junit-jupiter-engine".equals(dep.getArtifactId()))
+                .findFirst()
+                .orElse(null);
 
-        model.addDependency(junit5);
-        return true;
+        if (existingEngine != null) {
+            // Upgrade version if different
+            String currentVersion = existingEngine.getVersion();
+            if (currentVersion != null && !currentVersion.equals(JUNIT5_VERSION)) {
+                existingEngine.setVersion(JUNIT5_VERSION);
+                logger.info("Upgraded junit-jupiter-engine from {} to {}", currentVersion, JUNIT5_VERSION);
+                added = true;
+            }
+        } else {
+            // Add junit-jupiter-engine for Surefire compatibility
+            Dependency engine = new Dependency();
+            engine.setGroupId(JUNIT5_GROUP);
+            engine.setArtifactId("junit-jupiter-engine");
+            engine.setVersion(JUNIT5_VERSION);
+            engine.setScope("test");
+            model.addDependency(engine);
+            added = true;
+        }
+
+        if (!added) {
+            logger.info("JUnit 5 already at version {}, skipping", JUNIT5_VERSION);
+        }
+
+        return added;
     }
 
     // Check if Mockito needs upgrade
@@ -222,11 +278,6 @@ public class PomDependencyMigrator {
                         changes.add("Upgraded: " + MOCKITO_GROUP + ":" + MOCKITO_CORE + " from " + oldVersion + " to "
                                 + MOCKITO_VERSION);
                         modified = true;
-
-                        // Add mockito-junit-jupiter
-                        if (addMockitoJupiter(model)) {
-                            changes.add("Added: " + MOCKITO_GROUP + ":" + MOCKITO_JUPITER + ":" + MOCKITO_VERSION);
-                        }
                     }
                 }
                 break;
@@ -387,9 +438,12 @@ public class PomDependencyMigrator {
         }
     }
 
-    // Write Maven POM model
-    private void writePomModel(Path pomPath, Model model) throws IOException {
+    // Write the model back to pom.xml
+    // Note: Maven XPP3 Writer uses fixed 2-space indentation by default
+    private void writePomModel(Path pomPath, Model model) throws Exception {
         MavenXpp3Writer writer = new MavenXpp3Writer();
+        writer.setFileComment(null); // Don't add file comments
+
         try (FileWriter fileWriter = new FileWriter(pomPath.toFile())) {
             writer.write(fileWriter, model);
         }

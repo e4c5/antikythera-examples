@@ -71,8 +71,6 @@ public class JUnit425Migrator {
         try {
             List<String> allConversions = new ArrayList<>();
             boolean modified = false;
-            boolean needsAssertThrows = false;
-            boolean needsTimeout = false;
 
             // 1. Migrate imports
             ImportMigrator importMigrator = new ImportMigrator();
@@ -81,21 +79,40 @@ public class JUnit425Migrator {
                 modified = true;
             }
 
-            // 2. Migrate annotations
+            // 2. Migrate annotations (@Before, @After, @RunWith, etc.)
             AnnotationMigrator annotationMigrator = new AnnotationMigrator();
             if (annotationMigrator.migrateAnnotations(testClass)) {
-                allConversions.addAll(annotationMigrator.getConversions());
                 modified = true;
-
                 // Add extension imports based on detected patterns
                 importMigrator.addExtensionImports(cu,
                         annotationMigrator.needsMockitoExtension(),
                         annotationMigrator.needsSpringExtension());
                 allConversions.addAll(importMigrator.getConversions());
             }
+            allConversions.addAll(annotationMigrator.getConversions());
 
-            // 3. Migrate @Test annotation parameters (expected, timeout)
+            // 3. Migrate @Rule and @ClassRule annotations
+            RuleMigrator ruleMigrator = new RuleMigrator();
+            if (ruleMigrator.migrate(testClass, cu)) {
+                modified = true;
+                allConversions.addAll(ruleMigrator.getConversions());
+            }
+
+            // 4. Check for and flag parameterized tests
+            ParameterizedTestMigrator parameterizedMigrator = new ParameterizedTestMigrator();
+            if (parameterizedMigrator.migrate(testClass, cu)) {
+                modified = true;
+                allConversions.addAll(parameterizedMigrator.getConversions());
+                if (parameterizedMigrator.needsJupiterParams()) {
+                    allConversions.add("NOTE: Add junit-jupiter-params dependency to POM");
+                }
+            }
+
+            // 5. Migrate @Test annotation parameters (expected, timeout)
             TestAnnotationMigrator testAnnotationMigrator = new TestAnnotationMigrator();
+            boolean needsAssertThrows = false;
+            boolean needsTimeout = false;
+
             for (MethodDeclaration method : testClass.getMethods()) {
                 if (testAnnotationMigrator.migrateTestAnnotation(method)) {
                     modified = true;
@@ -111,6 +128,13 @@ public class JUnit425Migrator {
                 }
             }
             allConversions.addAll(testAnnotationMigrator.getConversions());
+
+            // 6. Migrate assertion message parameters (JUnit 4 → JUnit 5 style)
+            AssertionMigrator assertionMigrator = new AssertionMigrator();
+            if (assertionMigrator.migrate(cu)) {
+                modified = true;
+                allConversions.addAll(assertionMigrator.getConversions());
+            }
 
             // Add imports for assertThrows and @Timeout if needed
             if (needsAssertThrows && !hasImport(cu, "org.junit.jupiter.api.Assertions")) {

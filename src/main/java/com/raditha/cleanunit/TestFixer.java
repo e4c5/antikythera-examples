@@ -90,8 +90,7 @@ public class TestFixer {
         if (refactor) {
             System.out.println("\nRefactoring Summary:");
             System.out.printf("%-40s | %-15s -> %-15s | %-20s | %s%n", "Class", "Original", "New", "Action", "Reason");
-            System.out.println(
-                    "----------------------------------------------------------------------------------------------------------------------------------");
+            System.out.println("-".repeat(130));
             for (TestRefactorer.RefactorOutcome outcome : outcomes) {
                 System.out.println(outcome);
             }
@@ -100,8 +99,7 @@ public class TestFixer {
         if (convertEmbedded) {
             System.out.println("\nEmbedded Resource Conversion Summary:");
             System.out.printf("%-40s | %-20s | %-20s | %s%n", "Class", "Action", "Embedded Alternative", "Reason");
-            System.out.println(
-                    "----------------------------------------------------------------------------------------------------------------------------------");
+            System.out.println("-".repeat(130));
             for (ConversionOutcome outcome : conversionOutcomes) {
                 System.out.println(outcome);
             }
@@ -114,7 +112,7 @@ public class TestFixer {
 
     private static void junitUpgradeStats(List<ConversionOutcome> migrationOutcomes, JUnit425Migrator migrator) {
         System.out.println("\nJUnit 4 to 5 Migration Summary:");
-        System.out.println("================================================================================");
+        System.out.println("=".repeat(80));
 
         // Display POM changes
         if (migrator != null && !migrator.getPomChanges().isEmpty()) {
@@ -127,8 +125,7 @@ public class TestFixer {
 
         // Display class migrations
         System.out.printf("%-50s | %-15s | %s%n", "Class", "Action", "Details");
-        System.out.println(
-                "----------------------------------------------------------------------------------------------------------------------------------");
+        System.out.println("-".repeat(130));
         for (ConversionOutcome outcome : migrationOutcomes) {
             System.out.printf("%-50s | %-15s | %s%n",
                     outcome.className,
