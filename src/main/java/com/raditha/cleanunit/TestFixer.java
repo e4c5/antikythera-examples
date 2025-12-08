@@ -54,23 +54,22 @@ public class TestFixer {
                     }
                 }
             }
-
+            if (migrate425 && migrator != null) {
+                List<ConversionOutcome> localMigrations = migrator.migrateAll(entry.getValue());
+                if (localMigrations != null && !localMigrations.isEmpty()) {
+                    migrationOutcomes.addAll(localMigrations);
+                    if (localMigrations.stream().anyMatch(o -> o.modified)) {
+                        modified = true;
+                    }
+                }
+            }
+            /* convert embedded should happen only after 4 to 5 migration  */
             if (convertEmbedded) {
                 EmbeddedResourceRefactorer embeddedRefactorer = new EmbeddedResourceRefactorer(dryRun);
                 List<ConversionOutcome> localConversions = embeddedRefactorer.refactorAll(entry.getValue());
                 if (localConversions != null && !localConversions.isEmpty()) {
                     conversionOutcomes.addAll(localConversions);
                     if (localConversions.stream().anyMatch(o -> o.modified)) {
-                        modified = true;
-                    }
-                }
-            }
-
-            if (migrate425 && migrator != null) {
-                List<ConversionOutcome> localMigrations = migrator.migrateAll(entry.getValue());
-                if (localMigrations != null && !localMigrations.isEmpty()) {
-                    migrationOutcomes.addAll(localMigrations);
-                    if (localMigrations.stream().anyMatch(o -> o.modified)) {
                         modified = true;
                     }
                 }
