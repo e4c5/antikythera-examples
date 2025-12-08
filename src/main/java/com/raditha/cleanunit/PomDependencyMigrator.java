@@ -11,21 +11,53 @@ import sa.com.cloudsolutions.antikythera.configuration.Settings;
 
 import java.io.FileReader;
 import java.io.FileWriter;
-import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Handles Maven POM dependency updates for JUnit 4 to 5 migration.
  * 
+ * <p>
  * Responsibilities:
- * - Remove JUnit 4 dependencies
- * - Add JUnit 5 dependencies
- * - Upgrade Mockito to version 3.x+ if needed
- * - Add mockito-junit-jupiter for JUnit 5 integration
- * - Verify/upgrade Surefire plugin to >= 2.22.0
+ * </p>
+ * <ul>
+ * <li>Remove JUnit 4 dependencies</li>
+ * <li>Add JUnit 5 dependencies with explicit versions to override Spring Boot
+ * BOM</li>
+ * <li>Add JUnit Platform dependencies to prevent version conflicts</li>
+ * <li>Upgrade Mockito to version 5.x+ for JUnit 5 compatibility</li>
+ * <li>Add mockito-junit-jupiter for JUnit 5 integration</li>
+ * <li>Verify/upgrade Surefire plugin to >= 2.22.0</li>
+ * <li>Detect and remove duplicate dependencies</li>
+ * </ul>
+ * 
+ * <p>
+ * <b>Version Management:</b>
+ * </p>
+ * <p>
+ * This class uses version constants that represent the latest stable versions
+ * at the time
+ * of implementation. These should be updated periodically to keep dependencies
+ * current:
+ * </p>
+ * <ul>
+ * <li>{@code JUNIT5_VERSION} - Latest JUnit 5 release</li>
+ * <li>{@code JUNIT_PLATFORM_VERSION} - Must match JUnit 5 major.minor
+ * version</li>
+ * <li>{@code MOCKITO_VERSION} - Latest Mockito release</li>
+ * <li>{@code SUREFIRE_RECOMMENDED_VERSION} - Latest Surefire plugin</li>
+ * </ul>
+ * 
+ * <p>
+ * Check Maven Central for latest versions and update constants as needed.
+ * </p>
  */
 public class PomDependencyMigrator {
     private static final Logger logger = LoggerFactory.getLogger(PomDependencyMigrator.class);
@@ -34,18 +66,38 @@ public class PomDependencyMigrator {
     private static final String JUNIT4_ARTIFACT = "junit";
     private static final String JUNIT5_GROUP = "org.junit.jupiter";
     private static final String JUNIT5_JUPITER = "junit-jupiter";
+
+    // Latest JUnit 5 version (update periodically to latest stable release)
+    // Check: https://mvnrepository.com/artifact/org.junit.jupiter/junit-jupiter
     private static final String JUNIT5_VERSION = "5.11.3";
+
     private static final String JUNIT_VINTAGE_GROUP = "org.junit.vintage";
     private static final String JUNIT_VINTAGE_ARTIFACT = "junit-vintage-engine";
+
+    // JUnit Platform version must match JUnit Jupiter major.minor version for
+    // compatibility
+    // Latest Platform version (update periodically, must match Jupiter version)
+    // Check:
+    // https://mvnrepository.com/artifact/org.junit.platform/junit-platform-commons
+    private static final String JUNIT_PLATFORM_GROUP = "org.junit.platform";
+    private static final String JUNIT_PLATFORM_VERSION = "1.11.3";
 
     private static final String MOCKITO_GROUP = "org.mockito";
     private static final String MOCKITO_CORE = "mockito-core";
     private static final String MOCKITO_JUPITER = "mockito-junit-jupiter";
+
+    // Latest Mockito version (update periodically to latest stable release)
+    // Check: https://mvnrepository.com/artifact/org.mockito/mockito-core
     private static final String MOCKITO_VERSION = "5.14.2";
-    private static final int MOCKITO_MIN_MAJOR_VERSION = 5; // Upgrade to 5.x for JUnit 5 compatibility
+    private static final int MOCKITO_MIN_MAJOR_VERSION = 5; // Minimum version for JUnit 5 compatibility
+
     private static final String SUREFIRE_GROUP = "org.apache.maven.plugins";
     private static final String SUREFIRE_ARTIFACT = "maven-surefire-plugin";
     private static final String SUREFIRE_MIN_VERSION = "2.22.0";
+
+    // Latest Surefire version (update periodically to latest stable release)
+    // Check:
+    // https://mvnrepository.com/artifact/org.apache.maven.plugins/maven-surefire-plugin
     private static final String SUREFIRE_RECOMMENDED_VERSION = "3.2.5";
 
     private final boolean dryRun;
@@ -114,6 +166,8 @@ public class PomDependencyMigrator {
                 }
 
                 if (modified) {
+                    // Remove duplicates before writing
+                    removeDuplicateDependencies(model);
                     writePomModel(pomPath, model);
                     logger.info("POM migration completed successfully");
                 }
@@ -216,6 +270,38 @@ public class PomDependencyMigrator {
             added = true;
         }
 
+        // Add junit-jupiter-params explicitly (Spring Boot BOM may provide older
+        // version)
+        added |= addOrUpgradeDependency(model, JUNIT5_GROUP, "junit-jupiter-params", JUNIT5_VERSION);
+
+        // Check if junit-jupiter-api exists and upgrade if needed
+        // This is critical to override Spring Boot's managed version which may be older
+        Dependency existingApi = model.getDependencies().stream()
+                .filter(dep -> JUNIT5_GROUP.equals(dep.getGroupId()) &&
+                        "junit-jupiter-api".equals(dep.getArtifactId()))
+                .findFirst()
+                .orElse(null);
+
+        if (existingApi != null) {
+            // Upgrade version if different
+            String currentVersion = existingApi.getVersion();
+            if (currentVersion != null && !currentVersion.equals(JUNIT5_VERSION)) {
+                existingApi.setVersion(JUNIT5_VERSION);
+                logger.info("Upgraded junit-jupiter-api from {} to {}", currentVersion, JUNIT5_VERSION);
+                added = true;
+            }
+        } else {
+            // Add junit-jupiter-api explicitly to override Spring Boot's managed version
+            // This ensures CleanupMode and other 5.11+ features are available
+            Dependency api = new Dependency();
+            api.setGroupId(JUNIT5_GROUP);
+            api.setArtifactId("junit-jupiter-api");
+            api.setVersion(JUNIT5_VERSION);
+            api.setScope("test");
+            model.addDependency(api);
+            added = true;
+        }
+
         // Check if junit-jupiter-engine exists and upgrade if needed
         Dependency existingEngine = model.getDependencies().stream()
                 .filter(dep -> JUNIT5_GROUP.equals(dep.getGroupId()) &&
@@ -242,11 +328,101 @@ public class PomDependencyMigrator {
             added = true;
         }
 
+        // Add JUnit Platform dependencies explicitly to override Spring Boot's managed
+        // versions
+        // Spring Boot typically manages 1.7.x which is incompatible with Jupiter 5.11.x
+        added |= addOrUpgradeDependency(model, JUNIT_PLATFORM_GROUP, "junit-platform-commons", JUNIT_PLATFORM_VERSION);
+        added |= addOrUpgradeDependency(model, JUNIT_PLATFORM_GROUP, "junit-platform-engine", JUNIT_PLATFORM_VERSION);
+
         if (!added) {
             logger.info("JUnit 5 already at version {}, skipping", JUNIT5_VERSION);
         }
 
         return added;
+    }
+
+    /**
+     * Helper method to add or upgrade a dependency.
+     * 
+     * @return true if dependency was added or upgraded
+     */
+    private boolean addOrUpgradeDependency(Model model, String groupId, String artifactId, String version) {
+        Dependency existing = model.getDependencies().stream()
+                .filter(dep -> groupId.equals(dep.getGroupId()) &&
+                        artifactId.equals(dep.getArtifactId()))
+                .findFirst()
+                .orElse(null);
+
+        if (existing != null) {
+            // Upgrade version if different
+            String currentVersion = existing.getVersion();
+            if (currentVersion != null && !currentVersion.equals(version)) {
+                existing.setVersion(version);
+                logger.info("Upgraded {}:{} from {} to {}", groupId, artifactId, currentVersion, version);
+                return true;
+            }
+            return false;
+        } else {
+            // Add new dependency
+            Dependency dep = new Dependency();
+            dep.setGroupId(groupId);
+            dep.setArtifactId(artifactId);
+            dep.setVersion(version);
+            dep.setScope("test");
+            model.addDependency(dep);
+            logger.info("Added {}:{}:{}", groupId, artifactId, version);
+            return true;
+        }
+    }
+
+    /**
+     * Remove duplicate dependencies from the POM.
+     * If duplicates are found, keeps the last occurrence and removes earlier ones.
+     */
+    private void removeDuplicateDependencies(Model model) {
+        List<Dependency> dependencies = model.getDependencies();
+        if (dependencies == null || dependencies.isEmpty()) {
+            return;
+        }
+
+        // Track seen dependencies by groupId:artifactId
+        Map<String, List<Integer>> dependencyOccurrences = new HashMap<>();
+
+        // Find all occurrences of each dependency
+        for (int i = 0; i < dependencies.size(); i++) {
+            Dependency dep = dependencies.get(i);
+            String key = dep.getGroupId() + ":" + dep.getArtifactId();
+            dependencyOccurrences.computeIfAbsent(key, k -> new ArrayList<>()).add(i);
+        }
+
+        // Remove duplicates (keep the last occurrence)
+        Set<Integer> indicesToRemove = new HashSet<>();
+        for (Map.Entry<String, List<Integer>> entry : dependencyOccurrences.entrySet()) {
+            List<Integer> occurrences = entry.getValue();
+            if (occurrences.size() > 1) {
+                String depKey = entry.getKey();
+                logger.warn("Found {} duplicate entries for dependency: {}", occurrences.size(), depKey);
+
+                // Mark all but the last occurrence for removal
+                for (int i = 0; i < occurrences.size() - 1; i++) {
+                    indicesToRemove.add(occurrences.get(i));
+                    logger.info("Removing duplicate dependency {} at index {}", depKey, occurrences.get(i));
+                }
+
+                changes.add("Removed duplicate: " + depKey + " (" + (occurrences.size() - 1) + " duplicates)");
+            }
+        }
+
+        // Remove in reverse order to maintain index validity
+        List<Integer> sortedIndices = new ArrayList<>(indicesToRemove);
+        sortedIndices.sort(Collections.reverseOrder());
+        for (Integer index : sortedIndices) {
+            dependencies.remove(index.intValue());
+        }
+
+        if (!indicesToRemove.isEmpty()) {
+            logger.info("Removed {} duplicate dependencies from POM", indicesToRemove.size());
+        }
     }
 
     // Check if Mockito needs upgrade
