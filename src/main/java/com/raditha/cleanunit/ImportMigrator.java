@@ -52,6 +52,7 @@ public class ImportMigrator {
      * @return true if any imports were changed
      */
     public boolean migrateImports(CompilationUnit cu) {
+        conversions.clear();
         boolean modified = false;
         List<ImportDeclaration> importsToRemove = new ArrayList<>();
 
@@ -217,6 +218,7 @@ public class ImportMigrator {
      * @param addSpringExtension  whether to add Spring extension import
      */
     public void addExtensionImports(CompilationUnit cu, boolean addMockitoExtension, boolean addSpringExtension) {
+        conversions.clear();
         if (addMockitoExtension) {
             if (!hasImport(cu, EXTEND_WITH)) {
                 cu.addImport(EXTEND_WITH);
@@ -254,9 +256,13 @@ public class ImportMigrator {
      * Convert qualified assertion method calls to static imports.
      * e.g., Assert.assertEquals() -> assertEquals()
      * org.junit.Assert.assertEquals() -> assertEquals()
+     * Also ensures the necessary static imports are added.
      */
     public boolean convertAssertionCalls(CompilationUnit cu) {
+        conversions.clear();
         boolean modified = false;
+        boolean needsAssertionsImport = false;
+        boolean needsAssumptionsImport = false;
 
         // Find all method call expressions
         List<MethodCallExpr> methodCalls = cu.findAll(MethodCallExpr.class);
@@ -269,26 +275,56 @@ public class ImportMigrator {
                 // Check if scope is "Assert" or "org.junit.Assert"
                 if (scope.isNameExpr()) {
                     String scopeName = scope.asNameExpr().getNameAsString();
-                    if (scopeName.equals("Assert") || scopeName.equals("Assume")) {
+                    if (scopeName.equals("Assert")) {
                         call.removeScope();
                         conversions
                                 .add("Converted " + scopeName + "." + call.getNameAsString() + "() to static import");
                         modified = true;
+                        needsAssertionsImport = true;
+                    } else if (scopeName.equals("Assume")) {
+                        call.removeScope();
+                        conversions
+                                .add("Converted " + scopeName + "." + call.getNameAsString() + "() to static import");
+                        modified = true;
+                        needsAssumptionsImport = true;
                     }
                 }
                 // Check if scope is a fully qualified name like "org.junit.Assert"
                 else if (scope.isFieldAccessExpr()) {
                     String fullScope = scope.toString();
-                    if (fullScope.equals("org.junit.Assert") || fullScope.equals("org.junit.Assume")) {
+                    if (fullScope.equals("org.junit.Assert")) {
                         call.removeScope();
                         conversions
                                 .add("Converted " + fullScope + "." + call.getNameAsString() + "() to static import");
                         modified = true;
+                        needsAssertionsImport = true;
+                    } else if (fullScope.equals("org.junit.Assume")) {
+                        call.removeScope();
+                        conversions
+                                .add("Converted " + fullScope + "." + call.getNameAsString() + "() to static import");
+                        modified = true;
+                        needsAssumptionsImport = true;
                     }
                 }
             }
         }
 
+        // Add static imports if needed
+        if (needsAssertionsImport && !hasStaticImport(cu, "org.junit.jupiter.api.Assertions")) {
+            cu.addImport("org.junit.jupiter.api.Assertions", true, true);
+            conversions.add("Added static import: org.junit.jupiter.api.Assertions.*");
+        }
+        if (needsAssumptionsImport && !hasStaticImport(cu, "org.junit.jupiter.api.Assumptions")) {
+            cu.addImport("org.junit.jupiter.api.Assumptions", true, true);
+            conversions.add("Added static import: org.junit.jupiter.api.Assumptions.*");
+        }
+
         return modified;
+    }
+
+    // Check if compilation unit already has a static wildcard import
+    private boolean hasStaticImport(CompilationUnit cu, String importName) {
+        return cu.getImports().stream()
+                .anyMatch(imp -> imp.getNameAsString().equals(importName) && imp.isStatic());
     }
 }

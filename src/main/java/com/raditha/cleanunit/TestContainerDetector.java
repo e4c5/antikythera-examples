@@ -2,6 +2,7 @@ package com.raditha.cleanunit;
 
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
+import com.github.javaparser.ast.body.VariableDeclarator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -72,7 +73,16 @@ public class TestContainerDetector {
         }
 
         String typeName = field.getElementType().asString();
-        return mapTypeNameToContainer(typeName);
+        ContainerType mapped = mapTypeNameToContainer(typeName);
+        if (mapped != ContainerType.NONE) {
+            return mapped;
+        }
+
+        if (typeName.contains("GenericContainer")) {
+            return detectGenericContainerType(field);
+        }
+
+        return ContainerType.NONE;
     }
 
     /**
@@ -99,15 +109,6 @@ public class TestContainerDetector {
         if (typeName.contains("KafkaContainer")) {
             return ContainerType.KAFKA;
         }
-        if (typeName.contains("GenericContainer")) {
-            // Check for Redis or MongoDB in generic containers
-            if (typeName.toLowerCase().contains("redis")) {
-                return ContainerType.REDIS;
-            }
-            if (typeName.toLowerCase().contains("mongo")) {
-                return ContainerType.MONGODB;
-            }
-        }
         // Dedicated container types (if they exist in testcontainers)
         if (typeName.contains("RedisContainer")) {
             return ContainerType.REDIS;
@@ -116,6 +117,50 @@ public class TestContainerDetector {
             return ContainerType.MONGODB;
         }
 
+        return ContainerType.NONE;
+    }
+
+    /**
+     * Infer container type for GenericContainer declarations by inspecting variable
+     * names and initializers.
+     */
+    private ContainerType detectGenericContainerType(FieldDeclaration field) {
+        for (VariableDeclarator variable : field.getVariables()) {
+            String name = variable.getNameAsString();
+            if (containsKeyword(name, "redis")) {
+                return ContainerType.REDIS;
+            }
+            if (containsKeyword(name, "mongo")) {
+                return ContainerType.MONGODB;
+            }
+
+            if (variable.getInitializer().isPresent()) {
+                String initializerText = variable.getInitializer().get().toString();
+                ContainerType fromInitializer = classifyInitializer(initializerText);
+                if (fromInitializer != ContainerType.NONE) {
+                    return fromInitializer;
+                }
+            }
+        }
+        return ContainerType.NONE;
+    }
+
+    private boolean containsKeyword(String candidate, String keyword) {
+        return candidate != null && candidate.toLowerCase().contains(keyword);
+    }
+
+    private ContainerType classifyInitializer(String initializerText) {
+        if (initializerText == null) {
+            return ContainerType.NONE;
+        }
+
+        String lower = initializerText.toLowerCase();
+        if (lower.contains("redis")) {
+            return ContainerType.REDIS;
+        }
+        if (lower.contains("mongo")) {
+            return ContainerType.MONGODB;
+        }
         return ContainerType.NONE;
     }
 
