@@ -88,6 +88,52 @@ class TestContainerDetectorTest {
     }
 
     @Test
+    void detectsRedisGenericContainerFromInitializer() {
+        String code = """
+                import org.testcontainers.containers.GenericContainer;
+                import org.testcontainers.junit.jupiter.Container;
+                import org.testcontainers.junit.jupiter.Testcontainers;
+
+                @Testcontainers
+                class RedisTest {
+                    @Container
+                    static GenericContainer<?> cacheContainer = new GenericContainer<>("redis:6-alpine");
+                }
+                """;
+
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        ClassOrInterfaceDeclaration testClass = cu.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
+
+        TestContainerDetector detector = new TestContainerDetector();
+        Set<TestContainerDetector.ContainerType> containers = detector.detectContainers(testClass);
+
+        assertTrue(containers.contains(TestContainerDetector.ContainerType.REDIS));
+    }
+
+    @Test
+    void detectsMongoGenericContainerFromName() {
+        String code = """
+                import org.testcontainers.containers.GenericContainer;
+                import org.testcontainers.junit.jupiter.Container;
+                import org.testcontainers.junit.jupiter.Testcontainers;
+
+                @Testcontainers
+                class MongoTest {
+                    @Container
+                    static GenericContainer<?> mongoContainer = new GenericContainer<>("custom/image");
+                }
+                """;
+
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        ClassOrInterfaceDeclaration testClass = cu.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
+
+        TestContainerDetector detector = new TestContainerDetector();
+        Set<TestContainerDetector.ContainerType> containers = detector.detectContainers(testClass);
+
+        assertTrue(containers.contains(TestContainerDetector.ContainerType.MONGODB));
+    }
+
+    @Test
     void returnsEmptyWhenNoTestcontainersAnnotation() {
         String code = """
                 class MyTest {

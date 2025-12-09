@@ -169,18 +169,7 @@ public class AnnotationMigrator {
 
             Optional<AnnotationExpr> annotation = method.getAnnotationByName(oldAnnotation);
             if (annotation.isPresent()) {
-                AnnotationExpr newAnnotationExpr;
-                if (annotation.get() instanceof SingleMemberAnnotationExpr oldExpr) {
-                    newAnnotationExpr = new SingleMemberAnnotationExpr(
-                            new Name(newAnnotation),
-                            oldExpr.getMemberValue());
-                } else {
-                    // Simple annotation without value
-                    newAnnotationExpr = new com.github.javaparser.ast.expr.MarkerAnnotationExpr(
-                            new Name(newAnnotation));
-                }
-
-                // Replace annotation
+                AnnotationExpr newAnnotationExpr = cloneAnnotationWithNewName(annotation.get(), newAnnotation);
                 annotation.get().replace(newAnnotationExpr);
                 conversions.add(
                         "@" + oldAnnotation + " → @" + newAnnotation + " (method: " + method.getNameAsString() + ")");
@@ -201,5 +190,14 @@ public class AnnotationMigrator {
 
     public boolean needsSpringExtension() {
         return needsSpringExtension;
+    }
+
+    /**
+     * Clone the provided annotation and update its name while preserving member values.
+     */
+    private AnnotationExpr cloneAnnotationWithNewName(AnnotationExpr original, String newAnnotationName) {
+        AnnotationExpr cloned = original.clone();
+        cloned.setName(new Name(newAnnotationName));
+        return cloned;
     }
 }
