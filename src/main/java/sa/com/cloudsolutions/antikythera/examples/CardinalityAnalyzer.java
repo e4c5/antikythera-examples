@@ -3,7 +3,6 @@ package sa.com.cloudsolutions.antikythera.examples;
 import sa.com.cloudsolutions.liquibase.Indexes;
 
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Collections;
 import java.util.Set;
