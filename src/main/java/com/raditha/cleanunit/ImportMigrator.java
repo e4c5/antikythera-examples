@@ -52,6 +52,7 @@ public class ImportMigrator {
      * @return true if any imports were changed
      */
     public boolean migrateImports(CompilationUnit cu) {
+        conversions.clear();
         boolean modified = false;
         List<ImportDeclaration> importsToRemove = new ArrayList<>();
 
@@ -217,6 +218,7 @@ public class ImportMigrator {
      * @param addSpringExtension  whether to add Spring extension import
      */
     public void addExtensionImports(CompilationUnit cu, boolean addMockitoExtension, boolean addSpringExtension) {
+        conversions.clear();
         if (addMockitoExtension) {
             if (!hasImport(cu, EXTEND_WITH)) {
                 cu.addImport(EXTEND_WITH);
@@ -257,6 +259,7 @@ public class ImportMigrator {
      * Also ensures the necessary static imports are added.
      */
     public boolean convertAssertionCalls(CompilationUnit cu) {
+        conversions.clear();
         boolean modified = false;
         boolean needsAssertionsImport = false;
         boolean needsAssumptionsImport = false;
