@@ -239,14 +239,38 @@ public class EmbeddedResourceRefactorer {
     }
 
     /**
-     * Collect dependency changes from all converters.
+     * Collect dependency changes from converters that were actually used.
+     * Uses the embeddedAlternative field in outcomes to determine which converters were successful.
      */
     private void collectDependencyChanges(List<ConversionOutcome> outcomes,
             Set<Dependency> toAdd,
             Set<Dependency> toRemove) {
+        // Track which converters were actually used based on the embedded alternatives
+        Set<String> usedConverterTypes = new HashSet<>();
+        
+        for (ConversionOutcome outcome : outcomes) {
+            if (outcome.modified && outcome.embeddedAlternative != null) {
+                // Map embedded alternatives to converter types
+                String alternative = outcome.embeddedAlternative.toLowerCase();
+                if (alternative.contains("h2") || alternative.contains("database")) {
+                    usedConverterTypes.add("Database");
+                } else if (alternative.contains("kafka")) {
+                    usedConverterTypes.add("Kafka");
+                } else if (alternative.contains("redis")) {
+                    usedConverterTypes.add("Redis");
+                } else if (alternative.contains("mongo")) {
+                    usedConverterTypes.add("Mongo");
+                }
+            }
+        }
+        
+        // Only collect dependencies from converters that were actually used
         for (EmbeddedResourceConverter converter : converters) {
-            toAdd.addAll(converter.getRequiredDependencies());
-            toRemove.addAll(converter.getDependenciesToRemove());
+            String converterType = converter.getClass().getSimpleName().replace("ToEmbeddedConverter", "");
+            if (usedConverterTypes.contains(converterType)) {
+                toAdd.addAll(converter.getRequiredDependencies());
+                toRemove.addAll(converter.getDependenciesToRemove());
+            }
         }
     }
 

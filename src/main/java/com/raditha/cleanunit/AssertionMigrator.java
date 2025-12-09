@@ -96,9 +96,21 @@ public class AssertionMigrator {
             return false;
         }
 
-        // Must have at least 2 arguments (message + at least one other)
-        if (call.getArguments().size() < 2) {
-            return false;
+        // For assertEquals, assertNotEquals, assertSame, assertNotSame, and assertArrayEquals,
+        // the message version requires 3 arguments: (message, expected, actual)
+        // Two-argument versions like assertEquals(expected, actual) do NOT have a message
+        if (methodName.equals("assertEquals") || methodName.equals("assertNotEquals") ||
+            methodName.equals("assertSame") || methodName.equals("assertNotSame") ||
+            methodName.equals("assertArrayEquals")) {
+            if (call.getArguments().size() < 3) {
+                return false;
+            }
+        } else {
+            // For assertTrue, assertFalse, assertNull, assertNotNull,
+            // the message version requires 2 arguments: (message, value)
+            if (call.getArguments().size() < 2) {
+                return false;
+            }
         }
 
         // First argument should look like a message (String literal or String
