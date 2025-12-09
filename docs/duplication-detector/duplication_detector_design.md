@@ -245,25 +245,63 @@ Structural Score = 0.5 × Jaccard(patterns1, patterns2) +
 
 > **Critical for Phase 2 Refactoring**: Phase 1 must capture ALL data needed for automated refactoring to avoid re-parsing.
 
-### 6.1 Enhanced Token
+> **Memory Optimization**: Use lightweight IDs and shared contexts to avoid duplicating heavy AST structures across thousands of sequences.
+
+### 6.1 Lightweight Token
+
+**Design Principle**: Avoid storing full AST node references per token (causes 10-100x memory bloat). Use IDs instead.
 
 ```java
 record Token(
     TokenType type,
     String normalizedValue,  // e.g., "VAR", "METHOD_CALL(save)"
     
-    // CRITICAL: Preserve original context
+    // Lightweight references (NOT heavy objects)
     String originalValue,    // e.g., "userId", "userRepo.save"
     String inferredType,     // e.g., "Long", "void"
-    Node originalASTNode,    // Link to AST for refactoring
+    int astNodeId,           // Lightweight ID (resolve via FileContext if needed)
+    int fileContextId,       // Reference to shared FileContext
     int lineNumber,          // Source line
     int columnNumber         // Source column
 ) {}
 ```
 
-This enables variation tracking: when we normalize `userId` and `customerId` both to `VAR`, we record the variation `(VARIABLE, position, "userId", "customerId")` which becomes a method parameter in Phase 2.
+**Memory Impact**: ~50 bytes per token (vs ~200 bytes with full AST reference)
 
-### 6.2 Enhanced StatementSequence
+### 6.2 Shared File Context
+
+**Problem**: Multiple sequences from same file were duplicating CompilationUnit, imports, source text.
+
+**Solution**: ONE FileContext per file, referenced by ID.
+
+```java
+record FileContext(
+    int id,
+    Path sourceFilePath,
+    CompilationUnit compilationUnit,
+    List<String> imports,
+    String originalFileContent,
+    Map<Integer, Node> astNodeCache  // Lazy-loaded only if refactoring needed
+) {}
+```
+
+**Memory Impact**: ~50KB per file (shared across all sequences in that file)
+
+### 6.3 Shared Method Context
+
+```java
+record MethodContext(
+    int id,
+    int fileContextId,
+    MethodDeclaration declaration,
+    ClassOrInterfaceDeclaration containingClass,
+    ScopeContext scopeContext
+) {}
+```
+
+**Memory Impact**: ~5KB per method (shared across all sequences in that method)
+
+### 6.4 Optimized StatementSequence
 
 ```java
 record StatementSequence(
@@ -273,20 +311,21 @@ record StatementSequence(
     String methodName,
     int startOffset,
     
-    // CRITICAL for Refactoring (Phase 2)
-    MethodDeclaration containingMethod,      // Parent method AST node
-    ClassOrInterfaceDeclaration containingClass,  // Parent class AST node
-    CompilationUnit compilationUnit,         // For file-level modifications
-    Path sourceFilePath,                     // Absolute path to source file
-    String originalSourceText,               // Preserve original formatting
-    List<String> currentImports,             // Existing imports in file
-    ScopeContext scopeContext                // Variables available in scope
+    // Lightweight references to shared contexts
+    int fileContextId,       // Resolve to FileContext
+    int methodContextId      // Resolve to MethodContext
 ) {}
 ```
 
-**Lifecycle Management**: Records are created ONCE during detection. AST modifications in Phase 2 use fresh references from the compilation unit. Records are NOT updated after refactoring.
+**Memory Impact**: ~100 bytes per sequence (vs ~1KB with full embedded contexts)
 
-### 6.3 ScopeContext
+**Lifecycle Management**: 
+- FileContext and MethodContext created once during parsing
+- StatementSequence holds only IDs
+- Phase 2 refactoring resolves IDs to get full AST access
+- Records are NOT updated after refactoring (AST modified in-place)
+
+### 6.5 ScopeContext
 
 ```java
 record ScopeContext(
@@ -306,7 +345,15 @@ record VariableInfo(
 ) {}
 ```
 
-### 6.4 Enhanced SimilarityResult
+**Scope Analysis Limitations** (Phase 1):
+- ✅ Method parameters, local variables, class fields, static imports
+- ⚠️ **Lambda-captured variables**: Marked as `MANUAL_REVIEW_REQUIRED`
+- ⚠️ **Anonymous class scopes**: Marked as `MANUAL_REVIEW_REQUIRED`  
+- ⚠️ **Method references**: Marked as `MANUAL_REVIEW_REQUIRED`
+
+**Phase 2 Enhancement**: Full lambda scope analysis with captured variable tracking
+
+### 6.6 Enhanced SimilarityResult
 
 ```java
 record SimilarityResult(
@@ -325,7 +372,9 @@ record SimilarityResult(
 ) {}
 ```
 
-### 6.5 Variation Analysis
+### 6.7 Variation Analysis
+
+**Design Note**: Variation tracking uses **alignment indices from LCS algorithm** (not raw positions) to ensure correct mapping even when sequences have gaps/insertions.
 
 ```java
 record VariationAnalysis(
@@ -338,7 +387,8 @@ record VariationAnalysis(
 
 record Variation(
     VariationType type,                     // LITERAL, VARIABLE, METHOD_CALL, TYPE
-    int position,                           // Token position in sequence
+    int alignedIndex1,                      // Aligned position in sequence 1
+    int alignedIndex2,                      // Aligned position in sequence 2
     String value1, String value2,           // Values in each sequence
     String inferredType,                    // Type of this variation
     boolean canParameterize                 // Extract as param?
@@ -538,13 +588,52 @@ public record SimilarityWeights(
 - ✅ Text/JSON reports with refactoring recommendations
 - ✅ CLI interface with CI/CD exit codes
 
-### 9.2 Example Output
+### 9.2 Pre-Filtering Strategy (Critical for Performance)
+
+Without pre-filtering, comparing all sequence pairs results in O(N²) complexity that is prohibitive for large code bases.
+
+**Three-Stage Filtering**:
+
+**Stage 1: Size Filter** (Cheap, ~95% reduction)
+- Skip pairs where size difference > 30%
+- If `|len(seq1) - len(seq2)| / max(len(seq1), len(seq2)) > 0.3` → skip
+
+**Stage 2: Structural Pre-Filter** (Moderate, additional ~50% reduction)
+- Compare control flow patterns (if/for/while counts)
+- If Jaccard(patterns1, patterns2) < 0.5 → skip
+- Structural signature computation is O(n), very fast
+
+**Stage 3: LSH Bucketing** (Optional, for cross-file analysis)
+- Generate w-shingles (w=5) for each normalized sequence
+- Compute MinHash signature (128 hash functions)
+- LSH bucketing with band size=4, rows=32
+- Only compare sequences in same LSH bucket
+- **Expected reduction**: 99%+ of comparisons eliminated
+
+**MVP Approach** (Phase 1 initial):
+- Per-file analysis: Compare sequences within same file only
+- Use Stage 1 + Stage 2 filtering
+- Target: <1 million comparisons for 10K sequences
+
+**Enhanced Approach** (Phase 1 if MVP insufficient):
+- Add Stage 3 (LSH) for cross-file comparisons
+- Module-level sharding for monorepos
+- Target: <100K meaningful comparisons
+
+**Performance Impact**:
+| Scenario | Sequences | Without Filtering | WithStages 1+2 | With LSH (Stages 1+2+3) |
+|----------|-----------|-------------------|----------------|------------------------|
+| Small project | 2K | 4M comparisons | 200K | 20K |
+| Medium project | 10K | 100M comparisons | 5M | 200K |
+| Large project | 50K | 2.5B comparisons | 125M | 2.5M |
+
+### 9.3 Example Output
 
 **Text Report**:
 ```
 Code Duplication Analysis
 =========================
-Project: csi-bm-approval-java-service
+Project: sample-enterprise-service
 Config: moderate (minLines=4, threshold=0.75)
 
 Summary: 23 clusters, 347 duplicate lines, ~280 LOC reduction potential
@@ -994,14 +1083,63 @@ public class TestFixerIntegration {
 4. **Lazy evaluation** (only analyze feasibility for clusters above threshold)
 5. **Scope caching** (cache scope context per method)
 
-### 12.4 Memory Considerations
+### 12.4 Memory Budget
 
-**Phase 1 overhead**: ~20-30% additional memory for enhanced metadata
+**With Lightweight Design** (from Section 6 optimizations):
 
-**Mitigation**:
-- Records are short-lived (exist during analysis, discarded after report)
-- JVM garbage collection handles circular references
-- If needed: implement explicit cleanup or weak references
+| Component | Size per Item | Example (10K sequences, 1K files) |
+|-----------|---------------|-----------------------------------|
+| Token | ~50 bytes | 1M tokens = 50MB |
+| StatementSequence | ~100 bytes | 10K sequences = 1MB |
+| FileContext (shared) | ~50KB per file | 1K files = 50MB |
+| MethodContext (shared) | ~5KB per method | 5K methods = 25MB |
+| **Total** | - | **~126MB** |
+
+**Memory Target**: <500MB for analyzing 10K sequences
+
+**Enforcement**:
+- Metrics tracking via JMX
+- Fail-fast if memory usage exceeds 80% of target
+- Warning at 60% of target
+
+**Mitigation Strategies**:
+- Lightweight IDs instead of full object references
+- FileContext/MethodContext sharing across sequences
+- Lazy-load AST node cache (only for refactoring phase)
+- Stream-based processing for very large projects
+
+### 12.5 Parallelization Model
+
+**Execution Framework**: Java ForkJoinPool
+
+**Configuration**:
+```java
+ForkJoinPool pool = new ForkJoinPool(
+    Runtime.getRuntime().availableProcessors() - 1  // Leave 1 core for OS
+);
+```
+
+**Thread Safety Strategy**:
+- All data structures are **immutable records** → inherently thread-safe
+- Thread-local accumulation of results
+- Final merge step in main thread for deterministic ordering
+
+**Implementation**:
+```java
+List<SimilarityPair> results = sequencePairs.parallelStream()
+    .filter(pair -> sizeFilter(pair))           // Stage 1: Size filter
+    .filter(pair -> structuralFilter(pair))     // Stage 2: Structural filter
+    .map(pair -> detector.compare(pair.seq1(), pair.seq2()))
+    .filter(result -> result.overallScore() > threshold)
+    .toList();
+```
+
+**Cluster Formation** (deterministic):
+- Use concurrent hash map for candidate accumulation
+- Sort by primary sequence ID before forming clusters
+- Ensures reproducible results across runs
+
+**Expected Speedup**: Linear scaling up to number of cores (7-8x on 8-core machine)
 
 ---
 
@@ -1035,28 +1173,169 @@ Interactive web-based report with:
 
 ### Comparison with Existing Tools
 
-| Feature | This Design | PMD CPD | SonarQube | Simian |
-|---------|-------------|---------|-----------|--------|
-| **Semantic similarity** | ✅ Method-aware token normalization | ❌ Text-based | ⚠️ AST-based (limited) | ❌ Text-based |
-| **Gradual scoring** | ✅ 0-100% similarity | ❌ Binary yes/no | ⚠️ Line count only | ❌ Binary yes/no |
-| **Refactoring suggestions** | ✅ Detailed with parameters | ❌ None | ❌ None | ❌ None |
-| **Automated refactoring** | ✅ Phase 2 | ❌ None | ❌ None | ❌ None |
-| **Test-specific patterns** | ✅ @BeforeEach, @ParameterizedTest | ❌ None | ❌ None | ❌ None |
-| **Hybrid algorithm** | ✅ LCS+Levenshtein+Structural | ❌ Simple text match | ⚠️ AST-based | ❌ Simple text match |
-| **Interactive review** | ✅ CLI with approve/edit | ❌ None | ⚠️ Web UI (view only) | ❌ None |
-| **Variation tracking** | ✅ For parameter extraction | ❌ None | ❌ None | ❌ None |
+| Feature | This Design | PMD CPD | SonarQube | CloneDR | NiCad/Deckard | IntelliJ/Eclipse |
+|---------|-------------|---------|-----------|---------|---------------|------------------|
+| **Detection approach** | Token + AST hybrid | Token-based (suffix tree) | AST-based | AST characteristic vectors | Pretty-print normalization / AST vectors | AST-based (file-local) |
+| **Identifier normalization** | ✅ Method-aware | ✅ Ignore-identifiers option | ✅ AST-based | ✅ Characteristic vectors | ✅ Pretty-print based | ✅ AST-based |
+| **Gradual scoring** | ✅ 0-100% | ❌ Binary | ✅ Duplication % | ✅ Similarity score | ✅ Similarity score | ⚠️ Limited |
+| **Refactoring suggestions** | ✅ Detailed with auto-generated signatures | ❌ None | ❌ None | ⚠️ Manual suggestions | ❌ None | ✅ Quick-fix (file-local) |
+| **Automated refactoring** | ✅ Cross-class with validation | ❌ None | ❌ None | ❌ None | ❌ None | ⚠️ File-local only |
+| **Test-specific patterns** | ✅ @BeforeEach, @ParameterizedTest | ❌ None | ❌ None | ❌ None | ❌ None | ❌ None |
+| **Variation tracking** | ✅ For parameter extraction | ❌ None | ❌ None | ❌ None | ❌ None | ❌ None |
+| **Interactive review** | ✅ CLI with session management | ❌ None | ⚠️ Web UI (view only) | ⚠️ Commercial UI | ❌ Batch only | ✅ IDE UI |
+| **CI/CD integration** | ✅ Exit codes, JSON output | ✅ XML output | ✅ Via API | ⚠️ Commercial | ⚠️ Limited | ❌ IDE-bound |
 
-### Unique Competitive Advantages
+### Honest Assessment of Existing Tools
 
-1. **Automated Refactoring**: Only tool that not only _detects_ but also _fixes_ duplicates
-2. **Test-Specific Intelligence**: Understands test patterns (@BeforeEach extraction, parameterized tests)
-3. **Semantic Awareness**: Preserves method names to avoid false positives (setActive ≠ setDeleted)
-4. **Gradual Similarity**: Fine-grained scores enable threshold tuning
-5. **Refactoring Metadata**: Phase 1 captures everything needed for Phase 2 (no re-parsing)
+**PMD CPD**: 
+- **Strengths**: Fast suffix-tree indexing, ignore-identifiers option, language-agnostic
+- **What it lacks**: No refactoring support, no test-specific patterns, no variation tracking for parameters
+
+**SonarQube**:
+- **Strengths**: AST-based detection, duplication percentages, enterprise reporting
+- **What it lacks**: No automated refactoring, no test-aware strategies
+
+**CloneDR** (Commercial):
+- **Strengths**: Characteristic vectors for semantic clones, suggests refactorings
+- **What it lacks**: Manual suggestion only (doesn't auto-apply), no test-specific intelligence
+
+**NiCad / Deckard** (Research):
+- **Strengths**: Pretty-printed normalization (NiCad), AST feature vectors (Deckard)
+- **What it lacks**: Refactoring support, industrial hardening, test awareness
+
+**IntelliJ / Eclipse IDEs**:
+- **Strengths**: Integrated detection + quick-fix refactoring, excellent UX
+- **What it lacks**: File-local scope only, no cross-class automated extraction, no CI/CD workflow
+
+### Our Unique Position
+
+**NOT claiming**: "Only tool that detects duplicates" ← FALSE, many tools detect well
+
+**ACCURATE claim**: "**Only open-source tool with automated cross-class test-aware refactoring**"
+
+**True Differentiators**:
+1. **Automated Cross-Class Refactoring**: We detect AND fix (not just suggest)
+2. **Test-Specific Intelligence**: @BeforeEach extraction, @ParameterizedTest consolidation, field promotion
+3. **Variation → Parameter Mapping**: Automatically infer method signatures from differences
+4. **Type-Safe Validation**: Pre-check type compatibility, scope, side effects
+5. **Interactive Workflow**: Approve/edit/skip with session management
+6. **TestFixer Integration**: Unified test cleanup ecosystem
+
+### Integration Opportunities
+
+Rather than competing directly with CPD/SonarQube, consider:
+- **Complementary use**: Use CPD/SonarQube for initial detection, our tool for automated fixing
+- **Validation**: Compare our detection results with CPD/SonarQube for quality assurance
+- **Layered approach**: CPD for fast CI checks, our tool for deep refactoring sprints
 
 ---
 
-## 15. Success Criteria
+## 15. Validation Methodology
+
+### 15.1 Calibration Dataset
+
+**Objective**: Empirically tune similarity weights and validate detection quality
+
+**Dataset Sources**:
+1. **Spring Petclinic** (~5K LOC, 20 test files) - Small project validation
+2. **Sample Enterprise Service** (~50K LOC, 150 test files) - Real-world production code
+3. **Apache Commons Lang** (~100K LOC, 300 test files) - Large library
+4. **JHipster Sample App** (~80K LOC, 200 test files) - Enterprise application
+5. **Open-source test suites** - Additional examples from GitHub
+
+**Total**: ~235K LOC, ~670 test files, estimated ~40-50K sequences
+
+### 15.2 Labeling Process
+
+**Ground Truth Creation**:
+1. Extract 500 representative code blocks from dataset
+2. Manual classification by 3 independent reviewers
+3. Categories:
+   - **True Duplicate**: Should be refactored (similarity should be >threshold)
+   - **False Positive**: Similar but shouldn't be refactored (e.g., boilerplate)
+   - **Borderline**: Edge cases (similarity 0.60-0.80) - needs discussion
+4. Majority vote for final label
+5. Document disagreements for edge case analysis
+
+**Inter-Rater Reliability**: Measure Cohen's Kappa, target >0.75
+
+### 15.3 Weight Tuning Process
+
+**Grid Search**:
+```python
+for lcs_weight in [0.30, 0.35, 0.40, 0.45, 0.50]:
+    for lev_weight in [0.30, 0.35, 0.40, 0.45, 0.50]:
+        structural_weight = 1.0 - lcs_weight - lev_weight
+        if structural_weight >= 0.15 and structural_weight <= 0.30:
+            config = (lcs_weight, lev_weight, structural_weight)
+            evaluate(config, validation_set)
+```
+
+**Evaluation Metrics**:
+- Precision = TP / (TP + FP)
+- Recall = TP / (TP + FN)
+- F1 Score = 2 × (Precision × Recall) / (Precision + Recall)
+
+**Selection Criteria**: Maximize F1 score on validation set
+
+**Expected Outcome**: Confirm or refine provisional weights (0.40/0.40/0.20)
+
+### 15.4 Dual-Metric Validation
+
+**Research Question**: Do both LCS and Levenshtein contribute unique signal?
+
+**Experiment**:
+1. Run detection with: (a) LCS only, (b) Levenshtein only, (c) Both
+2. Measure precision/recall for each configuration
+3. Statistical significance test (McNemar's test)
+
+**Decision Rule**:
+- If both metrics provide no significant improvement → drop one (reduce complexity)
+- If both contribute → keep hybrid approach
+
+### 15.5 Benchmark Corpus
+
+| Project | LOC | Test Files | Expected Sequences | Purpose |
+|---------|-----|------------|-------------------|---------|
+| Spring Petclinic | 5K | 20 | 2K | Fast iteration / smoke test |
+| Sample Enterprise | 50K | 150 | 10K | Primary validation target |
+| Apache Commons | 100K | 300 | 20K | Scalability testing |
+| JHipster Sample | 80K | 200 | 15K | Enterprise patterns |
+| **Total** | **235K** | **670** | **~47K** | **Comprehensive validation** |
+
+### 15.6 Refactoring Quality Validation
+
+**Golden Master Tests**:
+1. Select 50 high-confidence duplicate clusters
+2. Apply automated refactoring
+3. **Compile check**: Must compile without errors (100% success rate required)
+4. **Test execution**: All tests must pass (target: >90% success rate)
+5. **Behavioral equivalence**: Compare outputs before/after on sample inputs
+
+**Mutation Testing** (optional, advanced):
+- Apply mutations to original + refactored code
+- Verify tests kill same mutations (behavioral equivalence)
+
+**Code Review Simulation**:
+- Present extracted methods to 3 developers
+- Rating scale: 1-5 (quality, clarity, naming)
+- Target average: >4.0
+
+### 15.7 Continuous Validation
+
+**Regression Test Suite**:
+- Known duplicate examples with expected similarity scores
+- Run on every commit
+- Alert if scores drift >5%
+
+**False Positive Tracking**:
+- Log user "skip" decisions during interactive review
+- Periodic analysis of skipped clusters
+- Refine detection to reduce common false positives
+
+---
+
+## 16. Success Criteria
 
 ### Detection Quality
 
