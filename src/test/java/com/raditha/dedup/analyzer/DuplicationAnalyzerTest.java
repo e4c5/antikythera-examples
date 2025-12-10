@@ -58,6 +58,7 @@ class DuplicationAnalyzerTest {
                         user.setName("John");
                         user.setEmail("john@example.com");
                         user.setActive(true);
+                        user.setRole("admin");
                         user.save();
                     }
 
@@ -65,6 +66,7 @@ class DuplicationAnalyzerTest {
                         customer.setName("Jane");
                         customer.setEmail("jane@example.com");
                         customer.setActive(false);
+                        customer.setRole("user");
                         customer.save();
                     }
                 }
@@ -90,6 +92,7 @@ class DuplicationAnalyzerTest {
                         user.setName("Test");
                         user.setEmail("test@example.com");
                         user.setActive(true);
+                        user.setRole("admin");
                         user.save();
                     }
 
@@ -102,6 +105,7 @@ class DuplicationAnalyzerTest {
                         user.setName("Test");
                         user.setEmail("test@example.com");
                         user.setActive(true);
+                        user.setRole("admin");
                         user.save();
 
                         // Cleanup phase
@@ -165,12 +169,15 @@ class DuplicationAnalyzerTest {
                         int b = 2;
                         int c = 3;
                         int d = 4;
+                        int e = 5;
                     }
 
                     void method2() {
                         int x = 1;
                         int y = 2;
                         int z = 3;
+                        int w = 4;
+                        int v = 5;
                     }
 
                     void method3() {
@@ -178,6 +185,7 @@ class DuplicationAnalyzerTest {
                         String s2 = "world";
                         String s3 = "test";
                         String s4 = "example";
+                        String s5 = "done";
                     }
                 }
                 """;
