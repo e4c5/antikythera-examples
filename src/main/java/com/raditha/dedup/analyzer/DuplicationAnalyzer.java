@@ -4,8 +4,11 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.raditha.dedup.config.DuplicationConfig;
 import com.raditha.dedup.detection.TokenNormalizer;
 import com.raditha.dedup.analysis.VariationTracker;
+import com.raditha.dedup.analysis.TypeAnalyzer;
 import com.raditha.dedup.extraction.StatementExtractor;
 import com.raditha.dedup.filter.PreFilterChain;
+import com.raditha.dedup.clustering.DuplicateClusterer;
+import com.raditha.dedup.clustering.RefactoringRecommendationGenerator;
 import com.raditha.dedup.model.*;
 import com.raditha.dedup.similarity.SimilarityCalculator;
 
@@ -26,6 +29,9 @@ public class DuplicationAnalyzer {
     private final TokenNormalizer normalizer;
     private final VariationTracker variationTracker;
     private final SimilarityCalculator similarityCalculator;
+    private final TypeAnalyzer typeAnalyzer;
+    private final DuplicateClusterer clusterer;
+    private final RefactoringRecommendationGenerator recommendationGenerator;
 
     /**
      * Create analyzer with default configuration.
@@ -44,6 +50,9 @@ public class DuplicationAnalyzer {
         this.normalizer = new TokenNormalizer();
         this.variationTracker = new VariationTracker();
         this.similarityCalculator = new SimilarityCalculator();
+        this.typeAnalyzer = new TypeAnalyzer();
+        this.clusterer = new DuplicateClusterer(config.threshold());
+        this.recommendationGenerator = new RefactoringRecommendationGenerator();
     }
 
     /**
@@ -51,7 +60,8 @@ public class DuplicationAnalyzer {
      * 
      * @param cu         Compilation unit to analyze
      * @param sourceFile Path to source file
-     * @return Analysis report with all detected duplicates
+     * @return Analysis report with clustered duplicates and refactoring
+     *         recommendations
      */
     public DuplicationReport analyzeFile(CompilationUnit cu, Path sourceFile) {
         // Step 1: Extract all statement sequences
@@ -63,10 +73,34 @@ public class DuplicationAnalyzer {
         // Step 3: Filter by similarity threshold
         List<SimilarityPair> duplicates = filterByThreshold(candidates);
 
-        // Step 4: Create report
+        // Step 4: Cluster duplicates and generate recommendations
+        List<DuplicateCluster> clusters = clusterer.cluster(duplicates);
+
+        // Step 5: Add refactoring recommendations to clusters
+        List<DuplicateCluster> clustersWithRecommendations = clusters.stream()
+                .map(cluster -> {
+                    // Get a representative similarity result from the first pair
+                    if (!cluster.duplicates().isEmpty()) {
+                        SimilarityResult similarity = cluster.duplicates().get(0).similarity();
+                        RefactoringRecommendation recommendation = recommendationGenerator
+                                .generateRecommendation(cluster, similarity);
+
+                        // Create new cluster with recommendation
+                        return new DuplicateCluster(
+                                cluster.primary(),
+                                cluster.duplicates(),
+                                recommendation,
+                                cluster.estimatedLOCReduction());
+                    }
+                    return cluster;
+                })
+                .toList();
+
+        // Step 6: Create report
         return new DuplicationReport(
                 sourceFile,
                 duplicates,
+                clustersWithRecommendations,
                 sequences.size(),
                 candidates.size(),
                 config);
@@ -89,8 +123,8 @@ public class DuplicationAnalyzer {
                 StatementSequence seq2 = sequences.get(j);
 
                 // Skip sequences from the same method (overlapping windows)
-                if (seq1.containingMethod() != null && 
-                    seq1.containingMethod().equals(seq2.containingMethod())) {
+                if (seq1.containingMethod() != null &&
+                        seq1.containingMethod().equals(seq2.containingMethod())) {
                     filteredOut++;
                     continue;
                 }
@@ -124,12 +158,8 @@ public class DuplicationAnalyzer {
         // Track variations
         VariationAnalysis variations = variationTracker.trackVariations(tokens1, tokens2);
 
-        // Calculate similarity
-        TypeCompatibility typeCompat = new TypeCompatibility(
-                true, // Assume feasible for now (Phase 7 will implement proper analysis)
-                java.util.Map.of(),
-                null,
-                List.of());
+        // Analyze type compatibility (Phase 7 implementation)
+        TypeCompatibility typeCompat = typeAnalyzer.analyzeTypeCompatibility(variations);
 
         SimilarityResult similarity = similarityCalculator.calculate(
                 tokens1,

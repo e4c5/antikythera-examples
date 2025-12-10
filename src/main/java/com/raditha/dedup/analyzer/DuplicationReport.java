@@ -1,6 +1,7 @@
 package com.raditha.dedup.analyzer;
 
 import com.raditha.dedup.config.DuplicationConfig;
+import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.SimilarityPair;
 
 import java.nio.file.Path;
@@ -8,10 +9,13 @@ import java.util.List;
 
 /**
  * Report containing duplicate detection results for a file.
+ * Contains both flat list of duplicate pairs and clustered results with
+ * recommendations.
  */
 public record DuplicationReport(
         Path sourceFile,
         List<SimilarityPair> duplicates,
+        List<DuplicateCluster> clusters,
         int totalSequences,
         int candidatesAnalyzed,
         DuplicationConfig config) {
@@ -44,8 +48,9 @@ public record DuplicationReport(
      */
     public String getSummary() {
         return String.format(
-                "Found %d duplicates from %d sequences (%d candidates analyzed, threshold: %.0f%%)",
+                "Found %d duplicates in %d clusters from %d sequences (%d candidates analyzed, threshold: %.0f%%)",
                 duplicates.size(),
+                clusters.size(),
                 totalSequences,
                 candidatesAnalyzed,
                 config.threshold() * 100);

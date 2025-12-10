@@ -37,33 +37,42 @@ public record DuplicationConfig(
     }
 
     /**
-     * Strict preset: high confidence duplicates only.
-     * - 5+ lines
-     * - 90%+ similarity
-     * - Balanced weights
-     */
-    public static DuplicationConfig strict() {
-        return new DuplicationConfig(
-                5,
-                0.90,
-                SimilarityWeights.strict(),
-                true,
-                defaultExcludePatterns());
-    }
-
-    /**
-     * Moderate preset: general detection (DEFAULT).
-     * - 4+ lines
-     * - 75%+ similarity
-     * - Balanced weights
+     * Moderate preset: balanced detection (75% threshold, 5 min lines).
+     * Good default for most projects.
      */
     public static DuplicationConfig moderate() {
         return new DuplicationConfig(
-                4,
-                0.75,
+                5, // minLines
+                0.75, // threshold
                 SimilarityWeights.balanced(),
-                true,
-                defaultExcludePatterns());
+                false, // includeTests
+                List.of()); // excludePatterns
+    }
+
+    /**
+     * Strict preset: high confidence duplicates only (90% threshold, 7 min lines).
+     * Reduces false positives, finds only very similar code.
+     */
+    public static DuplicationConfig strict() {
+        return new DuplicationConfig(
+                7, // minLines
+                0.90, // threshold
+                SimilarityWeights.balanced(),
+                false, // includeTests
+                List.of()); // excludePatterns
+    }
+
+    /**
+     * Lenient preset: catch more potential duplicates (60% threshold, 3 min lines).
+     * May have more false positives but finds more refactoring opportunities.
+     */
+    public static DuplicationConfig lenient() {
+        return new DuplicationConfig(
+                3, // minLines
+                0.60, // threshold
+                SimilarityWeights.balanced(),
+                false, // includeTests
+                List.of()); // excludePatterns
     }
 
     /**
