@@ -598,6 +598,66 @@ Without pre-filtering, comparing all sequence pairs results in O(N²) complexity
 - Skip pairs where size difference > 30%
 - If `|len(seq1) - len(seq2)| / max(len(seq1), len(seq2)) > 0.3` → skip
 
+**Important: How Sliding Window Ensures We Don't Miss Partial Duplicates**
+
+A common concern: *"Won't the size filter miss small duplicates inside large methods?"*
+
+**Answer: No, because we extract ALL subsequences via sliding window.**
+
+Example scenario:
+```java
+// Small method (5 statements) - the duplicate
+void setupUser() {
+    user.setName("John");
+    user.setEmail("john@example.com");
+    user.setRole("ADMIN");
+    user.setActive(true);
+    user.save();
+}
+
+// Large method (20 statements) - contains the duplicate buried inside
+void processRegistration() {
+    // ... 10 other statements ...
+    
+    // DUPLICATE CODE (statements 11-15)
+    user.setName("John");
+    user.setEmail("john@example.com");
+    user.setRole("ADMIN");
+    user.setActive(true);
+    user.save();
+    
+    // ... 5 more statements ...
+}
+```
+
+**How extraction works:**
+- From `setupUser()`: 1 sequence (all 5 statements)
+- From `processRegistration()`: 120 sequences extracted via sliding window:
+  - Window [0-4]: statements 1-5 (5 statements)
+  - Window [1-5]: statements 2-6 (5 statements)
+  - ...
+  - **Window [10-14]: statements 11-15 (5 statements)** ← This matches setupUser()!
+  - ...
+  - Window [0-19]: all 20 statements
+
+**Size filter comparison:**
+```
+setupUser (5 stmts) vs processRegistration[10-14] (5 stmts)
+Size difference: 0% → ✅ Passes filter, comparison proceeds
+```
+
+**Key insight:** The size filter compares *extracted sequences*, not *entire methods*. This ensures:
+- ✅ Small duplicates within large methods are detected
+- ✅ Size filter still eliminates 95% of impossible matches (e.g., 5-stmt vs 50-stmt sequences)
+- ✅ Only genuinely similar-sized code blocks are compared
+
+**What WOULD be skipped (correctly):**
+```
+setupUser (5 stmts) vs processRegistration[full] (20 stmts)
+Size difference: 75% → ⏭️ Skip (a 5-line block can't be 75%+ similar to a 20-line block)
+```
+
+
 **Stage 2: Structural Pre-Filter** (Moderate, additional ~50% reduction)
 - Compare control flow patterns (if/for/while counts)
 - If Jaccard(patterns1, patterns2) < 0.5 → skip
