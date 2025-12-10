@@ -18,7 +18,7 @@
 ## Package Structure (Simplified)
 
 ```
-sa.com.cloudsolutions.antikythera.duplication/
+com.raditha.dedup/
 ├── core/
 │   ├── DuplicationAnalyzer.java          (Main entry point)
 │   └── DuplicationReport.java            (Results container)
@@ -66,7 +66,7 @@ sa.com.cloudsolutions.antikythera.duplication/
 ### StatementSequence (No More Context Classes!)
 
 ```java
-package sa.com.cloudsolutions.antikythera.duplication.model;
+package com.raditha.dedup.model;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.MethodDeclaration;
@@ -182,7 +182,7 @@ public record DuplicateCluster(
 ### DuplicationAnalyzer (Main Entry Point)
 
 ```java
-package sa.com.cloudsolutions.antikythera.duplication.core;
+package com.raditha.dedup.core;
 
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
@@ -270,7 +270,7 @@ public class DuplicationAnalyzer {
 ### StatementExtractor (Using JavaParser Directly)
 
 ```java
-package sa.com.cloudsolutions.antikythera.duplication.detection;
+package com.raditha.dedup.detection;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.MethodDeclaration;
@@ -343,7 +343,7 @@ public class StatementExtractor {
 ### ScopeAnalyzer (Extracting Info from JavaParser AST)
 
 ```java
-package sa.com.cloudsolutions.antikythera.duplication.analysis;
+package com.raditha.dedup.analysis;
 
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
@@ -423,7 +423,7 @@ public class ScopeAnalyzer {
 ## Configuration (Using Settings)
 
 ```java
-package sa.com.cloudsolutions.antikythera.duplication.config;
+package com.raditha.dedup.config;
 
 /**
  * Detection configuration - much simpler now.
