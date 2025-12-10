@@ -25,26 +25,26 @@ class DuplicationAnalyzerTest {
     @Test
     void testNoDuplicates() {
         String code = """
-            class Test {
-                void method1() {
-                    int a = 1;
-                    int b = 2;
-                    int c = 3;
-                    int d = 4;
-                    int e = 5;
+                class Test {
+                    void method1() {
+                        int a = 1;
+                        int b = 2;
+                        int c = 3;
+                        int d = 4;
+                        int e = 5;
+                    }
+
+                    void method2() {
+                        String x = "hello";
+                        String y = "world";
+                        System.out.println(x + y);
+                    }
                 }
-                
-                void method2() {
-                    String x = "hello";
-                    String y = "world";
-                    System.out.println(x + y);
-                }
-            }
-            """;
-        
+                """;
+
         CompilationUnit cu = StaticJavaParser.parse(code);
         DuplicationReport report = analyzer.analyzeFile(cu, Paths.get("Test.java"));
-        
+
         assertNotNull(report);
         assertFalse(report.hasDuplicates());
         assertEquals(0, report.getDuplicateCount());
@@ -125,15 +125,17 @@ class DuplicationAnalyzerTest {
                     void method1() {
                         int x = 1;
                         int y = 2;
-                        int z = x + y;
-                        System.out.println(z);
+                        System.out.println(x + y);
+                        System.out.println("done");
+                        System.out.println("end");
                     }
 
                     void method2() {
-                        int a = 1;
-                        int b = 2;
-                        int c = a + b;
-                        System.out.println(c);
+                        int x = 1;
+                        int y = 2;
+                        System.out.println(x + y);
+                        System.out.println("done");
+                        System.out.println("end");
                     }
                 }
                 """;

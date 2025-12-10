@@ -43,7 +43,7 @@ class DuplicateClustererTest {
 
     @Test
     void testMultiplePairsSamePrimary() {
-        // 3 duplicates of the same code
+        // 3 duplicates of the same code at line 10
         SimilarityPair pair1 = createPair(10, 20, 0.95);
         SimilarityPair pair2 = createPair(10, 30, 0.92);
         SimilarityPair pair3 = createPair(10, 40, 0.90);
@@ -82,6 +82,38 @@ class DuplicateClustererTest {
         assertTrue(clusters.get(0).estimatedLOCReduction() >= clusters.get(1).estimatedLOCReduction());
     }
 
+    @Test
+    void testSimilarityThresholdFiltering() {
+        // Low similarity pair should be filtered out
+        DuplicateClusterer strictClusterer = new DuplicateClusterer(0.95);
+
+        SimilarityPair lowSimilarity = createPair(10, 20, 0.80); // Below threshold
+        SimilarityPair highSimilarity = createPair(30, 40, 0.98); // Above threshold
+
+        List<DuplicateCluster> clusters = strictClusterer.cluster(
+                List.of(lowSimilarity, highSimilarity));
+
+        // Should only cluster the high similarity pair
+        assertEquals(1, clusters.size());
+        assertEquals(30, clusters.get(0).primary().range().startLine());
+    }
+
+    @Test
+    void testLOCCalculationAccuracy() {
+        // Verify LOC calculation: 3 duplicates of 5 lines each
+        // Reduction = 15 (duplicate lines) - 3 (call sites) - 1 (method overhead) = 11
+        SimilarityPair pair1 = createPairWithSize(10, 20, 0.95, 5);
+        SimilarityPair pair2 = createPairWithSize(10, 30, 0.95, 5);
+        SimilarityPair pair3 = createPairWithSize(10, 40, 0.95, 5);
+
+        List<DuplicateCluster> clusters = clusterer.cluster(List.of(pair1, pair2, pair3));
+
+        assertEquals(1, clusters.size());
+        // 3 duplicates × 5 lines = 15 lines
+        // - 3 call sites - 1 method overhead = 11 LOC reduction
+        assertEquals(11, clusters.get(0).estimatedLOCReduction());
+    }
+
     // Helper methods
 
     private SimilarityPair createPair(int startLine1, int startLine2, double similarity) {
@@ -93,16 +125,17 @@ class DuplicateClustererTest {
         StatementSequence seq2 = createSequence(startLine2, size);
 
         SimilarityResult result = new SimilarityResult(
+                similarity, // overallScore
                 similarity, // lcsScore
                 similarity, // levenshteinScore
                 similarity, // structuralScore
-                similarity, // overallScore
-                0, // normalizedLength1
-                0, // normalizedLength2
+                0, // tokens1Count
+                0, // tokens2Count
                 new VariationAnalysis(List.of(), false),
                 new TypeCompatibility(true, java.util.Map.of(), null, List.of()),
-                false // hasControlFlowDifferences
+                false // canRefactor
         );
+
         return new SimilarityPair(seq1, seq2, result);
     }
 
