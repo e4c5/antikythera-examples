@@ -75,7 +75,7 @@ public class StatementExtractor {
             super.visit(method, arg);
             
             // Skip methods without body (abstract, interface methods)
-            if (!method.getBody().isPresent()) {
+            if (method.getBody().isEmpty()) {
                 return;
             }
             
@@ -116,8 +116,8 @@ public class StatementExtractor {
          */
         private StatementSequence createSequence(List<Statement> statements, MethodDeclaration method) {
             // Get range from first to last statement
-            Statement first = statements.get(0);
-            Statement last = statements.get(statements.size() - 1);
+            Statement first = statements.getFirst();
+            Statement last = statements.getLast();
             
             com.github.javaparser.Range firstRange = first.getRange()
                 .orElseThrow(() -> new IllegalStateException("Statement missing range"));
