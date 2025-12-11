@@ -29,9 +29,7 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.PrintWriter;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -58,34 +56,22 @@ public class QueryOptimizer extends QueryOptimizationChecker {
     @Override
     void analyzeRepository(TypeWrapper typeWrapper)
             throws IOException, ReflectiveOperationException, InterruptedException {
-        // if
-        // (typeWrapper.getFullyQualifiedName().endsWith("ProcedureApprovalRepository"))
-        // {
-        // return;
-        // }
         super.analyzeRepository(typeWrapper);
 
         OptimizationStatsLogger.updateQueriesAnalyzed(results.size());
 
-        List<QueryAnalysisResult> updates = new ArrayList<>();
         repositoryFileModified = false;
-
         for (QueryAnalysisResult result : results) {
-            actOnAnalysisResult(result, updates);
+            actOnAnalysisResult(result);
         }
 
-        if (repositoryFileModified) {
-            boolean fileWasWritten = writeFile(typeWrapper.getFullyQualifiedName(),
-                    this.repositoryParser.getCompilationUnit());
-            if (!fileWasWritten) {
-                repositoryFileModified = false;
-            } else {
-                OptimizationStatsLogger.updateRepositoriesModified(1);
-            }
+        if (repositoryFileModified && writeFile(typeWrapper.getFullyQualifiedName(),
+                this.repositoryParser.getCompilationUnit())) {
+            OptimizationStatsLogger.updateRepositoriesModified(1);
         }
     }
 
-    void actOnAnalysisResult(QueryAnalysisResult result, List<QueryAnalysisResult> updates) {
+    void actOnAnalysisResult(QueryAnalysisResult result) {
         OptimizationIssue issue = result.getOptimizationIssue();
         if (issue != null) {
             RepositoryQuery optimizedQuery = issue.optimizedQuery();
@@ -126,7 +112,6 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                 if (methodNameChanged) {
                     OptimizationStatsLogger.updateMethodSignaturesChanged(1);
                 }
-                updates.add(result);
             }
         }
     }
