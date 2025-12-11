@@ -16,6 +16,8 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
+import static java.util.stream.IntStream.range;
+
 /**
  * Main orchestrator for duplicate detection.
  * Coordinates extraction, filtering, similarity calculation, and result
@@ -138,30 +140,29 @@ public class DuplicationAnalyzer {
         
         // Generate pair indices lazily and process in parallel
         // This avoids creating O(N²) intermediate objects in memory
-        List<SimilarityPair> candidates = java.util.stream.IntStream.range(0, n)
+        List<SimilarityPair> candidates = range(0, n)
                 .parallel()
                 .boxed()
-                .flatMap(i -> java.util.stream.IntStream.range(i + 1, n)
-                        .mapToObj(j -> new SequencePairIndices(i, j)))
-                .filter(indices -> {
-                    // Filter: same-method check (cheap)
-                    StatementSequence seq1 = normalizedSequences.get(indices.i).sequence();
-                    StatementSequence seq2 = normalizedSequences.get(indices.j).sequence();
+                .flatMap(i -> range(i + 1, n)
+                        .mapToObj(j -> {
+                            // Retrieve sequences once to avoid redundant list lookups
+                            NormalizedSequence norm1 = normalizedSequences.get(i);
+                            NormalizedSequence norm2 = normalizedSequences.get(j);
+                            return new SequencePair(i, j, norm1, norm2);
+                        }))
+                // Filter: same-method check (cheap)
+                .filter(pair -> {
+                    StatementSequence seq1 = pair.norm1.sequence();
+                    StatementSequence seq2 = pair.norm2.sequence();
                     return seq1.containingMethod() == null ||
                            !seq1.containingMethod().equals(seq2.containingMethod());
                 })
-                .filter(indices -> {
-                    // Filter: size and structural pre-filtering (cheap)
-                    StatementSequence seq1 = normalizedSequences.get(indices.i).sequence();
-                    StatementSequence seq2 = normalizedSequences.get(indices.j).sequence();
-                    return preFilter.shouldCompare(seq1, seq2);
-                })
-                .map(indices -> {
-                    // Only create pair objects for candidates that pass filters (expensive)
-                    NormalizedSequence norm1 = normalizedSequences.get(indices.i);
-                    NormalizedSequence norm2 = normalizedSequences.get(indices.j);
-                    return analyzePair(norm1, norm2);
-                })
+                // Filter: size and structural pre-filtering (cheap)
+                .filter(pair -> preFilter.shouldCompare(
+                        pair.norm1.sequence(), 
+                        pair.norm2.sequence()))
+                // Calculate similarity for remaining pairs (expensive)
+                .map(pair -> analyzePair(pair.norm1, pair.norm2))
                 .toList();
         
         int filteredOut = totalComparisons - candidates.size();
@@ -172,10 +173,10 @@ public class DuplicationAnalyzer {
     }
     
     /**
-     * Helper record for pair indices (for parallel stream generation).
-     * Lightweight: only 8 bytes per pair vs creating full NormalizedPair objects upfront.
+     * Helper record for pair with cached normalized sequences.
+     * Avoids redundant list lookups during filtering.
      */
-    private record SequencePairIndices(int i, int j) {}
+    private record SequencePair(int i, int j, NormalizedSequence norm1, NormalizedSequence norm2) {}
 
     /**
      * Analyze a pair of sequences for similarity using pre-computed tokens.
