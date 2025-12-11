@@ -1,17 +1,17 @@
 package com.raditha.dedup.cli;
 
-import com.github.javaparser.JavaParser;
-import com.github.javaparser.ParseResult;
 import com.github.javaparser.ast.CompilationUnit;
 import com.raditha.dedup.analyzer.DuplicationAnalyzer;
 import com.raditha.dedup.analyzer.DuplicationReport;
 import com.raditha.dedup.config.DuplicationConfig;
-import com.raditha.dedup.config.SimilarityWeights;
+import com.raditha.dedup.config.DuplicationDetectorSettings;
+import sa.com.cloudsolutions.antikythera.configuration.Settings;
+import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
+import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
 import java.io.IOException;
 import java.nio.file.*;
 import java.util.*;
-import java.util.stream.Stream;
 
 /**
  * Command-line interface for the Duplication Detector.
@@ -19,12 +19,7 @@ import java.util.stream.Stream;
  * Usage:
  * java -jar duplication-detector.jar [options] <file-or-directory>
  * 
- * Options:
- * --min-lines N Minimum lines for duplicate detection (default: 5)
- * --threshold N Similarity threshold 0-100 (default: 75)
- * --json Output results as JSON
- * --strict Use strict preset (90% threshold, 7 min lines)
- * --lenient Use lenient preset (60% threshold, 3 min lines)
+ * Configuration priority: CLI arguments > generator.yml > defaults
  */
 public class DuplicationDetectorCLI {
 
@@ -58,33 +53,91 @@ public class DuplicationDetectorCLI {
     }
 
     private static void runAnalysis(CLIConfig config) throws IOException {
-        DuplicationConfig dupConfig = createDuplicationConfig(config);
-        DuplicationAnalyzer analyzer = new DuplicationAnalyzer(dupConfig);
+        // Initialize Settings and parse source files (same as Logger.java,
+        // TestFixer.java)
+        Settings.loadConfigMap();
 
-        List<Path> javaFiles = findJavaFiles(config.targetPath);
-
-        if (javaFiles.isEmpty()) {
-            System.err.println("No Java files found in: " + config.targetPath);
-            return;
+        // Apply CLI overrides to Settings
+        if (config.basePath != null) {
+            Settings.setProperty(Settings.BASE_PATH, config.basePath);
+        }
+        if (config.outputPath != null) {
+            Settings.setProperty(Settings.OUTPUT_PATH, config.outputPath);
         }
 
-        System.out.printf("Analyzing %d Java files...%n", javaFiles.size());
+        // Parse all source files
+        AbstractCompiler.preProcess();
+
+        // Load configuration (generator.yml + CLI overrides)
+        DuplicationConfig dupConfig = DuplicationDetectorSettings.loadConfig(
+                config.minLines,
+                config.threshold,
+                config.preset);
+        DuplicationAnalyzer analyzer = new DuplicationAnalyzer(dupConfig);
+
+        // Get all compilation units from AntikytheraRuntime
+        Map<String, CompilationUnit> allCUs = AntikytheraRunTime.getResolvedCompilationUnits();
+
+        // Check for target_class in YAML (highest priority)
+        String targetClass = DuplicationDetectorSettings.getTargetClass();
+
+        // Filter to target class or target path if specified, otherwise process all
+        List<Map.Entry<String, CompilationUnit>> targetCUs;
+        if (targetClass != null && !targetClass.isEmpty()) {
+            // Single class analysis from YAML
+            targetCUs = allCUs.entrySet().stream()
+                    .filter(e -> e.getKey().equals(targetClass))
+                    .toList();
+
+            if (targetCUs.isEmpty()) {
+                System.err.println("Target class not found: " + targetClass);
+                System.err.println("Make sure the class is in your base_path and properly loaded");
+                return;
+            }
+            System.out.println("Analyzing single class from YAML: " + targetClass);
+        } else if (config.targetPath != null) {
+            // CLI target path filter
+            targetCUs = allCUs.entrySet().stream()
+                    .filter(e -> matchesTargetPath(e.getKey(), config.targetPath))
+                    .toList();
+
+            if (targetCUs.isEmpty()) {
+                System.err.println("No Java files found matching: " + config.targetPath);
+                return;
+            }
+        } else {
+            // Process all files from Antikythera runtime (like Logger, TestFixer,
+            // QueryOptimizer)
+            targetCUs = new ArrayList<>(allCUs.entrySet());
+        }
+
+        System.out.printf("Analyzing %d Java files...%n", targetCUs.size());
         System.out.println();
 
         List<DuplicationReport> reports = new ArrayList<>();
-        JavaParser parser = new JavaParser();
+        int fileCount = 0;
 
-        for (Path file : javaFiles) {
+        for (var entry : targetCUs) {
+            String className = entry.getKey();
+            CompilationUnit cu = entry.getValue();
+            fileCount++;
+
             try {
-                ParseResult<CompilationUnit> result = parser.parse(file);
-                if (result.isSuccessful() && result.getResult().isPresent()) {
-                    DuplicationReport report = analyzer.analyzeFile(
-                            result.getResult().get(),
-                            file);
-                    reports.add(report);
+                // Show progress every 10 files or for large files
+                if (fileCount % 10 == 0 || fileCount == 1) {
+                    System.out.printf("Progress: %d/%d files (%.1f%%) - Current: %s%n",
+                            fileCount, targetCUs.size(),
+                            (fileCount * 100.0 / targetCUs.size()),
+                            className.substring(className.lastIndexOf('.') + 1));
                 }
+
+                // Build source file path (like Logger.java does)
+                Path sourceFile = Paths.get(Settings.getBasePath(), "src/main/java",
+                        AbstractCompiler.classToPath(className));
+                DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
+                reports.add(report);
             } catch (Exception e) {
-                System.err.println("Error analyzing " + file + ": " + e.getMessage());
+                System.err.println("Error analyzing " + className + ": " + e.getMessage());
             }
         }
 
@@ -96,40 +149,19 @@ public class DuplicationDetectorCLI {
         }
     }
 
-    private static List<Path> findJavaFiles(Path target) throws IOException {
-        if (Files.isRegularFile(target)) {
-            return target.toString().endsWith(".java") ? List.of(target) : List.of();
+    /**
+     * Check if a class name matches the target path filter.
+     */
+    private static boolean matchesTargetPath(String className, Path targetPath) {
+        if (targetPath == null) {
+            return true;
         }
 
-        if (Files.isDirectory(target)) {
-            try (Stream<Path> paths = Files.walk(target)) {
-                return paths
-                        .filter(Files::isRegularFile)
-                        .filter(p -> p.toString().endsWith(".java"))
-                        .sorted()
-                        .toList();
-            }
-        }
+        String targetStr = targetPath.toString();
 
-        return List.of();
-    }
-
-    private static DuplicationConfig createDuplicationConfig(CLIConfig config) {
-        if (config.preset != null) {
-            return switch (config.preset) {
-                case "strict" -> DuplicationConfig.strict();
-                case "lenient" -> DuplicationConfig.lenient();
-                default -> DuplicationConfig.moderate();
-            };
-        }
-
-        double threshold = config.threshold / 100.0;
-        return new DuplicationConfig(
-                config.minLines,
-                threshold,
-                SimilarityWeights.balanced(),
-                false,
-                List.of());
+        // Check if class name contains target path (package or path segment)
+        return className.contains(targetStr.replace("/", ".")) ||
+                className.replace(".", "/").contains(targetStr);
     }
 
     private static void printTextReport(List<DuplicationReport> reports, DuplicationConfig config) {
@@ -215,6 +247,16 @@ public class DuplicationDetectorCLI {
                 case "--json" -> config.jsonOutput = true;
                 case "--strict" -> config.preset = "strict";
                 case "--lenient" -> config.preset = "lenient";
+                case "--base-path" -> {
+                    if (i + 1 >= args.length)
+                        throw new IllegalArgumentException("--base-path requires a value");
+                    config.basePath = args[++i];
+                }
+                case "--output" -> {
+                    if (i + 1 >= args.length)
+                        throw new IllegalArgumentException("--output requires a value");
+                    config.outputPath = args[++i];
+                }
                 case "--min-lines" -> {
                     if (i + 1 >= args.length)
                         throw new IllegalArgumentException("--min-lines requires a value");
@@ -237,45 +279,37 @@ public class DuplicationDetectorCLI {
             }
         }
 
-        if (!config.showHelp && !config.showVersion && config.targetPath == null) {
-            throw new IllegalArgumentException("No target file or directory specified");
-        }
-
         return config;
     }
 
     private static void printHelp() {
         System.out.println("Duplication Detector v" + VERSION);
         System.out.println();
-        System.out.println("Usage: java -jar duplication-detector.jar [options] <file-or-directory>");
+        System.out.println("Usage: java -jar duplication-detector.jar [options] [file-or-directory]");
+        System.out.println();
+        System.out.println("If no target is specified, analyzes all files from generator.yml");
         System.out.println();
         System.out.println("Options:");
         System.out.println("  --help, -h           Show this help message");
         System.out.println("  --version, -v        Show version information");
-        System.out.println("  --min-lines N        Minimum lines for duplicate (default: 5)");
+        System.out.println("  --base-path PATH     Source directory (overrides generator.yml)");
+        System.out.println("  --output PATH        Output directory for reports");
+        System.out.println("  --min-lines N        Minimum lines for duplicate detection (default: 5)");
         System.out.println("  --threshold N        Similarity threshold 0-100 (default: 75)");
+        System.out.println("  --json               Output results as JSON");
         System.out.println("  --strict             Use strict preset (90% threshold, 7 lines)");
         System.out.println("  --lenient            Use lenient preset (60% threshold, 3 lines)");
-        System.out.println("  --json               Output results as JSON");
-        System.out.println();
-        System.out.println("Examples:");
-        System.out.println("  # Analyze single file");
-        System.out.println("  java -jar duplication-detector.jar MyClass.java");
-        System.out.println();
-        System.out.println("  # Analyze directory with custom threshold");
-        System.out.println("  java -jar duplication-detector.jar --threshold 85 src/main/java");
-        System.out.println();
-        System.out.println("  # Strict analysis with JSON output");
-        System.out.println("  java -jar duplication-detector.jar --strict --json src/");
     }
 
     private static class CLIConfig {
         Path targetPath;
-        int minLines = 5;
-        int threshold = 75;
+        String basePath = null;
+        String outputPath = null;
+        int minLines = 0; // 0 = use YAML/default
+        int threshold = 0; // 0 = use YAML/default
+        String preset = null;
         boolean jsonOutput = false;
         boolean showHelp = false;
         boolean showVersion = false;
-        String preset = null;
     }
 }
