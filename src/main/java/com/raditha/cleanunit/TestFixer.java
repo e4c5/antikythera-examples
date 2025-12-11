@@ -1,4 +1,4 @@
-package sa.com.cloudsolutions.antikythera.examples;
+package com.raditha.cleanunit;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
@@ -7,6 +7,8 @@ import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import com.github.javaparser.printer.lexicalpreservation.LexicalPreservingPrinter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
@@ -22,25 +24,23 @@ import java.util.Set;
 
 @SuppressWarnings("java:S106")
 public class TestFixer {
+    private static final Logger logger = LoggerFactory.getLogger(TestFixer.class);
     private static boolean dryRun = false;
     private static boolean refactor = false;
+    private static boolean convertEmbedded = false;
+    private static boolean migrate425 = false;
 
-    public static void main(String[] args) throws IOException {
-        for (String arg : args) {
-            if (arg.equals("--dry-run")) {
-                dryRun = true;
-                System.out.println("Running in DRY RUN mode. No changes will be made.");
-            } else if (arg.equals("--refactor")) {
-                refactor = true;
-                System.out.println("Refactoring enabled.");
-            }
-        }
+    public static void main(String[] args) throws Exception {
+        detectArguments(args);
 
         Settings.loadConfigMap();
         AbstractCompiler.preProcess();
 
         TestRefactorer refactorer = new TestRefactorer(dryRun);
         List<TestRefactorer.RefactorOutcome> outcomes = new ArrayList<>();
+        List<ConversionOutcome> conversionOutcomes = new ArrayList<>();
+        List<ConversionOutcome> migrationOutcomes = new ArrayList<>();
+        JUnit425Migrator migrator = migrate425 ? new JUnit425Migrator(dryRun) : null;
 
         for (var entry : AntikytheraRunTime.getResolvedCompilationUnits().entrySet()) {
             boolean modified = processCu(entry.getKey(), entry.getValue());
@@ -54,19 +54,120 @@ public class TestFixer {
                     }
                 }
             }
+            if (migrate425 && migrator != null) {
+                List<ConversionOutcome> localMigrations = migrator.migrateAll(entry.getValue());
+                if (localMigrations != null && !localMigrations.isEmpty()) {
+                    migrationOutcomes.addAll(localMigrations);
+                    if (localMigrations.stream().anyMatch(o -> o.modified)) {
+                        modified = true;
+                    }
+                }
+            }
+            /* convert embedded should happen only after 4 to 5 migration  */
+            if (convertEmbedded) {
+                EmbeddedResourceRefactorer embeddedRefactorer = new EmbeddedResourceRefactorer(dryRun);
+                List<ConversionOutcome> localConversions = embeddedRefactorer.refactorAll(entry.getValue());
+                if (localConversions != null && !localConversions.isEmpty()) {
+                    conversionOutcomes.addAll(localConversions);
+                    if (localConversions.stream().anyMatch(o -> o.modified)) {
+                        modified = true;
+                    }
+                }
+            }
 
             if (modified && !dryRun) {
                 saveCompilationUnit(entry.getKey(), entry.getValue());
             }
         }
 
+        displayStats(outcomes, conversionOutcomes, migrationOutcomes, migrator);
+    }
+
+    private static void displayStats(List<TestRefactorer.RefactorOutcome> outcomes,
+            List<ConversionOutcome> conversionOutcomes, List<ConversionOutcome> migrationOutcomes,
+            JUnit425Migrator migrator) {
         if (refactor) {
             System.out.println("\nRefactoring Summary:");
             System.out.printf("%-40s | %-15s -> %-15s | %-20s | %s%n", "Class", "Original", "New", "Action", "Reason");
-            System.out.println(
-                    "----------------------------------------------------------------------------------------------------------------------------------");
+            System.out.println("-".repeat(130));
             for (TestRefactorer.RefactorOutcome outcome : outcomes) {
                 System.out.println(outcome);
+            }
+        }
+
+        if (convertEmbedded) {
+            System.out.println("\nEmbedded Resource Conversion Summary:");
+            System.out.printf("%-40s | %-20s | %-20s | %s%n", "Class", "Action", "Embedded Alternative", "Reason");
+            System.out.println("-".repeat(130));
+            for (ConversionOutcome outcome : conversionOutcomes) {
+                System.out.println(outcome);
+            }
+        }
+
+        if (migrate425) {
+            junitUpgradeStats(migrationOutcomes, migrator);
+        }
+    }
+
+    private static void junitUpgradeStats(List<ConversionOutcome> migrationOutcomes, JUnit425Migrator migrator) {
+        System.out.println("\nJUnit 4 to 5 Migration Summary:");
+        System.out.println("=".repeat(80));
+
+        // Display POM changes
+        if (migrator != null && !migrator.getPomChanges().isEmpty()) {
+            System.out.println("POM Dependencies:");
+            for (String change : migrator.getPomChanges()) {
+                System.out.println("  ✓ " + change);
+            }
+            System.out.println();
+        }
+
+        // Display class migrations
+        System.out.printf("%-50s | %-15s | %s%n", "Class", "Action", "Details");
+        System.out.println("-".repeat(130));
+        for (ConversionOutcome outcome : migrationOutcomes) {
+            System.out.printf("%-50s | %-15s | %s%n",
+                    outcome.className,
+                    outcome.action != null ? outcome.action : "NONE",
+                    outcome.reason != null ? outcome.reason : "No changes");
+        }
+
+        // Summary statistics
+        long migrated = migrationOutcomes.stream().filter(o -> "MIGRATED".equals(o.action)).count();
+        long skipped = migrationOutcomes.stream().filter(o -> "SKIPPED".equals(o.action)).count();
+        long warnings = migrationOutcomes.stream()
+                .filter(o -> o.reason != null && o.reason.contains("⚠"))
+                .count();
+
+        System.out.println();
+        System.out.println("Total: " + migrated + " classes migrated, " + skipped + " skipped");
+        if (warnings > 0) {
+            System.out.println("Warnings: " + warnings + " items require manual review");
+        }
+    }
+
+    private static void detectArguments(String[] args) {
+        for (String arg : args) {
+            switch (arg) {
+                case "--dry-run" -> {
+                    dryRun = true;
+                    System.out.println("Running in DRY RUN mode. No changes will be made.");
+                }
+                case "--refactor" -> {
+                    refactor = true;
+                    System.out.println("Refactoring enabled.");
+                }
+                case "--convert-embedded" -> {
+                    convertEmbedded = true;
+                    System.out.println("Embedded resource conversion enabled.");
+                }
+                case "--425" -> {
+                    migrate425 = true;
+                    System.out.println("JUnit 4 to 5 migration enabled.");
+                }
+                default -> {
+                    System.err.println("Unknown argument: " + arg);
+                }
             }
         }
     }
@@ -99,8 +200,7 @@ public class TestFixer {
             for (MethodDeclaration method : decl.getMethods()) {
                 if (method.getAnnotationByName("Test").isPresent() &&
                         !hasAssertion(method, decl.asClassOrInterfaceDeclaration())) {
-                    System.out.println(
-                            "Found test without assertions: " + classname + "#" + method.getNameAsString());
+                    logger.info("Found test without assertions: {}#{}", classname, method.getNameAsString());
                     toRemove.add(method);
                 }
             }
@@ -125,7 +225,7 @@ public class TestFixer {
             try (PrintWriter writer = new PrintWriter(file)) {
                 writer.print(LexicalPreservingPrinter.print(cu));
             }
-            System.out.println("Saved changes to " + file.getAbsolutePath());
+            logger.debug("Saved changes to {}", file.getAbsolutePath());
         } else {
             System.err.println("Could not find file to save: " + relativePath);
         }

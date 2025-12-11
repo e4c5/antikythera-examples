@@ -1,15 +1,13 @@
-package sa.com.cloudsolutions.antikythera.examples;
+package com.raditha.cleanunit;
 
-import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.AnnotationExpr;
+import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.type.Type;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
-import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
-import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
 import java.util.EnumSet;
 import java.util.HashSet;
@@ -23,12 +21,6 @@ import java.util.Set;
  * This is extracted from TestRefactorer to enable reuse across strategies.
  */
 public class TestResourceAnalyzer {
-
-    private final CompilationUnit currentCu;
-
-    public TestResourceAnalyzer(CompilationUnit currentCu) {
-        this.currentCu = currentCu;
-    }
 
     /**
      * Analyze a test class and return the union of resources used by all @Test methods.
@@ -76,15 +68,16 @@ public class TestResourceAnalyzer {
     }
 
     private Optional<MethodDeclaration> resolveMethod(MethodCallExpr n, MethodDeclaration context) {
-        if (n.getScope().isEmpty() || n.getScope().get().isThisExpr()) {
+        Optional<Expression> scope = n.getScope();
+        if (scope.isEmpty() || scope.get().isThisExpr()) {
             return context.findAncestor(ClassOrInterfaceDeclaration.class)
                     .flatMap(c -> c.getMethodsByName(n.getNameAsString()).stream()
                             .filter(m -> m.getParameters().size() == n.getArguments().size())
                             .findFirst());
         }
 
-        if (n.getScope().isPresent()) {
-            String scopeName = n.getScope().get().toString();
+        if (scope.isPresent()) {
+            String scopeName = scope.get().toString();
             Optional<ClassOrInterfaceDeclaration> testClass = context.findAncestor(ClassOrInterfaceDeclaration.class);
             if (testClass.isPresent()) {
                 for (FieldDeclaration field : testClass.get().getFields()) {
@@ -104,8 +97,9 @@ public class TestResourceAnalyzer {
     }
 
     private TestRefactorer.ResourceType getResourceType(MethodCallExpr n, ClassOrInterfaceDeclaration testClass) {
-        if (n.getScope().isPresent()) {
-            String scopeName = n.getScope().get().toString();
+        Optional<Expression> scope = n.getScope();
+        if (scope.isPresent()) {
+            String scopeName = scope.get().toString();
             Optional<ClassOrInterfaceDeclaration> currentClass = n.findAncestor(ClassOrInterfaceDeclaration.class);
 
             if (currentClass.isPresent()) {
