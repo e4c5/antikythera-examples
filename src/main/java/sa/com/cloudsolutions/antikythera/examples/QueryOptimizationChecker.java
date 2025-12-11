@@ -281,6 +281,8 @@ public class QueryOptimizationChecker {
             }
         }
 
+        analyzeJoinRightSide(engineResult, requiredIndexes);
+
         // Create enhanced optimization issue with index analysis
         OptimizationIssue enhancedRecommendation = new OptimizationIssue(
                 llmRecommendation.query(),
@@ -294,6 +296,29 @@ public class QueryOptimizationChecker {
         result.setIndexSuggestions(requiredIndexes);
         result.setOptimizationIssue(enhancedRecommendation);
         return result;
+    }
+
+    private void analyzeJoinRightSide(QueryAnalysisResult engineResult, List<String> requiredIndexes) {
+        // Analyze right-side JOIN columns for missing indexes (critical for JOIN performance)
+        for (JoinCondition joinCondition : engineResult.getJoinConditions()) {
+            String rightTable = joinCondition.getRightTable();
+            String rightColumn = joinCondition.getRightColumn();
+
+            if (rightTable != null && rightColumn != null) {
+                CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(rightTable, rightColumn);
+
+                // Only suggest indexes for non-low cardinality columns
+                if (cardinality != CardinalityLevel.LOW && !hasOptimalIndexForColumn(rightTable, rightColumn)) {
+                    String indexRecommendation = String.format("%s.%s (JOIN)", rightTable, rightColumn);
+
+                    // Avoid duplication - check if already suggested from WHERE clause
+                    String baseRecommendation = String.format("%s.%s", rightTable, rightColumn);
+                    if (!requiredIndexes.contains(baseRecommendation)) {
+                        requiredIndexes.add(indexRecommendation);
+                    }
+                }
+            }
+        }
     }
 
     /**
@@ -393,23 +418,66 @@ public class QueryOptimizationChecker {
         System.out.println(formatOptimizationIssueEnhanced(issue, result));
 
         if (!result.getIndexSuggestions().isEmpty()) {
-            System.out.println("    📋 Required Indexes:");
-            for (String indexRecommendation : result.getIndexSuggestions()) {
-                String[] parts = indexRecommendation.split("\\.", 2);
-                if (parts.length == 2) {
-                    String table = parts[0];
-                    String column = parts[1];
-                    boolean hasExistingIndex = CardinalityAnalyzer.hasIndexWithLeadingColumn(table, column);
-                    String status = hasExistingIndex ? "✓ EXISTS" : "⚠ MISSING";
-                    System.out.printf("      • %s.%s [%s]\n", table, column, status);
-                }
-            }
+            reportOptimizationIssuesHelper(result);
         }
 
         // Collect any index creation suggestions for consolidation at the end
         collectIndexSuggestions(result);
 
         System.out.println(); // Add blank line for readability
+    }
+
+    private static void reportOptimizationIssuesHelper(QueryAnalysisResult result) {
+        // Separate WHERE and JOIN index suggestions
+        List<String> whereIndexes = new ArrayList<>();
+        List<String> joinIndexes = new ArrayList<>();
+
+        for (String indexRecommendation : result.getIndexSuggestions()) {
+            if (indexRecommendation.contains("(JOIN)")) {
+                joinIndexes.add(indexRecommendation);
+            } else {
+                whereIndexes.add(indexRecommendation);
+            }
+        }
+
+        // Report WHERE clause indexes
+        if (!whereIndexes.isEmpty()) {
+            reportWhereClauseIndexes(whereIndexes);
+        }
+
+        // Report JOIN indexes with critical marker
+        if (!joinIndexes.isEmpty()) {
+            reportJoinColumnIndexes(joinIndexes);
+        }
+    }
+
+    private static void reportJoinColumnIndexes(List<String> joinIndexes) {
+        System.out.println("    🔴 Critical JOIN Indexes (right-side probe table):");
+        for (String indexRecommendation : joinIndexes) {
+            String cleanRecommendation = indexRecommendation.replace(" (JOIN)", "");
+            String[] parts = cleanRecommendation.split("\\.", 2);
+            if (parts.length == 2) {
+                String table = parts[0];
+                String column = parts[1];
+                boolean hasExistingIndex = CardinalityAnalyzer.hasIndexWithLeadingColumn(table, column);
+                String status = hasExistingIndex ? "✓ EXISTS" : "⚠ MISSING";
+                System.out.printf("      • %s.%s [%s] - JOIN performance critical\n", table, column, status);
+            }
+        }
+    }
+
+    private static void reportWhereClauseIndexes(List<String> whereIndexes) {
+        System.out.println("    📋 Required Indexes (WHERE clause):");
+        for (String indexRecommendation : whereIndexes) {
+            String[] parts = indexRecommendation.split("\\.", 2);
+            if (parts.length == 2) {
+                String table = parts[0];
+                String column = parts[1];
+                boolean hasExistingIndex = CardinalityAnalyzer.hasIndexWithLeadingColumn(table, column);
+                String status = hasExistingIndex ? "✓ EXISTS" : "⚠ MISSING";
+                System.out.printf("      • %s.%s [%s]\n", table, column, status);
+            }
+        }
     }
 
     /**
@@ -605,6 +673,7 @@ public class QueryOptimizationChecker {
         // multiple tables
         Map<String, List<String>> columnsByTable = new HashMap<>();
 
+        // Process WHERE conditions
         for (WhereCondition condition : result.getWhereConditions()) {
             if (condition.cardinality() != CardinalityLevel.LOW) {
                 String tableName = condition.tableName() == null ? result.getQuery().getPrimaryTable()
@@ -613,6 +682,12 @@ public class QueryOptimizationChecker {
             }
         }
 
+        groupJoinColumnsByTable(result, columnsByTable);
+
+        generatedRequiredIndexesList(columnsByTable);
+    }
+
+    private void generatedRequiredIndexesList(Map<String, List<String>> columnsByTable) {
         // Process each table's columns separately to create table-specific indexes
         for (Map.Entry<String, List<String>> entry : columnsByTable.entrySet()) {
             String table = entry.getKey();
@@ -638,6 +713,29 @@ public class QueryOptimizationChecker {
                 if (!hasExisting) {
                     String key = (table + "|" + column).toLowerCase();
                     suggestedNewIndexes.add(key);
+                }
+            }
+        }
+    }
+
+    private static void groupJoinColumnsByTable(QueryAnalysisResult result, Map<String, List<String>> columnsByTable) {
+        // Process right-side JOIN columns (critical for JOIN performance)
+        for (JoinCondition joinCondition : result.getJoinConditions()) {
+            String rightTable = joinCondition.getRightTable();
+            String rightColumn = joinCondition.getRightColumn();
+
+            if (rightTable != null && rightColumn != null) {
+                CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(rightTable, rightColumn);
+
+                // Only add non-low cardinality columns that don't already have indexes
+                if (cardinality != CardinalityLevel.LOW &&
+                    !CardinalityAnalyzer.hasIndexWithLeadingColumn(rightTable, rightColumn)) {
+
+                    // Add to columnsByTable for index generation, avoiding duplicates
+                    List<String> tableColumns = columnsByTable.computeIfAbsent(rightTable, k -> new ArrayList<>());
+                    if (!tableColumns.contains(rightColumn)) {
+                        tableColumns.add(rightColumn);
+                    }
                 }
             }
         }
