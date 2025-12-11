@@ -5,6 +5,7 @@ import com.raditha.dedup.analyzer.DuplicationAnalyzer;
 import com.raditha.dedup.analyzer.DuplicationReport;
 import com.raditha.dedup.config.DuplicationConfig;
 import com.raditha.dedup.config.DuplicationDetectorSettings;
+import com.raditha.dedup.model.StatementSequence;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
@@ -174,36 +175,155 @@ public class DuplicationDetectorCLI {
                 .sum();
 
         System.out.println("=".repeat(80));
-        System.out.println("DUPLICATION DETECTION SUMMARY");
+        System.out.println("DUPLICATION DETECTION REPORT");
         System.out.println("=".repeat(80));
         System.out.println();
         System.out.printf("Files analyzed: %d%n", reports.size());
-        System.out.printf("Total duplicates found: %d in %d clusters%n", totalDuplicates, totalClusters);
+        System.out.printf("Total duplicates found: %d%n", totalDuplicates);
+        System.out.printf("Duplicate clusters: %d%n", totalClusters);
         System.out.printf("Configuration: min-lines=%d, threshold=%.0f%%%n",
                 config.minLines(), config.threshold() * 100);
         System.out.println();
 
+        if (totalDuplicates == 0) {
+            System.out.println("✓ No significant code duplication found!");
+            System.out.println();
+            return;
+        }
+
         for (DuplicationReport report : reports) {
-            if (report.hasDuplicates()) {
-                System.out.println("-".repeat(80));
-                System.out.println("File: " + report.sourceFile());
-                System.out.println(report.getSummary());
+            if (!report.hasDuplicates()) {
+                continue;
+            }
+
+            System.out.println("-".repeat(80));
+            System.out.println("File: " + report.sourceFile().getFileName());
+            System.out.println("-".repeat(80));
+            System.out.println();
+
+            // Show top duplicates with details
+            var duplicates = report.duplicates();
+            for (int i = 0; i < Math.min(10, duplicates.size()); i++) {
+                var pair = duplicates.get(i);
+                var seq1 = pair.seq1();
+                var seq2 = pair.seq2();
+                var similarity = pair.similarity();
+
+                System.out.printf("DUPLICATE #%d (Similarity: %.1f%%)%n", i + 1,
+                        similarity.overallScore() * 100);
                 System.out.println();
 
-                // Print cluster info
-                if (!report.clusters().isEmpty()) {
-                    System.out.println("Clusters:");
-                    for (int i = 0; i < report.clusters().size(); i++) {
-                        var cluster = report.clusters().get(i);
-                        System.out.printf("  #%d: %s%n", i + 1, cluster.formatSummary());
-                        if (cluster.recommendation() != null) {
-                            System.out.printf("      Strategy: %s (confidence: %s)%n",
-                                    cluster.recommendation().strategy(),
-                                    cluster.recommendation().formatConfidence());
+                // Display the duplicated code segment once
+                System.out.println("  Duplicated Code:");
+                printFullCodeSnippet(seq1.statements());
+                System.out.println();
+
+                // List all locations where this duplication appears
+                System.out.println("  Found in:");
+                printLocation(report, seq1, 1);
+                printLocation(report, seq2, 2);
+                System.out.println();
+
+                // Similarity breakdown
+                System.out.printf("  Similarity: LCS=%.1f%%, Levenshtein=%.1f%%, Structural=%.1f%%%n",
+                        similarity.lcsScore() * 100,
+                        similarity.levenshteinScore() * 100,
+                        similarity.structuralScore() * 100);
+
+                // Refactoring hint
+                if (similarity.canRefactor()) {
+                    System.out.println("  ✓ Can be refactored - extract to helper method");
+                    if (!similarity.variations().variations().isEmpty()) {
+                        System.out.println("  Parameters needed: " +
+                                similarity.variations().getVariationCount());
+                    }
+                } else {
+                    System.out.println("  ⚠ Manual review needed - variations may be complex");
+                }
+
+                System.out.println();
+            }
+
+            // Show cluster summary
+            if (!report.clusters().isEmpty()) {
+                System.out.println("REFACTORING OPPORTUNITIES:");
+                for (int i = 0; i < report.clusters().size(); i++) {
+                    var cluster = report.clusters().get(i);
+                    System.out.printf("  Cluster #%d: %d duplicates, potential %d LOC reduction%n",
+                            i + 1,
+                            cluster.duplicates().size(),
+                            cluster.estimatedLOCReduction());
+
+                    if (cluster.recommendation() != null) {
+                        var rec = cluster.recommendation();
+                        System.out.printf("    → Strategy: %s%n", rec.strategy());
+                        System.out.printf("    → Confidence: %s%n", rec.formatConfidence());
+                        if (rec.suggestedMethodName() != null) {
+                            System.out.printf("    → Suggested method: %s%n", rec.suggestedMethodName());
                         }
                     }
-                    System.out.println();
                 }
+                System.out.println();
+            }
+        }
+
+        // Final summary
+        System.out.println("=".repeat(80));
+        System.out.println("SUMMARY");
+        System.out.println("=".repeat(80));
+        int totalLOCReduction = reports.stream()
+                .flatMap(r -> r.clusters().stream())
+                .mapToInt(c -> c.estimatedLOCReduction())
+                .sum();
+        System.out.printf("Total potential LOC reduction: %d lines%n", totalLOCReduction);
+        System.out.printf("Refactorable duplicates: %d%n",
+                reports.stream()
+                        .flatMap(r -> r.duplicates().stream())
+                        .filter(p -> p.similarity().canRefactor())
+                        .count());
+        System.out.println();
+    }
+
+    /**
+     * Print location information for a code sequence.
+     */
+    private static void printLocation(DuplicationReport report,
+            StatementSequence seq,
+            int locNum) {
+        String className = extractClassName(report.sourceFile().toString());
+        String methodName = seq.containingMethod() != null ? seq.containingMethod().getNameAsString() : "top-level";
+        int startLine = seq.range().startLine();
+        int endLine = seq.range().endLine();
+
+        System.out.printf("    %d. Class: %s%n", locNum, className);
+        System.out.printf("       Method: %s%n", methodName);
+        System.out.printf("       Lines: %d-%d%n", startLine, endLine);
+    }
+
+    /**
+     * Extract class name from file path.
+     */
+    private static String extractClassName(String filePath) {
+        // Extract from path like .../com/raditha/.../ClassName.java
+        String fileName = filePath.substring(filePath.lastIndexOf('/') + 1);
+        return fileName.replace(".java", "");
+    }
+
+    /**
+     * Print the full code snippet without truncation.
+     */
+    private static void printFullCodeSnippet(List<com.github.javaparser.ast.stmt.Statement> statements) {
+        if (statements.isEmpty()) {
+            System.out.println("    (empty)");
+            return;
+        }
+
+        for (var stmt : statements) {
+            String code = stmt.toString();
+            // Print each line with proper indentation
+            String[] lines = code.split("\n");
+            for (String line : lines) {
+                System.out.println("    " + line);
             }
         }
     }
