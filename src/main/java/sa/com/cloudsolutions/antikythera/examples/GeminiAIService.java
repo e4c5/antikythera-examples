@@ -513,12 +513,7 @@ public class GeminiAIService {
         CompilationUnit cu = new CompilationUnit();
         cu.addType(cdecl);
 
-        // Jackson converts JSON \n to actual newlines, but StaticJavaParser needs them
-        // escaped
-        // Convert actual newlines back to \\n for parsing
-        String escapedForParsing = optimizedCodeElement.replace("\n", "\\n");
-
-        CompilationUnit tmp = StaticJavaParser.parse(String.format("interface Dummy{ %s }", escapedForParsing));
+        CompilationUnit tmp = StaticJavaParser.parse(String.format("interface Dummy{ %s }", optimizedCodeElement));
         for (ImportDeclaration importDecl : originalCompilationUnit.getImports()) {
             cu.addImport(importDecl);
         }
