@@ -67,8 +67,16 @@ public class DuplicationAnalyzer {
         // Step 1: Extract all statement sequences
         List<StatementSequence> sequences = extractor.extractSequences(cu, sourceFile);
 
+        // Step 1.5: PRE-NORMALIZE ALL SEQUENCES ONCE (major performance optimization)
+        // This avoids normalizing the same sequence multiple times during comparisons
+        List<NormalizedSequence> normalizedSequences = sequences.stream()
+                .map(seq -> new NormalizedSequence(
+                        seq,
+                        normalizer.normalizeStatements(seq.statements())))
+                .toList();
+
         // Step 2: Compare all pairs (with pre-filtering)
-        List<SimilarityPair> candidates = findCandidates(sequences);
+        List<SimilarityPair> candidates = findCandidates(normalizedSequences);
 
         // Step 3: Filter by similarity threshold
         List<SimilarityPair> duplicates = filterByThreshold(candidates);
@@ -107,20 +115,30 @@ public class DuplicationAnalyzer {
     }
 
     /**
+     * Helper record to hold a sequence with its pre-computed token list.
+     * Avoids redundant normalization during comparisons.
+     */
+    private record NormalizedSequence(StatementSequence sequence, List<Token> tokens) {
+    }
+
+    /**
      * Find candidate duplicate pairs using pre-filtering.
      */
-    private List<SimilarityPair> findCandidates(List<StatementSequence> sequences) {
+    private List<SimilarityPair> findCandidates(List<NormalizedSequence> normalizedSequences) {
         List<SimilarityPair> candidates = new ArrayList<>();
         int totalComparisons = 0;
         int filteredOut = 0;
 
         // Compare all pairs
-        for (int i = 0; i < sequences.size(); i++) {
-            for (int j = i + 1; j < sequences.size(); j++) {
+        for (int i = 0; i < normalizedSequences.size(); i++) {
+            for (int j = i + 1; j < normalizedSequences.size(); j++) {
                 totalComparisons++;
 
-                StatementSequence seq1 = sequences.get(i);
-                StatementSequence seq2 = sequences.get(j);
+                NormalizedSequence norm1 = normalizedSequences.get(i);
+                NormalizedSequence norm2 = normalizedSequences.get(j);
+
+                StatementSequence seq1 = norm1.sequence();
+                StatementSequence seq2 = norm2.sequence();
 
                 // Skip sequences from the same method (overlapping windows)
                 if (seq1.containingMethod() != null &&
@@ -135,8 +153,8 @@ public class DuplicationAnalyzer {
                     continue;
                 }
 
-                // Calculate similarity
-                SimilarityPair pair = analyzePair(seq1, seq2);
+                // Calculate similarity using PRE-COMPUTED tokens
+                SimilarityPair pair = analyzePair(norm1, norm2);
                 candidates.add(pair);
             }
         }
@@ -148,12 +166,12 @@ public class DuplicationAnalyzer {
     }
 
     /**
-     * Analyze a pair of sequences for similarity.
+     * Analyze a pair of sequences for similarity using pre-computed tokens.
      */
-    private SimilarityPair analyzePair(StatementSequence seq1, StatementSequence seq2) {
-        // Normalize to tokens
-        List<Token> tokens1 = normalizer.normalizeStatements(seq1.statements());
-        List<Token> tokens2 = normalizer.normalizeStatements(seq2.statements());
+    private SimilarityPair analyzePair(NormalizedSequence norm1, NormalizedSequence norm2) {
+        // Use PRE-COMPUTED tokens (no normalization needed!)
+        List<Token> tokens1 = norm1.tokens();
+        List<Token> tokens2 = norm2.tokens();
 
         // Track variations
         VariationAnalysis variations = variationTracker.trackVariations(tokens1, tokens2);
@@ -168,7 +186,7 @@ public class DuplicationAnalyzer {
                 variations,
                 typeCompat);
 
-        return new SimilarityPair(seq1, seq2, similarity);
+        return new SimilarityPair(norm1.sequence(), norm2.sequence(), similarity);
     }
 
     /**
