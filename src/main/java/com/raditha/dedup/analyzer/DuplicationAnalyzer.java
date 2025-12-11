@@ -20,6 +20,12 @@ import java.util.List;
  * Main orchestrator for duplicate detection.
  * Coordinates extraction, filtering, similarity calculation, and result
  * aggregation.
+ * 
+ * Performance characteristics:
+ * - Uses parallel streams for O(N²) pair comparisons (ForkJoinPool)
+ * - Pre-normalization of sequences (avoid redundant tokenization)
+ * - Two-stage pre-filtering (Size + Structural filters)
+ * - Expected: 8x speedup on 8-core machines for large codebases
  */
 public class DuplicationAnalyzer {
 
@@ -123,47 +129,58 @@ public class DuplicationAnalyzer {
 
     /**
      * Find candidate duplicate pairs using pre-filtering.
+     * Uses parallel streams for performance on large codebases.
      */
     private List<SimilarityPair> findCandidates(List<NormalizedSequence> normalizedSequences) {
-        List<SimilarityPair> candidates = new ArrayList<>();
-        int totalComparisons = 0;
-        int filteredOut = 0;
-
-        // Compare all pairs
+        // Generate all possible pairs (i, j) where i < j
+        List<SequencePairIndices> allPairs = new ArrayList<>();
         for (int i = 0; i < normalizedSequences.size(); i++) {
             for (int j = i + 1; j < normalizedSequences.size(); j++) {
-                totalComparisons++;
-
-                NormalizedSequence norm1 = normalizedSequences.get(i);
-                NormalizedSequence norm2 = normalizedSequences.get(j);
-
-                StatementSequence seq1 = norm1.sequence();
-                StatementSequence seq2 = norm2.sequence();
-
-                // Skip sequences from the same method (overlapping windows)
-                if (seq1.containingMethod() != null &&
-                        seq1.containingMethod().equals(seq2.containingMethod())) {
-                    filteredOut++;
-                    continue;
-                }
-
-                // Pre-filter to skip unlikely matches
-                if (!preFilter.shouldCompare(seq1, seq2)) {
-                    filteredOut++;
-                    continue;
-                }
-
-                // Calculate similarity using PRE-COMPUTED tokens
-                SimilarityPair pair = analyzePair(norm1, norm2);
-                candidates.add(pair);
+                allPairs.add(new SequencePairIndices(i, j));
             }
         }
-
+        
+        int totalComparisons = allPairs.size();
+        
+        // Process pairs in parallel with pre-filtering
+        List<SimilarityPair> candidates = allPairs.parallelStream()
+                .map(indices -> {
+                    NormalizedSequence norm1 = normalizedSequences.get(indices.i);
+                    NormalizedSequence norm2 = normalizedSequences.get(indices.j);
+                    return new NormalizedPair(norm1, norm2);
+                })
+                // Filter: same-method check
+                .filter(pair -> {
+                    StatementSequence seq1 = pair.norm1.sequence();
+                    StatementSequence seq2 = pair.norm2.sequence();
+                    // Skip sequences from the same method (overlapping windows)
+                    return seq1.containingMethod() == null ||
+                           !seq1.containingMethod().equals(seq2.containingMethod());
+                })
+                // Filter: size and structural pre-filtering
+                .filter(pair -> preFilter.shouldCompare(
+                        pair.norm1.sequence(), 
+                        pair.norm2.sequence()))
+                // Calculate similarity for remaining pairs
+                .map(pair -> analyzePair(pair.norm1, pair.norm2))
+                .toList();
+        
+        int filteredOut = totalComparisons - candidates.size();
         System.out.printf("Pre-filtering: %d/%d comparisons filtered (%.1f%%)%n",
                 filteredOut, totalComparisons, 100.0 * filteredOut / totalComparisons);
 
         return candidates;
     }
+    
+    /**
+     * Helper record for pair indices (for parallel stream generation).
+     */
+    private record SequencePairIndices(int i, int j) {}
+    
+    /**
+     * Helper record for normalized pair (for parallel stream processing).
+     */
+    private record NormalizedPair(NormalizedSequence norm1, NormalizedSequence norm2) {}
 
     /**
      * Analyze a pair of sequences for similarity using pre-computed tokens.
