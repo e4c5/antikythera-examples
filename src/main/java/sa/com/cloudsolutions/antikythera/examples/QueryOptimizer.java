@@ -14,8 +14,6 @@ import com.github.javaparser.ast.visitor.ModifierVisitor;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.printer.lexicalpreservation.LexicalPreservingPrinter;
 import com.github.javaparser.ast.NodeList;
-import net.sf.jsqlparser.parser.CCJSqlParserUtil;
-import net.sf.jsqlparser.statement.Statement;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
@@ -134,53 +132,25 @@ public class QueryOptimizer extends QueryOptimizationChecker {
     }
 
     /**
-     * Formats a SQL query string with proper line wrapping and indentation.
-     * Uses JSqlParser to parse and pretty-print the query.
-     * 
-     * @param queryValue the raw SQL/HQL query string
-     * @return formatted query string, or original if parsing fails
-     */
-    private String formatSqlQuery(String queryValue) {
-        if (queryValue == null || queryValue.trim().isEmpty()) {
-            return queryValue;
-        }
-
-        try {
-            // Try to parse as SQL statement
-            Statement statement = CCJSqlParserUtil.parse(queryValue);
-            // JSqlParser's toString() produces formatted output
-            return statement.toString();
-        } catch (Exception e) {
-            // If parsing fails (e.g., HQL-specific syntax), return original
-            logger.debug("Could not parse query as SQL, using original formatting: {}", e.getMessage());
-            return queryValue;
-        }
-    }
-
-    /**
      * Updates the annotation value with proper text block support.
      * If the query contains literal \\n characters or actual newlines, it uses
      * TextBlockLiteralExpr.
      * Otherwise, it uses StringLiteralExpr.
-     * The query is formatted using JSqlParser for proper line wrapping.
      *
      * @param method         the method declaration containing the annotation
      * @param newStringValue the new query value
      */
     private void updateAnnotationValueWithTextBlockSupport(MethodDeclaration method, String newStringValue) {
-        // Format the SQL query first
-        String formattedValue = formatSqlQuery(newStringValue);
-
         // Check if the string contains literal \\n or actual newlines
-        boolean isMultiline = formattedValue != null &&
-                (formattedValue.contains("\\n") || formattedValue.contains("\n"));
+        boolean isMultiline = newStringValue != null &&
+                (newStringValue.contains("\\\\n") || newStringValue.contains("\n"));
 
         if (isMultiline) {
-            // Convert literal \\n to actual newlines and add proper indentation
-            String processedValue = "    " + formattedValue.replace("\\n", "\n        ");
+            // Convert literal \\n to actual newlines
+            String processedValue = "    " + newStringValue.replace("\\\\n", "\n        ");
             updateAnnotationValue(method, "Query", processedValue, true);
         } else {
-            updateAnnotationValue(method, "Query", formattedValue, false);
+            updateAnnotationValue(method, "Query", newStringValue, false);
         }
     }
 
