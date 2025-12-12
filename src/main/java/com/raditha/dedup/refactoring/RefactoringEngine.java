@@ -172,6 +172,15 @@ public class RefactoringEngine {
                         recommendation.strategy(),
                         "Extracted to @ParameterizedTest: " + recommendation.suggestedMethodName());
             }
+            case EXTRACT_TO_UTILITY_CLASS -> {
+                ExtractUtilityClassRefactorer refactorer = new ExtractUtilityClassRefactorer();
+                ExtractUtilityClassRefactorer.RefactoringResult result = refactorer.refactor(cluster, recommendation);
+                yield new ExtractMethodRefactorer.RefactoringResult(
+                        result.sourceFile(),
+                        result.refactoredCode(),
+                        recommendation.strategy(),
+                        "Extracted to utility class: " + result.utilityClassName());
+            }
             default -> throw new UnsupportedOperationException(
                     "Refactoring strategy not yet implemented: " + recommendation.strategy());
         };
