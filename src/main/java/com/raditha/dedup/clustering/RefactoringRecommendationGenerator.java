@@ -2,6 +2,7 @@ package com.raditha.dedup.clustering;
 
 import com.raditha.dedup.analysis.*;
 import com.raditha.dedup.model.*;
+import com.raditha.dedup.refactoring.MethodNameGenerator;
 
 import java.util.List;
 
@@ -12,10 +13,12 @@ public class RefactoringRecommendationGenerator {
 
     private final TypeAnalyzer typeAnalyzer;
     private final ParameterExtractor parameterExtractor;
+    private final MethodNameGenerator nameGenerator;
 
     public RefactoringRecommendationGenerator() {
         this.typeAnalyzer = new TypeAnalyzer();
         this.parameterExtractor = new ParameterExtractor();
+        this.nameGenerator = new MethodNameGenerator(true); // Enable AI
     }
 
     /**
@@ -80,12 +83,17 @@ public class RefactoringRecommendationGenerator {
     }
 
     private String suggestMethodName(DuplicateCluster cluster, RefactoringStrategy strategy) {
-        return switch (strategy) {
-            case EXTRACT_TO_BEFORE_EACH -> "setUp";
-            case EXTRACT_TO_PARAMETERIZED_TEST -> "test";
-            case EXTRACT_TO_UTILITY_CLASS -> "extractedUtility";
-            default -> "extractedMethod";
-        };
+        // Extract the containing class from the cluster's primary sequence
+        var containingClass = cluster.primary().containingMethod()
+                .findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
+                .orElse(null);
+
+        // Use semantic naming with AI fallback
+        return nameGenerator.generateName(
+                cluster,
+                strategy,
+                containingClass,
+                MethodNameGenerator.NamingStrategy.SEMANTIC);
     }
 
     private double calculateConfidence(
