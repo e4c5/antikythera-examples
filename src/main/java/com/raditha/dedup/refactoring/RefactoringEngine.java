@@ -142,24 +142,28 @@ public class RefactoringEngine {
     }
 
     /**
-     * Apply refactoring based on strategy.
+     * Apply the refactoring for a given cluster.
      */
     private ExtractMethodRefactorer.RefactoringResult applyRefactoring(
-            DuplicateCluster cluster,
-            RefactoringRecommendation recommendation) throws IOException {
+            DuplicateCluster cluster, RefactoringRecommendation recommendation) throws IOException {
+
         return switch (recommendation.strategy()) {
             case EXTRACT_HELPER_METHOD -> {
                 ExtractMethodRefactorer refactorer = new ExtractMethodRefactorer();
                 yield refactorer.refactor(cluster, recommendation);
             }
-            case EXTRACT_TO_BEFORE_EACH ->
-                throw new UnsupportedOperationException("BeforeEach refactoring not yet implemented");
-            case EXTRACT_TO_PARAMETERIZED_TEST ->
-                throw new UnsupportedOperationException("ParameterizedTest refactoring not yet implemented");
-            case EXTRACT_TO_UTILITY_CLASS ->
-                throw new UnsupportedOperationException("Utility class refactoring not yet implemented");
-            case MANUAL_REVIEW_REQUIRED ->
-                throw new UnsupportedOperationException("Manual review required");
+            case EXTRACT_TO_BEFORE_EACH -> {
+                ExtractBeforeEachRefactorer refactorer = new ExtractBeforeEachRefactorer();
+                ExtractBeforeEachRefactorer.RefactoringResult result = refactorer.refactor(cluster, recommendation);
+                // Convert to ExtractMethodRefactorer.RefactoringResult for compatibility
+                yield new ExtractMethodRefactorer.RefactoringResult(
+                        result.sourceFile(),
+                        result.refactoredCode(),
+                        recommendation.strategy(),
+                        "Extracted to @BeforeEach: " + recommendation.suggestedMethodName());
+            }
+            default -> throw new UnsupportedOperationException(
+                    "Refactoring strategy not yet implemented: " + recommendation.strategy());
         };
     }
 
