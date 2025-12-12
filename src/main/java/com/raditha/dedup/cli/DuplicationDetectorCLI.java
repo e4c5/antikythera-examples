@@ -6,6 +6,8 @@ import com.raditha.dedup.analyzer.DuplicationReport;
 import com.raditha.dedup.config.DuplicationConfig;
 import com.raditha.dedup.config.DuplicationDetectorSettings;
 import com.raditha.dedup.model.StatementSequence;
+import com.raditha.dedup.refactoring.RefactoringEngine;
+import com.raditha.dedup.refactoring.RefactoringVerifier;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
@@ -40,7 +42,12 @@ public class DuplicationDetectorCLI {
                 return;
             }
 
-            runAnalysis(config);
+            // Run detection or refactoring based on command
+            if (config.command.equals("refactor")) {
+                runRefactoring(config);
+            } else {
+                runAnalysis(config);
+            }
 
         } catch (IllegalArgumentException e) {
             System.err.println("Error: " + e.getMessage());
@@ -147,6 +154,129 @@ public class DuplicationDetectorCLI {
             printJsonReport(reports, dupConfig);
         } else {
             printTextReport(reports, dupConfig);
+        }
+    }
+
+    private static void runRefactoring(CLIConfig config) throws IOException {
+        // First run detection
+        System.out.println("=== PHASE 1: Duplicate Detection ===");
+        System.out.println();
+
+        // Initialize Settings
+        Settings.loadConfigMap();
+        if (config.basePath != null) {
+            Settings.setProperty(Settings.BASE_PATH, config.basePath);
+        }
+
+        AbstractCompiler.preProcess();
+
+        // Load configuration
+        DuplicationConfig dupConfig = DuplicationDetectorSettings.loadConfig(
+                config.minLines,
+                config.threshold,
+                config.preset);
+        DuplicationAnalyzer analyzer = new DuplicationAnalyzer(dupConfig);
+
+        // Get compilation units
+        Map<String, CompilationUnit> allCUs = AntikytheraRunTime.getResolvedCompilationUnits();
+        String targetClass = DuplicationDetectorSettings.getTargetClass();
+
+        List<Map.Entry<String, CompilationUnit>> targetCUs;
+        if (targetClass != null && !targetClass.isEmpty()) {
+            targetCUs = allCUs.entrySet().stream()
+                    .filter(e -> e.getKey().equals(targetClass))
+                    .toList();
+        } else if (config.targetPath != null) {
+            targetCUs = allCUs.entrySet().stream()
+                    .filter(e -> matchesTargetPath(e.getKey(), config.targetPath))
+                    .toList();
+        } else {
+            targetCUs = new ArrayList<>(allCUs.entrySet());
+        }
+
+        System.out.printf("Analyzing %d Java files...%n", targetCUs.size());
+        List<DuplicationReport> reports = new ArrayList<>();
+
+        for (var entry : targetCUs) {
+            String className = entry.getKey();
+            CompilationUnit cu = entry.getValue();
+
+            try {
+                Path sourceFile = Paths.get(Settings.getBasePath(), "src/main/java",
+                        AbstractCompiler.classToPath(className));
+                DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
+                reports.add(report);
+            } catch (Exception e) {
+                System.err.println("Error analyzing " + className + ": " + e.getMessage());
+            }
+        }
+
+        // Show detection summary
+        int totalDuplicates = reports.stream()
+                .mapToInt(r -> r.duplicates().size())
+                .sum();
+        int totalClusters = reports.stream()
+                .mapToInt(r -> r.clusters().size())
+                .sum();
+
+        System.out.println();
+        System.out.printf("Found %d duplicate pairs in %d clusters%n", totalDuplicates, totalClusters);
+        System.out.println();
+
+        if (totalClusters == 0) {
+            System.out.println("No duplicates found. Nothing to refactor.");
+            return;
+        }
+
+        // Phase 2: Refactoring
+        System.out.println("=== PHASE 2: Automated Refactoring ===");
+        System.out.println();
+
+        // Determine verification level
+        RefactoringVerifier.VerificationLevel verifyLevel = switch (config.verifyMode) {
+            case "none" -> RefactoringVerifier.VerificationLevel.NONE;
+            case "test" -> RefactoringVerifier.VerificationLevel.TEST;
+            default -> RefactoringVerifier.VerificationLevel.COMPILE;
+        };
+
+        // Create refactoring engine
+        Path projectRoot = Paths.get(Settings.getBasePath());
+        RefactoringEngine.RefactoringMode mode = switch (config.refactorMode) {
+            case "batch" -> RefactoringEngine.RefactoringMode.BATCH;
+            case "dry-run" -> RefactoringEngine.RefactoringMode.DRY_RUN;
+            default -> RefactoringEngine.RefactoringMode.INTERACTIVE;
+        };
+
+        RefactoringEngine engine = new RefactoringEngine(projectRoot, mode, verifyLevel);
+
+        // Process each report
+        int totalSuccess = 0;
+        int totalSkipped = 0;
+        int totalFailed = 0;
+
+        for (DuplicationReport report : reports) {
+            if (report.clusters().isEmpty()) {
+                continue;
+            }
+
+            System.out.println("Processing file: " + report.sourceFile().getFileName());
+            RefactoringEngine.RefactoringSession session = engine.refactorAll(report);
+
+            totalSuccess += session.getSuccessful().size();
+            totalSkipped += session.getSkipped().size();
+            totalFailed += session.getFailed().size();
+        }
+
+        // Final summary
+        System.out.println();
+        System.out.println("=== FINAL SUMMARY ===");
+        System.out.printf("✓ Successful refactorings: %d%n", totalSuccess);
+        System.out.printf("⊘ Skipped: %d%n", totalSkipped);
+        System.out.printf("✗ Failed: %d%n", totalFailed);
+        System.out.println();
+
+        if (totalSuccess > 0) {
+            System.out.println("Refactoring complete! Please review the changes and run your tests.");
         }
     }
 
@@ -390,6 +520,25 @@ public class DuplicationDetectorCLI {
                         throw new IllegalArgumentException("Threshold must be 0-100");
                     }
                 }
+                case "refactor" -> config.command = "refactor";
+                case "--mode" -> {
+                    if (i + 1 >= args.length)
+                        throw new IllegalArgumentException("--mode requires a value");
+                    String mode = args[++i];
+                    if (!mode.matches("interactive|batch|dry-run")) {
+                        throw new IllegalArgumentException("Mode must be: interactive, batch, or dry-run");
+                    }
+                    config.refactorMode = mode;
+                }
+                case "--verify" -> {
+                    if (i + 1 >= args.length)
+                        throw new IllegalArgumentException("--verify requires a value");
+                    String verify = args[++i];
+                    if (!verify.matches("none|compile|test")) {
+                        throw new IllegalArgumentException("Verify must be: none, compile, or test");
+                    }
+                    config.verifyMode = verify;
+                }
                 default -> {
                     if (arg.startsWith("--")) {
                         throw new IllegalArgumentException("Unknown option: " + arg);
@@ -405,7 +554,11 @@ public class DuplicationDetectorCLI {
     private static void printHelp() {
         System.out.println("Duplication Detector v" + VERSION);
         System.out.println();
-        System.out.println("Usage: java -jar duplication-detector.jar [options] [file-or-directory]");
+        System.out.println("Usage: java -jar duplication-detector.jar [command] [options] [file-or-directory]");
+        System.out.println();
+        System.out.println("Commands:");
+        System.out.println("  (none)               Detect duplicates (default)");
+        System.out.println("  refactor             Detect and automatically refactor duplicates");
         System.out.println();
         System.out.println("If no target is specified, analyzes all files from generator.yml");
         System.out.println();
@@ -419,9 +572,25 @@ public class DuplicationDetectorCLI {
         System.out.println("  --json               Output results as JSON");
         System.out.println("  --strict             Use strict preset (90% threshold, 7 lines)");
         System.out.println("  --lenient            Use lenient preset (60% threshold, 3 lines)");
+        System.out.println();
+        System.out.println("Refactor Options (only with 'refactor' command):");
+        System.out
+                .println("  --mode MODE          Refactoring mode: interactive, batch, dry-run (default: interactive)");
+        System.out.println("  --verify LEVEL       Verification: none, compile, test (default: compile)");
+        System.out.println();
+        System.out.println("Examples:");
+        System.out.println("  # Detect duplicates");
+        System.out.println("  java -jar duplication-detector.jar");
+        System.out.println();
+        System.out.println("  # Interactive refactoring with compilation check");
+        System.out.println("  java -jar duplication-detector.jar refactor");
+        System.out.println();
+        System.out.println("  # Batch refactoring with test verification");
+        System.out.println("  java -jar duplication-detector.jar refactor --mode batch --verify test");
     }
 
     private static class CLIConfig {
+        String command = "detect"; // "detect" or "refactor"
         Path targetPath;
         String basePath = null;
         String outputPath = null;
@@ -431,5 +600,8 @@ public class DuplicationDetectorCLI {
         boolean jsonOutput = false;
         boolean showHelp = false;
         boolean showVersion = false;
+        // Refactoring options
+        String refactorMode = "interactive"; // "interactive", "batch", "dry-run"
+        String verifyMode = "compile"; // "none", "compile", "test"
     }
 }
