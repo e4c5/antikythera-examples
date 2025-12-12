@@ -162,6 +162,16 @@ public class RefactoringEngine {
                         recommendation.strategy(),
                         "Extracted to @BeforeEach: " + recommendation.suggestedMethodName());
             }
+            case EXTRACT_TO_PARAMETERIZED_TEST -> {
+                ExtractParameterizedTestRefactorer refactorer = new ExtractParameterizedTestRefactorer();
+                ExtractParameterizedTestRefactorer.RefactoringResult result = refactorer.refactor(cluster,
+                        recommendation);
+                yield new ExtractMethodRefactorer.RefactoringResult(
+                        result.sourceFile(),
+                        result.refactoredCode(),
+                        recommendation.strategy(),
+                        "Extracted to @ParameterizedTest: " + recommendation.suggestedMethodName());
+            }
             default -> throw new UnsupportedOperationException(
                     "Refactoring strategy not yet implemented: " + recommendation.strategy());
         };
