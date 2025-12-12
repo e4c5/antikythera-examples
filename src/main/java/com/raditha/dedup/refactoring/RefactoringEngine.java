@@ -19,6 +19,7 @@ public class RefactoringEngine {
     private final DiffGenerator diffGenerator;
     private final RefactoringMode mode;
     private final Path projectRoot;
+    private final List<String> dryRunDiffs = new ArrayList<>();
 
     public RefactoringEngine(Path projectRoot, RefactoringMode mode) {
         this(projectRoot, mode, RefactoringVerifier.VerificationLevel.COMPILE);
@@ -89,6 +90,8 @@ public class RefactoringEngine {
                 ExtractMethodRefactorer.RefactoringResult result = applyRefactoring(cluster, recommendation);
 
                 if (mode == RefactoringMode.DRY_RUN) {
+                    // Collect diff for summary report
+                    collectDryRunDiff(cluster, recommendation, result, i + 1);
                     System.out.println("  ✓ Dry-run: Changes not applied");
                     session.addSkipped(cluster, "Dry-run mode");
                     continue;
@@ -123,6 +126,11 @@ public class RefactoringEngine {
                     System.err.println("  ⚠️  Rollback failed: " + rollbackEx.getMessage());
                 }
             }
+        }
+
+        // Show dry-run diff report if in dry-run mode
+        if (mode == RefactoringMode.DRY_RUN && !dryRunDiffs.isEmpty()) {
+            printDryRunReport();
         }
 
         System.out.println("\n=== Session Summary ===");
@@ -166,9 +174,17 @@ public class RefactoringEngine {
         System.out.println("  LOC Reduction: " + cluster.estimatedLOCReduction());
         System.out.println();
 
-        // TODO: Generate and show actual diff once refactoring strategies are
-        // implemented
-        System.out.println("  [Diff preview will be shown here]");
+        // Generate and show actual diff
+        try {
+            ExtractMethodRefactorer.RefactoringResult result = applyRefactoring(cluster, recommendation);
+            String diff = diffGenerator.generateUnifiedDiff(result.sourceFile(), result.refactoredCode());
+
+            System.out.println("  === DIFF PREVIEW ===");
+            System.out.println(diff);
+            System.out.println("  " + "=".repeat(70));
+        } catch (Exception e) {
+            System.out.println("  ⚠️  Could not generate diff preview: " + e.getMessage());
+        }
         System.out.println();
 
         System.out.print("  Apply this refactoring? (y/n): ");
@@ -241,5 +257,43 @@ public class RefactoringEngine {
     }
 
     public record RefactoringFailure(DuplicateCluster cluster, String error) {
+    }
+
+    /**
+     * Collect diff for dry-run summary report.
+     */
+    private void collectDryRunDiff(DuplicateCluster cluster, RefactoringRecommendation recommendation,
+            ExtractMethodRefactorer.RefactoringResult result, int clusterNum) {
+        try {
+            String diff = diffGenerator.generateUnifiedDiff(result.sourceFile(), result.refactoredCode());
+
+            StringBuilder entry = new StringBuilder();
+            entry.append(String.format("\n### Cluster #%d: %s ###\n", clusterNum, recommendation.strategy()));
+            entry.append(String.format("Confidence: %.0f%%\n", recommendation.confidenceScore() * 100));
+            entry.append(String.format("File: %s\n", result.sourceFile().getFileName()));
+            entry.append(String.format("Method: %s\n", recommendation.generateMethodSignature()));
+            entry.append(diff);
+            entry.append("\n");
+
+            dryRunDiffs.add(entry.toString());
+        } catch (Exception e) {
+            dryRunDiffs.add(String.format("\n### Cluster #%d: ERROR ###\n%s\n", clusterNum, e.getMessage()));
+        }
+    }
+
+    /**
+     * Print dry-run summary report with all diffs.
+     */
+    private void printDryRunReport() {
+        System.out.println("\n" + "=".repeat(80));
+        System.out.println("DRY-RUN SUMMARY REPORT");
+        System.out.println("=".repeat(80));
+        System.out.println("The following changes would be applied:");
+
+        dryRunDiffs.forEach(System.out::println);
+
+        System.out.println("=".repeat(80));
+        System.out.println("Total refactorings previewed: " + dryRunDiffs.size());
+        System.out.println("=".repeat(80));
     }
 }
