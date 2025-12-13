@@ -5,6 +5,7 @@ import com.raditha.dedup.analyzer.DuplicationAnalyzer;
 import com.raditha.dedup.analyzer.DuplicationReport;
 import com.raditha.dedup.config.DuplicationConfig;
 import com.raditha.dedup.config.DuplicationDetectorSettings;
+import com.raditha.dedup.metrics.MetricsExporter;
 import com.raditha.dedup.model.StatementSequence;
 import com.raditha.dedup.refactoring.RefactoringEngine;
 import com.raditha.dedup.refactoring.RefactoringVerifier;
@@ -149,11 +150,16 @@ public class DuplicationDetectorCLI {
             }
         }
 
-        // Generate output
+        // Print the detailed report
         if (config.jsonOutput) {
             printJsonReport(reports, dupConfig);
         } else {
             printTextReport(reports, dupConfig);
+        }
+
+        // Export metrics if requested
+        if (config.exportFormat != null && !config.exportFormat.isEmpty()) {
+            exportMetrics(reports, config);
         }
     }
 
@@ -497,6 +503,14 @@ public class DuplicationDetectorCLI {
                 case "--json" -> config.jsonOutput = true;
                 case "--strict" -> config.preset = "strict";
                 case "--lenient" -> config.preset = "lenient";
+                case "--export" -> {
+                    if (i + 1 >= args.length)
+                        throw new IllegalArgumentException("--export requires format (csv, json, or both)");
+                    config.exportFormat = args[++i].toLowerCase();
+                    if (!config.exportFormat.matches("csv|json|both")) {
+                        throw new IllegalArgumentException("Export format must be: csv, json, or both");
+                    }
+                }
                 case "--base-path" -> {
                     if (i + 1 >= args.length)
                         throw new IllegalArgumentException("--base-path requires a value");
@@ -577,6 +591,7 @@ public class DuplicationDetectorCLI {
         System.out.println("  --strict                 Strict preset (90% threshold, 5 lines)");
         System.out.println("  --lenient                Lenient preset (60% threshold, 3 lines)");
         System.out.println("  --json                   Output results in JSON format");
+        System.out.println("  --export FORMAT          Export metrics (csv, json, or both)");
         System.out.println();
         System.out.println("REFACTOR OPTIONS:");
         System.out.println("  --mode MODE              Refactoring mode:");
@@ -627,8 +642,41 @@ public class DuplicationDetectorCLI {
         boolean jsonOutput = false;
         boolean showHelp = false;
         boolean showVersion = false;
+        String exportFormat = null; // "csv", "json", or "both"
         // Refactoring options
         String refactorMode = "interactive"; // "interactive", "batch", "dry-run"
         String verifyMode = "compile"; // "none", "compile", "test"
+    }
+
+    /**
+     * Export metrics to CSV/JSON files.
+     */
+    private static void exportMetrics(List<DuplicationReport> reports, CLIConfig config) {
+        try {
+            MetricsExporter exporter = new MetricsExporter();
+            String projectName = config.basePath != null
+                    ? Paths.get(config.basePath).getFileName().toString()
+                    : "project";
+
+            MetricsExporter.ProjectMetrics metrics = exporter.buildMetrics(reports, projectName);
+
+            Path outputDir = config.outputPath != null
+                    ? Paths.get(config.outputPath)
+                    : Paths.get(".");
+
+            if ("csv".equals(config.exportFormat) || "both".equals(config.exportFormat)) {
+                Path csvPath = outputDir.resolve("duplication-metrics.csv");
+                exporter.exportToCsv(metrics, csvPath);
+                System.out.println("\n✓ Metrics exported to: " + csvPath.toAbsolutePath());
+            }
+
+            if ("json".equals(config.exportFormat) || "both".equals(config.exportFormat)) {
+                Path jsonPath = outputDir.resolve("duplication-metrics.json");
+                exporter.exportToJson(metrics, jsonPath);
+                System.out.println("✓ Metrics exported to: " + jsonPath.toAbsolutePath());
+            }
+        } catch (Exception e) {
+            System.err.println("⚠ Failed to export metrics: " + e.getMessage());
+        }
     }
 }
