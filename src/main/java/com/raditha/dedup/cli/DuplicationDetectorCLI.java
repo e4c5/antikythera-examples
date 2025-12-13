@@ -551,42 +551,69 @@ public class DuplicationDetectorCLI {
         return config;
     }
 
+    /**
+     * Print helpful usage information.
+     */
     private static void printHelp() {
-        System.out.println("Duplication Detector v" + VERSION);
+        System.out.println("╔═══════════════════════════════════════════════════════════════╗");
+        System.out.println("║         Duplication Detector - Automated Refactoring          ║");
+        System.out.println("╚═══════════════════════════════════════════════════════════════╝");
         System.out.println();
-        System.out.println("Usage: java -jar duplication-detector.jar [command] [options] [file-or-directory]");
+        System.out.println("USAGE:");
+        System.out.println("  mvn exec:java -Dexec.mainClass=\"com.raditha.dedup.cli.DuplicationDetectorCLI\" \\");
+        System.out.println("    -Dexec.args=\"COMMAND [OPTIONS]\"");
         System.out.println();
-        System.out.println("Commands:");
-        System.out.println("  (none)               Detect duplicates (default)");
-        System.out.println("  refactor             Detect and automatically refactor duplicates");
+        System.out.println("COMMANDS:");
+        System.out.println("  analyze          Detect duplicate code (read-only)");
+        System.out.println("  refactor         Apply refactorings to eliminate duplicates");
+        System.out.println("  --help, -h       Show this help message");
+        System.out.println("  --version, -v    Show version information");
         System.out.println();
-        System.out.println("If no target is specified, analyzes all files from generator.yml");
+        System.out.println("GLOBAL OPTIONS:");
+        System.out.println("  --base-path PATH         Override project base path");
+        System.out.println("  --output PATH            Custom output directory");
+        System.out.println("  --min-lines N            Minimum lines to consider (default: 5)");
+        System.out.println("  --threshold N            Similarity threshold 0-100 (default: 75)");
+        System.out.println("  --strict                 Strict preset (90% threshold, 5 lines)");
+        System.out.println("  --lenient                Lenient preset (60% threshold, 3 lines)");
+        System.out.println("  --json                   Output results in JSON format");
         System.out.println();
-        System.out.println("Options:");
-        System.out.println("  --help, -h           Show this help message");
-        System.out.println("  --version, -v        Show version information");
-        System.out.println("  --base-path PATH     Source directory (overrides generator.yml)");
-        System.out.println("  --output PATH        Output directory for reports");
-        System.out.println("  --min-lines N        Minimum lines for duplicate detection (default: 5)");
-        System.out.println("  --threshold N        Similarity threshold 0-100 (default: 75)");
-        System.out.println("  --json               Output results as JSON");
-        System.out.println("  --strict             Use strict preset (90% threshold, 7 lines)");
-        System.out.println("  --lenient            Use lenient preset (60% threshold, 3 lines)");
+        System.out.println("REFACTOR OPTIONS:");
+        System.out.println("  --mode MODE              Refactoring mode:");
+        System.out.println("                             • interactive - Review each change (default)");
+        System.out.println("                             • batch - Auto-apply high-confidence only");
+        System.out.println("                             • dry-run - Preview without making changes");
+        System.out.println("  --verify LEVEL           Verification level:");
+        System.out.println("                             • compile - Verify compilation (default)");
+        System.out.println("                             • test - Run full test suite");
+        System.out.println("                             • none - Skip verification");
         System.out.println();
-        System.out.println("Refactor Options (only with 'refactor' command):");
-        System.out
-                .println("  --mode MODE          Refactoring mode: interactive, batch, dry-run (default: interactive)");
-        System.out.println("  --verify LEVEL       Verification: none, compile, test (default: compile)");
+        System.out.println("EXAMPLES:");
+        System.out.println("  # Analyze with custom threshold");
+        System.out.println("  analyze --threshold 80 --min-lines 3");
         System.out.println();
-        System.out.println("Examples:");
-        System.out.println("  # Detect duplicates");
-        System.out.println("  java -jar duplication-detector.jar");
+        System.out.println("  # Preview refactorings (safe, no changes)");
+        System.out.println("  refactor --mode dry-run");
         System.out.println();
-        System.out.println("  # Interactive refactoring with compilation check");
-        System.out.println("  java -jar duplication-detector.jar refactor");
+        System.out.println("  # Interactive refactoring with test verification");
+        System.out.println("  refactor --mode interactive --verify test");
         System.out.println();
-        System.out.println("  # Batch refactoring with test verification");
-        System.out.println("  java -jar duplication-detector.jar refactor --mode batch --verify test");
+        System.out.println("  # Auto-apply high-confidence refactorings");
+        System.out.println("  refactor --mode batch --verify compile");
+        System.out.println();
+        System.out.println("CONFIGURATION:");
+        System.out.println("  Edit src/main/resources/generator.yml to set:");
+        System.out.println("    • base_path: Your project root");
+        System.out.println("    • target_class: Class to analyze");
+        System.out.println("    • min_lines, threshold: Detection sensitivity");
+        System.out.println();
+        System.out.println("DOCUMENTATION:");
+        System.out.println("  📖 Quick Start:  docs/QUICK_START.md");
+        System.out.println("  ⚙️  Config Ref:   docs/CONFIGURATION.md");
+        System.out.println("  📚 User Guide:   docs/USER_GUIDE.md");
+        System.out.println();
+        System.out.println("For more information, visit: https://github.com/cloudsolutions/antikythera");
+        System.out.println();
     }
 
     private static class CLIConfig {
