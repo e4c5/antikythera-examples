@@ -1,0 +1,9 @@
+variables:
+  projects_folder: ${HOME}/csi/Antikythera
+
+base_path: /home/raditha/csi/Antikythera/antikythera-examples
+
+duplication_detector:
+  target_class: "com.raditha.dedup.cli.DuplicationDetectorCLI"
+  min_lines: 5
+  threshold: 0.75

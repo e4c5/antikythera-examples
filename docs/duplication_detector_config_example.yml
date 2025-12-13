@@ -1,0 +1,36 @@
+# Example generator.yml configuration for Duplication Detector
+
+duplication_detector:
+  # SINGLE CLASS ANALYSIS
+  # Specify a fully qualified class name to analyze only that class
+  # This is much faster than analyzing the entire codebase
+  # Example: target_class: "com.csi.bm.approval.service.impl.AdmissionServiceImpl"
+  target_class: null  # Set to a class name or leave as null to analyze all
+  
+  # DETECTION SETTINGS
+  # Use a preset for quick configuration
+  preset: "moderate"  # Options: strict, moderate, lenient
+  
+  # Or customize individual settings:
+  min_lines: 5         # Minimum lines for duplicate detection
+  threshold: 0.75      # Similarity threshold (0.0-1.0), 0.75 = 75%
+  include_tests: false # Include test files in analysis
+  
+  # Exclude patterns (glob format)
+  exclude_patterns:
+    - "**/test/**"
+    - "**/*Test.java"
+    - "**/target/**"
+    - "**/build/**"
+    - "**/.git/**"
+  
+  # Similarity weights (must sum to 1.0)
+  similarity_weights:
+    lcs: 0.4           # Longest Common Subsequence weight
+    levenshtein: 0.4   # Edit distance weight
+    structural: 0.2    # AST structure weight
+
+# PRESET DEFINITIONS (for reference):
+# strict:    min_lines=7,  threshold=0.90 (90% similarity)
+# moderate:  min_lines=5,  threshold=0.75 (75% similarity) - DEFAULT
+# lenient:   min_lines=3,  threshold=0.60 (60% similarity)
