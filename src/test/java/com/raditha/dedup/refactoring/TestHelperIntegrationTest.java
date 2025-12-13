@@ -3,7 +3,6 @@ package com.raditha.dedup.refactoring;
 import com.raditha.dedup.analyzer.DuplicationAnalyzer;
 import com.raditha.dedup.analyzer.DuplicationReport;
 import com.raditha.dedup.config.DuplicationConfig;
-import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.RefactoringStrategy;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

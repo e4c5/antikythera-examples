@@ -4,10 +4,8 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Modifier;
 import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
-import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.VariableDeclarator;
-import com.github.javaparser.ast.expr.AnnotationExpr;
 import com.github.javaparser.ast.expr.MarkerAnnotationExpr;
 import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.expr.VariableDeclarationExpr;
@@ -18,10 +16,8 @@ import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.RefactoringRecommendation;
 
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * Refactorer that extracts duplicate test setup code into @BeforeEach methods.
@@ -195,7 +191,7 @@ public class ExtractBeforeEachRefactorer {
                     .anyMatch(v -> v.getNameAsString().equals(varName));
 
             if (!fieldExists) {
-                FieldDeclaration field = testClass.addField(varType, varName, Modifier.Keyword.PRIVATE);
+                testClass.addField(varType, varName, Modifier.Keyword.PRIVATE);
             }
         }
     }
