@@ -101,6 +101,8 @@ mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.DuplicationDetectorCLI" \
   -Dexec.args="analyze --threshold 80 --min-lines 3"
 ```
 
+**Note**: CLI uses integer threshold (0-100), YAML uses decimal (0.0-1.0). The tool converts automatically.
+
 **Priority**: CLI args > generator.yml > defaults
 
 ---
@@ -170,11 +172,11 @@ duplication_detector:
   use_structural_filter: false
 ```
 
-**Analyze per-package instead of entire project:**
+**Analyze specific files or directories:**
 ```bash
-# Analyze specific packages
+# Analyze specific package directory
 mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.DuplicationDetectorCLI" \
-  -Dexec.args="analyze --target-package com.example.service"
+  -Dexec.args="analyze src/main/java/com/example/service"
 ```
 
 ### Memory Optimization
