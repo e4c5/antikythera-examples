@@ -82,12 +82,13 @@ Clusters:
 
 ## Architecture
 
-- **Phase 1-6**: Core detection engine (27 classes)
+- **Phase 1-6**: Core detection engine
 - **Phase 7**: Analysis components (type inference, scope analysis)
 - **Phase 8**: Clustering & recommendations
 - **Phase 9**: CLI & reporting
+- **Phase 10**: Automated refactoring
 
-Total: 33 classes, ~117 tests, all passing ✅
+Total: 47 classes, 109+ tests, all passing ✅
 
 ## Performance
 
@@ -108,7 +109,8 @@ Part of the Antikythera test generation project.
 
 ## Documentation
 
-- [Complete Walkthrough](docs/duplication-detector/complete_walkthrough.md)
-- [Design Document](docs/duplication-detector/duplication_detector_design.md)
-- [Class Design](docs/duplication-detector/class_design.md)
-- [Implementation Task List](docs/duplication-detector/implementation_task_list.md)
+- [Quick Start Guide](../QUICK_START.md) - Get started in 5 minutes
+- [Configuration Reference](../CONFIGURATION.md) - All configuration options
+- [Design Document](duplication_detector_design.md) - Comprehensive technical design
+- [Class Design](class_design.md) - Simplified architecture using Antikythera
+- [Implementation Task List](implementation_task_list.md) - Development progress tracker
