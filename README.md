@@ -188,6 +188,47 @@ The system classifies columns into three cardinality levels:
 - **MEDIUM**: Indexed columns
 - **LOW**: Boolean/enum columns, columns with naming patterns like `is_*`, `has_*`, `*_flag`
 
+
+## Duplication Detector - Automated Code Refactoring
+
+Automatically detect and refactor code duplicates using advanced similarity algorithms and intelligent refactoring strategies.
+
+📖 **[Complete Duplication Detector Documentation](docs/QUICK_START.md)**
+
+### Features
+
+- **Smart Detection**: Multi-algorithm similarity analysis (LCS, Levenshtein, Structural)
+- **Intelligent Refactoring**: 4 automatic strategies (Extract Method, BeforeEach, ParameterizedTest, Utility Class)
+- **AI-Powered Naming**: Generates meaningful method names using Gemini AI
+- **Safe Refactoring**: Automatic backups, compilation verification, rollback on failure
+- **Flexible Modes**: Interactive, batch, and dry-run modes
+
+### Quick Start
+
+```bash
+# 1. Configure target
+# Edit src/main/resources/generator.yml:
+#   target_class: "com.example.YourClass"
+
+# 2. Analyze duplicates
+mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.DuplicationDetectorCLI" \
+  -Dexec.args="analyze"
+
+# 3. Preview refactorings
+mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.DuplicationDetectorCLI" \
+  -Dexec.args="refactor --mode dry-run"
+
+# 4. Apply interactively
+mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.DuplicationDetectorCLI" \
+  -Dexec.args="refactor --mode interactive"
+```
+
+### Documentation
+
+- **[Quick Start Guide](docs/QUICK_START.md)** - Get started in 5 minutes
+- **[Configuration Reference](docs/CONFIGURATION.md)** - All configuration options
+- **[User Guide](docs/USER_GUIDE.md)** - Advanced usage patterns *(coming soon)*
+
 ## Additional Tools
 
 ### TestFixer - Test Quality Analysis
