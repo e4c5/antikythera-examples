@@ -195,28 +195,70 @@ See [CONFIGURATION.md](CONFIGURATION.md) for detailed configuration options.
 
 ---
 
-## Troubleshooting
+## Troubleshooting & FAQ
 
-### "Target class not found"
+### Common Issues
+
+#### "Target class not found"
 - Ensure `base_path` points to your project root
 - Use fully qualified class name: `com.package.ClassName`
+- Verify the class exists in `src/main/java` or `src/test/java`
 
-### "No duplicates found"
+#### "No duplicates found"
 - Lower the `threshold` (try 0.70 or 0.65)
 - Reduce `min_lines` (try 3 or 4)
+- Verify you're analyzing the correct class/package
 
-### "Validation failed"
+#### "Validation failed"
 - Check error message for specific issue
 - Try `--mode dry-run` to preview the refactoring
 - Some complex duplicates require manual review
+
+### Frequently Asked Questions
+
+#### How does it handle test vs. production code?
+The detector analyzes both test and production code. It applies test-specific strategies like `@BeforeEach` and `@ParameterizedTest` when appropriate.
+
+#### Can I run this in CI/CD?
+Yes! Use batch mode with JSON output:
+```bash
+mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.DuplicationDetectorCLI" \
+  -Dexec.args="analyze --json" > duplicates.json
+```
+
+#### What if refactoring breaks my tests?
+The tool includes automatic verification:
+- `--verify compile` (default): Ensures code compiles
+- `--verify test`: Runs tests after refactoring
+- Automatic rollback on failure
+
+#### How do I integrate with Gradle?
+Use the `exec` plugin or run directly:
+```bash
+./gradlew build
+java -cp build/classes/java/main:... com.raditha.dedup.cli.DuplicationDetectorCLI analyze
+```
+
+#### Can I customize similarity weights?
+Yes, in `generator.yml`:
+```yaml
+duplication_detector:
+  similarity_weights:
+    lcs_weight: 0.4
+    levenshtein_weight: 0.3
+    structural_weight: 0.3
+```
+
+#### How does AI naming work?
+If configured, the tool uses Gemini AI to generate meaningful method names. It falls back to semantic analysis if AI is unavailable.
 
 ---
 
 ## Next Steps
 
-- Read [USER_GUIDE.md](USER_GUIDE.md) for advanced usage
-- See [CONFIGURATION.md](CONFIGURATION.md) for all options
-- Check examples in `/docs/examples/`
+- See [CONFIGURATION.md](CONFIGURATION.md) for detailed configuration options
+- Review [Design Documents](duplication-detector/) for technical architecture
+- Check the main [README.md](../README.md) for additional tools and features
 
 ---
 
