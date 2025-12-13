@@ -233,10 +233,17 @@ The tool includes automatic verification:
 - Automatic rollback on failure
 
 #### How do I integrate with Gradle?
-Use the `exec` plugin or run directly:
+Use the `exec` plugin:
 ```bash
-./gradlew build
-java -cp build/classes/java/main:... com.raditha.dedup.cli.DuplicationDetectorCLI analyze
+# Add to build.gradle
+task checkDuplicates(type: JavaExec) {
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.raditha.dedup.cli.DuplicationDetectorCLI'
+    args = ['analyze']
+}
+
+# Run it
+./gradlew checkDuplicates
 ```
 
 #### Can I customize similarity weights?

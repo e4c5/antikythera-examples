@@ -173,7 +173,8 @@ duplication_detector:
 **Analyze per-package instead of entire project:**
 ```bash
 # Analyze specific packages
-analyze --target-package "com.example.service"
+mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.DuplicationDetectorCLI" \
+  -Dexec.args="analyze --target-package com.example.service"
 ```
 
 ### Memory Optimization
@@ -394,7 +395,8 @@ check_duplicates:
   stage: test
   script:
     - mvn clean compile
-    - mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.DuplicationDetectorCLI"
+    - |
+      mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.DuplicationDetectorCLI" \
         -Dexec.args="analyze --json" > duplicates.json
   artifacts:
     reports:
