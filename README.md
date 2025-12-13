@@ -227,7 +227,7 @@ mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.DuplicationDetectorCLI" \
 
 - **[Quick Start Guide](docs/QUICK_START.md)** - Get started in 5 minutes
 - **[Configuration Reference](docs/CONFIGURATION.md)** - All configuration options
-- **[User Guide](docs/USER_GUIDE.md)** - Advanced usage patterns *(coming soon)*
+- **[Design Documents](docs/duplication-detector/)** - Technical design and architecture
 
 ## Additional Tools
 
