@@ -45,8 +45,23 @@ public class RefactoringEngine {
         System.out.println("Clusters to process: " + report.clusters().size());
         System.out.println();
 
-        for (int i = 0; i < report.clusters().size(); i++) {
-            DuplicateCluster cluster = report.clusters().get(i);
+        // Sort clusters by importance: larger LOC reduction first, then by similarity
+        List<DuplicateCluster> sortedClusters = report.clusters().stream()
+                .sorted((c1, c2) -> {
+                    // First by LOC reduction (descending)
+                    int locCompare = Integer.compare(c2.estimatedLOCReduction(), c1.estimatedLOCReduction());
+                    if (locCompare != 0)
+                        return locCompare;
+
+                    // Then by similarity score (descending)
+                    double sim1 = c1.duplicates().isEmpty() ? 0 : c1.duplicates().get(0).similarity().overallScore();
+                    double sim2 = c2.duplicates().isEmpty() ? 0 : c2.duplicates().get(0).similarity().overallScore();
+                    return Double.compare(sim2, sim1);
+                })
+                .toList();
+
+        for (int i = 0; i < sortedClusters.size(); i++) {
+            DuplicateCluster cluster = sortedClusters.get(i);
             RefactoringRecommendation recommendation = cluster.recommendation();
 
             if (recommendation == null) {
@@ -57,13 +72,19 @@ public class RefactoringEngine {
             System.out.printf("Processing cluster #%d (Strategy: %s, Confidence: %.0f%%)%n",
                     i + 1, recommendation.strategy(), recommendation.confidenceScore() * 100);
 
-            // Pre-validation
+            // Safety validation
             SafetyValidator.ValidationResult validation = validator.validate(cluster, recommendation);
             if (!validation.isValid()) {
-                System.out.println("  ❌ Validation failed:");
-                validation.getErrors().forEach(e -> System.out.println("     - " + e));
-                session.addSkipped(cluster, String.join("; ", validation.getErrors()));
-                continue;
+                // For dry-run mode, show warnings but don't skip
+                if (mode == RefactoringMode.DRY_RUN) {
+                    System.out.println("  ⚠️  Validation warnings (proceeding anyway in dry-run):");
+                    validation.getErrors().forEach(e -> System.out.println("     - " + e));
+                } else {
+                    System.out.println("  ❌ Validation failed:");
+                    validation.getErrors().forEach(e -> System.out.println("     - " + e));
+                    session.addSkipped(cluster, String.join("; ", validation.getErrors()));
+                    continue;
+                }
             }
 
             if (validation.hasWarnings()) {

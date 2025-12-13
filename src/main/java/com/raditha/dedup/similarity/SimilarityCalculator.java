@@ -89,23 +89,32 @@ public class SimilarityCalculator {
 
     /**
      * Determine if sequences are refactorable based on similarity and analysis.
+     * Note: Made more lenient to allow refactoring of moderately similar code.
      */
     private boolean determineRefactorability(
             double overallScore,
             VariationAnalysis variations,
             TypeCompatibility typeCompatibility) {
 
-        // High similarity threshold
-        if (overallScore < 0.75) {
+        // Lowered threshold from 0.75 to 0.70 for more permissive refactoring
+        if (overallScore < 0.70) {
             return false;
         }
 
-        // Check variation feasibility
-        if (!variations.canParameterize()) {
-            return false;
+        // Check variation feasibility (but allow if variations are null/empty)
+        if (variations != null && variations.hasControlFlowDifferences()) {
+            return false; // Still reject control flow differences
         }
 
-        // Check type compatibility
-        return typeCompatibility.isFeasible();
+        // Be lenient with type compatibility - only reject if explicitly incompatible
+        // (null or unknown types are OK)
+        if (typeCompatibility != null && !typeCompatibility.isFeasible()) {
+            // Only reject if there are actual type conflicts, not just unknowns
+            if (typeCompatibility.isTypeSafe() == false) {
+                return false;
+            }
+        }
+
+        return true; // Default to allowing refactoring unless explicitly problematic
     }
 }
