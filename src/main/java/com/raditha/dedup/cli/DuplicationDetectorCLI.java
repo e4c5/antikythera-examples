@@ -25,6 +25,7 @@ import java.util.*;
  * 
  * Configuration priority: CLI arguments > generator.yml > defaults
  */
+@SuppressWarnings("java:S106")
 public class DuplicationDetectorCLI {
 
     private static final String VERSION = "1.0.0";

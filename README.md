@@ -205,10 +205,15 @@ Automatically detect and refactor code duplicates using advanced similarity algo
 
 ### Quick Start
 
+**Prerequisites**: Configure `src/main/resources/generator.yml` with your project settings:
+```yaml
+base_path: /path/to/your/project
+duplication_detector:
+  target_class: "com.example.YourClass"
+```
+
 ```bash
-# 1. Configure target
-# Edit src/main/resources/generator.yml:
-#   target_class: "com.example.YourClass"
+# 1. Configure target (see prerequisites above)
 
 # 2. Analyze duplicates
 mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.DuplicationDetectorCLI" \
@@ -222,6 +227,35 @@ mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.DuplicationDetectorCLI" \
 mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.DuplicationDetectorCLI" \
   -Dexec.args="refactor --mode interactive"
 ```
+
+### Metrics Export
+
+Export duplication metrics for dashboards, CI/CD pipelines, and historical tracking:
+
+```bash
+# Export to CSV (for Excel, BI tools)
+mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.DuplicationDetectorCLI" \
+  -Dexec.args="analyze --export csv"
+
+# Export to JSON (for APIs, dashboards)
+mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.DuplicationDetectorCLI" \
+  -Dexec.args="analyze --export json"
+
+# Export both formats
+mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.DuplicationDetectorCLI" \
+  -Dexec.args="analyze --export both"
+```
+
+**Exported Metrics Include:**
+- **Project Summary**: Total files analyzed, duplicate count, cluster count, estimated LOC reduction, average similarity
+- **Per-File Metrics**: Duplicates per file, clusters, LOC reduction potential, similarity scores, recommended refactoring strategies
+- **Timestamps**: ISO-8601 formatted for historical tracking
+
+**Use Cases:**
+- Track duplication trends over time in CI/CD pipelines
+- Generate management reports with Excel/Power BI
+- Feed metrics into dashboards via JSON API
+- Monitor code quality improvement initiatives
 
 ### Documentation
 
