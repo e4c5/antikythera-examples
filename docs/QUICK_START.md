@@ -85,6 +85,65 @@ mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.DuplicationDetectorCLI" \
   -Dexec.args="analyze --threshold 80 --min-lines 3"
 ```
 
+### Export Metrics
+
+```bash
+analyze --export FORMAT
+```
+
+Export duplication metrics to CSV or JSON for external analysis.
+
+> [!IMPORTANT]
+> Requires `generator.yml` configuration (see [Configuration File](#configuration-file) section).
+
+**Formats**:
+- `csv`: CSV format for Excel, spreadsheets, BI tools
+- `json`: JSON format for APIs, dashboards, automated processing
+- `both`: Generate both CSV and JSON files
+
+**Examples**:
+```bash
+# Export to CSV
+mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.DuplicationDetectorCLI" \
+  -Dexec.args="analyze --export csv"
+
+# Export to JSON
+mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.DuplicationDetectorCLI" \
+  -Dexec.args="analyze --export json"
+
+# Export both formats
+mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.DuplicationDetectorCLI" \
+  -Dexec.args="analyze --export both --threshold 70"
+```
+
+**Output Files**:
+- `duplication-metrics-YYYYMMDD-HHMMSS.csv`
+- `duplication-metrics-YYYYMMDD-HHMMSS.json`
+
+**Metrics Included**:
+
+*Project Summary*:
+- Total files analyzed
+- Total duplicates found
+- Total clusters identified
+- Estimated LOC reduction
+- Average similarity score
+- Timestamp (ISO-8601 format)
+
+*Per-File Metrics*:
+- File name
+- Duplicate count
+- Cluster count
+- Estimated LOC reduction
+- Average similarity
+- Recommended refactoring strategies
+
+**Use Cases**:
+- **CI/CD Integration**: Track duplication trends over time
+- **Management Reports**: Generate executive summaries with Excel/Power BI
+- **Dashboard Integration**: Feed JSON metrics to monitoring tools
+- **Historical Analysis**: Compare metrics across releases
+
 ### Refactor Command
 
 ```bash
