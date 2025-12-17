@@ -2,11 +2,51 @@
 
 ## Executive Summary
 
-This document reviews the Spring Boot 2.1→2.5 and Java 8→17 migration guides from the perspective of **using AI to generate migration tools** based on the [Antikythera framework](https://github.com/Cloud-Solutions-International/antikythera).
+This document reviews the Spring Boot 2.1→2.5 and Java 8→17 migration guides from the perspective of **using AI to write migration tool code** based on the [Antikythera framework](https://github.com/Cloud-Solutions-International/antikythera).
 
-**Purpose**: The migration guides will serve as specifications for AI agents to **write code for migration tools**, not to perform migrations directly. The AI will generate Antikythera-based Java tools that then automate the actual code migrations.
+**Critical Distinction**: 
+- ❌ **NOT**: AI directly performing code migrations
+- ✅ **YES**: AI writing Java tool classes that perform migrations
+
+**Purpose**: The migration guides serve as specifications for AI agents to **generate complete migration tool implementations**. AI writes Antikythera-based Java classes (e.g., `SpringBoot21To22Migrator.java`), and those generated tools then automate the actual code migrations.
+
+**Migration Sequence**: The tools must be generated and executed in this order:
+1. Spring Boot 2.1 → 2.2
+2. Spring Boot 2.2 → 2.3
+3. Spring Boot 2.3 → 2.4
+4. Spring Boot 2.4 → 2.5
+5. Java 8 → Java 17 (requires Spring Boot 2.5+)
 
 **Overall Assessment**: The migration documentation is comprehensive and provides excellent detail for manual migrations. However, to enable AI agents to generate effective migration tool code, several enhancements would significantly improve the specifications.
+
+---
+
+## How AI Tool Generation Works
+
+This section clarifies the workflow to avoid any confusion:
+
+### Step 1: AI Reads Migration Guide
+- AI agent reads migration documentation (e.g., `spring_boot_2.1_to_2.2_migration.md`)
+- Extracts patterns, detection strategies, and transformation rules
+- Parses YAML metadata blocks (to be added per recommendations)
+
+### Step 2: AI Writes Tool Code
+- AI generates a Java class (e.g., `SpringBoot21To22Migrator.java`)
+- Implements detection methods using JavaParser
+- Implements transformation methods using Antikythera APIs
+- Implements validation methods for verification
+- Output: Complete, compilable Java source code
+
+### Step 3: Generated Tool Runs Migration
+- Developer compiles the AI-generated Java tool
+- Developer runs the tool on their project
+- Tool uses Antikythera framework to:
+  - Scan source code
+  - Detect patterns requiring migration
+  - Apply transformations
+  - Validate results
+
+**Key Point**: The AI's job is to **write the tool code**. The tool's job is to **perform the migration**.
 
 ---
 
