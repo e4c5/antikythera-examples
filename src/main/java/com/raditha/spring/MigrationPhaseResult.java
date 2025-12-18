@@ -13,7 +13,9 @@ public class MigrationPhaseResult {
     private final List<String> errors = new ArrayList<>();
     private final List<String> warnings = new ArrayList<>();
     private final Set<String> modifiedClasses = new HashSet<>();
+    private final List<String> manualReviewItems = new ArrayList<>();
     private boolean successful = true;
+    private boolean requiresManualReview = false;
 
     /**
      * Add a change made during this phase.
@@ -91,5 +93,34 @@ public class MigrationPhaseResult {
      */
     public Set<String> getModifiedClasses() {
         return new HashSet<>(modifiedClasses);
+    }
+
+    /**
+     * Mark this phase as requiring manual review.
+     */
+    public void setRequiresManualReview(boolean requiresManualReview) {
+        this.requiresManualReview = requiresManualReview;
+    }
+
+    /**
+     * Check if this phase requires manual review.
+     */
+    public boolean requiresManualReview() {
+        return requiresManualReview;
+    }
+
+    /**
+     * Add an item that requires manual review.
+     */
+    public void addManualReviewItem(String item) {
+        manualReviewItems.add(item);
+        requiresManualReview = true;
+    }
+
+    /**
+     * Get all manual review items.
+     */
+    public List<String> getManualReviewItems() {
+        return new ArrayList<>(manualReviewItems);
     }
 }
