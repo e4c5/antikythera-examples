@@ -26,7 +26,7 @@ class HibernateCodeMigratorTest {
     }
 
     @Test
-    void testNoTypeDefAnnotations() {
+    void testNoTypeDefAnnotations() throws Exception {
         HibernateCodeMigrator migrator = new HibernateCodeMigrator(true);
         MigrationPhaseResult result = migrator.migrate();
 
@@ -36,7 +36,7 @@ class HibernateCodeMigratorTest {
     }
 
     @Test
-    void testMigratorAccessesParsedClasses() {
+    void testMigratorAccessesParsedClasses() throws Exception {
         assertFalse(AntikytheraRunTime.getResolvedCompilationUnits().isEmpty());
 
         HibernateCodeMigrator migrator = new HibernateCodeMigrator(true);
