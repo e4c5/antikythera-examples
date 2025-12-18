@@ -44,6 +44,7 @@ public class SpringBoot21to22Migrator {
     private HibernateCodeMigrator hibernateMigrator;
     private JedisConnectionMigrator jedisMigrator;
     private JmxConfigDetector jmxDetector;
+    private ActuatorConfigDetector actuatorDetector;
     private ConfigPropertiesScanMigrator configPropsMigrator;
     private MigrationValidator validator;
 
@@ -72,6 +73,7 @@ public class SpringBoot21to22Migrator {
         this.hibernateMigrator = new HibernateCodeMigrator(dryRun);
         this.jedisMigrator = new JedisConnectionMigrator(dryRun);
         this.jmxDetector = new JmxConfigDetector(dryRun);
+        this.actuatorDetector = new ActuatorConfigDetector(dryRun);
         this.configPropsMigrator = new ConfigPropertiesScanMigrator(dryRun);
         this.validator = new MigrationValidator(dryRun);
     }
@@ -125,6 +127,9 @@ public class SpringBoot21to22Migrator {
         MigrationPhaseResult configPropsResult = configPropsMigrator.migrate();
         modifiedFiles.addAll(configPropsResult.getModifiedClasses());
         result.addPhase("ConfigurationPropertiesScan", configPropsResult);
+
+        MigrationPhaseResult actuatorResult = actuatorDetector.migrate();
+        result.addPhase("Actuator Configuration Detection", actuatorResult);
 
         // Phase 5: Write modified files to disk
         if (!dryRun && !modifiedFiles.isEmpty()) {
