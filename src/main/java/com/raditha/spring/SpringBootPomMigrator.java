@@ -22,13 +22,17 @@ import java.nio.file.Paths;
  * - Update Spring Boot parent version from 2.1.x to 2.2.13.RELEASE
  * - Migrate javax.mail to jakarta.mail
  * - Validate kafka-clients version (≥ 2.3.0 required)
- * - Auto-upgrade kafka-clients if needed
+ * - Upgrade Spring Cloud from Greenwich to Hoxton
+ * - Sync ShedLock versions
+ * - Upgrade Springfox to 3.0.0
  */
-public class SpringBootPomMigrator {
+public class SpringBootPomMigrator implements MigrationPhase {
     private static final Logger logger = LoggerFactory.getLogger(SpringBootPomMigrator.class);
 
     private static final String TARGET_SPRING_BOOT_VERSION = "2.2.13.RELEASE";
     private static final String MIN_KAFKA_CLIENTS_VERSION = "2.3.0";
+    private static final String TARGET_SPRING_CLOUD_VERSION = "Hoxton.SR12";
+    private static final String TARGET_SPRINGFOX_VERSION = "3.0.0";
 
     private final boolean dryRun;
 
@@ -64,6 +68,21 @@ public class SpringBootPomMigrator {
 
             // Validate and upgrade Kafka version if needed
             validateKafkaClientVersion(model, result);
+
+            // Upgrade Spring Cloud from Greenwich to Hoxton
+            if (upgradeSpringCloud(model, result)) {
+                modified = true;
+            }
+
+            // Sync ShedLock versions
+            if (syncShedLockVersions(model, result)) {
+                modified = true;
+            }
+
+            // Upgrade Springfox to 3.0.0
+            if (upgradeSpringfox(model, result)) {
+                modified = true;
+            }
 
             if (modified && !dryRun) {
                 writePomModel(pomPath, model);
@@ -189,6 +208,143 @@ public class SpringBootPomMigrator {
         }
     }
 
+    /**
+     * Upgrade Spring Cloud from Greenwich to Hoxton.SR12.
+     */
+    private boolean upgradeSpringCloud(Model model, MigrationPhaseResult result) {
+        // Check for spring-cloud.version property
+        String currentVersion = model.getProperties().getProperty("spring-cloud.version");
+        
+        if (currentVersion == null) {
+            return false;
+        }
+
+        // Check if it's Greenwich (incompatible with Spring Boot 2.2)
+        if (currentVersion.contains("Greenwich")) {
+            if (dryRun) {
+                result.addChange(String.format("Would upgrade Spring Cloud: %s → %s",
+                        currentVersion, TARGET_SPRING_CLOUD_VERSION));
+            } else {
+                model.getProperties().setProperty("spring-cloud.version", TARGET_SPRING_CLOUD_VERSION);
+                result.addChange(String.format("Upgraded Spring Cloud: %s → %s",
+                        currentVersion, TARGET_SPRING_CLOUD_VERSION));
+                logger.info("Upgraded Spring Cloud to {}", TARGET_SPRING_CLOUD_VERSION);
+            }
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Sync all ShedLock dependencies to the same version.
+     */
+    private boolean syncShedLockVersions(Model model, MigrationPhaseResult result) {
+        // Find all ShedLock dependencies
+        java.util.List<Dependency> shedlockDeps = model.getDependencies().stream()
+                .filter(dep -> "net.javacrumbs.shedlock".equals(dep.getGroupId()))
+                .toList();
+
+        if (shedlockDeps.isEmpty()) {
+            return false;
+        }
+
+        // Check for version mismatches
+        java.util.Set<String> versions = shedlockDeps.stream()
+                .map(Dependency::getVersion)
+                .filter(v -> v != null && !v.startsWith("${"))
+                .collect(java.util.stream.Collectors.toSet());
+
+        if (versions.size() <= 1) {
+            return false; // All same version or using property
+        }
+
+        // Find the highest version to sync to
+        String targetVersion = versions.stream()
+                .max((v1, v2) -> compareVersions(v1, v2))
+                .orElse(null);
+
+        if (targetVersion == null) {
+            return false;
+        }
+
+        if (dryRun) {
+            result.addChange(String.format("Would sync ShedLock versions to %s", targetVersion));
+        } else {
+            for (Dependency dep : shedlockDeps) {
+                if (dep.getVersion() != null && !dep.getVersion().startsWith("${")) {
+                    dep.setVersion(targetVersion);
+                }
+            }
+            result.addChange(String.format("Synced %d ShedLock dependencies to version %s",
+                    shedlockDeps.size(), targetVersion));
+            logger.info("Synced ShedLock versions to {}", targetVersion);
+        }
+
+        return true;
+    }
+
+    /**
+     * Upgrade Springfox from 2.x to 3.0.0.
+     */
+    private boolean upgradeSpringfox(Model model, MigrationPhaseResult result) {
+        boolean modified = false;
+
+        // Find Springfox dependencies
+        java.util.List<Dependency> springfoxDeps = model.getDependencies().stream()
+                .filter(dep -> "io.springfox".equals(dep.getGroupId()))
+                .toList();
+
+        for (Dependency dep : springfoxDeps) {
+            String version = dep.getVersion();
+            if (version != null && !version.startsWith("${") && version.startsWith("2.")) {
+                if (dryRun) {
+                    result.addChange(String.format("Would upgrade %s: %s → %s",
+                            dep.getArtifactId(), version, TARGET_SPRINGFOX_VERSION));
+                } else {
+                    dep.setVersion(TARGET_SPRINGFOX_VERSION);
+                    result.addChange(String.format("Upgraded %s: %s → %s",
+                            dep.getArtifactId(), version, TARGET_SPRINGFOX_VERSION));
+                    logger.info("Upgraded {} to {}", dep.getArtifactId(), TARGET_SPRINGFOX_VERSION);
+                }
+                modified = true;
+            }
+        }
+
+        // Check if we need to replace swagger2 with boot-starter
+        Dependency swagger2 = model.getDependencies().stream()
+                .filter(dep -> "io.springfox".equals(dep.getGroupId()) &&
+                        "springfox-swagger2".equals(dep.getArtifactId()))
+                .findFirst()
+                .orElse(null);
+
+        Dependency swaggerUi = model.getDependencies().stream()
+                .filter(dep -> "io.springfox".equals(dep.getGroupId()) &&
+                        "springfox-swagger-ui".equals(dep.getArtifactId()))
+                .findFirst()
+                .orElse(null);
+
+        if (swagger2 != null && swaggerUi != null && !dryRun) {
+            // Remove both and add springfox-boot-starter
+            model.getDependencies().remove(swagger2);
+            model.getDependencies().remove(swaggerUi);
+
+            Dependency bootStarter = new Dependency();
+            bootStarter.setGroupId("io.springfox");
+            bootStarter.setArtifactId("springfox-boot-starter");
+            bootStarter.setVersion(TARGET_SPRINGFOX_VERSION);
+            model.addDependency(bootStarter);
+
+            result.addChange("Replaced springfox-swagger2 + springfox-swagger-ui with springfox-boot-starter");
+            modified = true;
+        } else if (swagger2 != null && swaggerUi != null && dryRun) {
+            result.addChange("Would replace springfox-swagger2 + springfox-swagger-ui with springfox-boot-starter");
+            modified = true;
+        }
+
+        return modified;
+    }
+
     // Utility methods
 
     private Path resolvePomPath() {
@@ -247,5 +403,15 @@ public class SpringBootPomMigrator {
         } catch (NumberFormatException e) {
             return 0;
         }
+    }
+
+    @Override
+    public String getPhaseName() {
+        return "POM Migration";
+    }
+
+    @Override
+    public int getPriority() {
+        return 10;
     }
 }

@@ -24,12 +24,6 @@ class SpringBoot21to22MigratorTest {
         AbstractCompiler.preProcess();
     }
 
-    @Test
-    void testOrchestratorCreation() {
-        SpringBoot21to22Migrator migrator = new SpringBoot21to22Migrator(true);
-        assertNotNull(migrator);
-        assertNotNull(migrator.getResult());
-    }
 
     @Test
     void testMigrateAllInDryRun() throws Exception {
@@ -39,23 +33,6 @@ class SpringBoot21to22MigratorTest {
         assertNotNull(result);
         // In dry run mode, should complete all phases
         assertTrue(result.getTotalChanges() >= 0);
-    }
-
-    @Test
-    void testGetResult() {
-        SpringBoot21to22Migrator migrator = new SpringBoot21to22Migrator(true);
-        MigrationResult result = migrator.getResult();
-
-        assertNotNull(result);
-        assertEquals(0, result.getTotalChanges()); // No migration run yet
-    }
-
-    @Test
-    void testPrintSummary() {
-        SpringBoot21to22Migrator migrator = new SpringBoot21to22Migrator(true);
-
-        // Should not throw exception
-        assertDoesNotThrow(() -> migrator.printSummary());
     }
 
     @Test

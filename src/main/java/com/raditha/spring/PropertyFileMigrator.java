@@ -2,7 +2,6 @@ package com.raditha.spring;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.Yaml;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 
@@ -19,7 +18,7 @@ import java.util.stream.Stream;
  * - .properties file transformations
  * - Smart forward headers strategy selection
  */
-public class PropertyFileMigrator {
+public class PropertyFileMigrator implements MigrationPhase {
     private static final Logger logger = LoggerFactory.getLogger(PropertyFileMigrator.class);
 
     private final boolean dryRun;
@@ -263,10 +262,7 @@ public class PropertyFileMigrator {
      * Create YAML instance with proper configuration.
      */
     private Yaml createYaml() {
-        DumperOptions options = new DumperOptions();
-        options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);
-        options.setPrettyFlow(true);
-        return new Yaml(options);
+        return YamlUtils.createYaml();
     }
 
     // Helper classes
@@ -284,5 +280,15 @@ public class PropertyFileMigrator {
     private enum TransformationType {
         NEST, // Property becomes nested
         VALUE_TRANSFORM // Value needs transformation
+    }
+
+    @Override
+    public String getPhaseName() {
+        return "Property Migration";
+    }
+
+    @Override
+    public int getPriority() {
+        return 20;
     }
 }

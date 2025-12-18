@@ -15,7 +15,7 @@ import java.util.Map;
  * Main change:
  * - TopicPartitionInitialOffset → TopicPartitionOffset
  */
-public class KafkaCodeMigrator {
+public class KafkaCodeMigrator implements MigrationPhase {
     private static final Logger logger = LoggerFactory.getLogger(KafkaCodeMigrator.class);
 
     private final boolean dryRun;
@@ -65,6 +65,7 @@ public class KafkaCodeMigrator {
             }
 
             if (modified) {
+                result.addModifiedClass(className);
                 changeCount++;
             }
         }
@@ -76,5 +77,15 @@ public class KafkaCodeMigrator {
         }
 
         return result;
+    }
+
+    @Override
+    public String getPhaseName() {
+        return "Kafka Migration";
+    }
+
+    @Override
+    public int getPriority() {
+        return 30;
     }
 }

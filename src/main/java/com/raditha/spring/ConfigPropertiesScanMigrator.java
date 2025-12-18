@@ -20,7 +20,7 @@ import java.util.*;
  * - Validate classes are within base package scan path
  * - Replace with @ConfigurationPropertiesScan for internal classes
  */
-public class ConfigPropertiesScanMigrator {
+public class ConfigPropertiesScanMigrator implements MigrationPhase {
     private static final Logger logger = LoggerFactory.getLogger(ConfigPropertiesScanMigrator.class);
 
     private final boolean dryRun;
@@ -35,70 +35,69 @@ public class ConfigPropertiesScanMigrator {
     public MigrationPhaseResult migrate() {
         MigrationPhaseResult result = new MigrationPhaseResult();
 
-        try {
-            // Find @SpringBootApplication class
-            CompilationUnit appClass = findSpringBootApplication();
+        // Find @SpringBootApplication class
+        CompilationUnit appClass = findSpringBootApplication();
 
-            if (appClass == null) {
-                result.addWarning("Could not find @SpringBootApplication class");
-                return result;
-            }
+        if (appClass == null) {
+            result.addChange("No @SpringBootApplication class found");
+            return result;
+        }
 
-            String basePackage = appClass.getPackageDeclaration()
-                    .map(pd -> pd.getNameAsString())
-                    .orElse("");
+        String basePackage = appClass.getPackageDeclaration()
+                .map(pd -> pd.getNameAsString())
+                .orElse("");
 
-            // Find @EnableConfigurationProperties
-            Optional<AnnotationExpr> enableConfigProps = appClass.findFirst(AnnotationExpr.class,
-                    a -> a.getNameAsString().equals("EnableConfigurationProperties") ||
-                            a.getNameAsString().equals(
-                                    "org.springframework.boot.context.properties.EnableConfigurationProperties"));
+        // Find @EnableConfigurationProperties
+        Optional<AnnotationExpr> enableConfigProps = appClass.findFirst(AnnotationExpr.class,
+                a -> a.getNameAsString().equals("EnableConfigurationProperties") ||
+                        a.getNameAsString().equals(
+                                "org.springframework.boot.context.properties.EnableConfigurationProperties"));
 
-            if (!enableConfigProps.isPresent()) {
-                result.addChange("No @EnableConfigurationProperties found");
-                return result;
-            }
+        if (enableConfigProps.isEmpty()) {
+            result.addChange("No @EnableConfigurationProperties found");
+            return result;
+        }
 
-            // Extract classes from annotation
-            List<String> propClasses = extractConfigurationPropertiesClasses(enableConfigProps.get());
+        // Extract classes from annotation
+        List<String> propClasses = extractConfigurationPropertiesClasses(enableConfigProps.get());
 
-            if (propClasses.isEmpty()) {
-                result.addChange("@EnableConfigurationProperties has no classes");
-                return result;
-            }
+        if (propClasses.isEmpty()) {
+            result.addChange("@EnableConfigurationProperties has no classes");
+            return result;
+        }
 
-            // Check if all classes are within base package
-            List<String> internalClasses = new ArrayList<>();
-            List<String> externalClasses = new ArrayList<>();
+        // Check if all classes are within base package
+        List<String> internalClasses = new ArrayList<>();
+        List<String> externalClasses = new ArrayList<>();
 
-            for (String className : propClasses) {
-                if (className.startsWith(basePackage)) {
-                    internalClasses.add(className);
-                } else {
-                    externalClasses.add(className);
-                }
-            }
-
-            if (internalClasses.isEmpty()) {
-                result.addChange("All configuration properties are external - keeping @EnableConfigurationProperties");
-                return result;
-            }
-
-            // Perform migration
-            if (!dryRun) {
-                migrateAnnotations(appClass, enableConfigProps.get(), externalClasses, result);
+        for (String className : propClasses) {
+            if (className.startsWith(basePackage)) {
+                internalClasses.add(className);
             } else {
-                if (externalClasses.isEmpty()) {
-                    result.addChange("Would replace @EnableConfigurationProperties with @ConfigurationPropertiesScan");
-                } else {
-                    result.addChange(
-                            "Would add @ConfigurationPropertiesScan and keep @EnableConfigurationProperties for external classes");
-                }
+                externalClasses.add(className);
             }
+        }
 
-        } catch (Exception e) {
-            logger.error("Error during ConfigPropertiesScan migration", e);
-            result.addError("ConfigPropertiesScan migration failed: " + e.getMessage());
+        if (internalClasses.isEmpty()) {
+            result.addChange("All configuration properties are external - keeping @EnableConfigurationProperties");
+            return result;
+        }
+
+        // Get the class name for tracking modifications
+        String appClassName = appClass.getType(0).getFullyQualifiedName()
+                .orElse(appClass.getType(0).getNameAsString());
+
+        // Perform migration
+        if (!dryRun) {
+            migrateAnnotations(appClass, enableConfigProps.get(), externalClasses, result);
+            result.addModifiedClass(appClassName);
+        } else {
+            if (externalClasses.isEmpty()) {
+                result.addChange("Would replace @EnableConfigurationProperties with @ConfigurationPropertiesScan");
+            } else {
+                result.addChange(
+                        "Would add @ConfigurationPropertiesScan and keep @EnableConfigurationProperties for external classes");
+            }
         }
 
         return result;
@@ -170,6 +169,9 @@ public class ConfigPropertiesScanMigrator {
     private void migrateAnnotations(CompilationUnit appClass, AnnotationExpr enableConfigProps,
             List<String> externalClasses, MigrationPhaseResult result) {
 
+        // Add the required import for @ConfigurationPropertiesScan
+        appClass.addImport("org.springframework.boot.context.properties.ConfigurationPropertiesScan");
+
         if (externalClasses.isEmpty()) {
             // Remove @EnableConfigurationProperties and add @ConfigurationPropertiesScan
             enableConfigProps.remove();
@@ -224,5 +226,15 @@ public class ConfigPropertiesScanMigrator {
         }
 
         return new ArrayInitializerExpr(values);
+    }
+
+    @Override
+    public String getPhaseName() {
+        return "ConfigurationPropertiesScan";
+    }
+
+    @Override
+    public int getPriority() {
+        return 41;
     }
 }
