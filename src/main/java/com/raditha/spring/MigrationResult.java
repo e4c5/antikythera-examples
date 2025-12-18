@@ -75,7 +75,12 @@ public class MigrationResult {
 
             report.append(phaseStatus).append(" ")
                     .append(entry.getKey()).append(": ")
-                    .append(phaseResult.getChangeCount()).append(" changes\n");
+                    .append(phaseResult.getChangeCount()).append(" changes");
+            
+            if (phaseResult.requiresManualReview()) {
+                report.append(" ⚠️  [REQUIRES MANUAL REVIEW]");
+            }
+            report.append("\n");
 
             // Show phase details
             for (String change : phaseResult.getChanges()) {
@@ -92,6 +97,28 @@ public class MigrationResult {
                 report.append("   ❌ ").append(error).append("\n");
             }
 
+            report.append("\n");
+        }
+
+        // Manual review section
+        List<String> allManualReviewItems = new ArrayList<>();
+        for (Map.Entry<String, MigrationPhaseResult> entry : phases.entrySet()) {
+            MigrationPhaseResult phaseResult = entry.getValue();
+            if (phaseResult.requiresManualReview()) {
+                for (String item : phaseResult.getManualReviewItems()) {
+                    allManualReviewItems.add(entry.getKey() + ": " + item);
+                }
+            }
+        }
+
+        if (!allManualReviewItems.isEmpty()) {
+            report.append("┌─────────────────────────────────────────────────────────┐\n");
+            report.append("│ ⚠️  MANUAL REVIEW REQUIRED                              │\n");
+            report.append("└─────────────────────────────────────────────────────────┘\n");
+            report.append("The following items were generated but require manual completion:\n\n");
+            for (String item : allManualReviewItems) {
+                report.append("  • ").append(item).append("\n");
+            }
             report.append("\n");
         }
 
@@ -114,7 +141,11 @@ public class MigrationResult {
 
         // Summary
         if (isSuccessful()) {
-            report.append("✅ Migration Status: COMPLETE - No manual work required\n");
+            if (allManualReviewItems.isEmpty()) {
+                report.append("✅ Migration Status: COMPLETE - All changes automated\n");
+            } else {
+                report.append("✅ Migration Status: COMPLETE - Review manual items above\n");
+            }
         } else {
             report.append("❌ Migration Status: FAILED - Review errors above\n");
         }

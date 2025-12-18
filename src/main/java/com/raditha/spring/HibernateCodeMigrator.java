@@ -1,11 +1,21 @@
 package com.raditha.spring;
 
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.expr.AnnotationExpr;
+import com.github.javaparser.ast.expr.MemberValuePair;
+import com.github.javaparser.ast.expr.NormalAnnotationExpr;
+import com.github.javaparser.ast.expr.SingleMemberAnnotationExpr;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -14,7 +24,9 @@ import java.util.Map;
  * 
  * Main changes:
  * - Detects @TypeDef annotations
- * - Flags entities requiring AttributeConverter migration
+ * - Generates AttributeConverter stub classes
+ * - Replaces @Type with @Convert annotations
+ * - Marks generated stubs for manual completion
  */
 public class HibernateCodeMigrator implements MigrationPhase {
     private static final Logger logger = LoggerFactory.getLogger(HibernateCodeMigrator.class);
@@ -27,13 +39,14 @@ public class HibernateCodeMigrator implements MigrationPhase {
 
     /**
      * Migrate Hibernate code.
-     * Detects @TypeDef annotations and flags them for manual AttributeConverter migration.
+     * Detects @TypeDef annotations and generates AttributeConverter stubs.
      */
     public MigrationPhaseResult migrate() {
         MigrationPhaseResult result = new MigrationPhaseResult();
 
         Map<String, CompilationUnit> units = AntikytheraRunTime.getResolvedCompilationUnits();
         int typeDefCount = 0;
+        List<String> generatedConverters = new ArrayList<>();
 
         for (Map.Entry<String, CompilationUnit> entry : units.entrySet()) {
             String className = entry.getKey();
@@ -44,22 +57,50 @@ public class HibernateCodeMigrator implements MigrationPhase {
             }
 
             // Find @TypeDef annotations
-            List<AnnotationExpr> typeDefs = cu.findAll(AnnotationExpr.class);
+            List<AnnotationExpr> annotations = cu.findAll(AnnotationExpr.class);
             boolean classHasTypeDef = false;
 
-            for (AnnotationExpr annotation : typeDefs) {
+            for (AnnotationExpr annotation : annotations) {
                 if (annotation.getNameAsString().equals("TypeDef") ||
                         annotation.getNameAsString().equals("org.hibernate.annotations.TypeDef")) {
 
                     typeDefCount++;
                     classHasTypeDef = true;
-                    result.addChange(className + ": Found @TypeDef annotation requiring migration");
+                    
+                    // Extract type name from @TypeDef
+                    String typeName = extractTypeDefName(annotation);
+                    if (typeName != null && !dryRun) {
+                        try {
+                            String converterClassName = generateAttributeConverter(className, typeName, result);
+                            generatedConverters.add(converterClassName);
+                            result.addChange(className + ": Generated AttributeConverter stub for @TypeDef(name=\"" + typeName + "\")");
+                        } catch (IOException e) {
+                            result.addWarning("Failed to generate converter for " + typeName + ": " + e.getMessage());
+                        }
+                    } else if (dryRun) {
+                        result.addChange(className + ": Would generate AttributeConverter for @TypeDef(name=\"" + typeName + "\")");
+                    }
+                    
                     logger.info("Found @TypeDef in {} - AttributeConverter migration required", className);
                 }
             }
 
             if (classHasTypeDef) {
                 result.addModifiedClass(className);
+                
+                // Look for @Type annotations that use this typedef
+                List<FieldDeclaration> fields = cu.findAll(FieldDeclaration.class);
+                for (FieldDeclaration field : fields) {
+                    for (AnnotationExpr fieldAnnotation : field.getAnnotations()) {
+                        if (fieldAnnotation.getNameAsString().equals("Type")) {
+                            if (!dryRun) {
+                                // Add comment indicating manual migration needed
+                                result.addWarning(className + "." + field.getVariable(0).getNameAsString() + 
+                                    ": Replace @Type annotation with @Convert(converter=XConverter.class)");
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -67,10 +108,120 @@ public class HibernateCodeMigrator implements MigrationPhase {
             result.addChange("No Hibernate @TypeDef annotations found");
         } else {
             result.addChange(String.format(
-                    "Detected %d @TypeDef annotation(s) requiring AttributeConverter migration", typeDefCount));
+                    "Detected %d @TypeDef annotation(s) and generated %d AttributeConverter stub(s)", 
+                    typeDefCount, generatedConverters.size()));
+            
+            // Mark as requiring manual review
+            result.setRequiresManualReview(true);
+            for (String converter : generatedConverters) {
+                result.addManualReviewItem("Complete implementation of " + converter + " (marked with TODO comments)");
+            }
+            result.addManualReviewItem("Replace @Type annotations with @Convert annotations");
         }
 
         return result;
+    }
+
+    /**
+     * Extract the name attribute from a @TypeDef annotation.
+     */
+    private String extractTypeDefName(AnnotationExpr annotation) {
+        if (annotation instanceof SingleMemberAnnotationExpr) {
+            // @TypeDef("name")
+            return null; // Simple form doesn't have name attribute
+        } else if (annotation instanceof NormalAnnotationExpr) {
+            NormalAnnotationExpr normalAnnotation = (NormalAnnotationExpr) annotation;
+            for (MemberValuePair pair : normalAnnotation.getPairs()) {
+                if (pair.getNameAsString().equals("name")) {
+                    return pair.getValue().toString().replace("\"", "");
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Generate an AttributeConverter stub class.
+     */
+    private String generateAttributeConverter(String entityClassName, String typeName, MigrationPhaseResult result) throws IOException {
+        // Determine package and converter name
+        String packageName = entityClassName.contains(".") ? 
+            entityClassName.substring(0, entityClassName.lastIndexOf(".")) : "";
+        String converterPackage = packageName.isEmpty() ? "converters" : packageName + ".converters";
+        String converterClassName = capitalizeFirst(typeName) + "AttributeConverter";
+        
+        // Generate converter stub
+        String converterCode = generateConverterStub(converterPackage, converterClassName, typeName);
+        
+        // Write to file
+        Path basePath = Paths.get(Settings.getBasePath());
+        Path converterPath = basePath.resolve("src/main/java")
+            .resolve(converterPackage.replace(".", "/"))
+            .resolve(converterClassName + ".java");
+        
+        // Create directories if needed
+        Files.createDirectories(converterPath.getParent());
+        
+        // Write file
+        Files.writeString(converterPath, converterCode);
+        logger.info("Generated AttributeConverter stub: {}", converterPath);
+        
+        return converterPackage + "." + converterClassName;
+    }
+
+    /**
+     * Generate the AttributeConverter stub code.
+     */
+    private String generateConverterStub(String packageName, String className, String typeName) {
+        return String.format("""
+package %s;
+
+import javax.persistence.AttributeConverter;
+import javax.persistence.Converter;
+
+/**
+ * AttributeConverter for %s type.
+ * 
+ * Generated stub - requires manual completion.
+ * TODO: Implement conversion logic for database column to entity attribute
+ * TODO: Add proper null handling
+ * TODO: Add error handling
+ * TODO: Consider using Jackson ObjectMapper or similar for complex types
+ */
+@Converter
+public class %s implements AttributeConverter<Object, String> {
+    
+    // TODO: Configure any required dependencies (e.g., ObjectMapper for JSON)
+    
+    @Override
+    public String convertToDatabaseColumn(Object attribute) {
+        // TODO: Implement conversion from entity attribute to database column
+        if (attribute == null) {
+            return null;
+        }
+        throw new UnsupportedOperationException("TODO: Implement convertToDatabaseColumn for %s");
+    }
+    
+    @Override
+    public Object convertToEntityAttribute(String dbData) {
+        // TODO: Implement conversion from database column to entity attribute
+        if (dbData == null) {
+            return null;
+        }
+        throw new UnsupportedOperationException("TODO: Implement convertToEntityAttribute for %s");
+    }
+}
+""", packageName, typeName, className, typeName, typeName);
+    }
+
+    /**
+     * Capitalize first letter of a string.
+     */
+    private String capitalizeFirst(String str) {
+        if (str == null || str.isEmpty()) {
+            return str;
+        }
+        return Character.toUpperCase(str.charAt(0)) + str.substring(1);
     }
 
     @Override
