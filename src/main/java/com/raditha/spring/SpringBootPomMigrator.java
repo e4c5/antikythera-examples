@@ -291,6 +291,7 @@ public class SpringBootPomMigrator implements MigrationPhase {
 
     /**
      * Upgrade Springfox from 2.x to 3.0.0.
+     * Also suggests SpringDoc OpenAPI as modern alternative.
      */
     private boolean upgradeSpringfox(Model model, MigrationPhaseResult result) {
         boolean modified = false;
@@ -345,6 +346,14 @@ public class SpringBootPomMigrator implements MigrationPhase {
         } else if (swagger2 != null && swaggerUi != null && dryRun) {
             result.addChange("Would replace springfox-swagger2 + springfox-swagger-ui with springfox-boot-starter");
             modified = true;
+        }
+
+        // Suggest SpringDoc OpenAPI as modern alternative
+        if (!springfoxDeps.isEmpty()) {
+            result.addWarning("💡 Consider migrating from Springfox to SpringDoc OpenAPI (more modern, actively maintained)");
+            result.addWarning("   SpringDoc dependency: org.springdoc:springdoc-openapi-ui:1.6.15");
+            result.addWarning("   SpringDoc offers better Spring Boot integration and OpenAPI 3.0 support");
+            result.addWarning("   Migration guide: https://springdoc.org/#migrating-from-springfox");
         }
 
         return modified;
