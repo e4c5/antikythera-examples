@@ -5,7 +5,6 @@ import com.github.javaparser.ast.expr.AnnotationExpr;
 import com.github.javaparser.ast.ImportDeclaration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.Yaml;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
@@ -24,7 +23,7 @@ import java.util.stream.Stream;
  * - javax.management.* imports
  * - Spring Kafka usage (often uses JMX for metrics)
  */
-public class JmxConfigDetector {
+public class JmxConfigDetector implements MigrationPhase {
     private static final Logger logger = LoggerFactory.getLogger(JmxConfigDetector.class);
 
     private final boolean dryRun;
@@ -166,9 +165,16 @@ public class JmxConfigDetector {
      * Create YAML instance with proper configuration.
      */
     private Yaml createYaml() {
-        DumperOptions options = new DumperOptions();
-        options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);
-        options.setPrettyFlow(true);
-        return new Yaml(options);
+        return YamlUtils.createYaml();
+    }
+
+    @Override
+    public String getPhaseName() {
+        return "JMX Detection";
+    }
+
+    @Override
+    public int getPriority() {
+        return 40;
     }
 }

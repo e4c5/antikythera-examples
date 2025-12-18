@@ -16,7 +16,7 @@ import java.nio.file.Paths;
  * 2. Dependency tree - check for conflicts
  * 3. Unit tests - mvn test (optional)
  */
-public class MigrationValidator {
+public class MigrationValidator implements MigrationPhase {
     private static final Logger logger = LoggerFactory.getLogger(MigrationValidator.class);
 
     private final boolean dryRun;
@@ -28,7 +28,8 @@ public class MigrationValidator {
     /**
      * Validate the migration by running compilation and tests.
      */
-    public MigrationPhaseResult validate() throws IOException, InterruptedException {
+    @Override
+    public MigrationPhaseResult migrate() throws IOException, InterruptedException {
         MigrationPhaseResult result = new MigrationPhaseResult();
 
         if (dryRun) {
@@ -119,5 +120,15 @@ public class MigrationValidator {
         if (exitCode != 0) {
             result.addWarning("dependency:tree command failed (exit code: " + exitCode + ")");
         }
+    }
+
+    @Override
+    public String getPhaseName() {
+        return "Validation";
+    }
+
+    @Override
+    public int getPriority() {
+        return 100;
     }
 }

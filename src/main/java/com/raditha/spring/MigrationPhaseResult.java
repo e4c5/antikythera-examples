@@ -1,7 +1,9 @@
 package com.raditha.spring;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Tracks the result of a single migration phase.
@@ -10,6 +12,7 @@ public class MigrationPhaseResult {
     private final List<String> changes = new ArrayList<>();
     private final List<String> errors = new ArrayList<>();
     private final List<String> warnings = new ArrayList<>();
+    private final Set<String> modifiedClasses = new HashSet<>();
     private boolean successful = true;
 
     /**
@@ -74,5 +77,19 @@ public class MigrationPhaseResult {
      */
     public List<String> getWarnings() {
         return new ArrayList<>(warnings);
+    }
+
+    /**
+     * Add a modified class name.
+     */
+    public void addModifiedClass(String className) {
+        modifiedClasses.add(className);
+    }
+
+    /**
+     * Get all modified class names.
+     */
+    public Set<String> getModifiedClasses() {
+        return new HashSet<>(modifiedClasses);
     }
 }

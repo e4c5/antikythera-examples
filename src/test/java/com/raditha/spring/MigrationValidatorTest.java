@@ -32,7 +32,7 @@ class MigrationValidatorTest {
     @Test
     void testValidateInDryRun() throws Exception {
         MigrationValidator validator = new MigrationValidator(true);
-        MigrationPhaseResult result = validator.validate();
+        MigrationPhaseResult result = validator.migrate();
 
         // Dry run mode should not actually validate
         assertNotNull(result);
@@ -45,7 +45,7 @@ class MigrationValidatorTest {
         Settings.setProperty(Settings.BASE_PATH, tempDir.toString());
 
         MigrationValidator validator = new MigrationValidator(false);
-        MigrationPhaseResult result = validator.validate();
+        MigrationPhaseResult result = validator.migrate();
 
         Settings.setProperty(Settings.BASE_PATH, originalPath);
 

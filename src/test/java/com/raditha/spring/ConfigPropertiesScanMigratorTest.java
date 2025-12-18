@@ -31,9 +31,9 @@ class ConfigPropertiesScanMigratorTest {
         MigrationPhaseResult result = migrator.migrate();
 
         assertTrue(result.isSuccessful());
-        // Test helper classes don't have @SpringBootApplication
-        assertTrue(result.getWarnings().stream()
-                .anyMatch(w -> w.contains("Could not find @SpringBootApplication")));
+        // Test helper classes don't have @SpringBootApplication - reported as a change
+        assertTrue(result.getChanges().stream()
+                .anyMatch(c -> c.contains("@SpringBootApplication")));
     }
 
     @Test

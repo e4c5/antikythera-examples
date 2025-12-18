@@ -1,8 +1,18 @@
 package com.raditha.spring;
 
+import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.printer.lexicalpreservation.LexicalPreservingPrinter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
+import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
+import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * Main orchestrator for Spring Boot 2.1 to 2.2 migration.
@@ -22,6 +32,7 @@ public class SpringBoot21to22Migrator {
 
     private final boolean dryRun;
     private final MigrationResult result;
+    private final Set<String> modifiedFiles = new HashSet<>();
 
     // Migration components
     private SpringBootPomMigrator pomMigrator;
@@ -33,7 +44,7 @@ public class SpringBoot21to22Migrator {
     private ConfigPropertiesScanMigrator configPropsMigrator;
     private MigrationValidator validator;
 
-    public SpringBoot21to22Migrator(boolean dryRun) {
+    public SpringBoot21to22Migrator(boolean dryRun) throws IOException {
         this.dryRun = dryRun;
         this.result = new MigrationResult();
         initializeComponents();
@@ -41,9 +52,15 @@ public class SpringBoot21to22Migrator {
 
     /**
      * Initialize all migration components.
+     * Pre-processes source files with lexical preservation enabled.
      */
-    private void initializeComponents() {
+    private void initializeComponents() throws IOException {
         logger.info("Initializing Spring Boot 2.1 to 2.2 migration components...");
+
+        // Load configuration and pre-process source files
+        Settings.loadConfigMap();
+        AbstractCompiler.setEnableLexicalPreservation(true);
+        AbstractCompiler.preProcess();
 
         this.pomMigrator = new SpringBootPomMigrator(dryRun);
         this.propertyMigrator = new PropertyFileMigrator(dryRun);
@@ -81,12 +98,15 @@ public class SpringBoot21to22Migrator {
         // Phase 3: Code Migrations
         logger.info("Phase 3: Migrating code (Kafka, Redis, Hibernate)...");
         MigrationPhaseResult kafkaResult = kafkaMigrator.migrate();
+        modifiedFiles.addAll(kafkaResult.getModifiedClasses());
         result.addPhase("Kafka Migration", kafkaResult);
 
         MigrationPhaseResult redisResult = redisMigrator.migrate();
+        modifiedFiles.addAll(redisResult.getModifiedClasses());
         result.addPhase("Redis Migration", redisResult);
 
         MigrationPhaseResult hibernateResult = hibernateMigrator.migrate();
+        modifiedFiles.addAll(hibernateResult.getModifiedClasses());
         result.addPhase("Hibernate Migration", hibernateResult);
 
         // Phase 4: Configuration Optimizations
@@ -95,17 +115,51 @@ public class SpringBoot21to22Migrator {
         result.addPhase("JMX Detection", jmxResult);
 
         MigrationPhaseResult configPropsResult = configPropsMigrator.migrate();
+        modifiedFiles.addAll(configPropsResult.getModifiedClasses());
         result.addPhase("ConfigurationPropertiesScan", configPropsResult);
 
-        // Phase 5: Validation
+        // Phase 5: Write modified files to disk
+        if (!dryRun && !modifiedFiles.isEmpty()) {
+            logger.info("Phase 5: Writing {} modified files to disk...", modifiedFiles.size());
+            writeModifiedFiles();
+        }
+
+        // Phase 6: Validation
         if (!dryRun) {
-            logger.info("Phase 5: Validating migration...");
-            MigrationPhaseResult validationResult = validator.validate();
+            logger.info("Phase 6: Validating migration...");
+            MigrationPhaseResult validationResult = validator.migrate();
             result.addPhase("Validation", validationResult);
         }
 
         logger.info("Migration completed successfully!");
         return result;
+    }
+
+    /**
+     * Write all modified compilation units to disk using LexicalPreservingPrinter.
+     */
+    private void writeModifiedFiles() throws IOException {
+        for (String className : modifiedFiles) {
+            CompilationUnit cu = AntikytheraRunTime.getCompilationUnit(className);
+            if (cu == null) {
+                logger.warn("Could not find CompilationUnit for {}", className);
+                continue;
+            }
+
+            String relativePath = AbstractCompiler.classToPath(className);
+            Path fullPath = Path.of(Settings.getBasePath(), "src/main/java", relativePath);
+
+            String content;
+            try {
+                content = LexicalPreservingPrinter.print(cu);
+            } catch (Exception e) {
+                logger.warn("LexicalPreservingPrinter failed for {}, using default printer", className);
+                content = cu.toString();
+            }
+
+            Files.writeString(fullPath, content);
+            logger.info("Wrote modified file: {}", fullPath);
+        }
     }
 
     /**
