@@ -41,7 +41,7 @@ public class HibernateCodeMigrator implements MigrationPhase {
      * Migrate Hibernate code.
      * Detects @TypeDef annotations and generates AttributeConverter stubs.
      */
-    public MigrationPhaseResult migrate() {
+    public MigrationPhaseResult migrate() throws Exception {
         MigrationPhaseResult result = new MigrationPhaseResult();
 
         Map<String, CompilationUnit> units = AntikytheraRunTime.getResolvedCompilationUnits();
@@ -70,13 +70,9 @@ public class HibernateCodeMigrator implements MigrationPhase {
                     // Extract type name from @TypeDef
                     String typeName = extractTypeDefName(annotation);
                     if (typeName != null && !dryRun) {
-                        try {
-                            String converterClassName = generateAttributeConverter(className, typeName, result);
-                            generatedConverters.add(converterClassName);
-                            result.addChange(className + ": Generated AttributeConverter stub for @TypeDef(name=\"" + typeName + "\")");
-                        } catch (IOException e) {
-                            result.addWarning("Failed to generate converter for " + typeName + ": " + e.getMessage());
-                        }
+                        String converterClassName = generateAttributeConverter(className, typeName, result);
+                        generatedConverters.add(converterClassName);
+                        result.addChange(className + ": Generated AttributeConverter stub for @TypeDef(name=\"" + typeName + "\")");
                     } else if (dryRun) {
                         result.addChange(className + ": Would generate AttributeConverter for @TypeDef(name=\"" + typeName + "\")");
                     }
@@ -92,12 +88,10 @@ public class HibernateCodeMigrator implements MigrationPhase {
                 List<FieldDeclaration> fields = cu.findAll(FieldDeclaration.class);
                 for (FieldDeclaration field : fields) {
                     for (AnnotationExpr fieldAnnotation : field.getAnnotations()) {
-                        if (fieldAnnotation.getNameAsString().equals("Type")) {
-                            if (!dryRun) {
-                                // Add comment indicating manual migration needed
-                                result.addWarning(className + "." + field.getVariable(0).getNameAsString() + 
-                                    ": Replace @Type annotation with @Convert(converter=XConverter.class)");
-                            }
+                        if (fieldAnnotation.getNameAsString().equals("Type") && !dryRun) {
+                            // Add comment indicating manual migration needed
+                            result.addWarning(className + "." + field.getVariable(0).getNameAsString() + 
+                                ": Replace @Type annotation with @Convert(converter=XConverter.class)");
                         }
                     }
                 }
@@ -111,12 +105,14 @@ public class HibernateCodeMigrator implements MigrationPhase {
                     "Detected %d @TypeDef annotation(s) and generated %d AttributeConverter stub(s)", 
                     typeDefCount, generatedConverters.size()));
             
-            // Mark as requiring manual review
-            result.setRequiresManualReview(true);
-            for (String converter : generatedConverters) {
-                result.addManualReviewItem("Complete implementation of " + converter + " (marked with TODO comments)");
+            // Generated stubs require implementation of conversion logic
+            if (!generatedConverters.isEmpty()) {
+                result.setRequiresManualReview(true);
+                result.addManualReviewItem(String.format(
+                    "Complete conversion logic in %d generated AttributeConverter stub(s) (marked with TODO comments)", 
+                    generatedConverters.size()));
+                result.addManualReviewItem("Replace @Type annotations with @Convert annotations referencing the new converters");
             }
-            result.addManualReviewItem("Replace @Type annotations with @Convert annotations");
         }
 
         return result;
@@ -129,8 +125,7 @@ public class HibernateCodeMigrator implements MigrationPhase {
         if (annotation instanceof SingleMemberAnnotationExpr) {
             // @TypeDef("name")
             return null; // Simple form doesn't have name attribute
-        } else if (annotation instanceof NormalAnnotationExpr) {
-            NormalAnnotationExpr normalAnnotation = (NormalAnnotationExpr) annotation;
+        } else if (annotation instanceof NormalAnnotationExpr normalAnnotation) {
             for (MemberValuePair pair : normalAnnotation.getPairs()) {
                 if (pair.getNameAsString().equals("name")) {
                     return pair.getValue().toString().replace("\"", "");
