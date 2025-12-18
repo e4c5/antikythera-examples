@@ -5,6 +5,4 @@ dependencies:
   antikythera:
     - "antikythera-*"
   antikythera-test-helper:
-    - "ant
-
-ikythera-test-helper-*"
+    - "antikythera-test-helper-*"
