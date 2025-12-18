@@ -20,7 +20,7 @@ import java.util.Set;
  * Coordinates all migration phases including:
  * - POM dependency updates
  * - Property file transformations
- * - Code migrations (Kafka, Redis, Hibernate)
+ * - Code migrations (Kafka, Redis, Hibernate, Jedis)
  * - Configuration optimizations (JMX, ConfigurationPropertiesScan)
  * - Validation and reporting
  * 
@@ -42,6 +42,7 @@ public class SpringBoot21to22Migrator {
     private KafkaCodeMigrator kafkaMigrator;
     private RedisCodeMigrator redisMigrator;
     private HibernateCodeMigrator hibernateMigrator;
+    private JedisConnectionMigrator jedisMigrator;
     private JmxConfigDetector jmxDetector;
     private ConfigPropertiesScanMigrator configPropsMigrator;
     private MigrationValidator validator;
@@ -69,6 +70,7 @@ public class SpringBoot21to22Migrator {
         this.kafkaMigrator = new KafkaCodeMigrator(dryRun);
         this.redisMigrator = new RedisCodeMigrator(dryRun);
         this.hibernateMigrator = new HibernateCodeMigrator(dryRun);
+        this.jedisMigrator = new JedisConnectionMigrator(dryRun);
         this.jmxDetector = new JmxConfigDetector(dryRun);
         this.configPropsMigrator = new ConfigPropertiesScanMigrator(dryRun);
         this.validator = new MigrationValidator(dryRun);
@@ -110,6 +112,10 @@ public class SpringBoot21to22Migrator {
         MigrationPhaseResult hibernateResult = hibernateMigrator.migrate();
         modifiedFiles.addAll(hibernateResult.getModifiedClasses());
         result.addPhase("Hibernate Migration", hibernateResult);
+
+        MigrationPhaseResult jedisResult = jedisMigrator.migrate();
+        modifiedFiles.addAll(jedisResult.getModifiedClasses());
+        result.addPhase("Jedis Configuration Migration", jedisResult);
 
         // Phase 4: Configuration Optimizations
         logger.info("Phase 4: Applying configuration optimizations...");
