@@ -46,10 +46,29 @@ public class SpringBoot21to22Migrator {
     private JmxConfigDetector jmxDetector;
     private ActuatorConfigDetector actuatorDetector;
     private ConfigPropertiesScanMigrator configPropsMigrator;
+    private LazyInitializationConfigurer lazyInitConfigurer;
+    private JakartaEEPrepMigrator jakartaPrepMigrator;
     private MigrationValidator validator;
 
+    // Optional feature flags (disabled by default)
+    private boolean enableLazyInit = false;
+    private boolean enableJakartaPrep = false;
+
     public SpringBoot21to22Migrator(boolean dryRun) throws IOException {
+        this(dryRun, false, false);
+    }
+
+    /**
+     * Constructor with optional feature flags.
+     * 
+     * @param dryRun if true, no files will be modified
+     * @param enableLazyInit if true, adds lazy initialization to test profiles
+     * @param enableJakartaPrep if true, adds Jakarta EE migration prep comments
+     */
+    public SpringBoot21to22Migrator(boolean dryRun, boolean enableLazyInit, boolean enableJakartaPrep) throws IOException {
         this.dryRun = dryRun;
+        this.enableLazyInit = enableLazyInit;
+        this.enableJakartaPrep = enableJakartaPrep;
         this.result = new MigrationResult();
         initializeComponents();
     }
@@ -75,6 +94,8 @@ public class SpringBoot21to22Migrator {
         this.jmxDetector = new JmxConfigDetector(dryRun);
         this.actuatorDetector = new ActuatorConfigDetector(dryRun);
         this.configPropsMigrator = new ConfigPropertiesScanMigrator(dryRun);
+        this.lazyInitConfigurer = new LazyInitializationConfigurer(dryRun, enableLazyInit);
+        this.jakartaPrepMigrator = new JakartaEEPrepMigrator(dryRun, enableJakartaPrep);
         this.validator = new MigrationValidator(dryRun);
     }
 
@@ -131,9 +152,25 @@ public class SpringBoot21to22Migrator {
         MigrationPhaseResult actuatorResult = actuatorDetector.migrate();
         result.addPhase("Actuator Configuration Detection", actuatorResult);
 
-        // Phase 5: Write modified files to disk
+        // Phase 5: Optional Enhancements
+        if (enableLazyInit || enableJakartaPrep) {
+            logger.info("Phase 5: Applying optional enhancements...");
+            
+            if (enableLazyInit) {
+                MigrationPhaseResult lazyInitResult = lazyInitConfigurer.migrate();
+                result.addPhase("Lazy Initialization Configuration", lazyInitResult);
+            }
+            
+            if (enableJakartaPrep) {
+                MigrationPhaseResult jakartaResult = jakartaPrepMigrator.migrate();
+                modifiedFiles.addAll(jakartaResult.getModifiedClasses());
+                result.addPhase("Jakarta EE Preparatory Comments", jakartaResult);
+            }
+        }
+
+        // Phase 6: Write modified files to disk
         if (!dryRun && !modifiedFiles.isEmpty()) {
-            logger.info("Phase 5: Writing {} modified files to disk...", modifiedFiles.size());
+            logger.info("Phase 6: Writing {} modified files to disk...", modifiedFiles.size());
             writeModifiedFiles();
         }
 
@@ -192,11 +229,13 @@ public class SpringBoot21to22Migrator {
     /**
      * Main method for command-line execution.
      * 
-     * Usage: java com.raditha.spring.SpringBoot21to22Migrator [--dry-run]
-     * [--project-path <path>]
+     * Usage: java com.raditha.spring.SpringBoot21to22Migrator [--dry-run] 
+     *        [--project-path <path>] [--enable-lazy-init] [--enable-jakarta-prep]
      */
     public static void main(String[] args) throws Exception {
         boolean dryRun = false;
+        boolean enableLazyInit = false;
+        boolean enableJakartaPrep = false;
         String projectPath = null;
 
         // Parse arguments
@@ -204,6 +243,12 @@ public class SpringBoot21to22Migrator {
             switch (args[i]) {
                 case "--dry-run":
                     dryRun = true;
+                    break;
+                case "--enable-lazy-init":
+                    enableLazyInit = true;
+                    break;
+                case "--enable-jakarta-prep":
+                    enableJakartaPrep = true;
                     break;
                 case "--project-path":
                     if (i + 1 < args.length) {
@@ -230,7 +275,7 @@ public class SpringBoot21to22Migrator {
         }
 
         // Run migration
-        SpringBoot21to22Migrator migrator = new SpringBoot21to22Migrator(dryRun);
+        SpringBoot21to22Migrator migrator = new SpringBoot21to22Migrator(dryRun, enableLazyInit, enableJakartaPrep);
         MigrationResult result = migrator.migrateAll();
 
         // Print results
@@ -250,11 +295,15 @@ public class SpringBoot21to22Migrator {
         System.out.println("Options:");
         System.out.println("  --dry-run              Run migration without making changes");
         System.out.println("  --project-path <path>  Path to Spring Boot project (default: current directory)");
+        System.out.println("  --enable-lazy-init     Add lazy initialization to test profiles (optional)");
+        System.out.println("  --enable-jakarta-prep  Add Jakarta EE migration prep comments (optional)");
         System.out.println("  --help, -h             Show this help message");
         System.out.println();
         System.out.println("Example:");
         System.out.println(
                 "  java com.raditha.spring.SpringBoot21to22Migrator --dry-run --project-path /path/to/project");
+        System.out.println(
+                "  java com.raditha.spring.SpringBoot21to22Migrator --enable-lazy-init --enable-jakarta-prep");
         System.exit(1);
     }
 }
