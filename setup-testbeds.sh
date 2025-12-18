@@ -75,24 +75,28 @@ setup_version() {
     
     print_info "Setting up Spring Boot ${version} testbed..."
     
-    # Remove existing directory if it exists
+    # Check if directory already exists
     if [ -d "$full_path" ]; then
-        print_warning "Directory $full_path already exists. Removing..."
-        rm -rf "$full_path"
+        print_info "Directory exists, resetting to commit for Spring Boot ${version}..."
+        (cd "$full_path" && git fetch origin >/dev/null 2>&1 || true)
+        (cd "$full_path" && git reset --hard "$commit" >/dev/null 2>&1)
+        (cd "$full_path" && git clean -fd >/dev/null 2>&1)
+        print_success "Reset to Spring Boot ${version} commit"
+    else
+        # Clone the repository
+        print_info "Cloning Spring PetClinic..."
+        git clone "$PETCLINIC_REPO" "$full_path" >/dev/null 2>&1
+        
+        # Checkout specific commit
+        print_info "Checking out commit for Spring Boot ${version}..."
+        (cd "$full_path" && git checkout "$commit" >/dev/null 2>&1)
+        print_success "Cloned Spring Boot ${version} testbed"
     fi
-    
-    # Clone the repository
-    print_info "Cloning Spring PetClinic..."
-    git clone "$PETCLINIC_REPO" "$full_path" >/dev/null 2>&1
-    
-    # Checkout specific commit
-    print_info "Checking out commit for Spring Boot ${version}..."
-    (cd "$full_path" && git checkout "$commit" >/dev/null 2>&1)
     
     # Verify the Spring Boot version in pom.xml
     if [ -f "$full_path/pom.xml" ]; then
         local boot_version=$(grep -m1 "<parent>" -A 5 "$full_path/pom.xml" | grep "<version>" | sed 's/.*<version>\(.*\)<\/version>.*/\1/')
-        print_success "Spring Boot ${version} testbed created (actual version: $boot_version)"
+        print_info "Spring Boot version: $boot_version"
     else
         print_error "pom.xml not found in $full_path"
         return 1
@@ -100,11 +104,17 @@ setup_version() {
     
     # Optionally verify build
     if command_exists mvn && [ "$VERIFY_BUILD" = "true" ]; then
-        print_info "Verifying build for Spring Boot ${version}..."
-        if (cd "$full_path" && mvn clean verify -DskipTests >/dev/null 2>&1); then
+        print_info "Verifying build for Spring Boot ${version}... (this may take a few minutes on first run)"
+        print_info "Downloading dependencies and building..."
+        if timeout 600 bash -c "(cd \"$full_path\" && mvn clean verify -DskipTests 2>&1 | tail -20)"; then
             print_success "Build verification passed for Spring Boot ${version}"
         else
-            print_warning "Build verification failed for Spring Boot ${version} (this may be due to environment issues)"
+            exit_code=$?
+            if [ $exit_code -eq 124 ]; then
+                print_warning "Build verification timed out for Spring Boot ${version} (>10 minutes)"
+            else
+                print_warning "Build verification failed for Spring Boot ${version} (this may be due to environment issues)"
+            fi
         fi
     fi
 }
