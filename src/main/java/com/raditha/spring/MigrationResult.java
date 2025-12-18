@@ -150,6 +150,17 @@ public class MigrationResult {
             report.append("❌ Migration Status: FAILED - Review errors above\n");
         }
 
+        // Rollback instructions section
+        report.append("\n");
+        report.append("┌─────────────────────────────────────────────────────────┐\n");
+        report.append("│ 🔄 ROLLBACK INSTRUCTIONS                                │\n");
+        report.append("└─────────────────────────────────────────────────────────┘\n");
+        report.append("If migration causes issues, rollback using:\n");
+        report.append("  git revert HEAD                    # Revert latest migration commit\n");
+        report.append("  git checkout HEAD~1 -- pom.xml     # Restore POM only\n");
+        report.append("  git checkout HEAD~1 -- src/        # Restore source files\n");
+        report.append("\n");
+
         return report.toString();
     }
 
