@@ -84,6 +84,11 @@ public class SpringBootPomMigrator implements MigrationPhase {
                 modified = true;
             }
 
+            // Add spring-boot-properties-migrator for validation
+            if (addPropertiesMigrator(model, result)) {
+                modified = true;
+            }
+
             if (modified && !dryRun) {
                 writePomModel(pomPath, model);
                 logger.info("POM migration completed successfully");
@@ -286,6 +291,7 @@ public class SpringBootPomMigrator implements MigrationPhase {
 
     /**
      * Upgrade Springfox from 2.x to 3.0.0.
+     * Also suggests SpringDoc OpenAPI as modern alternative.
      */
     private boolean upgradeSpringfox(Model model, MigrationPhaseResult result) {
         boolean modified = false;
@@ -342,7 +348,47 @@ public class SpringBootPomMigrator implements MigrationPhase {
             modified = true;
         }
 
+        // Suggest SpringDoc OpenAPI as modern alternative
+        if (!springfoxDeps.isEmpty()) {
+            result.addWarning("💡 Consider migrating from Springfox to SpringDoc OpenAPI (more modern, actively maintained)");
+            result.addWarning("   SpringDoc dependency: org.springdoc:springdoc-openapi-ui:1.6.15");
+            result.addWarning("   SpringDoc offers better Spring Boot integration and OpenAPI 3.0 support");
+            result.addWarning("   Migration guide: https://springdoc.org/#migrating-from-springfox");
+        }
+
         return modified;
+    }
+
+    /**
+     * Add spring-boot-properties-migrator dependency for validation.
+     * This dependency helps detect deprecated properties at runtime.
+     */
+    private boolean addPropertiesMigrator(Model model, MigrationPhaseResult result) {
+        // Check if dependency already exists
+        boolean hasPropertiesMigrator = model.getDependencies().stream()
+                .anyMatch(dep -> "org.springframework.boot".equals(dep.getGroupId()) &&
+                        "spring-boot-properties-migrator".equals(dep.getArtifactId()));
+
+        if (hasPropertiesMigrator) {
+            result.addChange("spring-boot-properties-migrator already present");
+            return false;
+        }
+
+        if (dryRun) {
+            result.addChange("Would add spring-boot-properties-migrator dependency (scope: runtime)");
+        } else {
+            Dependency propertiesMigrator = new Dependency();
+            propertiesMigrator.setGroupId("org.springframework.boot");
+            propertiesMigrator.setArtifactId("spring-boot-properties-migrator");
+            propertiesMigrator.setScope("runtime");
+            model.addDependency(propertiesMigrator);
+
+            result.addChange("Added spring-boot-properties-migrator (scope: runtime) - helps detect deprecated properties");
+            result.addWarning("Remember to remove spring-boot-properties-migrator after migration validation is complete");
+            logger.info("Added spring-boot-properties-migrator dependency");
+        }
+
+        return true;
     }
 
     // Utility methods
