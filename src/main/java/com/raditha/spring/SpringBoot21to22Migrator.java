@@ -24,7 +24,9 @@ import java.util.Set;
  * - Configuration optimizations (JMX, ConfigurationPropertiesScan)
  * - Validation and reporting
  * 
- * All migrations are fully automated with no manual work required.
+ * Most migrations are fully automated. Some migrations (Hibernate AttributeConverter
+ * generation, Redis set operations, Jedis configuration) may require manual review
+ * and completion after initial code generation.
  */
 @SuppressWarnings("java:S106") // Allow System.out usage for reporting
 public class SpringBoot21to22Migrator {

@@ -79,6 +79,10 @@ public class RedisCodeMigrator implements MigrationPhase {
             result.addChange("No Redis migrations needed");
         } else {
             logger.info("Redis migration complete: {} method calls updated", changeCount);
+            result.setRequiresManualReview(true);
+            result.addManualReviewItem(String.format(
+                "Verify Redis set operations (%d method calls transformed) compile and function correctly", 
+                changeCount));
         }
 
         return result;
@@ -103,6 +107,18 @@ public class RedisCodeMigrator implements MigrationPhase {
     private void transformSetOperation(MethodCallExpr call, String className, MigrationPhaseResult result) {
         Expression firstKey = call.getArgument(0);
         Expression otherKeys = call.getArgument(1);
+
+        // Get the compilation unit to add imports
+        CompilationUnit cu = call.findCompilationUnit().orElse(null);
+        if (cu != null) {
+            // Add necessary imports if not already present
+            if (!hasImport(cu, "java.util.stream.Stream")) {
+                cu.addImport("java.util.stream.Stream");
+            }
+            if (!hasImport(cu, "java.util.stream.Collectors")) {
+                cu.addImport("java.util.stream.Collectors");
+            }
+        }
 
         // Create: Stream.concat(Stream.of(firstKey), otherKeys.stream()).collect(Collectors.toList())
         // Simplified: We'll create Arrays.asList(firstKey, otherKeys...) pattern
@@ -133,6 +149,14 @@ public class RedisCodeMigrator implements MigrationPhase {
                 className, call.getNameAsString(), call.getNameAsString()));
 
         logger.debug("Transformed Redis {} operation in {}", call.getNameAsString(), className);
+    }
+
+    /**
+     * Check if compilation unit already has the specified import.
+     */
+    private boolean hasImport(CompilationUnit cu, String importName) {
+        return cu.getImports().stream()
+                .anyMatch(imp -> imp.getNameAsString().equals(importName));
     }
 
     @Override
