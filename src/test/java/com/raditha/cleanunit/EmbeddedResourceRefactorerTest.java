@@ -17,7 +17,10 @@ import static org.junit.jupiter.api.Assertions.*;
 class EmbeddedResourceRefactorerTest {
 
     @Test
-    void testCollectDependenciesOnlyFromUsedConverters() {
+    void testCollectDependenciesOnlyFromUsedConverters() throws Exception {
+        // Initialize Settings (required by EmbeddedResourceRefactorer)
+        sa.com.cloudsolutions.antikythera.configuration.Settings.loadConfigMap();
+
         // Given: a refactorer
         EmbeddedResourceRefactorer refactorer = new EmbeddedResourceRefactorer(false);
 
@@ -30,9 +33,9 @@ class EmbeddedResourceRefactorerTest {
 
         // Create a simple test class for conversion
         String code = """
-            class TestClass1 {
-            }
-            """;
+                class TestClass1 {
+                }
+                """;
         CompilationUnit cu = StaticJavaParser.parse(code);
 
         // When: we check what dependencies would be collected
@@ -41,7 +44,7 @@ class EmbeddedResourceRefactorerTest {
 
         // Then: verify that the mapping correctly identifies Database converter
         assertTrue(dbOutcome.embeddedAlternative.toLowerCase().contains("h2") ||
-                   dbOutcome.embeddedAlternative.toLowerCase().contains("database"),
+                dbOutcome.embeddedAlternative.toLowerCase().contains("database"),
                 "Database converter should be identified");
     }
 
@@ -98,7 +101,7 @@ class EmbeddedResourceRefactorerTest {
     void testMultipleConvertersUsedInSameRun() {
         // Given: outcomes using multiple converters
         List<ConversionOutcome> outcomes = new ArrayList<>();
-        
+
         ConversionOutcome dbOutcome = new ConversionOutcome("DatabaseTest");
         dbOutcome.modified = true;
         dbOutcome.embeddedAlternative = "@AutoConfigureTestDatabase with H2";
@@ -114,14 +117,15 @@ class EmbeddedResourceRefactorerTest {
         skippedOutcome.embeddedAlternative = null;
         outcomes.add(skippedOutcome);
 
-        // Then: verify that both Database and Kafka would be collected, but not Redis/Mongo
+        // Then: verify that both Database and Kafka would be collected, but not
+        // Redis/Mongo
         long modifiedCount = outcomes.stream().filter(o -> o.modified).count();
         assertEquals(2, modifiedCount, "Should have 2 modified outcomes");
 
         boolean hasDatabase = outcomes.stream()
                 .anyMatch(o -> o.modified && o.embeddedAlternative != null &&
                         (o.embeddedAlternative.toLowerCase().contains("h2") ||
-                         o.embeddedAlternative.toLowerCase().contains("database")));
+                                o.embeddedAlternative.toLowerCase().contains("database")));
         assertTrue(hasDatabase, "Should identify Database converter");
 
         boolean hasKafka = outcomes.stream()
