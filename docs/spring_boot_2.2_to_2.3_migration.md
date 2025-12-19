@@ -168,6 +168,95 @@ spring:
 
 **Why**: Prevents DataSource naming conflicts in applications with multiple DataSources.
 
+#### Automated H2 Console Configuration
+
+> [!NOTE]
+> If H2 console is enabled, unique name generation should be disabled automatically.
+
+**Detection Strategy**
+
+**Complexity**: LOW - Simple property and dependency detection
+
+**Step 1: Detect H2 Usage**
+```xml
+<!-- POM Detection: Check for H2 dependency -->
+<dependency>
+    <groupId>com.h2database</groupId>
+    <artifactId>h2</artifactId>
+    <scope>runtime</scope>
+</dependency>
+
+<!-- OR in Gradle -->
+runtimeOnly 'com.h2database:h2'
+```
+
+**Step 2: Detect H2 Console Enabled**
+```yaml
+# Check application.yml/application.properties for:
+spring:
+  h2:
+    console:
+      enabled: true
+
+# OR in properties format:
+spring.h2.console.enabled=true
+```
+
+**Step 3: Check if generate-unique-name is Set**
+```yaml
+# Check if property already exists:
+spring:
+  datasource:
+    generate-unique-name: false  # Already configured
+```
+
+**Automated Transformation Strategy**
+
+If H2 dependency present AND H2 console enabled AND generate-unique-name NOT set:
+
+**Action: Add Configuration Property**
+
+**For YAML files:**
+```yaml
+# Add under spring.datasource:
+spring:
+  datasource:
+    generate-unique-name: false  # Added for H2 console compatibility
+  h2:
+    console:
+      enabled: true
+```
+
+**For Properties files:**
+```properties
+# Add property:
+spring.datasource.generate-unique-name=false
+spring.h2.console.enabled=true
+```
+
+**Validation Strategy**:
+- Application starts successfully
+- H2 console accessible at /h2-console
+- Database connection works in H2 console
+- No naming conflicts with other DataSources
+
+**Risk Level**: NONE - Only adds configuration, no code changes
+
+**Automation Confidence**: 100% (safe when H2 console is enabled)
+
+**Recommendation**: 
+- Fully automated for H2 console use cases
+- Add warning if multiple DataSources detected (may need manual review)
+
+**Automation Output Example**:
+```
+[INFO] H2 database detected in dependencies
+[INFO] H2 console enabled in application.yml
+[INFO] Adding spring.datasource.generate-unique-name=false for H2 console compatibility
+[SUCCESS] H2 configuration updated
+[NOTE] If using multiple DataSources, review naming strategy manually
+```
+
 ### 3.3 Application Context Runner Changes
 
 Bean overriding is now disabled by default in `ApplicationContextRunner`:
@@ -284,6 +373,146 @@ grep -rE "@NotNull|@NotEmpty|@Size|@Email|@Pattern|@Min|@Max" src/main/java
 
 # Find @Validated annotations
 grep -r "@Validated" src/main/java
+```
+
+#### Automated Validation Starter Migration
+
+> [!NOTE]
+> This is the **most critical** migration for Spring Boot 2.3. Automated detection and dependency injection is highly recommended.
+
+**Detection Patterns**
+
+**Pattern 1: Detect @Valid and @Validated Usage**
+```java
+// AST/Import Detection Patterns:
+// 1. Imports: javax.validation.Valid, javax.validation.constraints.*
+// 2. Annotations: @Valid, @Validated on parameters, fields, or classes
+// 3. Constraint annotations: @NotNull, @NotEmpty, @Size, @Email, etc.
+
+// Example usages to detect:
+@RestController
+public class UserController {
+    @PostMapping("/users")
+    public ResponseEntity<User> create(@Valid @RequestBody User user) {
+        // Requires validation starter
+    }
+}
+
+@Service
+@Validated
+public class UserService {
+    public void process(@Valid User user) {
+        // Requires validation starter
+    }
+}
+
+@Entity
+public class User {
+    @NotNull
+    @Size(min = 2, max = 50)
+    private String name;
+    
+    @Email
+    private String email;
+}
+```
+
+**Detection Strategy**
+
+**Complexity**: LOW - Simple import and annotation scanning
+
+**Step 1: Scan for Validation Imports**
+```java
+// Detection rules:
+// - Scan all .java files for imports:
+//   - javax.validation.Valid
+//   - javax.validation.Validated
+//   - javax.validation.constraints.*
+//   - org.springframework.validation.annotation.Validated
+```
+
+**Step 2: Scan for Validation Annotations**
+```java
+// AST Analysis:
+// 1. Find @Valid annotations on:
+//    - Method parameters (especially in @RestController, @Controller)
+//    - Fields
+//    - Return types
+// 2. Find @Validated annotations on:
+//    - Classes (typically @Service, @Component)
+//    - Method parameters
+// 3. Find constraint annotations:
+//    - @NotNull, @NotEmpty, @NotBlank
+//    - @Size, @Min, @Max
+//    - @Email, @Pattern
+//    - @Positive, @Negative
+//    - @Past, @Future, @PastOrPresent, @FutureOrPresent
+```
+
+**Step 3: Check POM for Validation Starter**
+```xml
+<!-- Detection logic: -->
+<!-- Check if dependency already exists: -->
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-validation</artifactId>
+</dependency>
+```
+
+**Automated Transformation Strategy**
+
+**Complexity**: LOW - Simple dependency injection
+
+**Action: Add Validation Starter to POM**
+
+If validation usage is detected AND starter is not present:
+
+```xml
+<!-- Add to pom.xml dependencies section: -->
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-validation</artifactId>
+</dependency>
+```
+
+For Gradle projects:
+
+```gradle
+// Add to build.gradle dependencies:
+implementation 'org.springframework.boot:spring-boot-starter-validation'
+```
+
+**Validation Strategy**:
+- Application compiles successfully
+- Application starts without `NoProviderFoundException`
+- All @Valid/@Validated annotations function correctly
+- Validation constraints trigger expected errors
+
+**Risk Level**: NONE - Only adds dependency, no code changes
+
+**Automation Confidence**: 100% (safe, deterministic transformation)
+
+**Recommendation**: 
+- Fully automated
+- Add to migration report with count of validation usages detected
+- Provide list of files using validation for reference
+
+**Automation Output Example**:
+```
+[INFO] Validation usage detected in project
+[INFO] Found @Valid annotations: 23 occurrences across 8 files
+[INFO] Found @Validated annotations: 5 occurrences across 4 classes
+[INFO] Found constraint annotations: 147 occurrences across 34 entities
+[INFO] Adding spring-boot-starter-validation dependency to pom.xml
+[SUCCESS] Validation starter added successfully
+
+Files using validation:
+- UserController.java: @Valid on method parameters
+- OrderController.java: @Valid on method parameters
+- ProductService.java: @Validated class annotation
+- User.java: @NotNull, @Size, @Email constraint annotations
+- Order.java: @NotNull, @Min, @Max constraint annotations
+... (29 more files)
 ```
 
 ---
@@ -981,6 +1210,258 @@ spring:
       schema-action: create-if-not-exists
 ```
 
+#### Automated Cassandra Migration Detection
+
+> [!IMPORTANT]
+> Due to complexity, Cassandra migration is **detection + manual review** rather than fully automated.
+
+**Detection Strategy**
+
+**Complexity**: HIGH - Requires code analysis and configuration validation
+
+**Step 1: Detect Cassandra Usage**
+```xml
+<!-- POM Detection: Check for Spring Data Cassandra -->
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-data-cassandra</artifactId>
+</dependency>
+
+<!-- OR reactive variant -->
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-data-cassandra-reactive</artifactId>
+</dependency>
+```
+
+**Step 2: Detect Deprecated Patterns**
+```java
+// AST Detection for deprecated classes/interfaces:
+// 1. ClusterBuilderCustomizer usage
+import org.springframework.boot.autoconfigure.cassandra.ClusterBuilderCustomizer;
+
+@Bean
+public ClusterBuilderCustomizer clusterBuilderCustomizer() {
+    // DEPRECATED - must be replaced
+}
+
+// 2. Cluster class usage (driver 3.x)
+import com.datastax.driver.core.Cluster;
+
+// 3. Session class usage (driver 3.x)
+import com.datastax.driver.core.Session;
+```
+
+**Step 3: Check Required Configuration**
+```yaml
+# Check application.yml for local-datacenter property:
+spring:
+  data:
+    cassandra:
+      local-datacenter: ???  # REQUIRED - check if present
+
+# If missing, flag as CRITICAL ERROR
+```
+
+**Generation Strategy**
+
+**Since full automation is unsafe, generate migration guide instead:**
+
+**Action 1: Generate Migration Report**
+
+Create `cassandra-migration-guide.md` with:
+- List of deprecated patterns found and their locations
+- Required configuration changes
+- Code examples for each deprecated pattern
+- Testing checklist
+
+**Action 2: Add Required Configuration**
+
+If `local-datacenter` property is missing:
+
+```yaml
+# Auto-add to application.yml with TODO comment:
+spring:
+  data:
+    cassandra:
+      # TODO: Set your Cassandra datacenter name (required for driver v4)
+      # Common values: datacenter1, DC1, us-east-1, etc.
+      # Run: nodetool status | grep ^DC to find your datacenter name
+      local-datacenter: datacenter1  # REPLACE WITH YOUR DATACENTER NAME
+      contact-points: localhost:9042
+      keyspace-name: ${existing-keyspace-name}
+```
+
+**Action 3: Flag for Manual Code Review**
+
+For each detected `ClusterBuilderCustomizer`:
+
+```java
+// Generate migration template adjacent to original:
+
+// OLD (Spring Boot 2.2) - TO BE REMOVED:
+@Bean
+public ClusterBuilderCustomizer clusterBuilderCustomizer() {
+    return builder -> builder
+        .withPort(9042)
+        .withLoadBalancingPolicy(new RoundRobinPolicy());
+}
+
+// TODO: MIGRATE TO (Spring Boot 2.3):
+// Replace above bean with the following two beans:
+
+/*
+@Bean
+public DriverConfigLoaderBuilderCustomizer driverConfigCustomizer() {
+    return builder -> builder
+        .withString(DefaultDriverOption.CONTACT_POINTS, "localhost:9042")
+        .withString(DefaultDriverOption.REQUEST_TIMEOUT, "5000ms");
+}
+
+@Bean
+public CqlSessionBuilderCustomizer sessionBuilderCustomizer() {
+    return builder -> builder
+        .withLocalDatacenter("datacenter1");  // REQUIRED
+}
+*/
+```
+
+**Validation Strategy**:
+- Cassandra usage detected via dependencies
+- Deprecated patterns identified and documented
+- Required `local-datacenter` property flagged if missing
+- Migration guide generated with specific file/line numbers
+- Manual review required flag set in migration result
+
+**Risk Level**: HIGH - Manual migration required
+
+**Automation Confidence**: 40% (detection only, transformation requires manual review)
+
+**Recommendation**: 
+- Automated detection and reporting
+- Generate migration guide with specific instructions
+- Add TODO comments to configuration files
+- Flag as requiring manual review and testing
+- Provide migration templates for common patterns
+
+**Automation Output Example**:
+```
+[WARNING] Cassandra driver v3 usage detected - breaking changes in v4
+
+Detection Summary:
+[FOUND] spring-boot-starter-data-cassandra dependency
+[FOUND] 2 deprecated patterns requiring migration
+
+Deprecated Patterns Found:
+1. CassandraConfig.java:34-42
+   - Pattern: ClusterBuilderCustomizer
+   - Severity: HIGH - Must be replaced
+   - Migration: Replace with DriverConfigLoaderBuilderCustomizer + CqlSessionBuilderCustomizer
+
+2. CassandraConfig.java:45
+   - Pattern: import com.datastax.driver.core.Cluster
+   - Severity: MEDIUM - Driver v3 API
+   - Migration: Use com.datastax.oss.driver.api.core.CqlSession instead
+
+Configuration Issues:
+[ERROR] CRITICAL: Missing required property 'spring.data.cassandra.local-datacenter'
+[ACTION] Adding property to application.yml with TODO comment
+
+Generated Files:
+✓ cassandra-migration-guide.md - Detailed migration instructions
+✓ application.yml - Added local-datacenter property with TODO
+
+Manual Review Required:
+⚠️  This migration requires manual code changes and testing
+⚠️  Review cassandra-migration-guide.md for detailed instructions
+⚠️  Test Cassandra connectivity after migration
+⚠️  Verify CQL queries work with driver v4 API
+```
+
+**Migration Guide Template**:
+
+The generated `cassandra-migration-guide.md` should include:
+
+```markdown
+# Cassandra Driver v4 Migration Guide
+
+## Summary
+- **Deprecated Patterns**: 2 found
+- **Configuration Issues**: 1 critical
+- **Manual Changes Required**: Yes
+
+## Required Actions
+
+### 1. Add Required Configuration Property [CRITICAL]
+
+File: `src/main/resources/application.yml`
+
+Add the following property (already added with TODO):
+\```yaml
+spring:
+  data:
+    cassandra:
+      local-datacenter: datacenter1  # REPLACE WITH YOUR DATACENTER NAME
+\```
+
+**How to find your datacenter name:**
+\```bash
+# Connect to your Cassandra node and run:
+nodetool status | grep ^DC
+
+# Or check cqlsh:
+cqlsh> SELECT data_center FROM system.local;
+\```
+
+### 2. Replace ClusterBuilderCustomizer
+
+**File**: `CassandraConfig.java:34-42`
+
+**Current Code** (DEPRECATED):
+\```java
+@Bean
+public ClusterBuilderCustomizer clusterBuilderCustomizer() {
+    return builder -> builder
+        .withPort(9042)
+        .withLoadBalancingPolicy(new RoundRobinPolicy());
+}
+\```
+
+**Replacement Code**:
+\```java
+@Bean
+public DriverConfigLoaderBuilderCustomizer driverConfigCustomizer() {
+    return builder -> builder
+        .withString(DefaultDriverOption.CONTACT_POINTS, "localhost:9042")
+        .withString(DefaultDriverOption.REQUEST_TIMEOUT, "5000ms");
+}
+
+@Bean
+public CqlSessionBuilderCustomizer sessionBuilderCustomizer() {
+    return builder -> builder
+        .withLocalDatacenter("datacenter1");
+}
+\```
+
+**Required Imports**:
+\```java
+import com.datastax.oss.driver.api.core.config.DefaultDriverOption;
+import org.springframework.boot.autoconfigure.cassandra.DriverConfigLoaderBuilderCustomizer;
+import org.springframework.boot.autoconfigure.cassandra.CqlSessionBuilderCustomizer;
+\```
+
+## Testing Checklist
+
+- [ ] Update `local-datacenter` property to match your Cassandra datacenter
+- [ ] Replace all ClusterBuilderCustomizer beans
+- [ ] Update imports from driver v3 to v4
+- [ ] Compile application: `mvn compile`
+- [ ] Start Cassandra and test connection
+- [ ] Run integration tests: `mvn verify`
+- [ ] Verify CQL queries execute correctly
+- [ ] Test connection pooling and timeout settings
+```
+
 ### 9.3 Elasticsearch Changes
 
 > [!CAUTION]
@@ -1190,6 +1671,137 @@ server:
     encoding:
       charset: UTF-8
       enabled: true
+```
+
+#### Automated HTTP Encoding Property Migration
+
+> [!NOTE]
+> Property path transformation - straightforward nesting migration.
+
+**Detection Strategy**
+
+**Complexity**: LOW - Simple property path replacement
+
+**Pattern Detection**
+```yaml
+# Detect these deprecated properties:
+spring:
+  http:
+    encoding:
+      charset: <VALUE>
+      enabled: <VALUE>
+      force: <VALUE>
+      force-request: <VALUE>
+      force-response: <VALUE>
+      mapping: <VALUE>
+```
+
+**Automated Transformation Strategy**
+
+**Step 1: Transform YAML Files**
+```yaml
+# Before (Spring Boot 2.2):
+spring:
+  http:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: false
+
+# After (Spring Boot 2.3):
+server:
+  servlet:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: false
+```
+
+**Actions**:
+- Remove `spring.http.encoding` node
+- Create/update `server.servlet.encoding` node
+- Preserve all sub-properties and values
+- Maintain comments if using lexical preservation
+
+**Step 2: Transform Properties Files**
+```properties
+# Before:
+spring.http.encoding.charset=UTF-8
+spring.http.encoding.enabled=true
+spring.http.encoding.force=false
+
+# After:
+server.servlet.encoding.charset=UTF-8
+server.servlet.encoding.enabled=true
+server.servlet.encoding.force=false
+```
+
+**Property Mappings**:
+```
+spring.http.encoding.charset        → server.servlet.encoding.charset
+spring.http.encoding.enabled        → server.servlet.encoding.enabled
+spring.http.encoding.force          → server.servlet.encoding.force
+spring.http.encoding.force-request  → server.servlet.encoding.force-request
+spring.http.encoding.force-response → server.servlet.encoding.force-response
+spring.http.encoding.mapping        → server.servlet.encoding.mapping
+```
+
+**Validation Strategy**:
+- Application compiles successfully
+- Properties loaded correctly at startup
+- Character encoding applied to HTTP requests/responses
+- No deprecation warnings in logs
+
+**Risk Level**: NONE - Simple property renaming
+
+**Automation Confidence**: 100% (deterministic transformation)
+
+**Recommendation**: 
+- Fully automated
+- Apply to all application*.yml and application*.properties files
+- Check both src/main/resources and src/test/resources
+
+**Automation Output Example**:
+```
+[INFO] Property migration started
+[INFO] Scanning property files...
+[INFO] Found 3 files to migrate
+
+File: application.yml
+[MIGRATE] spring.http.encoding.charset → server.servlet.encoding.charset
+[MIGRATE] spring.http.encoding.enabled → server.servlet.encoding.enabled
+
+File: application-prod.yml
+[MIGRATE] spring.http.encoding.charset → server.servlet.encoding.charset
+[MIGRATE] spring.http.encoding.force → server.servlet.encoding.force
+
+[SUCCESS] Migrated 2 property files with 5 total transformations
+```
+
+**Additional Property Migrations**:
+
+Other deprecated `spring.http.*` properties:
+
+```yaml
+# spring.http.converters.* → spring.mvc.converters.*
+# Before:
+spring:
+  http:
+    converters:
+      preferred-json-mapper: jackson
+
+# After:
+spring:
+  mvc:
+    converters:
+      preferred-json-mapper: jackson
+```
+
+Mapping for all HTTP properties:
+```
+spring.http.encoding.*    → server.servlet.encoding.*
+spring.http.converters.*  → spring.mvc.converters.*
+spring.http.log-request-details → (use logging.level.web=DEBUG instead)
 ```
 
 ### 11.2 Wildcard Config Locations
