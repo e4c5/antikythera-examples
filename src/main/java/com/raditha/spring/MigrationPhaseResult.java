@@ -1,0 +1,126 @@
+package com.raditha.spring;
+
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
+/**
+ * Tracks the result of a single migration phase.
+ */
+public class MigrationPhaseResult {
+    private final List<String> changes = new ArrayList<>();
+    private final List<String> errors = new ArrayList<>();
+    private final List<String> warnings = new ArrayList<>();
+    private final Set<String> modifiedClasses = new HashSet<>();
+    private final List<String> manualReviewItems = new ArrayList<>();
+    private boolean successful = true;
+    private boolean requiresManualReview = false;
+
+    /**
+     * Add a change made during this phase.
+     */
+    public void addChange(String change) {
+        changes.add(change);
+    }
+
+    /**
+     * Add an error.
+     */
+    public void addError(String error) {
+        errors.add(error);
+        successful = false;
+    }
+
+    /**
+     * Add a warning.
+     */
+    public void addWarning(String warning) {
+        warnings.add(warning);
+    }
+
+    /**
+     * Check if this phase was successful.
+     */
+    public boolean isSuccessful() {
+        return successful;
+    }
+
+    /**
+     * Check if this phase has critical errors.
+     */
+    public boolean hasCriticalErrors() {
+        return !errors.isEmpty();
+    }
+
+    /**
+     * Get the number of changes made.
+     */
+    public int getChangeCount() {
+        return changes.size();
+    }
+
+    /**
+     * Get all changes.
+     */
+    public List<String> getChanges() {
+        return new ArrayList<>(changes);
+    }
+
+    /**
+     * Get all errors.
+     */
+    public List<String> getErrors() {
+        return new ArrayList<>(errors);
+    }
+
+    /**
+     * Get all warnings.
+     */
+    public List<String> getWarnings() {
+        return new ArrayList<>(warnings);
+    }
+
+    /**
+     * Add a modified class name.
+     */
+    public void addModifiedClass(String className) {
+        modifiedClasses.add(className);
+    }
+
+    /**
+     * Get all modified class names.
+     */
+    public Set<String> getModifiedClasses() {
+        return new HashSet<>(modifiedClasses);
+    }
+
+    /**
+     * Mark this phase as requiring manual review.
+     */
+    public void setRequiresManualReview(boolean requiresManualReview) {
+        this.requiresManualReview = requiresManualReview;
+    }
+
+    /**
+     * Check if this phase requires manual review.
+     */
+    public boolean requiresManualReview() {
+        return requiresManualReview;
+    }
+
+    /**
+     * Add an item that requires manual review.
+     */
+    public void addManualReviewItem(String item) {
+        manualReviewItems.add(item);
+        requiresManualReview = true;
+    }
+
+    /**
+     * Get all manual review items.
+     */
+    public List<String> getManualReviewItems() {
+        return new ArrayList<>(manualReviewItems);
+    }
+}
