@@ -125,6 +125,9 @@ public class ElasticsearchCodeMigrator implements MigrationPhase {
         logger.warn("\n{}", guide);
         result.addChange(guide.toString());
 
+        // Elasticsearch REST client migration requires manual review
+        result.setRequiresManualReview(true);
+
         return result;
     }
 
