@@ -649,6 +649,214 @@ public interface PersonRepository extends ReactiveNeo4jRepository<Person, Long> 
 4. **Update** repository interfaces to use `ReactiveNeo4jRepository`
 5. **Test** all Neo4j interactions thoroughly
 
+#### Automated Neo4j Property Migration
+
+> [!NOTE]
+> This migration combines AST-based code detection (CassandraCodeMigrator pattern) with property file transformation (AbstractPropertyFileMigrator pattern).
+
+**Detection Patterns - AST-Based Approach**
+
+**Pattern 1: Detect Old Neo4j Properties in YAML**
+```java
+// Following H2ConfigurationMigrator pattern
+@SuppressWarnings("unchecked")
+private Map<String, Boolean> detectNeo4jProperties(Path yamlFile) {
+    boolean hasOldProperties = false;
+    boolean hasNewProperties = false;
+    
+    try {
+        Yaml yaml = YamlUtils.createYaml();
+        Map<String, Object> data;
+        
+        try (InputStream input = Files.newInputStream(yamlFile)) {
+            data = yaml.load(input);
+        }
+        
+        if (data != null && data.containsKey("spring")) {
+            Map<String, Object> spring = (Map<String, Object>) data.get("spring");
+            
+            // Check for old spring.data.neo4j.* properties
+            if (spring.containsKey("data")) {
+                Map<String, Object> dataSection = (Map<String, Object>) spring.get("data");
+                if (dataSection.containsKey("neo4j")) {
+                    hasOldProperties = true;
+                }
+            }
+            
+            // Check for new spring.neo4j.* properties
+            if (spring.containsKey("neo4j")) {
+                hasNewProperties = true;
+            }
+        }
+    } catch (Exception e) {
+        logger.warn("Error detecting Neo4j properties in {}: {}", yamlFile, e.getMessage());
+    }
+    
+    return Map.of("hasOld", hasOldProperties, "hasNew", hasNewProperties);
+}
+```
+
+**Pattern 2: Detect Neo4j OGM Code Usage (JavaParser AST)**
+```java
+// Following CassandraCodeMigrator pattern for code detection
+Map<String, CompilationUnit> units = AntikytheraRunTime.getResolvedCompilationUnits();
+List<String> filesWithNeo4jOGM = new ArrayList<>();
+
+for (Map.Entry<String, CompilationUnit> entry : units.entrySet()) {
+    String className = entry.getKey();
+    CompilationUnit cu = entry.getValue();
+    
+    if (cu == null) continue;
+    
+    // Check for Neo4j OGM imports
+    for (ImportDeclaration imp : cu.findAll(ImportDeclaration.class)) {
+        String importName = imp.getNameAsString();
+        
+        // Old Neo4j OGM packages
+        if (importName.startsWith("org.neo4j.ogm") ||
+            importName.startsWith("org.springframework.boot.autoconfigure.data.neo4j.Neo4jDataAutoConfiguration")) {
+            filesWithNeo4jOGM.add(className);
+            break;
+        }
+    }
+}
+
+if (!filesWithNeo4jOGM.isEmpty()) {
+    result.setRequiresManualReview(true);
+    result.addWarning("Neo4j OGM detected - requires manual migration to Neo4j SDN-RX");
+    for (String className : filesWithNeo4jOGM) {
+        result.addChange("Neo4j OGM usage in: " + className);
+    }
+}
+```
+
+**Automated Transformation Strategy**
+
+**Complexity**: MEDIUM - Property restructuring with namespace change
+
+**Step 1: YAML Property Migration**
+```java
+@SuppressWarnings("unchecked")
+private boolean migrateNeo4jYamlProperties(Map<String, Object> data,
+                                            MigrationPhaseResult result,
+                                            String fileName) {
+    boolean modified = false;
+    
+    if (!data.containsKey("spring")) {
+        return false;
+    }
+    
+    Map<String, Object> spring = (Map<String, Object>) data.get("spring");
+    
+    // Check for spring.data.neo4j section
+    if (spring.containsKey("data")) {
+        Map<String, Object> dataSection = (Map<String, Object>) spring.get("data");
+        
+        if (dataSection.containsKey("neo4j")) {
+            Map<String, Object> oldNeo4j = (Map<String, Object>) dataSection.remove("neo4j");
+            
+            // Extract properties
+            String uri = (String) oldNeo4j.get("uri");
+            String username = (String) oldNeo4j.get("username");
+            String password = (String) oldNeo4j.get("password");
+            
+            // Create new spring.neo4j section
+            if (!spring.containsKey("neo4j")) {
+                spring.put("neo4j", new LinkedHashMap<>());
+            }
+            Map<String, Object> newNeo4j = (Map<String, Object>) spring.get("neo4j");
+            
+            // Migrate URI directly
+            if (uri != null) {
+                newNeo4j.put("uri", uri);
+            }
+            
+            // Create authentication subsection if credentials present
+            if (username != null || password != null) {
+                Map<String, Object> authentication = new LinkedHashMap<>();
+                if (username != null) authentication.put("username", username);
+                if (password != null) authentication.put("password", password);
+                newNeo4j.put("authentication", authentication);
+            }
+            
+            result.addChange(fileName + ": Migrated spring.data.neo4j.* → spring.neo4j.*");
+            modified = true;
+        }
+    }
+    
+    return modified;
+}
+```
+
+**Step 2: Properties File Migration**
+```java
+private boolean migrateNeo4jPropertiesFile(Properties props,
+                                            MigrationPhaseResult result,
+                                            String fileName) {
+    boolean modified = false;
+    
+    // Property key transformations
+    Map<String, String> propertyMigrations = Map.of(
+        "spring.data.neo4j.uri", "spring.neo4j.uri",
+        "spring.data.neo4j.username", "spring.neo4j.authentication.username",
+        "spring.data.neo4j.password", "spring.neo4j.authentication.password"
+    );
+    
+    for (Map.Entry<String, String> migration : propertyMigrations.entrySet()) {
+        String oldKey = migration.getKey();
+        String newKey = migration.getValue();
+        
+        if (props.containsKey(oldKey)) {
+            String value = props.getProperty(oldKey);
+            props.remove(oldKey);
+            props.setProperty(newKey, value);
+            
+            result.addChange(fileName + ": " + oldKey + " → " + newKey);
+            modified = true;
+        }
+    }
+    
+    return modified;
+}
+```
+
+**Validation Strategy**:
+- Neo4j connection successful with new properties
+- Application starts without Neo4j property warnings
+- Database operations work correctly
+- Integration tests with Neo4j testcontainer pass
+- Repository queries execute successfully
+
+**Risk Level**: MEDIUM - Property changes affect runtime connectivity
+
+**Automation Confidence**: 90% (property migration fully automated, OGM code requires manual migration)
+
+**Recommendation**:
+- Fully automate property transformation for YAML and .properties files
+- Generate comprehensive migration guide for Neo4j OGM code (similar to CassandraCodeMigrator)
+- Flag all files with OGM imports for manual review
+- Add migration report section listing affected files
+
+**Automation Output Example**:
+```
+[INFO] Neo4j Property Migration
+[INFO] Found old Neo4j properties in 2 files
+[INFO] 
+[INFO] Property Files Migrated:
+[INFO]   ✓ application.yml - spring.data.neo4j.* → spring.neo4j.*
+[INFO]   ✓ application-prod.properties - 3 properties migrated
+[INFO] 
+[WARNING] Neo4j OGM Code Detected:
+[WARN]   ⚠ UserGraphRepository.java - Uses org.neo4j.ogm.*
+[WARN]   ⚠ GraphConfiguration.java - Uses Neo4jDataAutoConfiguration
+[INFO] 
+[ACTION REQUIRED] Manual migration to Neo4j SDN-RX required for OGM usage
+[INFO] See: https://neo4j.com/docs/spring-data-neo4j/current/
+[SUCCESS] Property migration completed: 2/2 files automated
+[MANUAL REVIEW] 2 files flagged for OGM → SDN-RX migration
+```
+
+
 ---
 
 ## SQL Script Data Location Changes
@@ -714,15 +922,189 @@ public class DatabaseInitializer implements ApplicationRunner {
 }
 ```
 
-### 7.4 Detection
 
-```bash
-# Check if using data.sql
-find src/main/resources -name "data.sql"
+#### Automated data.sql Processing Migration
 
-# Check if using Hibernate ddl-auto
-grep -r "spring.jpa.hibernate.ddl-auto" src/main/resources/
+> [!NOTE]
+> This migration uses file system traversal and property file analysis to detect the risky combination of data.sql with Hibernate DDL auto.
+
+**Detection Patterns - File and Property Analysis**
+
+**Pattern 1: Detect data.sql Files**
+```java
+// Find data.sql in resources directory
+Path basePath = Paths.get(Settings.getBasePath());
+Path resourcesPath = basePath.resolve("src/main/resources");
+
+List<Path> sqlScripts = new ArrayList<>();
+
+if (Files.exists(resourcesPath)) {
+    try (Stream<Path> paths = Files.walk(resourcesPath)) {
+        paths.filter(Files::isRegularFile)
+             .filter(path -> path.getFileName().toString().equals("data.sql") ||
+                           path.getFileName().toString().equals("schema.sql"))
+             .forEach(sqlScripts::add);
+    }
+}
+
+boolean hasDataSql = sqlScripts.stream()
+    .anyMatch(path -> path.getFileName().toString().equals("data.sql"));
 ```
+
+**Pattern 2: Detect Hibernate DDL Auto Configuration**
+```java
+// Check YAML files for JPA Hibernate DDL auto configuration
+@SuppressWarnings("unchecked")
+private boolean hasHibernateDdlAuto(Path yamlFile) {
+    try {
+        Yaml yaml = YamlUtils.createYaml();
+        Map<String, Object> data;
+        
+        try (InputStream input = Files.newInputStream(yamlFile)) {
+            data = yaml.load(input);
+        }
+        
+        if (data != null && data.containsKey("spring")) {
+            Map<String, Object> spring = (Map<String, Object>) data.get("spring");
+            
+            if (spring.containsKey("jpa")) {
+                Map<String, Object> jpa = (Map<String, Object>) spring.get("jpa");
+                
+                if (jpa.containsKey("hibernate")) {
+                    Map<String, Object> hibernate = (Map<String, Object>) jpa.get("hibernate");
+                    
+                    if (hibernate.containsKey("ddl-auto")) {
+                        String ddlAuto = hibernate.get("ddl-auto").toString();
+                        // Only create, update, create-drop are risky
+                        return !ddlAuto.equals("none") && !ddlAuto.equals("validate");
+                    }
+                }
+            }
+        }
+    } catch (Exception e) {
+        logger.debug("Error checking Hibernate DDL auto in {}", yamlFile, e);
+    }
+    
+    return false;
+}
+```
+
+**Automated Transformation Strategy**
+
+**Complexity**: LOW - Simple property addition
+
+**Step 1: Add defer-datasource-initialization Property to YAML**
+```java
+@SuppressWarnings("unchecked")
+private boolean addDeferDatasourceInit(Path yamlFile, MigrationPhaseResult result) {
+    try {
+        Yaml yaml = YamlUtils.createYaml();
+        Map<String, Object> data;
+        
+        try (InputStream input = Files.newInputStream(yamlFile)) {
+            data = yaml.load(input);
+        }
+        
+        if (data == null) {
+            data = new LinkedHashMap<>();
+        }
+        
+        // Navigate to spring.jpa section
+        if (!data.containsKey("spring")) {
+            data.put("spring", new LinkedHashMap<>());
+        }
+        Map<String, Object> spring = (Map<String, Object>) data.get("spring");
+        
+        if (!spring.containsKey("jpa")) {
+            spring.put("jpa", new LinkedHashMap<>());
+        }
+        Map<String, Object> jpa = (Map<String, Object>) spring.get("jpa");
+        
+        // Check if already set
+        if (jpa.containsKey("defer-datasource-initialization")) {
+            result.addChange("defer-datasource-initialization already configured");
+            return false;
+        }
+        
+        // Add property
+        jpa.put("defer-datasource-initialization", true);
+        
+        if (!dryRun) {
+            try (OutputStream output = Files.newOutputStream(yamlFile)) {
+                yaml.dump(data, new OutputStreamWriter(output));
+            }
+        }
+        
+        result.addChange(yamlFile.getFileName() + ": Added spring.jpa.defer-datasource-initialization=true");
+        return true;
+        
+    } catch (Exception e) {
+        result.addError("Failed to add defer-datasource-initialization: " + e.getMessage());
+        return false;
+    }
+}
+```
+
+**Step 2: Add to Properties File**
+```java
+private boolean addDeferDatasourceInitProperties(Path propFile, MigrationPhaseResult result) {
+    try {
+        Properties props = new Properties();
+        try (InputStream input = Files.newInputStream(propFile)) {
+            props.load(input);
+        }
+        
+        if (props.containsKey("spring.jpa.defer-datasource-initialization")) {
+            result.addChange("defer-datasource-initialization already configured");
+            return false;
+        }
+        
+        props.setProperty("spring.jpa.defer-datasource-initialization", "true");
+        
+        if (!dryRun) {
+            try (OutputStream output = Files.newOutputStream(propFile)) {
+                props.store(output, "Spring Boot 2.4 - data.sql compatibility");
+            }
+        }
+        
+        result.addChange(propFile.getFileName() + ": Added spring.jpa.defer-datasource-initialization=true");
+        return true;
+        
+    } catch (Exception e) {
+        result.addError("Failed to add defer-datasource-initialization: " + e.getMessage());
+        return false;
+    }
+}
+```
+
+**Validation Strategy**:
+- Application starts successfully
+- data.sql executes without table not found errors
+- Hibernate-created tables exist when data.sql runs
+- Database initialization completes successfully
+- Integration tests with H2/testcontainers pass
+
+**Risk Level**: LOW - Property addition only, no code changes
+
+**Automation Confidence**: 100% (deterministic, safe transformation)
+
+**Recommendation**:
+- Fully automated when data.sql + Hibernate DDL AUTO detected
+- Add migration report entry explaining the change and reasoning
+
+**Automation Output Example**:
+```
+[INFO] SQL Script Initialization Migration
+[INFO] Found data.sql with Hibernate DDL AUTO configuration
+[WARN] Risky combination detected: data.sql may execute before Hibernate schema creation
+[INFO] 
+[ACTION] Adding spring.jpa.defer-datasource-initialization=true
+[INFO]   ✓ application.yml - Property added
+[INFO] 
+[SUCCESS] data.sql will now execute AFTER Hibernate schema creation
+[NOTE] Verify data.sql references Hibernate-created tables correctly
+```
+
 
 ---
 
@@ -772,16 +1154,171 @@ logging:
 </dependency>
 ```
 
-### 8.2 Automation
 
-```bash
-# Detect old properties
-grep -r "logging.file.max-size\|logging.pattern.rolling-file-name" src/main/resources/
+#### Automated Logback Property Migration
 
-# Automated replacement (be careful!)
-sed -i 's/logging.file.max-size/logging.logback.rollingpolicy.max-file-size/g' application*.yml
-sed -i 's/logging.file.max-history/logging.logback.rollingpolicy.max-history/g' application*.yml
+> [!NOTE]
+> This migration follows the AbstractPropertyFileMigrator pattern for property transformation.
+
+**Detection and Transformation Patterns**
+
+**Property Mapping Table**:
+```java
+// Following AbstractPropertyFileMigrator pattern
+private static final Map<String, PropertyMapping> LOGBACK_MAPPINGS = Map.of(
+    "logging.pattern.rolling-file-name",
+        new PropertyMapping("logging.logback.rollingpolicy.file-name-pattern", TransformationType.NEST),
+    "logging.file.max-size",
+        new PropertyMapping("logging.logback.rollingpolicy.max-file-size", TransformationType.NEST),
+    "logging.file.max-history",
+        new PropertyMapping("logging.logback.rollingpolicy.max-history", TransformationType.NEST),
+    "logging.file.total-size-cap",
+        new PropertyMapping("logging.logback.rollingpolicy.total-size-cap", TransformationType.NEST),
+    "logging.file.clean-history-on-start",
+        new PropertyMapping("logging.logback.rollingpolicy.clean-history-on-start", TransformationType.NEST)
+);
 ```
+
+**Automated Transformation Strategy**
+
+**Complexity**: LOW - Direct property renaming following established patterns
+
+**Step 1: YAML File Migration**
+```java
+@SuppressWarnings("unchecked")
+@Override
+protected boolean transformYamlData(Map<String, Object> data,
+                                    MigrationPhaseResult result,
+                                    String fileName) {
+    boolean modified = false;
+    
+    if (!data.containsKey("logging")) {
+        return false;
+    }
+    
+    Map<String, Object> logging = (Map<String, Object>) data.get("logging");
+    
+    // Migrate logging.file.* properties to logging.logback.rollingpolicy.*
+    if (logging.containsKey("file") && logging.get("file") instanceof Map) {
+        Map<String, Object> file = (Map<String, Object>) logging.get("file");
+        
+        Map<String, Object> propertiesToMigrate = new HashMap<>();
+        
+        // Extract properties that need migration
+        for (String key : List.of("max-size", "max-history", "total-size-cap", "clean-history-on-start")) {
+            if (file.containsKey(key)) {
+                propertiesToMigrate.put(key, file.get(key));
+                file.remove(key);
+            }
+        }
+        
+        if (!propertiesToMigrate.isEmpty()) {
+            // Create logback.rollingpolicy structure
+            if (!logging.containsKey("logback")) {
+                logging.put("logback", new LinkedHashMap<>());
+            }
+            Map<String, Object> logback = (Map<String, Object>) logging.get("logback");
+            
+            if (!logback.containsKey("rollingpolicy")) {
+                logback.put("rollingpolicy", new LinkedHashMap<>());
+            }
+            Map<String, Object> rollingpolicy = (Map<String, Object>) logback.get("rollingpolicy");
+            
+            // Move properties
+            for (Map.Entry<String, Object> entry : propertiesToMigrate.entrySet()) {
+                rollingpolicy.put(entry.getKey(), entry.getValue());
+                result.addChange(fileName + ": logging.file." + entry.getKey() + 
+                               " → logging.logback.rollingpolicy." + entry.getKey());
+                modified = true;
+            }
+        }
+    }
+    
+    // Migrate logging.pattern.rolling-file-name
+    if (logging.containsKey("pattern") && logging.get("pattern") instanceof Map) {
+        Map<String, Object> pattern = (Map<String, Object>) logging.get("pattern");
+        
+        if (pattern.containsKey("rolling-file-name")) {
+            Object value = pattern.remove("rolling-file-name");
+            
+            if (!logging.containsKey("logback")) {
+                logging.put("logback", new LinkedHashMap<>());
+            }
+            Map<String, Object> logback = (Map<String, Object>) logging.get("logback");
+            
+            if (!logback.containsKey("rollingpolicy")) {
+                logback.put("rollingpolicy", new LinkedHashMap<>());
+            }
+            Map<String, Object> rollingpolicy = (Map<String, Object>) logback.get("rollingpolicy");
+            
+            rollingpolicy.put("file-name-pattern", value);
+            result.addChange(fileName + ": logging.pattern.rolling-file-name → logging.logback.rollingpolicy.file-name-pattern");
+            modified = true;
+        }
+    }
+    
+    return modified;
+}
+```
+
+**Step 2: Properties File Migration**
+```java
+@Override
+protected boolean transformProperties(Properties props,
+                                     MigrationPhaseResult result,
+                                     String fileName) {
+    boolean modified = false;
+    
+    for (Map.Entry<String, PropertyMapping> entry : LOGBACK_MAPPINGS.entrySet()) {
+        String oldKey = entry.getKey();
+        PropertyMapping mapping = entry.getValue();
+        
+        if (props.containsKey(oldKey)) {
+            String value = props.getProperty(oldKey);
+            props.remove(oldKey);
+            props.setProperty(mapping.newKey, value);
+            
+            result.addChange(fileName + ": " + oldKey + " → " + mapping.newKey);
+            modified = true;
+        }
+    }
+    
+    return modified;
+}
+```
+
+**Validation Strategy**:
+- Application starts without deprecated property warnings
+- Log files roll correctly with configured size/history limits
+- Logback configuration loads successfully
+- No errors in log output related to rolling policy
+- Verify rolling policy behavior in development environment
+
+**Risk Level**: NONE - Property renames have deprecated aliases in Spring Boot 2.4
+
+**Automation Confidence**: 100% (safe, deterministic, follows established patterns)
+
+**Recommendation**:
+- Fully automated following AbstractPropertyFileMigrator pattern
+- Add spring-boot-properties-migrator temporarily for verification
+- Remove properties migrator after successful migration
+
+**Automation Output Example**:
+```
+[INFO] Logback Property Migration
+[INFO] Found 2 files with deprecated Logback properties
+[INFO] 
+[INFO] Migrated Files:
+[INFO]   ✓ application.yml - 4 properties migrated
+[INFO]     logging.file.max-size → logging.logback.rollingpolicy.max-file-size
+[INFO]     logging.file.max-history → logging.logback.rollingpolicy.max-history
+[INFO]     logging.file.total-size-cap → logging.logback.rollingpolicy.total-size-cap
+[INFO]     logging.pattern.rolling-file-name → logging.logback.rollingpolicy.file-name-pattern
+[INFO]   ✓ application-prod.properties - 3 properties migrated
+[INFO] 
+[SUCCESS] Logback property migration completed: 2/2 files automated
+```
+
 
 ---
 
@@ -827,6 +1364,101 @@ public RestClient restClient() {
     ).build();
 }
 ```
+
+#### Automated Elasticsearch RestClient Migration
+
+> [!NOTE]
+> This migration uses AST-based code detection following the CassandraCodeMigrator pattern.
+
+**Detection Patterns - AST-Based Approach**
+
+**Following CassandraCodeMigrator pattern for code detection:**
+
+```java
+// Use JavaParser AST to detect RestClient usage
+Map<String, CompilationUnit> units = AntikytheraRunTime.getResolvedCompilationUnits();
+List<String> filesWithLowLevelRestClient = new ArrayList<>();
+List<String> filesWithHighLevelClient = new ArrayList<>();
+
+for (Map.Entry<String, CompilationUnit> entry : units.entrySet()) {
+    String className = entry.getKey();
+    CompilationUnit cu = entry.getValue();
+    
+    if (cu == null) continue;
+    
+    boolean hasLowLevel = false;
+    boolean hasHighLevel = false;
+    
+    // Check imports
+    for (ImportDeclaration imp : cu.findAll(ImportDeclaration.class)) {
+        String importName = imp.getNameAsString();
+        
+        if ("org.elasticsearch.client.RestClient".equals(importName)) {
+            hasLowLevel = true;
+        }
+        if ("org.elasticsearch.client.RestHighLevelClient".equals(importName)) {
+            hasHighLevel = true;
+        }
+    }
+    
+    // Check for @Autowired fields of type RestClient
+    if (hasLowLevel) {
+        for (FieldDeclaration field : cu.findAll(FieldDeclaration.class)) {
+            String fieldType = field.getCommonType().asString();
+            if ("RestClient".equals(fieldType)) {
+                filesWithLowLevelRestClient.add(className);
+                break;
+            }
+        }
+    }
+    
+    if (hasHighLevel) {
+        filesWithHighLevelClient.add(className);
+    }
+}
+```
+
+**Automated Transformation Strategy**
+
+**Complexity**: LOW - Detection and flagging only, no code generation
+
+When low-level RestClient usage is detected:
+- Flag all affected files for manual review
+- Set `result.setRequiresManualReview(true)`
+- Add warning about auto-configuration removal
+- List affected files in migration report
+- Reference migration guide section above for manual steps
+
+**Validation Strategy**:
+- Application compiles successfully
+- Elasticsearch connection works with new configuration
+- All operations that used RestClient still function
+- Integration tests with Elasticsearch testcontainer pass
+- Search/index operations execute successfully
+
+**Risk Level**: MEDIUM - Requires manual review of configuration
+
+**Automation Confidence**: 100% for detection, 0% for transformation (manual migration required)
+
+**Recommendation**:
+- Automate detection only
+- Flag all affected files for manual review with clear guidance
+- Reference the manual configuration examples already in this guide
+- Do not attempt automated code generation
+
+**Automation Output Example**:
+```
+[WARNING] Elasticsearch RestClient Auto-Configuration Removed
+[INFO] Found 3 classes using low-level RestClient:
+[WARN]   ⚠ SearchService.java
+[WARN]   ⚠ IndexManager.java  
+[WARN]   ⚠ DocumentProcessor.java
+[INFO] 
+[ACTION REQUIRED] Manual configuration needed - see above for options
+[TIP] Recommended: Use RestHighLevelClient or add manual @Bean
+```
+
+
 
 ---
 

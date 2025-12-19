@@ -270,8 +270,8 @@ java -cp target/classes com.raditha.spring.SpringBoot21to22Migrator \
 
 Automated migration tool for upgrading from Spring Boot 2.2 to 2.3 with intelligent validation detection.
 
-📖 **[Complete 2.2→2.3 Documentation](docs/spring_boot_2.2_to_2.3_migration.md)**  
-📖 **[Usage Guide](~/.gemini/...walkthrough.md)** (see artifacts)
+📖 **[Quick Start Guide](docs/spring_boot_2.2_to_2.3_quickstart.md)** ← Start here!  
+📖 **[Complete 2.2→2.3 Documentation](docs/spring_boot_2.2_to_2.3_migration.md)**
 
 **Quick Start:**
 ```bash
