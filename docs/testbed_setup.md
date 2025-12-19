@@ -113,8 +113,7 @@ mvn clean install
 If a testbed fails to build:
 1. Ensure you have the correct Java version (Java 8+ for all versions)
 2. Check your Maven version (`mvn --version`)
-3. Try clearing your Maven cache: `rm -rf ~/.m2/repository`
-4. Check if external dependencies are available
+3. Check if external dependencies are available
 
 ### Port Conflicts
 If you're running multiple testbeds, they'll all try to use port 8080. Either:
