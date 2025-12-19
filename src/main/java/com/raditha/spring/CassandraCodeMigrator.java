@@ -116,6 +116,9 @@ public class CassandraCodeMigrator implements MigrationPhase {
         logger.warn("\n{}", guide);
         result.addChange(guide.toString());
 
+        // Cassandra v4 migration requires manual review
+        result.setRequiresManualReview(true);
+
         return result;
     }
 
