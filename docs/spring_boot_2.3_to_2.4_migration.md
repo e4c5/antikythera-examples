@@ -148,11 +148,197 @@ server:
 4. External `application.yml`
 5. External `application-{profile}.yml`
 
+
 **Migration Strategy**:
 1. **Test with legacy mode first** (`spring.config.use-legacy-processing=true`)
 2. **Identify issues** in your specific configuration
 3. **Migrate incrementally** to new processing model
 4. **Remove legacy mode** once stable
+
+#### Automated Configuration Processing Migration
+
+> [!NOTE]
+> This migration requires YAML structure analysis and transformation using Antikythera's property file manipulation patterns.
+
+**Detection Patterns - AST-Based Approach**
+
+**Pattern 1: Detect Legacy Profile Syntax in YAML Files**
+```java
+// Following pattern from H2ConfigurationMigrator and AbstractPropertyFileMigrator
+Path basePath = Paths.get(Settings.getBasePath());
+List<Path> yamlFiles = findPropertyFiles(basePath, "*.yml", "*.yaml");
+
+for (Path yamlFile : yamlFiles) {
+    Yaml yaml = YamlUtils.createYaml();
+    Map<String, Object> data;
+    
+    try (InputStream input = Files.newInputStream(yamlFile)) {
+        data = yaml.load(input);
+    }
+    
+    if (hasLegacyProfileSyntax(data)) {
+        filesToMigrate.add(yamlFile);
+    }
+}
+
+@SuppressWarnings("unchecked")
+private boolean hasLegacyProfileSyntax(Map<String, Object> data) {
+    // Check for "spring.profiles" key (deprecated in Spring Boot 2.4)
+    if (data.containsKey("spring")) {
+        Map<String, Object> spring = (Map<String, Object>) data.get("spring");
+        if (spring.containsKey("profiles") && spring.get("profiles") instanceof String) {
+            return true; // Found legacy syntax
+        }
+    }
+    return false;
+}
+```
+
+**Pattern 2: Detect Multi-Document YAML Complexity**
+```java
+// Check for complex multi-document YAML files requiring manual review
+Yaml yaml = new Yaml();
+Iterable<Object> documents = yaml.loadAll(inputStream);
+
+int documentCount = 0;
+boolean hasProfileDocuments = false;
+
+for (Object doc : documents) {
+    documentCount++;
+    if (doc instanceof Map) {
+        @SuppressWarnings("unchecked")
+        Map<String, Object> docMap = (Map<String, Object>) doc;
+        if (hasProfileConfiguration(docMap)) {
+            hasProfileDocuments = true;
+        }
+    }
+}
+
+if (documentCount > 1 && hasProfileDocuments) {
+    // Complex multi-document file - flag for manual review
+    result.setRequiresManualReview(true);
+    result.addWarning("Multi-document YAML with profiles requires manual review");
+}
+```
+
+**Automated Transformation Strategy**
+
+**Complexity**: MEDIUM - YAML structure manipulation
+
+**Step 1: Transform Legacy Profile Syntax**
+```java
+// Following AbstractPropertyFileMigrator pattern for YAML transformation
+@SuppressWarnings("unchecked")
+private boolean transformYamlData(Map<String, Object> data, 
+                                  MigrationPhaseResult result,
+                                  String fileName) {
+    boolean modified = false;
+    
+    if (data.containsKey("spring")) {
+        Map<String, Object> spring = (Map<String, Object>) data.get("spring");
+        
+        // Check for old "spring.profiles" syntax
+        if (spring.containsKey("profiles") && spring.get("profiles") instanceof String) {
+            String profileName = (String) spring.remove("profiles");
+            
+            // Create new structure: spring.config.activate.on-profile
+            if (!spring.containsKey("config")) {
+                spring.put("config", new LinkedHashMap<>());
+            }
+            Map<String, Object> config = (Map<String, Object>) spring.get("config");
+            
+            if (!config.containsKey("activate")) {
+                config.put("activate", new LinkedHashMap<>());
+            }
+            Map<String, Object> activate = (Map<String, Object>) config.get("activate");
+            activate.put("on-profile", profileName);
+            
+            result.addChange(fileName + ": spring.profiles → spring.config.activate.on-profile");
+            modified = true;
+        }
+    }
+    
+    return modified;
+}
+```
+
+**Step 2: Add Legacy Processing Flag (Temporary for Complex Cases)**
+```java
+// Add temporary workaround flag for complex configurations
+private void addLegacyProcessingFlag(Path yamlFile, MigrationPhaseResult result) {
+    try {
+        Yaml yaml = YamlUtils.createYaml();
+        Map<String, Object> data;
+        
+        try (InputStream input = Files.newInputStream(yamlFile)) {
+            data = yaml.load(input);
+        }
+        
+        if (data == null) {
+            data = new LinkedHashMap<>();
+        }
+        
+        if (!data.containsKey("spring")) {
+            data.put("spring", new LinkedHashMap<>());
+        }
+        
+        @SuppressWarnings("unchecked")
+        Map<String, Object> spring = (Map<String, Object>) data.get("spring");
+        
+        if (!spring.containsKey("config")) {
+            spring.put("config", new LinkedHashMap<>());
+        }
+        
+        @SuppressWarnings("unchecked")
+        Map<String, Object> config = (Map<String, Object>) spring.get("config");
+        config.put("use-legacy-processing", true);  // Temporary workaround
+        
+        if (!dryRun) {
+            try (OutputStream output = Files.newOutputStream(yamlFile)) {
+                yaml.dump(data, new OutputStreamWriter(output));
+            }
+        }
+        
+        result.addWarning("Added spring.config.use-legacy-processing=true - requires manual review");
+        result.setRequiresManualReview(true);
+        
+    } catch (Exception e) {
+        result.addError("Failed to add legacy processing flag: " + e.getMessage());
+    }
+}
+```
+
+**Validation Strategy**:
+- Application starts successfully with all profiles
+- Property values resolve correctly in different profiles
+- No configuration processing warnings in logs
+- Integration tests pass with active profiles: default, dev, prod
+- Multi-profile configurations work as expected
+
+**Risk Level**: MEDIUM - Configuration errors can cause runtime failures
+
+**Automation Confidence**: 70% (syntax replacement automated, complex multi-document cases require manual review)
+
+**Recommendation**: 
+- Fully automate simple profile syntax replacement
+- Flag complex multi-document configurations for manual review
+- Add migration report entry listing files requiring attention
+- Temporarily add legacy processing flag for complex cases
+
+**Automation Output Example**:
+```
+[INFO] Configuration File Processing Migration
+[INFO] Found 3 YAML files with legacy profile syntax
+[INFO] 
+[INFO] Transformed Files:
+[INFO]   ✓ application.yml - spring.profiles → spring.config.activate.on-profile
+[INFO]   ✓ application-dev.yml - 2 profile sections transformed
+[WARNING] application-complex.yml - Multi-document file flagged for manual review
+[INFO] 
+[INFO] Added spring.config.use-legacy-processing=true to 1 file(s)
+[SUCCESS] Profile syntax migration completed: 2/3 files automated, 1 requires review
+```
+
 
 ### 3.2 Profile Activation Changes
 
@@ -174,14 +360,9 @@ server:
   port: 8080
 ```
 
-**Automation replacement**:
-```bash
-# Find old format
-grep -r "spring.profiles:" src/main/resources/
+> [!NOTE]
+> This profile syntax change is automatically handled by the Configuration File Processing migration above.
 
-# Replace with new format
-sed -i 's/spring.profiles:/spring.config.activate.on-profile:/g' application*.yml
-```
 
 ---
 
