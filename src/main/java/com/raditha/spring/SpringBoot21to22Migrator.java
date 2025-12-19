@@ -1,44 +1,41 @@
 package com.raditha.spring;
 
-import com.github.javaparser.ast.CompilationUnit;
-import com.github.javaparser.printer.lexicalpreservation.LexicalPreservingPrinter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
-import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.HashSet;
-import java.util.Set;
 
 /**
  * Main orchestrator for Spring Boot 2.1 to 2.2 migration.
  * 
+ * <p>
  * Coordinates all migration phases including:
- * - POM dependency updates
- * - Property file transformations
- * - Code migrations (Kafka, Redis, Hibernate, Jedis)
- * - Configuration optimizations (JMX, ConfigurationPropertiesScan)
- * - Validation and reporting
+ * <ul>
+ * <li>POM dependency updates</li>
+ * <li>Property file transformations</li>
+ * <li>Code migrations (Kafka, Redis, Hibernate, Jedis)</li>
+ * <li>Configuration optimizations (JMX, ConfigurationPropertiesScan)</li>
+ * <li>Validation and reporting</li>
+ * </ul>
  * 
- * Most migrations are fully automated. Some migrations (Hibernate AttributeConverter
- * generation, Redis set operations, Jedis configuration) may require manual review
+ * <p>
+ * Most migrations are fully automated. Some migrations (Hibernate
+ * AttributeConverter
+ * generation, Redis set operations, Jedis configuration) may require manual
+ * review
  * and completion after initial code generation.
+ * 
+ * @see AbstractSpringBootMigrator
  */
 @SuppressWarnings("java:S106") // Allow System.out usage for reporting
-public class SpringBoot21to22Migrator {
+public class SpringBoot21to22Migrator extends AbstractSpringBootMigrator {
     private static final Logger logger = LoggerFactory.getLogger(SpringBoot21to22Migrator.class);
 
-    private final boolean dryRun;
-    private final MigrationResult result;
-    private final Set<String> modifiedFiles = new HashSet<>();
-
-    // Migration components
-    private SpringBootPomMigrator pomMigrator;
-    private PropertyFileMigrator propertyMigrator;
+    // Migration components - version specific
+    private PomMigrator21to22 pomMigrator;
+    private PropertyMigrator21to22 propertyMigrator;
     private KafkaCodeMigrator kafkaMigrator;
     private RedisCodeMigrator redisMigrator;
     private HibernateCodeMigrator hibernateMigrator;
@@ -48,36 +45,35 @@ public class SpringBoot21to22Migrator {
     private ConfigPropertiesScanMigrator configPropsMigrator;
     private LazyInitializationConfigurer lazyInitConfigurer;
     private JakartaEEPrepMigrator jakartaPrepMigrator;
-    private MigrationValidator validator;
 
     // Optional feature flags (disabled by default)
-    private boolean enableLazyInit = false;
-    private boolean enableJakartaPrep = false;
+    private final boolean enableLazyInit;
+    private final boolean enableJakartaPrep;
 
-    public SpringBoot21to22Migrator(boolean dryRun) throws IOException {
+    /**
+     * Constructor with default settings (no optional features).
+     * 
+     * @param dryRun if true, no files will be modified
+     */
+    public SpringBoot21to22Migrator(boolean dryRun) {
         this(dryRun, false, false);
     }
 
     /**
      * Constructor with optional feature flags.
      * 
-     * @param dryRun if true, no files will be modified
-     * @param enableLazyInit if true, adds lazy initialization to test profiles
+     * @param dryRun            if true, no files will be modified
+     * @param enableLazyInit    if true, adds lazy initialization to test profiles
      * @param enableJakartaPrep if true, adds Jakarta EE migration prep comments
      */
-    public SpringBoot21to22Migrator(boolean dryRun, boolean enableLazyInit, boolean enableJakartaPrep) throws IOException {
-        this.dryRun = dryRun;
+    public SpringBoot21to22Migrator(boolean dryRun, boolean enableLazyInit, boolean enableJakartaPrep) {
+        super(dryRun);
         this.enableLazyInit = enableLazyInit;
         this.enableJakartaPrep = enableJakartaPrep;
-        this.result = new MigrationResult();
-        initializeComponents();
     }
 
-    /**
-     * Initialize all migration components.
-     * Pre-processes source files with lexical preservation enabled.
-     */
-    private void initializeComponents() throws IOException {
+    @Override
+    protected void initializeComponents() throws IOException {
         logger.info("Initializing Spring Boot 2.1 to 2.2 migration components...");
 
         // Load configuration and pre-process source files
@@ -85,45 +81,44 @@ public class SpringBoot21to22Migrator {
         AbstractCompiler.setEnableLexicalPreservation(true);
         AbstractCompiler.preProcess();
 
-        this.pomMigrator = new SpringBootPomMigrator(dryRun);
-        this.propertyMigrator = new PropertyFileMigrator(dryRun);
+        // Initialize version-specific migrators (using new extracted classes)
+        this.pomMigrator = new PomMigrator21to22(dryRun);
+        this.propertyMigrator = new PropertyMigrator21to22(dryRun);
+
+        // Initialize code migrators (existing implementations)
         this.kafkaMigrator = new KafkaCodeMigrator(dryRun);
         this.redisMigrator = new RedisCodeMigrator(dryRun);
         this.hibernateMigrator = new HibernateCodeMigrator(dryRun);
         this.jedisMigrator = new JedisConnectionMigrator(dryRun);
+
+        // Initialize configuration optimizers
         this.jmxDetector = new JmxConfigDetector(dryRun);
         this.actuatorDetector = new ActuatorConfigDetector(dryRun);
         this.configPropsMigrator = new ConfigPropertiesScanMigrator(dryRun);
+
+        // Initialize optional feature migrators
         this.lazyInitConfigurer = new LazyInitializationConfigurer(dryRun, enableLazyInit);
         this.jakartaPrepMigrator = new JakartaEEPrepMigrator(dryRun, enableJakartaPrep);
+
+        // Initialize validator
         this.validator = new MigrationValidator(dryRun);
     }
 
-    /**
-     * Execute the complete migration process.
-     * 
-     * @return Migration result with details of all changes
-     */
-    public MigrationResult migrateAll() throws Exception {
-        logger.info("Starting Spring Boot 2.1 to 2.2 migration (dry-run: {})", dryRun);
+    @Override
+    protected MigrationPhaseResult migratePom() {
+        return pomMigrator.migrate();
+    }
 
-        // Phase 1: POM Migration
-        logger.info("Phase 1: Migrating POM dependencies...");
-        MigrationPhaseResult pomResult = pomMigrator.migrate();
-        result.addPhase("POM Migration", pomResult);
+    @Override
+    protected MigrationPhaseResult migrateProperties() {
+        return propertyMigrator.migrate();
+    }
 
-        if (pomResult.hasCriticalErrors()) {
-            logger.error("Critical errors in POM migration. Stopping migration.");
-            return result;
-        }
-
-        // Phase 2: Property Files
-        logger.info("Phase 2: Migrating property files...");
-        MigrationPhaseResult propertyResult = propertyMigrator.migrate();
-        result.addPhase("Property Migration", propertyResult);
-
+    @Override
+    protected void executeVersionSpecificMigrations() {
         // Phase 3: Code Migrations
         logger.info("Phase 3: Migrating code (Kafka, Redis, Hibernate)...");
+
         MigrationPhaseResult kafkaResult = kafkaMigrator.migrate();
         modifiedFiles.addAll(kafkaResult.getModifiedClasses());
         result.addPhase("Kafka Migration", kafkaResult);
@@ -132,9 +127,17 @@ public class SpringBoot21to22Migrator {
         modifiedFiles.addAll(redisResult.getModifiedClasses());
         result.addPhase("Redis Migration", redisResult);
 
-        MigrationPhaseResult hibernateResult = hibernateMigrator.migrate();
-        modifiedFiles.addAll(hibernateResult.getModifiedClasses());
-        result.addPhase("Hibernate Migration", hibernateResult);
+        MigrationPhaseResult hibernateResult;
+        try {
+            hibernateResult = hibernateMigrator.migrate();
+            modifiedFiles.addAll(hibernateResult.getModifiedClasses());
+            result.addPhase("Hibernate Migration", hibernateResult);
+        } catch (Exception e) {
+            hibernateResult = new MigrationPhaseResult();
+            hibernateResult.addError("Hibernate migration failed: " + e.getMessage());
+            result.addPhase("Hibernate Migration", hibernateResult);
+            logger.error("Hibernate migration failed", e);
+        }
 
         MigrationPhaseResult jedisResult = jedisMigrator.migrate();
         modifiedFiles.addAll(jedisResult.getModifiedClasses());
@@ -142,6 +145,7 @@ public class SpringBoot21to22Migrator {
 
         // Phase 4: Configuration Optimizations
         logger.info("Phase 4: Applying configuration optimizations...");
+
         MigrationPhaseResult jmxResult = jmxDetector.migrate();
         result.addPhase("JMX Detection", jmxResult);
 
@@ -155,82 +159,60 @@ public class SpringBoot21to22Migrator {
         // Phase 5: Optional Enhancements
         if (enableLazyInit || enableJakartaPrep) {
             logger.info("Phase 5: Applying optional enhancements...");
-            
+
             if (enableLazyInit) {
                 MigrationPhaseResult lazyInitResult = lazyInitConfigurer.migrate();
                 result.addPhase("Lazy Initialization Configuration", lazyInitResult);
             }
-            
+
             if (enableJakartaPrep) {
                 MigrationPhaseResult jakartaResult = jakartaPrepMigrator.migrate();
                 modifiedFiles.addAll(jakartaResult.getModifiedClasses());
                 result.addPhase("Jakarta EE Preparatory Comments", jakartaResult);
             }
         }
-
-        // Phase 6: Write modified files to disk
-        if (!dryRun && !modifiedFiles.isEmpty()) {
-            logger.info("Phase 6: Writing {} modified files to disk...", modifiedFiles.size());
-            writeModifiedFiles();
-        }
-
-        // Phase 6: Validation
-        if (!dryRun) {
-            logger.info("Phase 6: Validating migration...");
-            MigrationPhaseResult validationResult = validator.migrate();
-            result.addPhase("Validation", validationResult);
-        }
-
-        logger.info("Migration completed successfully!");
-        return result;
     }
 
-    /**
-     * Write all modified compilation units to disk using LexicalPreservingPrinter.
-     */
-    private void writeModifiedFiles() throws IOException {
-        for (String className : modifiedFiles) {
-            CompilationUnit cu = AntikytheraRunTime.getCompilationUnit(className);
-            if (cu == null) {
-                logger.warn("Could not find CompilationUnit for {}", className);
-                continue;
-            }
-
-            String relativePath = AbstractCompiler.classToPath(className);
-            Path fullPath = Path.of(Settings.getBasePath(), "src/main/java", relativePath);
-
-            String content;
-            try {
-                content = LexicalPreservingPrinter.print(cu);
-            } catch (Exception e) {
-                logger.warn("LexicalPreservingPrinter failed for {}, using default printer", className);
-                content = cu.toString();
-            }
-
-            Files.writeString(fullPath, content);
-            logger.info("Wrote modified file: {}", fullPath);
+    @Override
+    protected MigrationPhaseResult validate() {
+        try {
+            return validator.migrate();
+        } catch (IOException | InterruptedException e) {
+            MigrationPhaseResult result = new MigrationPhaseResult();
+            result.addError("Validation failed: " + e.getMessage());
+            logger.error("Validation failed", e);
+            return result;
         }
     }
 
-    /**
-     * Get the migration result.
-     */
-    public MigrationResult getResult() {
-        return result;
+    @Override
+    protected String getSourceVersion() {
+        return "2.1";
+    }
+
+    @Override
+    protected String getTargetVersion() {
+        return "2.2";
     }
 
     /**
      * Print a summary of the migration results.
+     * Delegates to base class implementation.
      */
-    public void printSummary() {
-        System.out.println(result.generateReport());
+    public void printReport() {
+        printSummary();
     }
 
     /**
      * Main method for command-line execution.
      * 
-     * Usage: java com.raditha.spring.SpringBoot21to22Migrator [--dry-run] 
-     *        [--project-path <path>] [--enable-lazy-init] [--enable-jakarta-prep]
+     * <p>
+     * Usage:
+     * 
+     * <pre>
+     * java com.raditha.spring.SpringBoot21to22Migrator [--dry-run] 
+     *      [--project-path &lt;path&gt;] [--enable-lazy-init] [--enable-jakarta-prep]
+     * </pre>
      */
     public static void main(String[] args) throws Exception {
         boolean dryRun = false;
@@ -278,15 +260,11 @@ public class SpringBoot21to22Migrator {
         SpringBoot21to22Migrator migrator = new SpringBoot21to22Migrator(dryRun, enableLazyInit, enableJakartaPrep);
         MigrationResult result = migrator.migrateAll();
 
-        // Print results
-        System.out.println("\n" + "=".repeat(80));
-        System.out.println("Spring Boot 2.1 → 2.2 Migration " + (dryRun ? "(DRY RUN)" : ""));
-        System.out.println("=".repeat(80));
-        System.out.println(result.getSummary());
+        // Print detailed report
+        migrator.printReport();
 
         // Exit with appropriate code
         System.exit(result.isSuccessful() ? 0 : 1);
-
     }
 
     private static void printUsageAndExit() {
