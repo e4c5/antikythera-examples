@@ -3,6 +3,7 @@ package com.raditha.spring;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.expr.*;
+import com.github.javaparser.ast.nodeTypes.NodeWithName;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,6 +23,7 @@ import java.util.*;
  */
 public class ConfigPropertiesScanMigrator implements MigrationPhase {
     private static final Logger logger = LoggerFactory.getLogger(ConfigPropertiesScanMigrator.class);
+    public static final String CONFIG_PROPERTIES_ANNOTATION = "ConfigurationPropertiesScan";
 
     private final boolean dryRun;
 
@@ -44,7 +46,7 @@ public class ConfigPropertiesScanMigrator implements MigrationPhase {
         }
 
         String basePackage = appClass.getPackageDeclaration()
-                .map(pd -> pd.getNameAsString())
+                .map(NodeWithName::getNameAsString)
                 .orElse("");
 
         // Find @EnableConfigurationProperties
@@ -177,7 +179,7 @@ public class ConfigPropertiesScanMigrator implements MigrationPhase {
             enableConfigProps.remove();
 
             // Add @ConfigurationPropertiesScan to the class
-            appClass.getType(0).addAnnotation("ConfigurationPropertiesScan");
+            appClass.getType(0).addAnnotation(CONFIG_PROPERTIES_ANNOTATION);
 
             result.addChange("Replaced @EnableConfigurationProperties with @ConfigurationPropertiesScan");
             logger.info("Migrated to @ConfigurationPropertiesScan");
@@ -189,7 +191,7 @@ public class ConfigPropertiesScanMigrator implements MigrationPhase {
             updateEnableConfigurationProperties(enableConfigProps, externalClasses);
 
             // Add @ConfigurationPropertiesScan
-            appClass.getType(0).addAnnotation("ConfigurationPropertiesScan");
+            appClass.getType(0).addAnnotation(CONFIG_PROPERTIES_ANNOTATION);
 
             result.addChange(
                     "Added @ConfigurationPropertiesScan and kept @EnableConfigurationProperties for external classes");
@@ -230,7 +232,7 @@ public class ConfigPropertiesScanMigrator implements MigrationPhase {
 
     @Override
     public String getPhaseName() {
-        return "ConfigurationPropertiesScan";
+        return CONFIG_PROPERTIES_ANNOTATION;
     }
 
     @Override
