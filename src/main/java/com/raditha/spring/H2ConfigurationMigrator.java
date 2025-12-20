@@ -103,13 +103,6 @@ public class H2ConfigurationMigrator extends AbstractConfigMigrator {
         return result;
     }
 
-    /**
-     * Find property files matching patterns using PropertyFileUtils.
-     */
-    private List<Path> findPropertyFiles(Path basePath, String... patterns) throws Exception {
-        return PropertyFileUtils.findPropertyFiles(basePath, patterns);
-    }
-
     @SuppressWarnings("unchecked")
     private Map<String, Boolean> checkYamlFile(Path yamlFile) {
         boolean h2Enabled = false;
