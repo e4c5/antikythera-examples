@@ -5,8 +5,8 @@ import org.apache.maven.model.Model;
 import org.apache.maven.model.Parent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import sa.com.cloudsolutions.antikythera.parser.MavenHelper;
 
-import java.nio.file.Path;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -67,6 +67,7 @@ public abstract class AbstractPomMigrator extends MigrationPhase {
     private static final Logger logger = LoggerFactory.getLogger(AbstractPomMigrator.class);
 
     protected final String targetSpringBootVersion;
+    protected final MavenHelper mavenHelper = new MavenHelper();
 
     /**
      * Constructor for POM migrator.
@@ -100,9 +101,7 @@ public abstract class AbstractPomMigrator extends MigrationPhase {
     public final MigrationPhaseResult migrate() throws Exception {
         MigrationPhaseResult result = new MigrationPhaseResult();
 
-        Path pomPath = PomUtils.resolvePomPath();
-
-        Model model = PomUtils.readPomModel(pomPath);
+        Model model = mavenHelper.getPomModel();
         boolean modified = false;
 
         // Update Spring Boot parent version
@@ -118,7 +117,7 @@ public abstract class AbstractPomMigrator extends MigrationPhase {
 
         // Write POM if modifications were made
         if (modified && !dryRun) {
-            PomUtils.writePomModel(pomPath, model);
+            mavenHelper.writePomModel(model);
             logger.info("POM migration completed successfully");
         }
 

@@ -8,8 +8,8 @@ import org.apache.maven.model.Model;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 import sa.com.cloudsolutions.antikythera.parser.ImportWrapper;
+import sa.com.cloudsolutions.antikythera.parser.MavenHelper;
 
-import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -47,6 +47,8 @@ public class ValidationStarterDetector extends MigrationPhase {
             "Valid", "Validated", "NotNull", "NotEmpty", "NotBlank",
             "Size", "Min", "Max", "Email", "Pattern", "Positive", "Negative",
             "Future", "Past", "AssertTrue", "AssertFalse", "Digits");
+
+    private final MavenHelper mavenHelper = new MavenHelper();
 
     public ValidationStarterDetector(boolean dryRun) {
         super(dryRun);
@@ -92,7 +94,8 @@ public class ValidationStarterDetector extends MigrationPhase {
             for (AnnotationExpr annotation : cu.findAll(AnnotationExpr.class)) {
                 String annotationName = annotation.getNameAsString();
                 if (VALIDATION_ANNOTATIONS.contains(annotationName)) {
-                    // Use AbstractCompiler.findImport to verify the annotation is from javax.validation
+                    // Use AbstractCompiler.findImport to verify the annotation is from
+                    // javax.validation
                     ImportWrapper importWrapper = AbstractCompiler.findImport(cu, annotationName);
                     if (isValidationImport(importWrapper)) {
                         if (!fileHasValidation) {
@@ -130,8 +133,7 @@ public class ValidationStarterDetector extends MigrationPhase {
      * Check if spring-boot-starter-validation is already in POM.
      */
     private boolean hasValidationStarter() throws Exception {
-        Path pomPath = PomUtils.resolvePomPath();
-        Model model = PomUtils.readPomModel(pomPath);
+        Model model = mavenHelper.getPomModel();
 
         return model.getDependencies().stream()
                 .anyMatch(dep -> "org.springframework.boot".equals(dep.getGroupId()) &&
@@ -142,8 +144,7 @@ public class ValidationStarterDetector extends MigrationPhase {
      * Add spring-boot-starter-validation to POM.
      */
     private void addValidationStarter(MigrationPhaseResult result) throws Exception {
-        Path pomPath = PomUtils.resolvePomPath();
-        Model model = PomUtils.readPomModel(pomPath);
+        Model model = mavenHelper.getPomModel();
 
         // Add validation starter dependency
         Dependency validationStarter = new Dependency();
@@ -155,7 +156,7 @@ public class ValidationStarterDetector extends MigrationPhase {
             result.addChange("Would add spring-boot-starter-validation dependency");
         } else {
             model.addDependency(validationStarter);
-            PomUtils.writePomModel(pomPath, model);
+            mavenHelper.writePomModel(model);
             result.addChange("Added spring-boot-starter-validation dependency");
             result.addWarning(
                     "CRITICAL: Validation starter added - required for @Valid, @Validated annotations to work");
