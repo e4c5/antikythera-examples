@@ -2,12 +2,6 @@ package com.raditha.spring;
 
 import org.apache.maven.model.Dependency;
 import org.apache.maven.model.Model;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import sa.com.cloudsolutions.antikythera.configuration.Settings;
-
-import java.nio.file.Path;
-import java.nio.file.Paths;
 
 /**
  * Abstract base class for Spring Boot migration phases.
