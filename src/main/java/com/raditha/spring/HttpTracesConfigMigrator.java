@@ -1,7 +1,5 @@
 package com.raditha.spring;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.yaml.snakeyaml.Yaml;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 
@@ -33,13 +31,10 @@ import java.util.stream.Stream;
  * 
  * @see MigrationPhase
  */
-public class HttpTracesConfigMigrator implements MigrationPhase {
-    private static final Logger logger = LoggerFactory.getLogger(HttpTracesConfigMigrator.class);
-
-    private final boolean dryRun;
+public class HttpTracesConfigMigrator extends MigrationPhase {
 
     public HttpTracesConfigMigrator(boolean dryRun) {
-        this.dryRun = dryRun;
+        super(dryRun);
     }
 
     @Override
@@ -64,7 +59,7 @@ public class HttpTracesConfigMigrator implements MigrationPhase {
             for (Path yamlFile : yamlFiles) {
                 if (hasHttpTraceConfigYaml(yamlFile)) {
                     hasHttpTraceConfig = true;
-                    result.addChange(String.format("%s: HTTP trace configuration detected", 
+                    result.addChange(String.format("%s: HTTP trace configuration detected",
                             yamlFile.getFileName()));
                 }
             }
@@ -73,7 +68,7 @@ public class HttpTracesConfigMigrator implements MigrationPhase {
             for (Path propFile : propFiles) {
                 if (hasHttpTraceConfigProperties(propFile)) {
                     hasHttpTraceConfig = true;
-                    result.addChange(String.format("%s: HTTP trace configuration detected", 
+                    result.addChange(String.format("%s: HTTP trace configuration detected",
                             propFile.getFileName()));
                 }
             }
