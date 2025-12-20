@@ -21,7 +21,7 @@ import java.util.stream.Stream;
  * - javax.management.* imports
  * - Spring Kafka usage (often uses JMX for metrics)
  */
-public class JmxConfigDetector extends MigrationPhase {
+public class JmxConfigDetector extends AbstractConfigMigrator {
 
 
     public JmxConfigDetector(boolean dryRun) {
@@ -98,8 +98,7 @@ public class JmxConfigDetector extends MigrationPhase {
      */
     @SuppressWarnings("unchecked")
     private void enableJmxConfiguration(MigrationPhaseResult result) throws IOException {
-        Path basePath = Paths.get(Settings.getBasePath());
-        Path yamlFile = findApplicationYaml(basePath);
+        Path yamlFile = findApplicationYaml();
 
         if (yamlFile == null) {
             result.addWarning("Could not find application.yml - JMX not auto-enabled");
@@ -136,32 +135,6 @@ public class JmxConfigDetector extends MigrationPhase {
         } else {
             result.addChange("spring.jmx.enabled already configured");
         }
-    }
-
-    /**
-     * Find application.yml file.
-     */
-    private Path findApplicationYaml(Path basePath) throws IOException {
-        if (!Files.exists(basePath)) {
-            return null;
-        }
-
-        try (Stream<Path> paths = Files.walk(basePath)) {
-            return paths.filter(Files::isRegularFile)
-                    .filter(path -> {
-                        String fileName = path.getFileName().toString();
-                        return fileName.equals("application.yml") || fileName.equals("application.yaml");
-                    })
-                    .findFirst()
-                    .orElse(null);
-        }
-    }
-
-    /**
-     * Create YAML instance with proper configuration.
-     */
-    private Yaml createYaml() {
-        return YamlUtils.createYaml();
     }
 
     @Override

@@ -49,7 +49,7 @@ public class SpringBootPomMigrator extends MigrationPhase {
         }
 
         try {
-            Model model = readPomModel(pomPath);
+            Model model = PomUtils.readPomModel(pomPath);
             boolean modified = false;
 
             // Update Spring Boot parent version
@@ -86,7 +86,7 @@ public class SpringBootPomMigrator extends MigrationPhase {
             }
 
             if (modified && !dryRun) {
-                writePomModel(pomPath, model);
+                PomUtils.writePomModel(pomPath, model);
                 logger.info("POM migration completed successfully");
             }
 
@@ -147,27 +147,11 @@ public class SpringBootPomMigrator extends MigrationPhase {
                 .findFirst()
                 .orElse(null);
 
-        if (javaxMail != null) {
-            if (dryRun) {
-                result.addChange("Would migrate: javax.mail:javax.mail-api → com.sun.mail:jakarta.mail");
-            } else {
-                // Remove old dependency
-                model.getDependencies().remove(javaxMail);
-
-                // Add Jakarta Mail
-                Dependency jakartaMail = new Dependency();
-                jakartaMail.setGroupId("com.sun.mail");
-                jakartaMail.setArtifactId("jakarta.mail");
-                jakartaMail.setVersion(javaxMail.getVersion()); // Keep same version
-                if (javaxMail.getScope() != null) {
-                    jakartaMail.setScope(javaxMail.getScope());
-                }
-                model.addDependency(jakartaMail);
-
-                result.addChange("Migrated: javax.mail:javax.mail-api → com.sun.mail:jakarta.mail");
-                logger.info("Migrated javax.mail to jakarta.mail");
-            }
-            modified = true;
+        if (dryRun) {
+            result.addChange("Would migrate: javax.mail:javax.mail-api → com.sun.mail:jakarta.mail");
+        }
+        else {
+            modified = migrateJavaXMail(model, result, javaxMail);
         }
 
         return modified;
@@ -406,20 +390,6 @@ public class SpringBootPomMigrator extends MigrationPhase {
         }
 
         return null;
-    }
-
-    private Model readPomModel(Path pomPath) throws Exception {
-        MavenXpp3Reader reader = new MavenXpp3Reader();
-        try (FileReader fileReader = new FileReader(pomPath.toFile())) {
-            return reader.read(fileReader);
-        }
-    }
-
-    private void writePomModel(Path pomPath, Model model) throws IOException {
-        MavenXpp3Writer writer = new MavenXpp3Writer();
-        try (FileWriter fileWriter = new FileWriter(pomPath.toFile())) {
-            writer.write(fileWriter, model);
-        }
     }
 
     private int compareVersions(String v1, String v2) {

@@ -99,7 +99,6 @@ public abstract class AbstractConfigMigrator extends MigrationPhase {
      * @return YAML data as map, or null if file is empty
      * @throws IOException if I/O error occurs
      */
-    @SuppressWarnings("unchecked")
     protected java.util.Map<String, Object> loadYaml(Path yamlPath) throws IOException {
         Yaml yaml = createYaml();
         try (InputStream input = Files.newInputStream(yamlPath)) {
