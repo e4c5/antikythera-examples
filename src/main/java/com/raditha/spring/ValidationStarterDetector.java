@@ -84,7 +84,6 @@ public class ValidationStarterDetector extends MigrationPhase {
         int filesWithValidation = 0;
 
         for (Map.Entry<String, CompilationUnit> entry : units.entrySet()) {
-            String className = entry.getKey();
             CompilationUnit cu = entry.getValue();
 
             boolean fileHasValidation = false;
