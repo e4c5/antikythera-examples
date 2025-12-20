@@ -15,12 +15,14 @@ import java.io.IOException;
  * <ul>
  * <li>POM dependency updates</li>
  * <li>Property file transformations</li>
- * <li>Configuration file processing (profile syntax migration)</li>
+ * <li>Configuration file processing (profile syntax migration for YAML and properties)</li>
  * <li>Data.sql initialization ordering fixes</li>
  * <li>Neo4j property namespace changes and OGM detection</li>
  * <li>Logback property restructuring</li>
  * <li>Elasticsearch RestClient detection</li>
  * <li>Hazelcast 4.x upgrade detection</li>
+ * <li>HTTP trace configuration detection (cookie exclusion behavior)</li>
+ * <li>R2DBC code detection (moved to Spring Framework 5.3)</li>
  * <li>Validation and reporting</li>
  * </ul>
  * 
@@ -33,6 +35,8 @@ import java.io.IOException;
  * <li>Logback properties moved to logging.logback.rollingpolicy.* namespace</li>
  * <li>Elasticsearch RestClient auto-configuration removed</li>
  * <li>Hazelcast upgraded to 4.x (breaking API changes)</li>
+ * <li>HTTP traces exclude cookies by default</li>
+ * <li>R2DBC infrastructure moved to Spring Framework 5.3</li>
  * </ul>
  * 
  * @see AbstractSpringBootMigrator
@@ -56,6 +60,10 @@ public class SpringBoot23to24Migrator extends AbstractSpringBootMigrator {
     // Code detection migrators (Priority 3)
     private ElasticsearchCodeMigrator23to24 elasticsearchMigrator;
     private HazelcastCodeMigrator hazelcastMigrator;
+    
+    // Additional detection migrators (Priority 4)
+    private HttpTracesConfigMigrator httpTracesMigrator;
+    private R2dbcCodeMigrator r2dbcMigrator;
 
     /**
      * Constructor with default settings.
@@ -90,6 +98,10 @@ public class SpringBoot23to24Migrator extends AbstractSpringBootMigrator {
         // Initialize code detection migrators
         this.elasticsearchMigrator = new ElasticsearchCodeMigrator23to24(dryRun);
         this.hazelcastMigrator = new HazelcastCodeMigrator(dryRun);
+
+        // Initialize additional detection migrators
+        this.httpTracesMigrator = new HttpTracesConfigMigrator(dryRun);
+        this.r2dbcMigrator = new R2dbcCodeMigrator(dryRun);
 
         // Initialize validator
         this.validator = new MigrationValidator(dryRun);
@@ -130,6 +142,14 @@ public class SpringBoot23to24Migrator extends AbstractSpringBootMigrator {
         // Phase 8: Hazelcast Detection (version upgrade to 4.x)
         logger.info("Phase 8: Detecting Hazelcast usage...");
         result.addPhase("Hazelcast Detection", hazelcastMigrator.migrate());
+
+        // Phase 9: HTTP Traces Configuration Detection (cookie exclusion behavior change)
+        logger.info("Phase 9: Detecting HTTP trace configuration...");
+        result.addPhase("HTTP Traces Detection", httpTracesMigrator.migrate());
+
+        // Phase 10: R2DBC Code Detection (moved to Spring Framework 5.3)
+        logger.info("Phase 10: Detecting R2DBC usage...");
+        result.addPhase("R2DBC Detection", r2dbcMigrator.migrate());
     }
 
     @Override
