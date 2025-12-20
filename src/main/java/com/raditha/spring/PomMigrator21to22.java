@@ -85,20 +85,7 @@ public class PomMigrator21to22 extends AbstractPomMigrator {
             if (dryRun) {
                 result.addChange("Would migrate: javax.mail:javax.mail-api → com.sun.mail:jakarta.mail");
             } else {
-                // Remove old dependency
-                model.getDependencies().remove(javaxMail);
-
-                // Add Jakarta Mail
-                Dependency jakartaMail = new Dependency();
-                jakartaMail.setGroupId("com.sun.mail");
-                jakartaMail.setArtifactId("jakarta.mail");
-                jakartaMail.setVersion(javaxMail.getVersion()); // Keep same version
-                if (javaxMail.getScope() != null) {
-                    jakartaMail.setScope(javaxMail.getScope());
-                }
-                model.addDependency(jakartaMail);
-
-                result.addChange("Migrated: javax.mail:javax.mail-api → com.sun.mail:jakarta.mail");
+                migrateJavaXMail(model, result, javaxMail);
                 logger.info("Migrated javax.mail to jakarta.mail");
             }
             modified = true;
@@ -113,6 +100,10 @@ public class PomMigrator21to22 extends AbstractPomMigrator {
     private void validateKafkaClientVersion(Model model, MigrationPhaseResult result) {
         Dependency kafkaClients = findDependency(model, "org.apache.kafka", "kafka-clients");
 
+        migrateKafka(result, kafkaClients);
+    }
+
+    private static void migrateKafka(MigrationPhaseResult result, Dependency kafkaClients) {
         if (kafkaClients != null) {
             String version = kafkaClients.getVersion();
             if (version != null && !version.startsWith("${")) {
@@ -121,8 +112,6 @@ public class PomMigrator21to22 extends AbstractPomMigrator {
                             "kafka-clients version %s is below required %s for Spring Boot 2.2",
                             version, MIN_KAFKA_CLIENTS_VERSION));
                     result.addWarning("Spring Kafka 2.3+ requires kafka-clients 2.3.0+");
-                } else {
-                    logger.info("kafka-clients version {} is compatible", version);
                 }
             }
         }

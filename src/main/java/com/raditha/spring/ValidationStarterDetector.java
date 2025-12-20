@@ -5,15 +5,11 @@ import com.github.javaparser.ast.ImportDeclaration;
 import com.github.javaparser.ast.expr.AnnotationExpr;
 import org.apache.maven.model.Dependency;
 import org.apache.maven.model.Model;
-import org.apache.maven.model.io.xpp3.MavenXpp3Reader;
-import org.apache.maven.model.io.xpp3.MavenXpp3Writer;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 import sa.com.cloudsolutions.antikythera.parser.ImportWrapper;
 
-import java.io.FileReader;
-import java.io.FileWriter;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
@@ -98,23 +94,7 @@ public class ValidationStarterDetector extends MigrationPhase {
             String className = entry.getKey();
             CompilationUnit cu = entry.getValue();
 
-            if (cu == null) {
-                continue;
-            }
-
             boolean fileHasValidation = false;
-
-            // Check imports for javax.validation using AbstractCompiler's robust import resolution
-            for (ImportDeclaration imp : cu.findAll(ImportDeclaration.class)) {
-                if (imp.getNameAsString().startsWith("javax.validation")) {
-                    if (!fileHasValidation) {
-                        filesWithValidation++;
-                        fileHasValidation = true;
-                    }
-                    validationUsageCount++;
-                    logger.debug("Found validation import in {}: {}", className, imp.getNameAsString());
-                }
-            }
 
             // Check for validation annotations using AbstractCompiler's import resolution
             for (AnnotationExpr annotation : cu.findAll(AnnotationExpr.class)) {
@@ -130,16 +110,6 @@ public class ValidationStarterDetector extends MigrationPhase {
                         validationUsageCount++;
                         logger.debug("Found validation annotation in {}: @{} (resolved from {})",
                                 className, annotationName, importWrapper.getImport().getNameAsString());
-                    } else if (importWrapper == null) {
-                        // Annotation might be using simple name without import (same package or java.lang)
-                        // This is less common but we should still count it if it matches our list
-                        if (!fileHasValidation) {
-                            filesWithValidation++;
-                            fileHasValidation = true;
-                        }
-                        validationUsageCount++;
-                        logger.debug("Found validation annotation in {}: @{} (no import found, assumed validation)",
-                                className, annotationName);
                     }
                 }
             }
@@ -228,32 +198,17 @@ public class ValidationStarterDetector extends MigrationPhase {
             return false;
         }
     }
-
-    // Helper methods (copied from AbstractPomMigrator to avoid anonymous class
-    // issues)
-
     private Path resolvePomPath() {
-        try {
-            // Check if Settings is initialized
-            if (Settings.getBasePath() == null) {
-                logger.warn("Settings not initialized, cannot resolve POM path");
-                return null;
-            }
+        Path basePath = Paths.get(Settings.getBasePath());
+        Path pomPath = basePath.resolve("pom.xml");
 
-            Path basePath = Paths.get(Settings.getBasePath());
-            Path pomPath = basePath.resolve("pom.xml");
-
-            if (!pomPath.toFile().exists()) {
-                pomPath = basePath.getParent().resolve("pom.xml");
-            }
-
-            if (pomPath.toFile().exists()) {
-                return pomPath;
-            }
-        } catch (Exception e) {
-            logger.error("Error resolving POM path", e);
+        if (!pomPath.toFile().exists()) {
+            pomPath = basePath.getParent().resolve("pom.xml");
         }
 
+        if (pomPath.toFile().exists()) {
+            return pomPath;
+        }
         return null;
     }
 

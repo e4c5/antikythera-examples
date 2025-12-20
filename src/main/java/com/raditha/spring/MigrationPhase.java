@@ -1,5 +1,7 @@
 package com.raditha.spring;
 
+import org.apache.maven.model.Dependency;
+import org.apache.maven.model.Model;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -80,4 +82,26 @@ public abstract class MigrationPhase {
     public int getPriority() {
         return 100;
     }
+
+
+    protected static boolean migrateJavaXMail(Model model, MigrationPhaseResult result, Dependency javaxMail) {
+        if (javaxMail != null) {
+            model.getDependencies().remove(javaxMail);
+
+            // Add Jakarta Mail
+            Dependency jakartaMail = new Dependency();
+            jakartaMail.setGroupId("com.sun.mail");
+            jakartaMail.setArtifactId("jakarta.mail");
+            jakartaMail.setVersion(javaxMail.getVersion()); // Keep same version
+            if (javaxMail.getScope() != null) {
+                jakartaMail.setScope(javaxMail.getScope());
+            }
+            model.addDependency(jakartaMail);
+
+            result.addChange("Migrated: javax.mail:javax.mail-api → com.sun.mail:jakarta.mail");
+            return true;
+        }
+        return false;
+    }
+
 }

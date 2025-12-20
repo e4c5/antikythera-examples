@@ -114,7 +114,7 @@ public abstract class AbstractPomMigrator extends MigrationPhase {
         }
 
         try {
-            Model model = readPomModel(pomPath);
+            Model model = PomUtils.readPomModel(pomPath);
             boolean modified = false;
 
             // Update Spring Boot parent version
@@ -130,7 +130,7 @@ public abstract class AbstractPomMigrator extends MigrationPhase {
 
             // Write POM if modifications were made
             if (modified && !dryRun) {
-                writePomModel(pomPath, model);
+                PomUtils.writePomModel(pomPath, model);
                 logger.info("POM migration completed successfully");
             }
 
@@ -325,7 +325,7 @@ public abstract class AbstractPomMigrator extends MigrationPhase {
      * @param v2 second version
      * @return negative if v1 < v2, zero if v1 == v2, positive if v1 > v2
      */
-    protected final int compareVersions(String v1, String v2) {
+    protected static final int compareVersions(String v1, String v2) {
         String[] parts1 = v1.split("\\.");
         String[] parts2 = v2.split("\\.");
         int maxLength = Math.max(parts1.length, parts2.length);
@@ -358,12 +358,8 @@ public abstract class AbstractPomMigrator extends MigrationPhase {
     /**
      * Parse version part to integer, extracting only numeric portion.
      */
-    private int parseVersionPart(String part) {
-        try {
-            return Integer.parseInt(part.replaceAll("[^0-9]", ""));
-        } catch (NumberFormatException e) {
-            return 0;
-        }
+    private static int parseVersionPart(String part) {
+        return Integer.parseInt(part.replaceAll("[^0-9]", ""));
     }
 
     /**
@@ -386,25 +382,5 @@ public abstract class AbstractPomMigrator extends MigrationPhase {
         }
 
         return null;
-    }
-
-    /**
-     * Read Maven POM model from file.
-     */
-    protected final Model readPomModel(Path pomPath) throws Exception {
-        MavenXpp3Reader reader = new MavenXpp3Reader();
-        try (FileReader fileReader = new FileReader(pomPath.toFile())) {
-            return reader.read(fileReader);
-        }
-    }
-
-    /**
-     * Write Maven POM model to file.
-     */
-    protected final void writePomModel(Path pomPath, Model model) throws IOException {
-        MavenXpp3Writer writer = new MavenXpp3Writer();
-        try (FileWriter fileWriter = new FileWriter(pomPath.toFile())) {
-            writer.write(fileWriter, model);
-        }
     }
 }
