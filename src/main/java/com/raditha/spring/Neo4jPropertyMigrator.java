@@ -38,8 +38,7 @@ import java.util.stream.Stream;
  * 
  * @see MigrationPhase
  */
-public class Neo4jPropertyMigrator extends MigrationPhase {
-
+public class Neo4jPropertyMigrator extends AbstractConfigMigrator {
 
     public Neo4jPropertyMigrator(boolean dryRun) {
         super(dryRun);
@@ -76,8 +75,8 @@ public class Neo4jPropertyMigrator extends MigrationPhase {
             return;
         }
 
-        List<Path> yamlFiles = findPropertyFiles(resourcesPath, "*.yml", "*.yaml");
-        List<Path> propFiles = findPropertyFiles(resourcesPath, "*.properties");
+        List<Path> yamlFiles = PropertyFileUtils.findPropertyFiles(resourcesPath, "*.yml", "*.yaml");
+        List<Path> propFiles = PropertyFileUtils.findPropertyFiles(resourcesPath, "*.properties");
 
         boolean foundNeo4jProperties = false;
 
@@ -98,34 +97,6 @@ public class Neo4jPropertyMigrator extends MigrationPhase {
         if (!foundNeo4jProperties) {
             result.addChange("No Neo4j properties detected");
         }
-    }
-
-    /**
-     * Find property files matching patterns.
-     */
-    private List<Path> findPropertyFiles(Path basePath, String... patterns) throws Exception {
-        List<Path> files = new ArrayList<>();
-
-        if (!Files.exists(basePath)) {
-            return files;
-        }
-
-        try (Stream<Path> paths = Files.walk(basePath)) {
-            paths.filter(Files::isRegularFile)
-                    .filter(path -> {
-                        String fileName = path.getFileName().toString();
-                        for (String pattern : patterns) {
-                            String regex = pattern.replace("*", ".*");
-                            if (fileName.matches(regex)) {
-                                return true;
-                            }
-                        }
-                        return false;
-                    })
-                    .forEach(files::add);
-        }
-
-        return files;
     }
 
     /**

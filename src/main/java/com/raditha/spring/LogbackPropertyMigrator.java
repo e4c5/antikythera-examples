@@ -10,7 +10,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
-import java.util.stream.Stream;
 
 /**
  * Migrates Logback properties for Spring Boot 2.4.
@@ -37,8 +36,7 @@ import java.util.stream.Stream;
  * 
  * @see MigrationPhase
  */
-public class LogbackPropertyMigrator extends MigrationPhase {
-
+public class LogbackPropertyMigrator extends AbstractConfigMigrator {
 
     // Property mappings for Logback properties
     private static final Map<String, String> PROPERTY_MAPPINGS = Map.of(
@@ -65,8 +63,8 @@ public class LogbackPropertyMigrator extends MigrationPhase {
                 return result;
             }
 
-            List<Path> yamlFiles = findPropertyFiles(resourcesPath, "*.yml", "*.yaml");
-            List<Path> propFiles = findPropertyFiles(resourcesPath, "*.properties");
+            List<Path> yamlFiles = PropertyFileUtils.findPropertyFiles(resourcesPath, "*.yml", "*.yaml");
+            List<Path> propFiles = PropertyFileUtils.findPropertyFiles(resourcesPath, "*.properties");
 
             boolean foundLogbackProperties = false;
 
@@ -94,34 +92,6 @@ public class LogbackPropertyMigrator extends MigrationPhase {
         }
 
         return result;
-    }
-
-    /**
-     * Find property files matching patterns.
-     */
-    private List<Path> findPropertyFiles(Path basePath, String... patterns) throws Exception {
-        List<Path> files = new ArrayList<>();
-
-        if (!Files.exists(basePath)) {
-            return files;
-        }
-
-        try (Stream<Path> paths = Files.walk(basePath)) {
-            paths.filter(Files::isRegularFile)
-                    .filter(path -> {
-                        String fileName = path.getFileName().toString();
-                        for (String pattern : patterns) {
-                            String regex = pattern.replace("*", ".*");
-                            if (fileName.matches(regex)) {
-                                return true;
-                            }
-                        }
-                        return false;
-                    })
-                    .forEach(files::add);
-        }
-
-        return files;
     }
 
     /**
