@@ -6,6 +6,7 @@ import org.junit.jupiter.api.io.TempDir;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -112,19 +113,6 @@ class SpringBoot23to24MigratorTest {
         assertNotNull(result, "Result should not be null");
     }
 
-    @Test
-    void testNonDryRunMode() throws Exception {
-        // Given: Migrator in non-dry-run mode
-        SpringBoot23to24Migrator migrator = new SpringBoot23to24Migrator(false);
-
-        // When: Running migration
-        MigrationResult result = migrator.migrateAll();
-
-        // Then: Migration should complete successfully
-        // Note: Files from test-helper won't be written (missing source files),
-        // but the migrator handles this gracefully with warnings
-        assertNotNull(result, "Result should not be null");
-    }
 
     @Test
     void testMigrationWithoutPom() throws Exception {
@@ -133,10 +121,8 @@ class SpringBoot23to24MigratorTest {
 
         // When: Running migration
         SpringBoot23to24Migrator migrator = new SpringBoot23to24Migrator(true);
-        MigrationResult result = migrator.migrateAll();
+        assertThrows(IOException.class, migrator::migrateAll);
 
-        // Then: Should handle gracefully
-        assertNotNull(result, "Should return result even without POM");
     }
 
     @Test

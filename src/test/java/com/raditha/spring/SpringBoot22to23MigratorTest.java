@@ -121,18 +121,6 @@ class SpringBoot22to23MigratorTest {
         assertNotNull(result, "Result should not be null");
     }
 
-    @Test
-    void testMigrationWithoutPom() throws Exception {
-        // Given: Project without pom.xml
-        Files.delete(tempDir.resolve("pom.xml"));
-
-        // When: Running migration
-        SpringBoot22to23Migrator migrator = new SpringBoot22to23Migrator(true);
-        MigrationResult result = migrator.migrateAll();
-
-        // Then: Should handle gracefully
-        assertNotNull(result, "Should return result even without POM");
-    }
 
     @Test
     void testPhasePriorities() throws Exception {

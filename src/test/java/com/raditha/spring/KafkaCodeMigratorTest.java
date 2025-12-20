@@ -22,7 +22,7 @@ class KafkaCodeMigratorTest {
     @BeforeAll
     static void setup() throws IOException {
         // Load configuration
-        File configFile = new File("src/test/resources/spring-migration-test.yml");
+        File configFile = new File("src/test/resources/generator.yml");
         Settings.loadConfigMap(configFile);
 
         // Reset and initialize parser

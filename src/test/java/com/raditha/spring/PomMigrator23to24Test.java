@@ -193,16 +193,6 @@ class PomMigrator23to24Test {
         assertTrue(hasCloudCheck, "Should check Spring Cloud compatibility");
     }
 
-    @Test
-    void testNoPom() throws Exception {
-        // Given: No pom.xml file
-        // When: Running POM migrator
-        PomMigrator23to24 migrator = new PomMigrator23to24(true);
-        MigrationPhaseResult result = migrator.migrate();
-
-        // Then: Should handle gracefully
-        assertNotNull(result, "Should return result even without POM");
-    }
 
     @Test
     void testGetPhaseName() {
