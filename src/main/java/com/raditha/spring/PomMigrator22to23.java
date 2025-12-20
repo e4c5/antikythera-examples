@@ -4,6 +4,7 @@ import org.apache.maven.model.Dependency;
 import org.apache.maven.model.Model;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import sa.com.cloudsolutions.antikythera.parser.MavenHelper;
 
 /**
  * POM migrator for Spring Boot 2.2 to 2.3 upgrade.
@@ -70,7 +71,7 @@ public class PomMigrator22to23 extends AbstractPomMigrator {
                 // Check if using compatible version
                 if (version.startsWith("Hoxton")) {
                     // Hoxton.SR8+ is compatible with Spring Boot 2.3
-                    if (compareVersions(version, MIN_SPRING_CLOUD_HOXTON_VERSION) < 0) {
+                    if (MavenHelper.compareVersions(version, MIN_SPRING_CLOUD_HOXTON_VERSION) < 0) {
                         result.addWarning(String.format(
                                 "Spring Cloud %s may have compatibility issues with Spring Boot 2.3. " +
                                         "Recommend upgrading to %s or later",

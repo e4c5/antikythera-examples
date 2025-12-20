@@ -4,6 +4,7 @@ import org.apache.maven.model.Dependency;
 import org.apache.maven.model.Model;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import sa.com.cloudsolutions.antikythera.parser.MavenHelper;
 
 /**
  * POM migrator for Spring Boot 2.1 to 2.2 upgrade.
@@ -107,7 +108,7 @@ public class PomMigrator21to22 extends AbstractPomMigrator {
         if (kafkaClients != null) {
             String version = kafkaClients.getVersion();
             if (version != null && !version.startsWith("${")) {
-                if (compareVersions(version, MIN_KAFKA_CLIENTS_VERSION) < 0) {
+                if (MavenHelper.compareVersions(version, MIN_KAFKA_CLIENTS_VERSION) < 0) {
                     result.addWarning(String.format(
                             "kafka-clients version %s is below required %s for Spring Boot 2.2",
                             version, MIN_KAFKA_CLIENTS_VERSION));
@@ -166,7 +167,7 @@ public class PomMigrator21to22 extends AbstractPomMigrator {
         String highestVersion = shedLockDeps.stream()
                 .map(Dependency::getVersion)
                 .filter(v -> v != null && !v.startsWith("${"))
-                .max((v1, v2) -> compareVersions(v1, v2))
+                .max(MavenHelper::compareVersions)
                 .orElse(null);
 
         if (highestVersion == null) {

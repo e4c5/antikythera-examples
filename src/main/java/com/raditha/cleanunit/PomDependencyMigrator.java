@@ -1,5 +1,6 @@
 package com.raditha.cleanunit;
 
+import com.raditha.spring.PomUtils;
 import org.apache.maven.model.Dependency;
 import org.apache.maven.model.Model;
 import org.apache.maven.model.Plugin;
@@ -120,7 +121,7 @@ public class PomDependencyMigrator {
         }
 
         try {
-            Model model = readPomModel(pomPath);
+            Model model = PomUtils.readPomModel(pomPath);
             boolean modified = false;
 
             // Check if JUnit 4 is present
@@ -604,14 +605,6 @@ public class PomDependencyMigrator {
         }
 
         return null;
-    }
-
-    // Read Maven POM model
-    private Model readPomModel(Path pomPath) throws Exception {
-        MavenXpp3Reader reader = new MavenXpp3Reader();
-        try (FileReader fileReader = new FileReader(pomPath.toFile())) {
-            return reader.read(fileReader);
-        }
     }
 
     // Write the model back to pom.xml

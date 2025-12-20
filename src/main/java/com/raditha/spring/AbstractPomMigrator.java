@@ -318,30 +318,6 @@ public abstract class AbstractPomMigrator extends MigrationPhase {
                 .collect(Collectors.toList());
     }
 
-    /**
-     * Compare two version strings.
-     * 
-     * @param v1 first version
-     * @param v2 second version
-     * @return negative if v1 < v2, zero if v1 == v2, positive if v1 > v2
-     */
-    protected static final int compareVersions(String v1, String v2) {
-        String[] parts1 = v1.split("\\.");
-        String[] parts2 = v2.split("\\.");
-        int maxLength = Math.max(parts1.length, parts2.length);
-
-        for (int i = 0; i < maxLength; i++) {
-            int num1 = i < parts1.length ? parseVersionPart(parts1[i]) : 0;
-            int num2 = i < parts2.length ? parseVersionPart(parts2[i]) : 0;
-
-            if (num1 != num2) {
-                return Integer.compare(num1, num2);
-            }
-        }
-
-        return 0;
-    }
-
     // ==================== Private Helper Methods ====================
 
     /**
@@ -360,27 +336,5 @@ public abstract class AbstractPomMigrator extends MigrationPhase {
      */
     private static int parseVersionPart(String part) {
         return Integer.parseInt(part.replaceAll("[^0-9]", ""));
-    }
-
-    /**
-     * Resolve path to pom.xml.
-     */
-    protected final Path resolvePomPath() {
-        try {
-            Path basePath = Paths.get(Settings.getBasePath());
-            Path pomPath = basePath.resolve("pom.xml");
-
-            if (!pomPath.toFile().exists()) {
-                pomPath = basePath.getParent().resolve("pom.xml");
-            }
-
-            if (pomPath.toFile().exists()) {
-                return pomPath;
-            }
-        } catch (Exception e) {
-            logger.error("Error resolving POM path", e);
-        }
-
-        return null;
     }
 }

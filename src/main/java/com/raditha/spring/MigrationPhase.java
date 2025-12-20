@@ -4,6 +4,10 @@ import org.apache.maven.model.Dependency;
 import org.apache.maven.model.Model;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import sa.com.cloudsolutions.antikythera.configuration.Settings;
+
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 /**
  * Abstract base class for Spring Boot migration phases.
@@ -102,6 +106,20 @@ public abstract class MigrationPhase {
             return true;
         }
         return false;
+    }
+
+    protected Path resolvePomPath() {
+        Path basePath = Paths.get(Settings.getBasePath());
+        Path pomPath = basePath.resolve("pom.xml");
+
+        if (!pomPath.toFile().exists()) {
+            pomPath = basePath.getParent().resolve("pom.xml");
+        }
+
+        if (pomPath.toFile().exists()) {
+            return pomPath;
+        }
+        return null;
     }
 
 }
