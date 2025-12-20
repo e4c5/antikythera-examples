@@ -33,7 +33,6 @@ public class SpringCloudVersionMigrator extends MigrationPhase {
     private static final String MIN_HOXTON_VERSION = "Hoxton.SR8";
     private static final String RECOMMENDED_VERSION = "2020.0.3";
 
-
     public SpringCloudVersionMigrator(boolean dryRun) {
         super(dryRun);
     }
@@ -43,13 +42,13 @@ public class SpringCloudVersionMigrator extends MigrationPhase {
         MigrationPhaseResult result = new MigrationPhaseResult();
 
         try {
-            Path pomPath = resolvePomPath();
+            Path pomPath = PomUtils.resolvePomPath();
             if (pomPath == null) {
                 result.addChange("No pom.xml found - Spring Cloud check skipped");
                 return result;
             }
 
-            Model model = readPomModel(pomPath);
+            Model model = PomUtils.readPomModel(pomPath);
 
             // Check if Spring Cloud is used
             if (model.getDependencyManagement() == null ||
@@ -134,38 +133,6 @@ public class SpringCloudVersionMigrator extends MigrationPhase {
             return 0;
         } catch (Exception e) {
             return 0;
-        }
-    }
-
-    private Path resolvePomPath() {
-        try {
-            // Check if Settings is initialized
-            if (Settings.getBasePath() == null) {
-                logger.warn("Settings not initialized, cannot resolve POM path");
-                return null;
-            }
-
-            Path basePath = Paths.get(Settings.getBasePath());
-            Path pomPath = basePath.resolve("pom.xml");
-
-            if (!pomPath.toFile().exists()) {
-                pomPath = basePath.getParent().resolve("pom.xml");
-            }
-
-            if (pomPath.toFile().exists()) {
-                return pomPath;
-            }
-        } catch (Exception e) {
-            logger.error("Error resolving POM path", e);
-        }
-
-        return null;
-    }
-
-    private Model readPomModel(Path pomPath) throws Exception {
-        MavenXpp3Reader reader = new MavenXpp3Reader();
-        try (FileReader fileReader = new FileReader(pomPath.toFile())) {
-            return reader.read(fileReader);
         }
     }
 
