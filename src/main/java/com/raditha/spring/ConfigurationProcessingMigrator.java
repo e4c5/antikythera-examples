@@ -26,6 +26,8 @@ import java.util.stream.Stream;
  * {@code spring.config.activate.on-profile}</li>
  * <li>Detection of complex multi-document YAML files requiring manual
  * review</li>
+ * <li>Profile groups detection and warnings for processing order changes</li>
+ * <li>Support for both YAML and properties files</li>
  * <li>Optional addition of {@code spring.config.use-legacy-processing=true} for
  * complex cases</li>
  * </ul>
@@ -37,6 +39,7 @@ import java.util.stream.Stream;
  * files</li>
  * <li>External files now consistently OVERRIDE packaged files</li>
  * <li>Profile activation syntax changed</li>
+ * <li>Profile groups processing order changed</li>
  * </ul>
  * 
  * @see MigrationPhase
@@ -57,16 +60,24 @@ public class ConfigurationProcessingMigrator implements MigrationPhase {
         try {
             Path basePath = Paths.get(Settings.getBasePath());
             List<Path> yamlFiles = findPropertyFiles(basePath, "*.yml", "*.yaml");
+            List<Path> propFiles = findPropertyFiles(basePath, "*.properties");
 
-            if (yamlFiles.isEmpty()) {
-                result.addChange("No YAML configuration files found");
+            if (yamlFiles.isEmpty() && propFiles.isEmpty()) {
+                result.addChange("No configuration files found");
                 return result;
             }
 
-            result.addChange(String.format("Found %d YAML configuration file(s)", yamlFiles.size()));
+            result.addChange(String.format("Found %d YAML and %d properties configuration file(s)", 
+                    yamlFiles.size(), propFiles.size()));
 
+            // Process YAML files
             for (Path yamlFile : yamlFiles) {
                 processYamlFile(yamlFile, result);
+            }
+
+            // Process properties files
+            for (Path propFile : propFiles) {
+                processPropertiesFile(propFile, result);
             }
 
             if (result.requiresManualReview()) {
@@ -125,7 +136,9 @@ public class ConfigurationProcessingMigrator implements MigrationPhase {
             }
 
             List<Map<String, Object>> docList = new ArrayList<>();
-            boolean hasProfileDocuments = false;
+            boolean hasLegacyProfileDocuments = false;
+            boolean hasNewProfileActivationDocuments = false;
+            boolean hasProfileGroups = false;
 
             for (Object doc : documents) {
                 if (doc instanceof Map) {
@@ -133,18 +146,32 @@ public class ConfigurationProcessingMigrator implements MigrationPhase {
                     Map<String, Object> docMap = (Map<String, Object>) doc;
                     docList.add(docMap);
 
-                    if (hasLegacyProfileSyntax(docMap)) {
-                        hasProfileDocuments = true;
-                    }
+                    hasLegacyProfileDocuments |= hasLegacyProfileSyntax(docMap);
+                    hasNewProfileActivationDocuments |= hasNewProfileActivationSyntax(docMap);
+                    hasProfileGroups |= hasProfileGroupsSyntax(docMap);
                 }
             }
 
-            // If complex multi-document file, flag for manual review
+            // Profile groups can affect processing order in Spring Boot 2.4+
+            if (hasProfileGroups) {
+                result.setRequiresManualReview(true);
+                result.addWarning(String.format("%s: Profile groups detected - verify processing order",
+                        yamlFile.getFileName()));
+            }
+
+            // If multi-document file contains profile-specific documents (legacy or new syntax), flag for manual review
+            boolean hasProfileDocuments = hasLegacyProfileDocuments || hasNewProfileActivationDocuments;
             if (docList.size() > 1 && hasProfileDocuments) {
                 result.setRequiresManualReview(true);
                 result.addWarning(String.format("%s: Multi-document YAML with profiles requires manual review",
                         yamlFile.getFileName()));
-                addLegacyProcessingFlag(yamlFile, result);
+
+                // Only add legacy-processing flag when legacy profile syntax is detected.
+                // Multi-document YAML files already using the new activation syntax should be reviewed,
+                // but we avoid mutating them automatically.
+                if (hasLegacyProfileDocuments) {
+                    addLegacyProcessingFlag(yamlFile, result);
+                }
                 return;
             }
 
@@ -168,6 +195,53 @@ public class ConfigurationProcessingMigrator implements MigrationPhase {
     }
 
     /**
+     * Process a single properties file for configuration changes.
+     */
+    private void processPropertiesFile(Path propFile, MigrationPhaseResult result) {
+        try {
+            Properties props = new Properties();
+            try (InputStream input = Files.newInputStream(propFile)) {
+                props.load(input);
+            }
+
+            boolean modified = false;
+
+            // Check for deprecated spring.profiles property
+            if (props.containsKey("spring.profiles")) {
+                String profileValue = props.getProperty("spring.profiles");
+                props.remove("spring.profiles");
+                props.setProperty("spring.config.activate.on-profile", profileValue);
+                
+                result.addChange(String.format("%s: spring.profiles → spring.config.activate.on-profile",
+                        propFile.getFileName()));
+                modified = true;
+            }
+
+            // Check for profile groups (requires manual review)
+            boolean hasProfileGroups = props.stringPropertyNames().stream()
+                    .anyMatch(key -> key.startsWith("spring.profiles.group."));
+            
+            if (hasProfileGroups) {
+                result.setRequiresManualReview(true);
+                result.addWarning(String.format("%s: Profile groups detected - verify processing order",
+                        propFile.getFileName()));
+            }
+
+            // Write back if modified
+            if (modified && !dryRun) {
+                try (OutputStream output = Files.newOutputStream(propFile)) {
+                    props.store(output, "Spring Boot 2.4 - Configuration Processing Migration");
+                }
+            }
+
+        } catch (Exception e) {
+            result.addError(String.format("Failed to process %s: %s",
+                    propFile.getFileName(), e.getMessage()));
+            logger.error("Failed to process properties file: {}", propFile, e);
+        }
+    }
+
+    /**
      * Check if YAML data contains legacy profile syntax.
      */
     @SuppressWarnings("unchecked")
@@ -179,6 +253,53 @@ public class ConfigurationProcessingMigrator implements MigrationPhase {
             }
         }
         return false;
+    }
+
+    /**
+     * Check if YAML data contains the new Spring Boot 2.4+ profile activation syntax.
+     */
+    @SuppressWarnings("unchecked")
+    private boolean hasNewProfileActivationSyntax(Map<String, Object> data) {
+        if (!data.containsKey("spring")) {
+            return false;
+        }
+        Object springObj = data.get("spring");
+        if (!(springObj instanceof Map)) {
+            return false;
+        }
+        Map<String, Object> spring = (Map<String, Object>) springObj;
+        Object configObj = spring.get("config");
+        if (!(configObj instanceof Map)) {
+            return false;
+        }
+        Map<String, Object> config = (Map<String, Object>) configObj;
+        Object activateObj = config.get("activate");
+        if (!(activateObj instanceof Map)) {
+            return false;
+        }
+        Map<String, Object> activate = (Map<String, Object>) activateObj;
+        return activate.containsKey("on-profile");
+    }
+
+    /**
+     * Check if YAML data contains profile groups (spring.profiles.group.*).
+     */
+    @SuppressWarnings("unchecked")
+    private boolean hasProfileGroupsSyntax(Map<String, Object> data) {
+        if (!data.containsKey("spring")) {
+            return false;
+        }
+        Object springObj = data.get("spring");
+        if (!(springObj instanceof Map)) {
+            return false;
+        }
+        Map<String, Object> spring = (Map<String, Object>) springObj;
+        Object profilesObj = spring.get("profiles");
+        if (!(profilesObj instanceof Map)) {
+            return false;
+        }
+        Map<String, Object> profiles = (Map<String, Object>) profilesObj;
+        return profiles.containsKey("group");
     }
 
     /**
@@ -209,6 +330,12 @@ public class ConfigurationProcessingMigrator implements MigrationPhase {
 
                 result.addChange(String.format("%s: spring.profiles → spring.config.activate.on-profile", fileName));
                 modified = true;
+            }
+
+            // Check for profile groups (requires manual review)
+            if (hasProfileGroupsSyntax(data)) {
+                result.setRequiresManualReview(true);
+                result.addWarning(String.format("%s: Profile groups detected - verify processing order", fileName));
             }
         }
 
