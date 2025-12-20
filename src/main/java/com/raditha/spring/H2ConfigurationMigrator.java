@@ -108,29 +108,11 @@ public class H2ConfigurationMigrator implements MigrationPhase {
         return result;
     }
 
+    /**
+     * Find property files matching patterns using PropertyFileUtils.
+     */
     private List<Path> findPropertyFiles(Path basePath, String... patterns) throws Exception {
-        java.util.List<Path> files = new java.util.ArrayList<>();
-
-        if (!Files.exists(basePath)) {
-            return files;
-        }
-
-        try (Stream<Path> paths = Files.walk(basePath)) {
-            paths.filter(Files::isRegularFile)
-                    .filter(path -> {
-                        String fileName = path.getFileName().toString();
-                        for (String pattern : patterns) {
-                            String regex = pattern.replace("*", ".*");
-                            if (fileName.matches(regex) && fileName.startsWith("application")) {
-                                return true;
-                            }
-                        }
-                        return false;
-                    })
-                    .forEach(files::add);
-        }
-
-        return files;
+        return PropertyFileUtils.findPropertyFiles(basePath, patterns);
     }
 
     @SuppressWarnings("unchecked")
