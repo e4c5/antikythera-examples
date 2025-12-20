@@ -1,7 +1,5 @@
 package com.raditha.spring;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.yaml.snakeyaml.Yaml;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 
@@ -41,13 +39,11 @@ import java.util.stream.Stream;
  * 
  * @see MigrationPhase
  */
-public class ConfigurationProcessingMigrator implements MigrationPhase {
-    private static final Logger logger = LoggerFactory.getLogger(ConfigurationProcessingMigrator.class);
+public class ConfigurationProcessingMigrator extends MigrationPhase {
 
-    private final boolean dryRun;
 
     public ConfigurationProcessingMigrator(boolean dryRun) {
-        this.dryRun = dryRun;
+        super(dryRun);
     }
 
     @Override

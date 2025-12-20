@@ -1,7 +1,5 @@
 package com.raditha.spring;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.yaml.snakeyaml.Yaml;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 
@@ -20,14 +18,12 @@ import java.util.stream.Stream;
  * 
  * Note: This is disabled by default and should be enabled via configuration flag.
  */
-public class LazyInitializationConfigurer implements MigrationPhase {
-    private static final Logger logger = LoggerFactory.getLogger(LazyInitializationConfigurer.class);
+public class LazyInitializationConfigurer extends MigrationPhase {
 
-    private final boolean dryRun;
     private final boolean enableLazyInit;
 
     public LazyInitializationConfigurer(boolean dryRun, boolean enableLazyInit) {
-        this.dryRun = dryRun;
+        super(dryRun);
         this.enableLazyInit = enableLazyInit;
     }
 

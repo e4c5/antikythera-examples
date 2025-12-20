@@ -37,13 +37,10 @@ import java.util.stream.Stream;
  * 
  * @see MigrationPhase
  */
-public class H2ConfigurationMigrator implements MigrationPhase {
-    private static final Logger logger = LoggerFactory.getLogger(H2ConfigurationMigrator.class);
-
-    private final boolean dryRun;
+public class H2ConfigurationMigrator extends AbstractConfigMigrator {
 
     public H2ConfigurationMigrator(boolean dryRun) {
-        this.dryRun = dryRun;
+        super(dryRun);
     }
 
     @Override
@@ -57,11 +54,9 @@ public class H2ConfigurationMigrator implements MigrationPhase {
                 return result;
             }
 
-            Path basePath = Paths.get(Settings.getBasePath());
-
             // Find application.yml or application.properties files
-            List<Path> yamlFiles = findPropertyFiles(basePath, "*.yml", "*.yaml");
-            List<Path> propFiles = findPropertyFiles(basePath, "*.properties");
+            List<Path> yamlFiles = findApplicationYamlFiles();
+            List<Path> propFiles = findApplicationPropertiesFiles();
 
             boolean h2ConsoleEnabled = false;
             boolean datasourceNameConfigured = false;

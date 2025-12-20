@@ -5,8 +5,6 @@ import org.apache.maven.model.Model;
 import org.apache.maven.model.Parent;
 import org.apache.maven.model.io.xpp3.MavenXpp3Reader;
 import org.apache.maven.model.io.xpp3.MavenXpp3Writer;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 
 import java.io.FileReader;
@@ -26,18 +24,16 @@ import java.nio.file.Paths;
  * - Sync ShedLock versions
  * - Upgrade Springfox to 3.0.0
  */
-public class SpringBootPomMigrator implements MigrationPhase {
-    private static final Logger logger = LoggerFactory.getLogger(SpringBootPomMigrator.class);
+public class SpringBootPomMigrator extends MigrationPhase {
 
     private static final String TARGET_SPRING_BOOT_VERSION = "2.2.13.RELEASE";
     private static final String MIN_KAFKA_CLIENTS_VERSION = "2.3.0";
     private static final String TARGET_SPRING_CLOUD_VERSION = "Hoxton.SR12";
     private static final String TARGET_SPRINGFOX_VERSION = "3.0.0";
 
-    private final boolean dryRun;
 
     public SpringBootPomMigrator(boolean dryRun) {
-        this.dryRun = dryRun;
+        super(dryRun);
     }
 
     /**

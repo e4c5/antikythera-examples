@@ -70,11 +70,10 @@ import java.util.stream.Collectors;
  * @see MigrationPhase
  * @see MigrationPhaseResult
  */
-public abstract class AbstractPomMigrator implements MigrationPhase {
+public abstract class AbstractPomMigrator extends MigrationPhase {
     private static final Logger logger = LoggerFactory.getLogger(AbstractPomMigrator.class);
 
     protected final String targetSpringBootVersion;
-    protected final boolean dryRun;
 
     /**
      * Constructor for POM migrator.
@@ -85,8 +84,8 @@ public abstract class AbstractPomMigrator implements MigrationPhase {
      *                                mode)
      */
     protected AbstractPomMigrator(String targetSpringBootVersion, boolean dryRun) {
+        super(dryRun);
         this.targetSpringBootVersion = targetSpringBootVersion;
-        this.dryRun = dryRun;
     }
 
     /**

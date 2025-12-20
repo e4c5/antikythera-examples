@@ -5,8 +5,6 @@ import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.expr.*;
 import com.github.javaparser.ast.nodeTypes.NodeWithName;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 
 import java.util.*;
@@ -21,14 +19,12 @@ import java.util.*;
  * - Validate classes are within base package scan path
  * - Replace with @ConfigurationPropertiesScan for internal classes
  */
-public class ConfigPropertiesScanMigrator implements MigrationPhase {
-    private static final Logger logger = LoggerFactory.getLogger(ConfigPropertiesScanMigrator.class);
+public class ConfigPropertiesScanMigrator extends MigrationPhase {
     public static final String CONFIG_PROPERTIES_ANNOTATION = "ConfigurationPropertiesScan";
 
-    private final boolean dryRun;
 
     public ConfigPropertiesScanMigrator(boolean dryRun) {
-        this.dryRun = dryRun;
+        super(dryRun);
     }
 
     /**
