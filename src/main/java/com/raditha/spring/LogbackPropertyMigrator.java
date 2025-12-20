@@ -92,8 +92,7 @@ public class LogbackPropertyMigrator extends AbstractConfigMigrator {
     /**
      * Migrate Logback properties in a YAML file.
      */
-    @SuppressWarnings("unchecked")
-    private boolean migrateYamlFile(Path yamlFile, MigrationPhaseResult result) throws IOException {
+    protected boolean migrateYamlFile(Path yamlFile, MigrationPhaseResult result) throws IOException {
         Yaml yaml = YamlUtils.createYaml();
         Map<String, Object> data;
 
@@ -114,7 +113,6 @@ public class LogbackPropertyMigrator extends AbstractConfigMigrator {
         }
 
         return modified;
-
     }
 
     /**

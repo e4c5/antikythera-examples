@@ -85,7 +85,6 @@ public class LazyInitializationConfigurer extends MigrationPhase {
     /**
      * Add lazy initialization to a profile file.
      */
-    @SuppressWarnings("unchecked")
     private void addLazyInitialization(Path profileFile, MigrationPhaseResult result) throws IOException {
         String fileName = profileFile.getFileName().toString();
 

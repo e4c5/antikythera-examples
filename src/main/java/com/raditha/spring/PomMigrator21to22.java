@@ -108,7 +108,7 @@ public class PomMigrator21to22 extends AbstractPomMigrator {
         if (kafkaClients != null) {
             String version = kafkaClients.getVersion();
             if (version != null && !version.startsWith("${")) {
-                if (MavenHelper.compareVersions(version, MIN_KAFKA_CLIENTS_VERSION) < 0) {
+                 if (MavenHelper.compareVersions(version, MIN_KAFKA_CLIENTS_VERSION) < 0) {
                     result.addWarning(String.format(
                             "kafka-clients version %s is below required %s for Spring Boot 2.2",
                             version, MIN_KAFKA_CLIENTS_VERSION));

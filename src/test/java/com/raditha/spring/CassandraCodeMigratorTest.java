@@ -53,9 +53,7 @@ class CassandraCodeMigratorTest {
 
         // Then: Should detect Cassandra usage or handle gracefully
         assertNotNull(result, "Result should not be null");
-        // May detect Cassandra or return empty result - both are acceptable
-        boolean hasOutput = !result.getChanges().isEmpty() || !result.getWarnings().isEmpty();
-        // Test passes if result is returned (detection is implementation detail)
+
     }
 
     @Test
