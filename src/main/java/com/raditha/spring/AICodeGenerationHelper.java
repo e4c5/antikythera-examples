@@ -87,13 +87,8 @@ public class AICodeGenerationHelper {
 
         String cleaned = text;
 
-        // Remove ```java ... ``` fences
-        if (cleaned.startsWith("```java")) {
-            cleaned = cleaned.substring(cleaned.indexOf('\n') + 1);
-            cleaned = cleaned.substring(0, cleaned.lastIndexOf("```"));
-        }
-        // Remove generic ``` ... ``` fences
-        else if (cleaned.startsWith("```")) {
+        // Remove ``` ... ``` fences (handles both ```java and generic ```)
+        if (cleaned.startsWith("```")) {
             cleaned = cleaned.substring(cleaned.indexOf('\n') + 1);
             cleaned = cleaned.substring(0, cleaned.lastIndexOf("```"));
         }
