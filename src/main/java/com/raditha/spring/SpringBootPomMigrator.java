@@ -6,6 +6,7 @@ import org.apache.maven.model.Parent;
 import org.apache.maven.model.io.xpp3.MavenXpp3Reader;
 import org.apache.maven.model.io.xpp3.MavenXpp3Writer;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
+import sa.com.cloudsolutions.antikythera.parser.MavenHelper;
 
 import java.io.FileReader;
 import java.io.FileWriter;
@@ -171,7 +172,7 @@ public class SpringBootPomMigrator extends MigrationPhase {
         if (kafkaClients != null) {
             String version = kafkaClients.getVersion();
             if (version != null && !version.startsWith("${")) {
-                if (compareVersions(version, MIN_KAFKA_CLIENTS_VERSION) < 0) {
+                if (MavenHelper.compareVersions(version, MIN_KAFKA_CLIENTS_VERSION) < 0) {
                     result.addWarning(String.format(
                             "kafka-clients version %s is below required %s for Spring Boot 2.2",
                             version, MIN_KAFKA_CLIENTS_VERSION));
@@ -246,7 +247,7 @@ public class SpringBootPomMigrator extends MigrationPhase {
 
         // Find the highest version to sync to
         String targetVersion = versions.stream()
-                .max((v1, v2) -> compareVersions(v1, v2))
+                .max(MavenHelper::compareVersions)
                 .orElse(null);
 
         if (targetVersion == null) {
@@ -369,52 +370,6 @@ public class SpringBootPomMigrator extends MigrationPhase {
         }
 
         return true;
-    }
-
-    // Utility methods
-
-    private Path resolvePomPath() {
-        try {
-            Path basePath = Paths.get(Settings.getBasePath());
-            Path pomPath = basePath.resolve("pom.xml");
-
-            if (!pomPath.toFile().exists()) {
-                pomPath = basePath.getParent().resolve("pom.xml");
-            }
-
-            if (pomPath.toFile().exists()) {
-                return pomPath;
-            }
-        } catch (Exception e) {
-            logger.error("Error resolving POM path", e);
-        }
-
-        return null;
-    }
-
-    private int compareVersions(String v1, String v2) {
-        String[] parts1 = v1.split("\\.");
-        String[] parts2 = v2.split("\\.");
-        int maxLength = Math.max(parts1.length, parts2.length);
-
-        for (int i = 0; i < maxLength; i++) {
-            int num1 = i < parts1.length ? parseVersionPart(parts1[i]) : 0;
-            int num2 = i < parts2.length ? parseVersionPart(parts2[i]) : 0;
-
-            if (num1 != num2) {
-                return Integer.compare(num1, num2);
-            }
-        }
-
-        return 0;
-    }
-
-    private int parseVersionPart(String part) {
-        try {
-            return Integer.parseInt(part.replaceAll("[^0-9]", ""));
-        } catch (NumberFormatException e) {
-            return 0;
-        }
     }
 
     @Override

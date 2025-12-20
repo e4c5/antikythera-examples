@@ -5,13 +5,11 @@ import com.github.javaparser.ast.ImportDeclaration;
 import com.github.javaparser.ast.expr.AnnotationExpr;
 import org.apache.maven.model.Dependency;
 import org.apache.maven.model.Model;
-import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 import sa.com.cloudsolutions.antikythera.parser.ImportWrapper;
 
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -197,19 +195,6 @@ public class ValidationStarterDetector extends MigrationPhase {
             result.addError("Failed to add validation starter: " + e.getMessage());
             return false;
         }
-    }
-    private Path resolvePomPath() {
-        Path basePath = Paths.get(Settings.getBasePath());
-        Path pomPath = basePath.resolve("pom.xml");
-
-        if (!pomPath.toFile().exists()) {
-            pomPath = basePath.getParent().resolve("pom.xml");
-        }
-
-        if (pomPath.toFile().exists()) {
-            return pomPath;
-        }
-        return null;
     }
 
     @Override
