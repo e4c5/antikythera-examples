@@ -57,7 +57,7 @@ class PomMigrator23to24Test {
     }
 
     @Test
-    void testJUnitVintageEnginDetection() throws Exception {
+    void testJUnitVintageEngineDetection() throws Exception {
         // Given: A POM with spring-boot-starter-test but no vintage engine
         String pomContent = """
                 <?xml version="1.0" encoding="UTF-8"?>
