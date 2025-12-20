@@ -132,18 +132,34 @@ public class HttpTracesConfigMigrator implements MigrationPhase {
     private boolean hasHttpTraceConfigYaml(Path yamlFile) {
         try {
             Yaml yaml = YamlUtils.createYaml();
-            Map<String, Object> data;
-
+            Iterable<Object> documents;
             try (InputStream input = Files.newInputStream(yamlFile)) {
-                data = yaml.load(input);
+                documents = yaml.loadAll(input);
             }
 
-            if (data != null && data.containsKey("management")) {
-                Map<String, Object> management = (Map<String, Object>) data.get("management");
-                if (management != null && management.containsKey("trace")) {
-                    Map<String, Object> trace = (Map<String, Object>) management.get("trace");
-                    if (trace != null && trace.containsKey("http")) {
-                        return true;
+            for (Object doc : documents) {
+                if (!(doc instanceof Map)) {
+                    continue;
+                }
+
+                Map<String, Object> data = (Map<String, Object>) doc;
+                if (data.containsKey("management")) {
+                    Object managementObj = data.get("management");
+                    if (!(managementObj instanceof Map)) {
+                        continue;
+                    }
+
+                    Map<String, Object> management = (Map<String, Object>) managementObj;
+                    if (management.containsKey("trace")) {
+                        Object traceObj = management.get("trace");
+                        if (!(traceObj instanceof Map)) {
+                            continue;
+                        }
+
+                        Map<String, Object> trace = (Map<String, Object>) traceObj;
+                        if (trace.containsKey("http")) {
+                            return true;
+                        }
                     }
                 }
             }
