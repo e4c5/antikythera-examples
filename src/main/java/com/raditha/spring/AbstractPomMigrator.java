@@ -97,39 +97,29 @@ public abstract class AbstractPomMigrator extends MigrationPhase {
      * @return result of POM migration
      */
     @Override
-    public final MigrationPhaseResult migrate() {
+    public final MigrationPhaseResult migrate() throws Exception {
         MigrationPhaseResult result = new MigrationPhaseResult();
 
         Path pomPath = PomUtils.resolvePomPath();
-        if (pomPath == null) {
-            result.addError("Could not find pom.xml");
-            return result;
+
+        Model model = PomUtils.readPomModel(pomPath);
+        boolean modified = false;
+
+        // Update Spring Boot parent version
+        if (updateSpringBootParent(model, result)) {
+            modified = true;
         }
 
-        try {
-            Model model = PomUtils.readPomModel(pomPath);
-            boolean modified = false;
+        // Apply version-specific dependency rules
+        applyVersionSpecificDependencyRules(model, result);
 
-            // Update Spring Boot parent version
-            if (updateSpringBootParent(model, result)) {
-                modified = true;
-            }
+        // Validate version-specific requirements
+        validateVersionSpecificRequirements(model, result);
 
-            // Apply version-specific dependency rules
-            applyVersionSpecificDependencyRules(model, result);
-
-            // Validate version-specific requirements
-            validateVersionSpecificRequirements(model, result);
-
-            // Write POM if modifications were made
-            if (modified && !dryRun) {
-                PomUtils.writePomModel(pomPath, model);
-                logger.info("POM migration completed successfully");
-            }
-
-        } catch (Exception e) {
-            logger.error("Error during POM migration", e);
-            result.addError("POM migration failed: " + e.getMessage());
+        // Write POM if modifications were made
+        if (modified && !dryRun) {
+            PomUtils.writePomModel(pomPath, model);
+            logger.info("POM migration completed successfully");
         }
 
         return result;

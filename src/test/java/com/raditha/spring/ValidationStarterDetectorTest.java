@@ -27,6 +27,34 @@ class ValidationStarterDetectorTest {
         Settings.loadConfigMap();
         Settings.setProperty("base_path", tempDir.toString());
         AntikytheraRunTime.reset();
+
+        // Create minimal project structure
+        Files.createDirectories(tempDir.resolve("src/main/java"));
+        Files.createDirectories(tempDir.resolve("src/main/resources"));
+
+        // Create minimal pom.xml with Spring Boot parent
+        String pomContent = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <project xmlns="http://maven.apache.org/POM/4.0.0">
+                    <modelVersion>4.0.0</modelVersion>
+                    <parent>
+                        <groupId>org.springframework.boot</groupId>
+                        <artifactId>spring-boot-starter-parent</artifactId>
+                        <version>2.3.12.RELEASE</version>
+                    </parent>
+                    <groupId>com.example</groupId>
+                    <artifactId>test-project</artifactId>
+                    <version>1.0.0</version>
+                    <dependencies>
+                        <dependency>
+                            <groupId>org.springframework.boot</groupId>
+                            <artifactId>spring-boot-starter-web</artifactId>
+                        </dependency>
+                    </dependencies>
+                </project>
+                """;
+
+        Files.writeString(tempDir.resolve("pom.xml"), pomContent);
     }
 
     @Test

@@ -84,21 +84,21 @@ public class HazelcastCodeMigrator extends AbstractCodeMigrator {
             int transformCount = 0;
 
             // Transform static Hazelcast method calls
-            int staticMethodChanges = transformStaticHazelcastCalls(cu, className);
+            int staticMethodChanges = transformStaticHazelcastCalls(cu);
             if (staticMethodChanges > 0) {
                 modified = true;
                 transformCount += staticMethodChanges;
             }
 
             // Transform GroupConfig to cluster name pattern
-            int groupConfigChanges = transformGroupConfig(cu, className);
+            int groupConfigChanges = transformGroupConfig(cu);
             if (groupConfigChanges > 0) {
                 modified = true;
                 transformCount += groupConfigChanges;
             }
 
             // Flag ICompletableFuture usage
-            int futureChanges = flagICompletableFuture(cu, className);
+            int futureChanges = flagICompletableFuture(cu);
             if (futureChanges > 0) {
                 transformCount += futureChanges;
                 // Note: We flag but don't auto-transform ICompletableFuture (too complex)
@@ -142,7 +142,7 @@ public class HazelcastCodeMigrator extends AbstractCodeMigrator {
      * Example: Hazelcast.getMap("name") → // TODO: Use
      * hazelcastInstance.getMap("name")
      */
-    private int transformStaticHazelcastCalls(CompilationUnit cu, String className) {
+    private int transformStaticHazelcastCalls(CompilationUnit cu) {
         int count = 0;
 
         for (MethodCallExpr methodCall : cu.findAll(MethodCallExpr.class)) {
@@ -177,7 +177,7 @@ public class HazelcastCodeMigrator extends AbstractCodeMigrator {
      * 
      * Example: config.getGroupConfig().setName() → config.setClusterName()
      */
-    private int transformGroupConfig(CompilationUnit cu, String className) {
+    private int transformGroupConfig(CompilationUnit cu) {
         int count = 0;
 
         for (MethodCallExpr methodCall : cu.findAll(MethodCallExpr.class)) {
@@ -207,7 +207,7 @@ public class HazelcastCodeMigrator extends AbstractCodeMigrator {
      * Flag ICompletableFuture usage (removed in 4.x, replaced with
      * CompletionStage).
      */
-    private int flagICompletableFuture(CompilationUnit cu, String className) {
+    private int flagICompletableFuture(CompilationUnit cu) {
         int count = 0;
 
         // Check for ICompletableFuture imports

@@ -108,7 +108,7 @@ public class SpringBoot23to24Migrator extends AbstractSpringBootMigrator {
     }
 
     @Override
-    protected MigrationPhaseResult migratePom() {
+    protected MigrationPhaseResult migratePom() throws Exception {
         return pomMigrator.migrate();
     }
 

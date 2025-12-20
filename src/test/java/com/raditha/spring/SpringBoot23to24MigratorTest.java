@@ -4,6 +4,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
+import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -23,6 +24,10 @@ class SpringBoot23to24MigratorTest {
     void setUp() throws Exception {
         Settings.loadConfigMap();
         Settings.setProperty("base_path", tempDir.toString());
+
+        // Reset and preprocess to load test helper sources
+        AbstractCompiler.reset();
+        AbstractCompiler.preProcess();
 
         // Create minimal project structure
         Files.createDirectories(tempDir.resolve("src/main/java"));
@@ -115,7 +120,9 @@ class SpringBoot23to24MigratorTest {
         // When: Running migration
         MigrationResult result = migrator.migrateAll();
 
-        // Then: Migration should complete
+        // Then: Migration should complete successfully
+        // Note: Files from test-helper won't be written (missing source files),
+        // but the migrator handles this gracefully with warnings
         assertNotNull(result, "Result should not be null");
     }
 

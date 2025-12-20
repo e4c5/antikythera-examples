@@ -41,72 +41,67 @@ public class DataSqlMigrator extends AbstractConfigMigrator {
     }
 
     @Override
-    public MigrationPhaseResult migrate() {
+    public MigrationPhaseResult migrate() throws Exception {
         MigrationPhaseResult result = new MigrationPhaseResult();
 
-        try {
-            Path basePath = Paths.get(Settings.getBasePath());
-            Path resourcesPath = basePath.resolve("src/main/resources");
+        Path basePath = Paths.get(Settings.getBasePath());
+        Path resourcesPath = basePath.resolve("src/main/resources");
 
-            if (!Files.exists(resourcesPath)) {
-                result.addChange("No resources directory found");
-                return result;
+        if (!Files.exists(resourcesPath)) {
+            result.addChange("No resources directory found");
+            return result;
+        }
+
+        // Check for data.sql files
+        List<Path> sqlScripts = findSqlScripts(resourcesPath);
+        boolean hasDataSql = sqlScripts.stream()
+                .anyMatch(path -> path.getFileName().toString().equals("data.sql"));
+
+        if (!hasDataSql) {
+            result.addChange("No data.sql file detected");
+            return result;
+        }
+
+        result.addChange("Found data.sql - checking Hibernate DDL configuration");
+
+        // Check for Hibernate DDL auto configuration
+        List<Path> yamlFiles = PropertyFileUtils.findPropertyFiles(resourcesPath, "*.yml", "*.yaml");
+        List<Path> propFiles = PropertyFileUtils.findPropertyFiles(resourcesPath, "*.properties");
+
+        boolean hasHibernateDdlAuto = false;
+        for (Path yamlFile : yamlFiles) {
+            if (hasHibernateDdlAuto(yamlFile)) {
+                hasHibernateDdlAuto = true;
+                break;
             }
+        }
 
-            // Check for data.sql files
-            List<Path> sqlScripts = findSqlScripts(resourcesPath);
-            boolean hasDataSql = sqlScripts.stream()
-                    .anyMatch(path -> path.getFileName().toString().equals("data.sql"));
-
-            if (!hasDataSql) {
-                result.addChange("No data.sql file detected");
-                return result;
-            }
-
-            result.addChange("Found data.sql - checking Hibernate DDL configuration");
-
-            // Check for Hibernate DDL auto configuration
-            List<Path> yamlFiles = PropertyFileUtils.findPropertyFiles(resourcesPath, "*.yml", "*.yaml");
-            List<Path> propFiles = PropertyFileUtils.findPropertyFiles(resourcesPath, "*.properties");
-
-            boolean hasHibernateDdlAuto = false;
-            for (Path yamlFile : yamlFiles) {
-                if (hasHibernateDdlAuto(yamlFile)) {
+        if (!hasHibernateDdlAuto) {
+            for (Path propFile : propFiles) {
+                if (hasHibernateDdlAutoProperties(propFile)) {
                     hasHibernateDdlAuto = true;
                     break;
                 }
             }
+        }
 
-            if (!hasHibernateDdlAuto) {
-                for (Path propFile : propFiles) {
-                    if (hasHibernateDdlAutoProperties(propFile)) {
-                        hasHibernateDdlAuto = true;
-                        break;
-                    }
-                }
-            }
+        if (!hasHibernateDdlAuto) {
+            result.addChange("data.sql found but Hibernate DDL auto not detected - no action needed");
+            return result;
+        }
 
-            if (!hasHibernateDdlAuto) {
-                result.addChange("data.sql found but Hibernate DDL auto not detected - no action needed");
-                return result;
-            }
+        // Risky combination detected - add defer-datasource-initialization
+        result.addWarning("CRITICAL: data.sql + Hibernate DDL auto detected");
+        result.addWarning("In Spring Boot 2.4, data.sql runs BEFORE Hibernate (was AFTER in 2.3)");
+        result.addChange("Adding spring.jpa.defer-datasource-initialization=true");
 
-            // Risky combination detected - add defer-datasource-initialization
-            result.addWarning("CRITICAL: data.sql + Hibernate DDL auto detected");
-            result.addWarning("In Spring Boot 2.4, data.sql runs BEFORE Hibernate (was AFTER in 2.3)");
-            result.addChange("Adding spring.jpa.defer-datasource-initialization=true");
-
-            // Add to the first YAML or properties file found
-            if (!yamlFiles.isEmpty()) {
-                addDeferDatasourceInitYaml(yamlFiles.get(0), result);
-            } else if (!propFiles.isEmpty()) {
-                addDeferDatasourceInitProperties(propFiles.get(0), result);
-            } else {
-                result.addError("No configuration file found to add defer-datasource-initialization");
-            }
-
-        } catch (Exception e) {
-            result.addError("Data.sql migration failed: " + e.getMessage());
+        // Add to the first YAML or properties file found
+        if (!yamlFiles.isEmpty()) {
+            addDeferDatasourceInitYaml(yamlFiles.get(0), result);
+        } else if (!propFiles.isEmpty()) {
+            addDeferDatasourceInitProperties(propFiles.get(0), result);
+        } else {
+            result.addError("No configuration file found to add defer-datasource-initialization");
         }
 
         return result;
