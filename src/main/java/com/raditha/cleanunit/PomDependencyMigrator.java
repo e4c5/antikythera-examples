@@ -9,6 +9,7 @@ import org.apache.maven.model.io.xpp3.MavenXpp3Writer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
+import sa.com.cloudsolutions.antikythera.parser.MavenHelper;
 
 import java.io.FileReader;
 import java.io.FileWriter;
@@ -103,6 +104,7 @@ public class PomDependencyMigrator {
 
     private final boolean dryRun;
     private final List<String> changes = new ArrayList<>();
+    private final MavenHelper mavenHelper = new MavenHelper();
 
     public PomDependencyMigrator(boolean dryRun) {
         this.dryRun = dryRun;
@@ -114,14 +116,8 @@ public class PomDependencyMigrator {
      * @return true if migrations were applied, false otherwise
      */
     public boolean migratePom() {
-        Path pomPath = PomUtils.resolvePomPath();
-        if (pomPath == null) {
-            logger.warn("Could not find pom.xml");
-            return false;
-        }
-
         try {
-            Model model = PomUtils.readPomModel(pomPath);
+            Model model = mavenHelper.getPomModel();
             boolean modified = false;
 
             // Check if JUnit 4 is present
@@ -169,7 +165,7 @@ public class PomDependencyMigrator {
                 if (modified) {
                     // Remove duplicates before writing
                     removeDuplicateDependencies(model);
-                    writePomModel(pomPath, model);
+                    mavenHelper.writePomModel(model);
                     logger.info("POM migration completed successfully");
                 }
             } else {
@@ -583,17 +579,6 @@ public class PomDependencyMigrator {
             return Integer.parseInt(part.replaceAll("[^0-9]", ""));
         } catch (NumberFormatException e) {
             return 0;
-        }
-    }
-
-    // Write the model back to pom.xml
-    // Note: Maven XPP3 Writer uses fixed 2-space indentation by default
-    private void writePomModel(Path pomPath, Model model) throws Exception {
-        MavenXpp3Writer writer = new MavenXpp3Writer();
-        writer.setFileComment(null); // Don't add file comments
-
-        try (FileWriter fileWriter = new FileWriter(pomPath.toFile())) {
-            writer.write(fileWriter, model);
         }
     }
 }

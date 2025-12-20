@@ -10,6 +10,7 @@ import org.apache.maven.model.io.xpp3.MavenXpp3Writer;
 import org.codehaus.plexus.util.xml.pull.XmlPullParserException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import sa.com.cloudsolutions.antikythera.parser.MavenHelper;
 
 import java.io.FileReader;
 import java.io.FileWriter;
@@ -34,6 +35,7 @@ public class TestRefactorer {
     private boolean isMockito1 = false;
     private boolean hasSliceTestSupport = false;
     private boolean dryRun = false;
+    private final MavenHelper mavenHelper = new MavenHelper();
 
     public TestRefactorer(boolean dryRun) throws Exception {
         this.dryRun = dryRun;
@@ -41,14 +43,14 @@ public class TestRefactorer {
     }
 
     private void detectVersions() throws IOException, XmlPullParserException {
-        Path pomPath = PomUtils.resolvePomPath();
+        Path pomPath = mavenHelper.getPomPath();
         if (!pomPath.toFile().exists()) {
             logger.warn("POM file not found at: {}", pomPath);
             return;
         }
 
         logger.info("Reading POM from: {}", pomPath);
-        Model model = new MavenXpp3Reader().read(new FileReader(pomPath.toFile()));
+        Model model = mavenHelper.getPomModel();
 
         detectSpringBootVersion(model);
         detectTestFrameworks(model);
@@ -203,10 +205,7 @@ public class TestRefactorer {
         if (dryRun) {
             System.out.println("[DRY RUN] Would add spring-boot-starter-test to pom.xml");
         } else {
-            MavenXpp3Writer writer = new MavenXpp3Writer();
-            try (FileWriter fileWriter = new FileWriter(pomFile)) {
-                writer.write(fileWriter, model);
-            }
+            mavenHelper.writePomModel(model);
             System.out.println("Added spring-boot-starter-test to pom.xml");
         }
     }
@@ -242,10 +241,7 @@ public class TestRefactorer {
                 // Remove explicit version to inherit from parent
                 targetDep.setVersion(null);
 
-                MavenXpp3Writer writer = new MavenXpp3Writer();
-                try (FileWriter fileWriter = new FileWriter(pomFile)) {
-                    writer.write(fileWriter, model);
-                }
+                mavenHelper.writePomModel(model);
                 System.out.println("Updated " + artifactId + " dependency:");
                 System.out.println("  - Removed explicit version: " + oldVersion);
                 System.out.println("  - Will now inherit from parent POM");

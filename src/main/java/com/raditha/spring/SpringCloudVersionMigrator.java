@@ -2,12 +2,9 @@ package com.raditha.spring;
 
 import org.apache.maven.model.Dependency;
 import org.apache.maven.model.Model;
-import org.apache.maven.model.io.xpp3.MavenXpp3Reader;
-import sa.com.cloudsolutions.antikythera.configuration.Settings;
+import sa.com.cloudsolutions.antikythera.parser.MavenHelper;
 
-import java.io.FileReader;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 
 /**
  * Validates Spring Cloud version compatibility with Spring Boot 2.3.
@@ -33,6 +30,8 @@ public class SpringCloudVersionMigrator extends MigrationPhase {
     private static final String MIN_HOXTON_VERSION = "Hoxton.SR8";
     private static final String RECOMMENDED_VERSION = "2020.0.3";
 
+    private final MavenHelper mavenHelper = new MavenHelper();
+
     public SpringCloudVersionMigrator(boolean dryRun) {
         super(dryRun);
     }
@@ -40,13 +39,14 @@ public class SpringCloudVersionMigrator extends MigrationPhase {
     @Override
     public MigrationPhaseResult migrate() throws Exception {
         MigrationPhaseResult result = new MigrationPhaseResult();
-        Path pomPath = PomUtils.resolvePomPath();
-        if (pomPath == null) {
+
+        Path pomPath = mavenHelper.getPomPath();
+        if (pomPath == null || !pomPath.toFile().exists()) {
             result.addChange("No pom.xml found - Spring Cloud check skipped");
             return result;
         }
 
-        Model model = PomUtils.readPomModel(pomPath);
+        Model model = mavenHelper.getPomModel();
 
         // Check if Spring Cloud is used
         if (model.getDependencyManagement() == null ||
