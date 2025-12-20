@@ -23,7 +23,7 @@ class PropertyFileMigratorTest {
 
     @BeforeAll
     static void setup() throws IOException {
-        File configFile = new File("src/test/resources/spring-migration-test.yml");
+        File configFile = new File("src/test/resources/generator.yml");
         Settings.loadConfigMap(configFile);
 
         AbstractCompiler.reset();

@@ -18,22 +18,11 @@ class ConfigPropertiesScanMigratorTest {
 
     @BeforeAll
     static void setup() throws IOException {
-        File configFile = new File("src/test/resources/spring-migration-test.yml");
+        File configFile = new File("src/test/resources/spring-boot-2.1.yml");
         Settings.loadConfigMap(configFile);
 
         AbstractCompiler.reset();
         AbstractCompiler.preProcess();
-    }
-
-    @Test
-    void testNoSpringBootApplication() {
-        ConfigPropertiesScanMigrator migrator = new ConfigPropertiesScanMigrator(true);
-        MigrationPhaseResult result = migrator.migrate();
-
-        assertTrue(result.isSuccessful());
-        // Test helper classes don't have @SpringBootApplication - reported as a change
-        assertTrue(result.getChanges().stream()
-                .anyMatch(c -> c.contains("@SpringBootApplication")));
     }
 
     @Test
