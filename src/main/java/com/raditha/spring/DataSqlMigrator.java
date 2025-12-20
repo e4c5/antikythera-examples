@@ -33,8 +33,7 @@ import java.util.stream.Stream;
  * 
  * @see MigrationPhase
  */
-public class DataSqlMigrator extends MigrationPhase {
-
+public class DataSqlMigrator extends AbstractConfigMigrator {
 
     public DataSqlMigrator(boolean dryRun) {
         super(dryRun);
@@ -66,8 +65,8 @@ public class DataSqlMigrator extends MigrationPhase {
             result.addChange("Found data.sql - checking Hibernate DDL configuration");
 
             // Check for Hibernate DDL auto configuration
-            List<Path> yamlFiles = findPropertyFiles(resourcesPath, "*.yml", "*.yaml");
-            List<Path> propFiles = findPropertyFiles(resourcesPath, "*.properties");
+            List<Path> yamlFiles = PropertyFileUtils.findPropertyFiles(resourcesPath, "*.yml", "*.yaml");
+            List<Path> propFiles = PropertyFileUtils.findPropertyFiles(resourcesPath, "*.properties");
 
             boolean hasHibernateDdlAuto = false;
             for (Path yamlFile : yamlFiles) {
@@ -129,34 +128,6 @@ public class DataSqlMigrator extends MigrationPhase {
         }
 
         return scripts;
-    }
-
-    /**
-     * Find property files matching patterns.
-     */
-    private List<Path> findPropertyFiles(Path basePath, String... patterns) throws Exception {
-        List<Path> files = new ArrayList<>();
-
-        if (!Files.exists(basePath)) {
-            return files;
-        }
-
-        try (Stream<Path> paths = Files.walk(basePath)) {
-            paths.filter(Files::isRegularFile)
-                    .filter(path -> {
-                        String fileName = path.getFileName().toString();
-                        for (String pattern : patterns) {
-                            String regex = pattern.replace("*", ".*");
-                            if (fileName.matches(regex)) {
-                                return true;
-                            }
-                        }
-                        return false;
-                    })
-                    .forEach(files::add);
-        }
-
-        return files;
     }
 
     /**

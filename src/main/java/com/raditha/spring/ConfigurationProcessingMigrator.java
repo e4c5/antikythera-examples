@@ -10,7 +10,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
-import java.util.stream.Stream;
 
 /**
  * Migrates configuration file processing for Spring Boot 2.4.
@@ -54,8 +53,9 @@ public class ConfigurationProcessingMigrator extends MigrationPhase {
 
         try {
             Path basePath = Paths.get(Settings.getBasePath());
-            List<Path> yamlFiles = findPropertyFiles(basePath, "*.yml", "*.yaml");
-            List<Path> propFiles = findPropertyFiles(basePath, "*.properties");
+            List<Path> yamlFiles = PropertyFileUtils.findPropertyFiles(basePath, "src/main/resources", "*.yml",
+                    "*.yaml");
+            List<Path> propFiles = PropertyFileUtils.findPropertyFiles(basePath, "src/main/resources", "*.properties");
 
             if (yamlFiles.isEmpty() && propFiles.isEmpty()) {
                 result.addChange("No configuration files found");
@@ -86,35 +86,6 @@ public class ConfigurationProcessingMigrator extends MigrationPhase {
         }
 
         return result;
-    }
-
-    /**
-     * Find all property files matching the given patterns.
-     */
-    private List<Path> findPropertyFiles(Path basePath, String... patterns) throws Exception {
-        List<Path> files = new ArrayList<>();
-        Path resourcesPath = basePath.resolve("src/main/resources");
-
-        if (!Files.exists(resourcesPath)) {
-            return files;
-        }
-
-        try (Stream<Path> paths = Files.walk(resourcesPath)) {
-            paths.filter(Files::isRegularFile)
-                    .filter(path -> {
-                        String fileName = path.getFileName().toString();
-                        for (String pattern : patterns) {
-                            String regex = pattern.replace("*", ".*");
-                            if (fileName.matches(regex)) {
-                                return true;
-                            }
-                        }
-                        return false;
-                    })
-                    .forEach(files::add);
-        }
-
-        return files;
     }
 
     /**
