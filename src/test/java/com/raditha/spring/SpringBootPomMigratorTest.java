@@ -65,7 +65,7 @@ class SpringBootPomMigratorTest {
     }
 
     @Test
-    void testDryRunMode() {
+    void testDryRunMode() throws Exception {
         SpringBootPomMigrator migrator = new SpringBootPomMigrator(true);
         MigrationPhaseResult result = migrator.migrate();
 

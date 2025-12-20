@@ -1,7 +1,5 @@
 package com.raditha.spring;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.yaml.snakeyaml.Yaml;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 
@@ -10,10 +8,8 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Stream;
 
 /**
  * Configures H2 console settings for Spring Boot 2.3.

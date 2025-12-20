@@ -104,9 +104,6 @@ public class JakartaEEPrepMigrator extends MigrationPhase {
                 .anyMatch(importName::startsWith);
     }
 
-    /**
-     * Add a TODO comment for Jakarta migration.
-     */
     private void addJakartaComment(ImportDeclaration imp, String importName) {
         // Determine the jakarta equivalent
         String jakartaPackage = importName.replace("javax.", "jakarta.");

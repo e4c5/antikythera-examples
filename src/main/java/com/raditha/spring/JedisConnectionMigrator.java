@@ -126,7 +126,7 @@ public class JedisConnectionMigrator extends MigrationPhase {
         // Look for old-style setter calls
         List<MethodCallExpr> setterCalls = method.findAll(MethodCallExpr.class);
         boolean hasOldStyleSetters = setterCalls.stream()
-                .anyMatch(call -> isJedisConnectionFactorySetter(call));
+                .anyMatch(this::isJedisConnectionFactorySetter);
         
         if (hasOldStyleSetters) {
             // Add warning comment about needed transformation

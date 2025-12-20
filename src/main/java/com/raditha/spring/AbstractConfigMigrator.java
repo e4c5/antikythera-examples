@@ -83,24 +83,6 @@ public abstract class AbstractConfigMigrator extends MigrationPhase {
     }
 
     /**
-     * Write YAML data to file.
-     * 
-     * @param yamlPath path to YAML file
-     * @param data     YAML data to write
-     * @throws IOException if I/O error occurs
-     */
-    protected void writeYaml(Path yamlPath, java.util.Map<String, Object> data) throws IOException {
-        if (dryRun) {
-            return;
-        }
-
-        Yaml yaml = YamlUtils.createYaml();
-        try (OutputStream output = Files.newOutputStream(yamlPath)) {
-            yaml.dump(data, new java.io.OutputStreamWriter(output));
-        }
-    }
-
-    /**
      * Get base path for project.
      * 
      * @return base path, or null if not initialized

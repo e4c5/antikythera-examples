@@ -108,14 +108,8 @@ public class ConfigPropertiesScanMigrator extends MigrationPhase {
         Map<String, CompilationUnit> units = AntikytheraRunTime.getResolvedCompilationUnits();
 
         for (Map.Entry<String, CompilationUnit> entry : units.entrySet()) {
-            String className = entry.getKey();
             CompilationUnit cu = entry.getValue();
 
-            if (cu == null) {
-                continue;
-            }
-
-            // Check for @SpringBootApplication
             Optional<AnnotationExpr> annotation = cu.findFirst(AnnotationExpr.class,
                     a -> a.getNameAsString().equals("SpringBootApplication") ||
                             a.getNameAsString().equals("org.springframework.boot.autoconfigure.SpringBootApplication"));
