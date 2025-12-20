@@ -14,7 +14,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
-import java.util.stream.Stream;
 
 /**
  * Migrates Neo4j properties and detects Neo4j OGM usage for Spring Boot 2.4.
