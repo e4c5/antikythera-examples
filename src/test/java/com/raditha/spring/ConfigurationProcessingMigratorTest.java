@@ -107,8 +107,127 @@ class ConfigurationProcessingMigratorTest {
     // Then: Should handle gracefully
     assertNotNull(result, "Should return result even without YAML files");
     assertTrue(result.getChanges().stream()
-        .anyMatch(c -> c.contains("No YAML")),
-        "Should report no YAML files found");
+        .anyMatch(c -> c.contains("No configuration files")),
+        "Should report no configuration files found");
+  }
+
+  @Test
+  void testPropertiesFileSyntaxMigration() throws Exception {
+    // Given: A properties file with legacy profile syntax
+    String propertiesContent = """
+        spring.profiles=dev
+        spring.application.name=myapp
+        server.port=8080
+        """;
+
+    Path propPath = tempDir.resolve("src/main/resources/application.properties");
+    Files.writeString(propPath, propertiesContent);
+
+    // When: Running configuration processing migrator in dry-run
+    ConfigurationProcessingMigrator migrator = new ConfigurationProcessingMigrator(true);
+    MigrationPhaseResult result = migrator.migrate();
+
+    // Then: Should detect and report the migration
+    assertNotNull(result, "Result should not be null");
+    assertFalse(result.getChanges().isEmpty(), "Should have changes reported");
+
+    boolean hasPropertiesProcessing = result.getChanges().stream()
+        .anyMatch(c -> c.toLowerCase().contains("properties") || 
+                      c.contains("spring.config.activate.on-profile"));
+
+    assertTrue(hasPropertiesProcessing,
+        "Should process properties file. Actual changes: " + result.getChanges());
+  }
+
+  @Test
+  void testProfileGroupsDetectionInYaml() throws Exception {
+    // Given: A YAML file with profile groups
+    String yamlContent = """
+        spring:
+          application:
+            name: myapp
+          profiles:
+            group:
+              production:
+                - prod
+                - metrics
+        """;
+
+    Path yamlPath = tempDir.resolve("src/main/resources/application.yml");
+    Files.writeString(yamlPath, yamlContent);
+
+    // When: Running configuration processing migrator
+    ConfigurationProcessingMigrator migrator = new ConfigurationProcessingMigrator(true);
+    MigrationPhaseResult result = migrator.migrate();
+
+    // Then: Should flag for manual review
+    assertNotNull(result, "Result should not be null");
+    assertTrue(result.requiresManualReview() || 
+               result.getWarnings().stream().anyMatch(w -> w.contains("group")),
+        "Should detect profile groups");
+  }
+
+  @Test
+  void testProfileGroupsDetectionInMultiDocumentYamlWithNewActivationSyntax() throws Exception {
+    // Given: A multi-document YAML file using new activation syntax and profile groups
+    // (no legacy spring.profiles string anywhere)
+    String yamlContent = """
+        spring:
+          profiles:
+            group:
+              production:
+                - prod
+                - metrics
+        ---
+        spring:
+          config:
+            activate:
+              on-profile: prod
+        server:
+          port: 8080
+        """;
+
+    Path yamlPath = tempDir.resolve("src/main/resources/application.yml");
+    Files.writeString(yamlPath, yamlContent);
+
+    // When: Running configuration processing migrator
+    ConfigurationProcessingMigrator migrator = new ConfigurationProcessingMigrator(true);
+    MigrationPhaseResult result = migrator.migrate();
+
+    // Then: Should flag for manual review and emit the profile groups warning
+    assertNotNull(result, "Result should not be null");
+    assertTrue(result.requiresManualReview(), "Should require manual review for multi-doc YAML with profiles/groups");
+    assertTrue(
+        result.getWarnings().stream().anyMatch(w -> w.contains("Profile groups detected")),
+        "Should warn about profile groups. Warnings: " + result.getWarnings()
+    );
+    assertTrue(
+        result.getWarnings().stream().anyMatch(w -> w.contains("Multi-document YAML with profiles")),
+        "Should warn about multi-document YAML with profiles. Warnings: " + result.getWarnings()
+    );
+  }
+
+  @Test
+  void testProfileGroupsDetectionInProperties() throws Exception {
+    // Given: A properties file with profile groups
+    String propertiesContent = """
+        spring.application.name=myapp
+        spring.profiles.group.production=prod,metrics
+        spring.profiles.group.development=dev,debug
+        """;
+
+    Path propPath = tempDir.resolve("src/main/resources/application.properties");
+    Files.writeString(propPath, propertiesContent);
+
+    // When: Running configuration processing migrator
+    ConfigurationProcessingMigrator migrator = new ConfigurationProcessingMigrator(true);
+    MigrationPhaseResult result = migrator.migrate();
+
+    // Then: Should flag for manual review
+    assertNotNull(result, "Result should not be null");
+    assertTrue(result.requiresManualReview() || 
+               result.getWarnings().stream().anyMatch(w -> w.contains("group")),
+        "Should detect profile groups in properties file");
   }
 
   @Test
