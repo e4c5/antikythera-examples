@@ -136,7 +136,9 @@ public class ConfigurationProcessingMigrator implements MigrationPhase {
             }
 
             List<Map<String, Object>> docList = new ArrayList<>();
-            boolean hasProfileDocuments = false;
+            boolean hasLegacyProfileDocuments = false;
+            boolean hasNewProfileActivationDocuments = false;
+            boolean hasProfileGroups = false;
 
             for (Object doc : documents) {
                 if (doc instanceof Map) {
@@ -144,18 +146,32 @@ public class ConfigurationProcessingMigrator implements MigrationPhase {
                     Map<String, Object> docMap = (Map<String, Object>) doc;
                     docList.add(docMap);
 
-                    if (hasLegacyProfileSyntax(docMap)) {
-                        hasProfileDocuments = true;
-                    }
+                    hasLegacyProfileDocuments |= hasLegacyProfileSyntax(docMap);
+                    hasNewProfileActivationDocuments |= hasNewProfileActivationSyntax(docMap);
+                    hasProfileGroups |= hasProfileGroupsSyntax(docMap);
                 }
             }
 
-            // If complex multi-document file, flag for manual review
+            // Profile groups can affect processing order in Spring Boot 2.4+
+            if (hasProfileGroups) {
+                result.setRequiresManualReview(true);
+                result.addWarning(String.format("%s: Profile groups detected - verify processing order",
+                        yamlFile.getFileName()));
+            }
+
+            // If multi-document file contains profile-specific documents (legacy or new syntax), flag for manual review
+            boolean hasProfileDocuments = hasLegacyProfileDocuments || hasNewProfileActivationDocuments;
             if (docList.size() > 1 && hasProfileDocuments) {
                 result.setRequiresManualReview(true);
                 result.addWarning(String.format("%s: Multi-document YAML with profiles requires manual review",
                         yamlFile.getFileName()));
-                addLegacyProcessingFlag(yamlFile, result);
+
+                // Only add legacy-processing flag when legacy profile syntax is detected.
+                // Multi-document YAML files already using the new activation syntax should be reviewed,
+                // but we avoid mutating them automatically.
+                if (hasLegacyProfileDocuments) {
+                    addLegacyProcessingFlag(yamlFile, result);
+                }
                 return;
             }
 
@@ -240,6 +256,53 @@ public class ConfigurationProcessingMigrator implements MigrationPhase {
     }
 
     /**
+     * Check if YAML data contains the new Spring Boot 2.4+ profile activation syntax.
+     */
+    @SuppressWarnings("unchecked")
+    private boolean hasNewProfileActivationSyntax(Map<String, Object> data) {
+        if (!data.containsKey("spring")) {
+            return false;
+        }
+        Object springObj = data.get("spring");
+        if (!(springObj instanceof Map)) {
+            return false;
+        }
+        Map<String, Object> spring = (Map<String, Object>) springObj;
+        Object configObj = spring.get("config");
+        if (!(configObj instanceof Map)) {
+            return false;
+        }
+        Map<String, Object> config = (Map<String, Object>) configObj;
+        Object activateObj = config.get("activate");
+        if (!(activateObj instanceof Map)) {
+            return false;
+        }
+        Map<String, Object> activate = (Map<String, Object>) activateObj;
+        return activate.containsKey("on-profile");
+    }
+
+    /**
+     * Check if YAML data contains profile groups (spring.profiles.group.*).
+     */
+    @SuppressWarnings("unchecked")
+    private boolean hasProfileGroupsSyntax(Map<String, Object> data) {
+        if (!data.containsKey("spring")) {
+            return false;
+        }
+        Object springObj = data.get("spring");
+        if (!(springObj instanceof Map)) {
+            return false;
+        }
+        Map<String, Object> spring = (Map<String, Object>) springObj;
+        Object profilesObj = spring.get("profiles");
+        if (!(profilesObj instanceof Map)) {
+            return false;
+        }
+        Map<String, Object> profiles = (Map<String, Object>) profilesObj;
+        return profiles.containsKey("group");
+    }
+
+    /**
      * Transform YAML data from legacy profile syntax to new format.
      */
     @SuppressWarnings("unchecked")
@@ -270,12 +333,9 @@ public class ConfigurationProcessingMigrator implements MigrationPhase {
             }
 
             // Check for profile groups (requires manual review)
-            if (spring != null && spring.containsKey("profiles") && spring.get("profiles") instanceof Map) {
-                Map<String, Object> profiles = (Map<String, Object>) spring.get("profiles");
-                if (profiles.containsKey("group")) {
-                    result.setRequiresManualReview(true);
-                    result.addWarning(String.format("%s: Profile groups detected - verify processing order", fileName));
-                }
+            if (hasProfileGroupsSyntax(data)) {
+                result.setRequiresManualReview(true);
+                result.addWarning(String.format("%s: Profile groups detected - verify processing order", fileName));
             }
         }
 
