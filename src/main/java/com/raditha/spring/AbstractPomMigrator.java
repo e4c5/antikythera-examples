@@ -131,44 +131,179 @@ public abstract class AbstractPomMigrator extends MigrationPhase {
      * This method is final to ensure consistent parent version updates across all
      * Spring Boot versions.
      * 
+     * <p>
+     * Handles multiple scenarios:
+     * <ul>
+     * <li>Direct spring-boot-starter-parent inheritance</li>
+     * <li>Corporate parent POM (adds property override)</li>
+     * <li>Property-based version management (spring-boot.version or spring.boot.version)</li>
+     * <li>Spring Boot BOM in dependencyManagement</li>
+     * </ul>
+     *
      * @param model  Maven model
      * @param result migration result to add changes/warnings
      * @return true if parent version was updated
      */
     protected final boolean updateSpringBootParent(Model model, MigrationPhaseResult result) {
-        Parent parent = model.getParent();
-
-        if (parent == null) {
-            result.addWarning("No parent POM found");
-            return false;
+        // Strategy 1: Direct spring-boot-starter-parent
+        if (tryUpdateDirectParent(model, result)) {
+            return true;
         }
 
-        if (!"org.springframework.boot".equals(parent.getGroupId()) ||
-                !"spring-boot-starter-parent".equals(parent.getArtifactId())) {
-            result.addWarning("Parent is not spring-boot-starter-parent");
+        // Strategy 2: Property-based version management
+        if (tryUpdateVersionProperty(model, result)) {
+            return true;
+        }
+
+        // Strategy 3: Spring Boot BOM in dependencyManagement
+        if (tryUpdateSpringBootBom(model, result)) {
+            return true;
+        }
+
+        // Strategy 4: Corporate parent POM - add property override
+        return handleCorporateParent(model, result);
+    }
+
+    /**
+     * Try to update direct spring-boot-starter-parent.
+     */
+    private boolean tryUpdateDirectParent(Model model, MigrationPhaseResult result) {
+        Parent parent = model.getParent();
+        if (parent == null ||
+            !"org.springframework.boot".equals(parent.getGroupId()) ||
+            !"spring-boot-starter-parent".equals(parent.getArtifactId())) {
             return false;
         }
 
         String currentVersion = parent.getVersion();
+        if (currentVersion == null || currentVersion.startsWith("${")) {
+            return false;
+        }
+
+        return updateVersionIfNeeded(currentVersion,
+            parent::setVersion,
+            "Spring Boot parent",
+            result);
+    }
+
+    /**
+     * Try to update Spring Boot version property.
+     */
+    private boolean tryUpdateVersionProperty(Model model, MigrationPhaseResult result) {
+        if (model.getProperties() == null) {
+            return false;
+        }
+
+        String[] propertyKeys = {"spring-boot.version", "spring.boot.version", "springboot.version"};
+        for (String key : propertyKeys) {
+            if (model.getProperties().containsKey(key)) {
+                String currentVersion = model.getProperties().getProperty(key);
+                return updateVersionIfNeeded(currentVersion,
+                    v -> model.getProperties().setProperty(key, v),
+                    "property " + key,
+                    result);
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Try to update Spring Boot BOM in dependencyManagement.
+     */
+    private boolean tryUpdateSpringBootBom(Model model, MigrationPhaseResult result) {
+        if (model.getDependencyManagement() == null ||
+            model.getDependencyManagement().getDependencies() == null) {
+            return false;
+        }
+
+        Dependency springBootBom = model.getDependencyManagement().getDependencies().stream()
+            .filter(dep -> "org.springframework.boot".equals(dep.getGroupId()) &&
+                          "spring-boot-dependencies".equals(dep.getArtifactId()))
+            .findFirst()
+            .orElse(null);
+
+        if (springBootBom == null) {
+            return false;
+        }
+
+        String currentVersion = springBootBom.getVersion();
+        if (currentVersion == null || currentVersion.startsWith("${")) {
+            return false;
+        }
+
+        return updateVersionIfNeeded(currentVersion,
+            springBootBom::setVersion,
+            "Spring Boot BOM",
+            result);
+    }
+
+    /**
+     * Update version if needed (DRY helper method).
+     */
+    private boolean updateVersionIfNeeded(String currentVersion,
+                                          java.util.function.Consumer<String> versionSetter,
+                                          String componentName,
+                                          MigrationPhaseResult result) {
         String targetVersion = extractVersionPrefix(targetSpringBootVersion);
         String currentPrefix = extractVersionPrefix(currentVersion);
 
         if (currentPrefix.equals(targetVersion)) {
-            logger.info("Spring Boot parent already at {}.x: {}", targetVersion, currentVersion);
+            logger.info("{} already at {}.x: {}", componentName, targetVersion, currentVersion);
             return false;
         }
 
         if (dryRun) {
-            result.addChange(String.format("Would update Spring Boot parent: %s → %s",
-                    currentVersion, targetSpringBootVersion));
+            result.addChange(String.format("Would update %s: %s → %s",
+                    componentName, currentVersion, targetSpringBootVersion));
         } else {
-            parent.setVersion(targetSpringBootVersion);
-            result.addChange(String.format("Updated Spring Boot parent: %s → %s",
-                    currentVersion, targetSpringBootVersion));
-            logger.info("Updated Spring Boot parent version to {}", targetSpringBootVersion);
+            versionSetter.accept(targetSpringBootVersion);
+            result.addChange(String.format("Updated %s: %s → %s",
+                    componentName, currentVersion, targetSpringBootVersion));
+            logger.info("Updated {} to {}", componentName, targetSpringBootVersion);
         }
-
         return true;
+    }
+
+    /**
+     * Handle corporate parent POM scenarios by adding a version property override.
+     *
+     * <p>
+     * When a corporate parent POM is detected (not spring-boot-starter-parent),
+     * automatically adds a {@code <spring-boot.version>} property to override
+     * the Spring Boot version managed by the parent.
+     *
+     * @return true if property was added, false otherwise
+     */
+    private boolean handleCorporateParent(Model model, MigrationPhaseResult result) {
+        Parent parent = model.getParent();
+        if (parent != null) {
+            result.addWarning(String.format("Corporate parent POM detected: %s:%s:%s",
+                parent.getGroupId(), parent.getArtifactId(), parent.getVersion()));
+            result.addWarning("Spring Boot version may be managed in parent POM");
+
+            // Automatically add property override
+            if (model.getProperties() == null) {
+                model.setProperties(new java.util.Properties());
+            }
+
+            if (dryRun) {
+                result.addChange(String.format("Would add property override: <spring-boot.version>%s</spring-boot.version>",
+                    targetSpringBootVersion));
+                result.addWarning("This property will override the Spring Boot version from parent POM");
+            } else {
+                model.getProperties().setProperty("spring-boot.version", targetSpringBootVersion);
+                result.addChange(String.format("Added property override: <spring-boot.version>%s</spring-boot.version>",
+                    targetSpringBootVersion));
+                result.addWarning("This property overrides the Spring Boot version from parent POM");
+                result.addWarning("Verify that parent POM uses ${spring-boot.version} for version management");
+                logger.info("Added spring-boot.version property to override corporate parent's Spring Boot version");
+            }
+            return true;  // Property was added, need to write POM
+        } else {
+            result.addWarning("No parent POM found and no Spring Boot version property detected");
+            result.addWarning("Consider adding Spring Boot dependency management or parent POM");
+            return false;
+        }
     }
 
     /**
