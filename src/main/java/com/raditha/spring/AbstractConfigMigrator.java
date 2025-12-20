@@ -4,7 +4,6 @@ import org.yaml.snakeyaml.Yaml;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -84,29 +83,6 @@ public abstract class AbstractConfigMigrator extends MigrationPhase {
     }
 
     /**
-     * Create a YAML parser instance with proper configuration.
-     * 
-     * @return configured YAML instance
-     */
-    protected Yaml createYaml() {
-        return YamlUtils.createYaml();
-    }
-
-    /**
-     * Load YAML file content as a map.
-     * 
-     * @param yamlPath path to YAML file
-     * @return YAML data as map, or null if file is empty
-     * @throws IOException if I/O error occurs
-     */
-    protected java.util.Map<String, Object> loadYaml(Path yamlPath) throws IOException {
-        Yaml yaml = createYaml();
-        try (InputStream input = Files.newInputStream(yamlPath)) {
-            return yaml.load(input);
-        }
-    }
-
-    /**
      * Write YAML data to file.
      * 
      * @param yamlPath path to YAML file
@@ -115,15 +91,13 @@ public abstract class AbstractConfigMigrator extends MigrationPhase {
      */
     protected void writeYaml(Path yamlPath, java.util.Map<String, Object> data) throws IOException {
         if (dryRun) {
-            logger.info("Would write to {} (dry-run mode)", yamlPath);
             return;
         }
 
-        Yaml yaml = createYaml();
+        Yaml yaml = YamlUtils.createYaml();
         try (OutputStream output = Files.newOutputStream(yamlPath)) {
             yaml.dump(data, new java.io.OutputStreamWriter(output));
         }
-        logger.info("Updated configuration file: {}", yamlPath);
     }
 
     /**

@@ -269,7 +269,7 @@ public abstract class AbstractSpringBootMigrator {
      * result.addPhase("Cassandra Driver v4", cassandraResult);
      * }</pre>
      */
-    protected abstract void executeVersionSpecificMigrations();
+    protected abstract void executeVersionSpecificMigrations() throws Exception;
 
     /**
      * Validate the migration after completion.

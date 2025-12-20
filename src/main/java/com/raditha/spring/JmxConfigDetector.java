@@ -31,21 +31,14 @@ public class JmxConfigDetector extends AbstractConfigMigrator {
     /**
      * Detect JMX usage and enable configuration if needed.
      */
-    public MigrationPhaseResult migrate() {
+    public MigrationPhaseResult migrate() throws IOException {
         MigrationPhaseResult result = new MigrationPhaseResult();
+        boolean needsJmx = detectJmxUsage(result);
 
-        try {
-            boolean needsJmx = detectJmxUsage(result);
-
-            if (needsJmx) {
-                enableJmxConfiguration(result);
-            } else {
-                result.addChange("No JMX usage detected - no configuration needed");
-            }
-
-        } catch (Exception e) {
-            logger.error("Error during JMX detection", e);
-            result.addError("JMX detection failed: " + e.getMessage());
+        if (needsJmx) {
+            enableJmxConfiguration(result);
+        } else {
+            result.addChange("No JMX usage detected - no configuration needed");
         }
 
         return result;
@@ -55,7 +48,6 @@ public class JmxConfigDetector extends AbstractConfigMigrator {
      * Detect if JMX is being used in the codebase.
      */
     private boolean detectJmxUsage(MigrationPhaseResult result) {
-        logger.info("Detecting JMX usage...");
 
         // Iterate over all loaded compilation units
         Map<String, CompilationUnit> units = AntikytheraRunTime.getResolvedCompilationUnits();
@@ -64,15 +56,10 @@ public class JmxConfigDetector extends AbstractConfigMigrator {
             String className = entry.getKey();
             CompilationUnit cu = entry.getValue();
 
-            if (cu == null) {
-                continue;
-            }
-
             // Check for @ManagedResource annotation
             List<AnnotationExpr> annotations = cu.findAll(AnnotationExpr.class);
             for (AnnotationExpr annotation : annotations) {
                 if (annotation.getNameAsString().equals("ManagedResource")) {
-                    logger.info("Found @ManagedResource in {}", className);
                     result.addChange("Detected JMX usage: @ManagedResource in " + className);
                     return true;
                 }
@@ -82,14 +69,12 @@ public class JmxConfigDetector extends AbstractConfigMigrator {
             List<ImportDeclaration> imports = cu.findAll(ImportDeclaration.class);
             for (ImportDeclaration imp : imports) {
                 if (imp.getNameAsString().startsWith("javax.management")) {
-                    logger.info("Found javax.management import in {}", className);
                     result.addChange("Detected JMX usage: javax.management import in " + className);
                     return true;
                 }
             }
         }
 
-        logger.info("No JMX usage detected");
         return false;
     }
 
@@ -105,7 +90,7 @@ public class JmxConfigDetector extends AbstractConfigMigrator {
             return;
         }
 
-        Yaml yaml = createYaml();
+        Yaml yaml = YamlUtils.createYaml();
         Map<String, Object> data;
 
         try (InputStream input = Files.newInputStream(yamlFile)) {
@@ -128,7 +113,6 @@ public class JmxConfigDetector extends AbstractConfigMigrator {
                     yaml.dump(data, writer);
                 }
                 result.addChange("Added spring.jmx.enabled=true to " + yamlFile.getFileName());
-                logger.info("Enabled JMX configuration");
             } else {
                 result.addChange("Would add spring.jmx.enabled=true to " + yamlFile.getFileName());
             }

@@ -3,17 +3,10 @@ package com.raditha.spring;
 import org.apache.maven.model.Dependency;
 import org.apache.maven.model.Model;
 import org.apache.maven.model.Parent;
-import org.apache.maven.model.io.xpp3.MavenXpp3Reader;
-import org.apache.maven.model.io.xpp3.MavenXpp3Writer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import sa.com.cloudsolutions.antikythera.configuration.Settings;
 
-import java.io.FileReader;
-import java.io.FileWriter;
-import java.io.IOException;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -107,7 +100,7 @@ public abstract class AbstractPomMigrator extends MigrationPhase {
     public final MigrationPhaseResult migrate() {
         MigrationPhaseResult result = new MigrationPhaseResult();
 
-        Path pomPath = resolvePomPath();
+        Path pomPath = PomUtils.resolvePomPath();
         if (pomPath == null) {
             result.addError("Could not find pom.xml");
             return result;
@@ -189,9 +182,6 @@ public abstract class AbstractPomMigrator extends MigrationPhase {
         return true;
     }
 
-    // ==================== Hook Methods - Subclasses Must Implement
-    // ====================
-
     /**
      * Apply version-specific dependency rules.
      * 
@@ -235,8 +225,6 @@ public abstract class AbstractPomMigrator extends MigrationPhase {
      * @param result migration result to add warnings/errors
      */
     protected abstract void validateVersionSpecificRequirements(Model model, MigrationPhaseResult result);
-
-    // ==================== Protected Utility Methods ====================
 
     /**
      * Check if a dependency exists in the POM.
@@ -318,8 +306,6 @@ public abstract class AbstractPomMigrator extends MigrationPhase {
                 .collect(Collectors.toList());
     }
 
-    // ==================== Private Helper Methods ====================
-
     /**
      * Extract version prefix (e.g., "2.2" from "2.2.13.RELEASE").
      */
@@ -329,12 +315,5 @@ public abstract class AbstractPomMigrator extends MigrationPhase {
             return parts[0] + "." + parts[1];
         }
         return version;
-    }
-
-    /**
-     * Parse version part to integer, extracting only numeric portion.
-     */
-    private static int parseVersionPart(String part) {
-        return Integer.parseInt(part.replaceAll("[^0-9]", ""));
     }
 }

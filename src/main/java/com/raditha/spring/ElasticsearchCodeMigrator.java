@@ -68,7 +68,7 @@ public class ElasticsearchCodeMigrator extends MigrationPhase {
 
         if (filesWithTransportClient.isEmpty()) {
             result.addChange("No Elasticsearch TransportClient usage detected");
-            logger.info("No TransportClient imports found");
+
             return result;
         }
 
@@ -118,7 +118,7 @@ public class ElasticsearchCodeMigrator extends MigrationPhase {
         guide.append(
                 "\nREFERENCE: https://www.elastic.co/guide/en/elasticsearch/client/java-rest/current/java-rest-high.html\n");
 
-        logger.warn("\n{}", guide);
+
         result.addChange(guide.toString());
 
         // Elasticsearch REST client migration requires manual review

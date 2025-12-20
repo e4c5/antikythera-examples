@@ -6,6 +6,7 @@ import org.yaml.snakeyaml.Yaml;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
@@ -45,20 +46,14 @@ public class Neo4jPropertyMigrator extends AbstractConfigMigrator {
     }
 
     @Override
-    public MigrationPhaseResult migrate() {
+    public MigrationPhaseResult migrate() throws Exception {
         MigrationPhaseResult result = new MigrationPhaseResult();
 
-        try {
-            // Phase 1: Migrate property files
-            migratePropertyFiles(result);
+        // Phase 1: Migrate property files
+        migratePropertyFiles(result);
 
-            // Phase 2: Detect Neo4j OGM usage in code
-            detectNeo4jOGM(result);
-
-        } catch (Exception e) {
-            result.addError("Neo4j property migration failed: " + e.getMessage());
-            logger.error("Neo4j property migration failed", e);
-        }
+        // Phase 2: Detect Neo4j OGM usage in code
+        detectNeo4jOGM(result);
 
         return result;
     }
@@ -103,35 +98,27 @@ public class Neo4jPropertyMigrator extends AbstractConfigMigrator {
      * Migrate Neo4j properties in a YAML file.
      */
     @SuppressWarnings("unchecked")
-    private boolean migrateYamlFile(Path yamlFile, MigrationPhaseResult result) {
-        try {
-            Yaml yaml = YamlUtils.createYaml();
-            Map<String, Object> data;
+    private boolean migrateYamlFile(Path yamlFile, MigrationPhaseResult result) throws IOException {
+        Yaml yaml = YamlUtils.createYaml();
+        Map<String, Object> data;
 
-            try (InputStream input = Files.newInputStream(yamlFile)) {
-                data = yaml.load(input);
-            }
+        try (InputStream input = Files.newInputStream(yamlFile)) {
+            data = yaml.load(input);
+        }
 
-            if (data == null) {
-                return false;
-            }
-
-            boolean modified = transformYamlData(data, result, yamlFile.getFileName().toString());
-
-            if (modified && !dryRun) {
-                try (OutputStream output = Files.newOutputStream(yamlFile)) {
-                    yaml.dump(data, new OutputStreamWriter(output));
-                }
-            }
-
-            return modified;
-
-        } catch (Exception e) {
-            result.addError(String.format("Failed to migrate %s: %s",
-                    yamlFile.getFileName(), e.getMessage()));
-            logger.error("Failed to migrate YAML file: {}", yamlFile, e);
+        if (data == null) {
             return false;
         }
+
+        boolean modified = transformYamlData(data, result, yamlFile.getFileName().toString());
+
+        if (modified && !dryRun) {
+            try (OutputStream output = Files.newOutputStream(yamlFile)) {
+                yaml.dump(data, new OutputStreamWriter(output));
+            }
+        }
+
+        return modified;
     }
 
     /**
@@ -191,50 +178,43 @@ public class Neo4jPropertyMigrator extends AbstractConfigMigrator {
     /**
      * Migrate Neo4j properties in a properties file.
      */
-    private boolean migratePropertiesFile(Path propFile, MigrationPhaseResult result) {
-        try {
-            Properties props = new Properties();
-            try (InputStream input = Files.newInputStream(propFile)) {
-                props.load(input);
-            }
-
-            boolean modified = false;
-
-            // Property key transformations
-            Map<String, String> propertyMigrations = Map.of(
-                    "spring.data.neo4j.uri", "spring.neo4j.uri",
-                    "spring.data.neo4j.username", "spring.neo4j.authentication.username",
-                    "spring.data.neo4j.password", "spring.neo4j.authentication.password");
-
-            for (Map.Entry<String, String> migration : propertyMigrations.entrySet()) {
-                String oldKey = migration.getKey();
-                String newKey = migration.getValue();
-
-                if (props.containsKey(oldKey)) {
-                    String value = props.getProperty(oldKey);
-                    props.remove(oldKey);
-                    props.setProperty(newKey, value);
-
-                    result.addChange(String.format("%s: %s → %s",
-                            propFile.getFileName(), oldKey, newKey));
-                    modified = true;
-                }
-            }
-
-            if (modified && !dryRun) {
-                try (OutputStream output = Files.newOutputStream(propFile)) {
-                    props.store(output, "Neo4j property migration for Spring Boot 2.4");
-                }
-            }
-
-            return modified;
-
-        } catch (Exception e) {
-            result.addError(String.format("Failed to migrate %s: %s",
-                    propFile.getFileName(), e.getMessage()));
-            logger.error("Failed to migrate properties file: {}", propFile, e);
-            return false;
+    private boolean migratePropertiesFile(Path propFile, MigrationPhaseResult result) throws IOException {
+        Properties props = new Properties();
+        try (InputStream input = Files.newInputStream(propFile)) {
+            props.load(input);
         }
+
+        boolean modified = false;
+
+        // Property key transformations
+        Map<String, String> propertyMigrations = Map.of(
+                "spring.data.neo4j.uri", "spring.neo4j.uri",
+                "spring.data.neo4j.username", "spring.neo4j.authentication.username",
+                "spring.data.neo4j.password", "spring.neo4j.authentication.password");
+
+        for (Map.Entry<String, String> migration : propertyMigrations.entrySet()) {
+            String oldKey = migration.getKey();
+            String newKey = migration.getValue();
+
+            if (props.containsKey(oldKey)) {
+                String value = props.getProperty(oldKey);
+                props.remove(oldKey);
+                props.setProperty(newKey, value);
+
+                result.addChange(String.format("%s: %s → %s",
+                        propFile.getFileName(), oldKey, newKey));
+                modified = true;
+            }
+        }
+
+        if (modified && !dryRun) {
+            try (OutputStream output = Files.newOutputStream(propFile)) {
+                props.store(output, "Neo4j property migration for Spring Boot 2.4");
+            }
+        }
+
+        return modified;
+
     }
 
     /**
@@ -295,7 +275,6 @@ public class Neo4jPropertyMigrator extends AbstractConfigMigrator {
             }
             guide.append("\nREFERENCE: https://neo4j.com/docs/spring-data-neo4j/current/\n");
 
-            logger.warn("\n{}", guide);
             result.addChange(guide.toString());
         }
     }

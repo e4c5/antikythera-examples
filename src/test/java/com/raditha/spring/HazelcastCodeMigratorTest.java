@@ -25,7 +25,7 @@ class HazelcastCodeMigratorTest {
         }
 
         @Test
-        void testStaticMethodDetection() {
+        void testStaticMethodDetection() throws IOException {
                 HazelcastCodeMigrator migrator = new HazelcastCodeMigrator(true);
                 MigrationPhaseResult result = migrator.migrate();
 
@@ -41,7 +41,7 @@ class HazelcastCodeMigratorTest {
         }
 
         @Test
-        void testGroupConfigDetection() {
+        void testGroupConfigDetection() throws IOException {
                 HazelcastCodeMigrator migrator = new HazelcastCodeMigrator(true);
                 MigrationPhaseResult result = migrator.migrate();
 
@@ -55,7 +55,7 @@ class HazelcastCodeMigratorTest {
         }
 
         @Test
-        void testTransformationCount() {
+        void testTransformationCount() throws IOException {
                 HazelcastCodeMigrator migrator = new HazelcastCodeMigrator(true);
                 MigrationPhaseResult result = migrator.migrate();
 
@@ -70,7 +70,7 @@ class HazelcastCodeMigratorTest {
         }
 
         @Test
-        void testManualReviewGuidance() {
+        void testManualReviewGuidance() throws IOException {
                 HazelcastCodeMigrator migrator = new HazelcastCodeMigrator(true);
                 MigrationPhaseResult result = migrator.migrate();
 
@@ -85,7 +85,7 @@ class HazelcastCodeMigratorTest {
         }
 
         @Test
-        void testDryRunMode() {
+        void testDryRunMode() throws IOException {
                 HazelcastCodeMigrator migrator = new HazelcastCodeMigrator(true);
                 MigrationPhaseResult result = migrator.migrate();
 

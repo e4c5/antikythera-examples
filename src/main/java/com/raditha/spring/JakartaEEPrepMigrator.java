@@ -119,8 +119,6 @@ public class JakartaEEPrepMigrator extends MigrationPhase {
         
         // Add comment to the import
         imp.setComment(comment);
-        
-        logger.debug("Added Jakarta prep comment to import: {}", importName);
     }
 
     @Override

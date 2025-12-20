@@ -2,6 +2,7 @@ package com.raditha.cleanunit;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.raditha.spring.PomUtils;
 import org.apache.maven.model.Dependency;
 import org.apache.maven.model.Model;
 import org.apache.maven.model.io.xpp3.MavenXpp3Reader;
@@ -40,7 +41,7 @@ public class TestRefactorer {
     }
 
     private void detectVersions() throws IOException, XmlPullParserException {
-        Path pomPath = resolvePomPath();
+        Path pomPath = PomUtils.resolvePomPath();
         if (!pomPath.toFile().exists()) {
             logger.warn("POM file not found at: {}", pomPath);
             return;
@@ -59,17 +60,6 @@ public class TestRefactorer {
 
         ensureSliceTestSupport(model, pomPath.toFile());
         validateTestAutoConfigureVersion(model, pomPath.toFile());
-    }
-
-    private Path resolvePomPath() {
-        String basePath = sa.com.cloudsolutions.antikythera.configuration.Settings.getBasePath();
-        if (basePath.contains("src/main/java")) {
-            return Paths.get(basePath.replace("/src/main/java", ""), "pom.xml");
-        } else if (basePath.contains("src/test/java")) {
-            return Paths.get(basePath.replace("/src/test/java", ""), "pom.xml");
-        } else {
-            return Paths.get(basePath, "pom.xml");
-        }
     }
 
     private void detectSpringBootVersion(Model model) {

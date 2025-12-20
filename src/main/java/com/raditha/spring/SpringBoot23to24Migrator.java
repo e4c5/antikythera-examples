@@ -118,7 +118,7 @@ public class SpringBoot23to24Migrator extends AbstractSpringBootMigrator {
     }
 
     @Override
-    protected void executeVersionSpecificMigrations() {
+    protected void executeVersionSpecificMigrations() throws Exception {
         // Phase 3: Configuration Processing (CRITICAL - Spring Boot 2.4 changed profile syntax)
         logger.info("Phase 3: Migrating configuration file processing...");
         result.addPhase("Configuration Processing", configMigrator.migrate());

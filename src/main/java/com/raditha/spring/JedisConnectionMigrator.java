@@ -64,8 +64,6 @@ public class JedisConnectionMigrator extends MigrationPhase {
                         result.addChange(className + "." + method.getNameAsString() + 
                             ": Would migrate Jedis 2.x configuration to Jedis 3.x pattern");
                     }
-                    
-                    logger.info("Found Jedis configuration in {}.{}", className, method.getNameAsString());
                 }
             }
         }
@@ -137,8 +135,6 @@ public class JedisConnectionMigrator extends MigrationPhase {
             result.addWarning(className + "." + method.getNameAsString() + 
                 ": Contains old-style setters (setHostName, setPort, etc.) - replace with RedisStandaloneConfiguration");
         }
-        
-        logger.debug("Migrated Jedis configuration in {}.{}", className, method.getNameAsString());
     }
 
     /**

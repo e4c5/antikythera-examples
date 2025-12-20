@@ -33,7 +33,7 @@ class JmxConfigDetectorTest {
     }
 
     @Test
-    void testNoJmxUsage() {
+    void testNoJmxUsage() throws IOException {
         JmxConfigDetector detector = new JmxConfigDetector(true);
         MigrationPhaseResult result = detector.migrate();
 
@@ -44,7 +44,7 @@ class JmxConfigDetectorTest {
     }
 
     @Test
-    void testDetectorScansAllClasses() {
+    void testDetectorScansAllClasses() throws IOException {
         JmxConfigDetector detector = new JmxConfigDetector(true);
 
         // Verify we have parsed compilation units

@@ -74,7 +74,6 @@ public class RedisCodeMigrator extends MigrationPhase {
         if (changeCount == 0) {
             result.addChange("No Redis migrations needed");
         } else {
-            logger.info("Redis migration complete: {} method calls updated", changeCount);
             result.setRequiresManualReview(true);
             result.addManualReviewItem(String.format(
                 "Verify Redis set operations (%d method calls transformed) compile and function correctly", 
@@ -144,7 +143,6 @@ public class RedisCodeMigrator extends MigrationPhase {
         result.addChange(String.format("%s: Transformed %s(key, otherKeys) → %s(mergedKeys)",
                 className, call.getNameAsString(), call.getNameAsString()));
 
-        logger.debug("Transformed Redis {} operation in {}", call.getNameAsString(), className);
     }
 
     /**

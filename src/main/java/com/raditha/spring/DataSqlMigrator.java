@@ -3,6 +3,7 @@ package com.raditha.spring;
 import org.yaml.snakeyaml.Yaml;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
@@ -106,7 +107,6 @@ public class DataSqlMigrator extends AbstractConfigMigrator {
 
         } catch (Exception e) {
             result.addError("Data.sql migration failed: " + e.getMessage());
-            logger.error("Data.sql migration failed", e);
         }
 
         return result;
@@ -134,34 +134,30 @@ public class DataSqlMigrator extends AbstractConfigMigrator {
      * Check if YAML file has Hibernate DDL auto configuration.
      */
     @SuppressWarnings("unchecked")
-    private boolean hasHibernateDdlAuto(Path yamlFile) {
-        try {
-            Yaml yaml = YamlUtils.createYaml();
-            Map<String, Object> data;
+    private boolean hasHibernateDdlAuto(Path yamlFile) throws IOException {
+        Yaml yaml = YamlUtils.createYaml();
+        Map<String, Object> data;
 
-            try (InputStream input = Files.newInputStream(yamlFile)) {
-                data = yaml.load(input);
-            }
+        try (InputStream input = Files.newInputStream(yamlFile)) {
+            data = yaml.load(input);
+        }
 
-            if (data != null && data.containsKey("spring")) {
-                Map<String, Object> spring = (Map<String, Object>) data.get("spring");
+        if (data != null && data.containsKey("spring")) {
+            Map<String, Object> spring = (Map<String, Object>) data.get("spring");
 
-                if (spring != null && spring.containsKey("jpa")) {
-                    Map<String, Object> jpa = (Map<String, Object>) spring.get("jpa");
+            if (spring != null && spring.containsKey("jpa")) {
+                Map<String, Object> jpa = (Map<String, Object>) spring.get("jpa");
 
-                    if (jpa != null && jpa.containsKey("hibernate")) {
-                        Map<String, Object> hibernate = (Map<String, Object>) jpa.get("hibernate");
+                if (jpa != null && jpa.containsKey("hibernate")) {
+                    Map<String, Object> hibernate = (Map<String, Object>) jpa.get("hibernate");
 
-                        if (hibernate != null && hibernate.containsKey("ddl-auto")) {
-                            String ddlAuto = hibernate.get("ddl-auto").toString();
-                            // Only create, update, create-drop are risky
-                            return !ddlAuto.equals("none") && !ddlAuto.equals("validate");
-                        }
+                    if (hibernate != null && hibernate.containsKey("ddl-auto")) {
+                        String ddlAuto = hibernate.get("ddl-auto").toString();
+                        // Only create, update, create-drop are risky
+                        return !ddlAuto.equals("none") && !ddlAuto.equals("validate");
                     }
                 }
             }
-        } catch (Exception e) {
-            logger.debug("Error checking Hibernate DDL auto in {}", yamlFile, e);
         }
 
         return false;
@@ -170,19 +166,15 @@ public class DataSqlMigrator extends AbstractConfigMigrator {
     /**
      * Check if properties file has Hibernate DDL auto configuration.
      */
-    private boolean hasHibernateDdlAutoProperties(Path propFile) {
-        try {
-            Properties props = new Properties();
-            try (InputStream input = Files.newInputStream(propFile)) {
-                props.load(input);
-            }
+    private boolean hasHibernateDdlAutoProperties(Path propFile) throws IOException {
+        Properties props = new Properties();
+        try (InputStream input = Files.newInputStream(propFile)) {
+            props.load(input);
+        }
 
-            String ddlAuto = props.getProperty("spring.jpa.hibernate.ddl-auto");
-            if (ddlAuto != null) {
-                return !ddlAuto.equals("none") && !ddlAuto.equals("validate");
-            }
-        } catch (Exception e) {
-            logger.debug("Error checking Hibernate DDL auto in {}", propFile, e);
+        String ddlAuto = props.getProperty("spring.jpa.hibernate.ddl-auto");
+        if (ddlAuto != null) {
+            return !ddlAuto.equals("none") && !ddlAuto.equals("validate");
         }
 
         return false;

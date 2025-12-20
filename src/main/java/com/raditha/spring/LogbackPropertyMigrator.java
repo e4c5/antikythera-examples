@@ -3,6 +3,7 @@ package com.raditha.spring;
 import org.yaml.snakeyaml.Yaml;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
@@ -51,44 +52,38 @@ public class LogbackPropertyMigrator extends AbstractConfigMigrator {
     }
 
     @Override
-    public MigrationPhaseResult migrate() {
+    public MigrationPhaseResult migrate() throws IOException {
         MigrationPhaseResult result = new MigrationPhaseResult();
 
-        try {
-            Path basePath = Paths.get(Settings.getBasePath());
-            Path resourcesPath = basePath.resolve("src/main/resources");
+        Path basePath = Paths.get(Settings.getBasePath());
+        Path resourcesPath = basePath.resolve("src/main/resources");
 
-            if (!Files.exists(resourcesPath)) {
-                result.addChange("No resources directory found");
-                return result;
+        if (!Files.exists(resourcesPath)) {
+            result.addChange("No resources directory found");
+            return result;
+        }
+
+        List<Path> yamlFiles = PropertyFileUtils.findPropertyFiles(resourcesPath, "*.yml", "*.yaml");
+        List<Path> propFiles = PropertyFileUtils.findPropertyFiles(resourcesPath, "*.properties");
+
+        boolean foundLogbackProperties = false;
+
+        // Process YAML files
+        for (Path yamlFile : yamlFiles) {
+            if (migrateYamlFile(yamlFile, result)) {
+                foundLogbackProperties = true;
             }
+        }
 
-            List<Path> yamlFiles = PropertyFileUtils.findPropertyFiles(resourcesPath, "*.yml", "*.yaml");
-            List<Path> propFiles = PropertyFileUtils.findPropertyFiles(resourcesPath, "*.properties");
-
-            boolean foundLogbackProperties = false;
-
-            // Process YAML files
-            for (Path yamlFile : yamlFiles) {
-                if (migrateYamlFile(yamlFile, result)) {
-                    foundLogbackProperties = true;
-                }
+        // Process properties files
+        for (Path propFile : propFiles) {
+            if (migratePropertiesFile(propFile, result)) {
+                foundLogbackProperties = true;
             }
+        }
 
-            // Process properties files
-            for (Path propFile : propFiles) {
-                if (migratePropertiesFile(propFile, result)) {
-                    foundLogbackProperties = true;
-                }
-            }
-
-            if (!foundLogbackProperties) {
-                result.addChange("No deprecated Logback properties detected");
-            }
-
-        } catch (Exception e) {
-            result.addError("Logback property migration failed: " + e.getMessage());
-            logger.error("Logback property migration failed", e);
+        if (!foundLogbackProperties) {
+            result.addChange("No deprecated Logback properties detected");
         }
 
         return result;
@@ -98,35 +93,28 @@ public class LogbackPropertyMigrator extends AbstractConfigMigrator {
      * Migrate Logback properties in a YAML file.
      */
     @SuppressWarnings("unchecked")
-    private boolean migrateYamlFile(Path yamlFile, MigrationPhaseResult result) {
-        try {
-            Yaml yaml = YamlUtils.createYaml();
-            Map<String, Object> data;
+    private boolean migrateYamlFile(Path yamlFile, MigrationPhaseResult result) throws IOException {
+        Yaml yaml = YamlUtils.createYaml();
+        Map<String, Object> data;
 
-            try (InputStream input = Files.newInputStream(yamlFile)) {
-                data = yaml.load(input);
-            }
+        try (InputStream input = Files.newInputStream(yamlFile)) {
+            data = yaml.load(input);
+        }
 
-            if (data == null) {
-                return false;
-            }
-
-            boolean modified = transformYamlData(data, result, yamlFile.getFileName().toString());
-
-            if (modified && !dryRun) {
-                try (OutputStream output = Files.newOutputStream(yamlFile)) {
-                    yaml.dump(data, new OutputStreamWriter(output));
-                }
-            }
-
-            return modified;
-
-        } catch (Exception e) {
-            result.addError(String.format("Failed to migrate %s: %s",
-                    yamlFile.getFileName(), e.getMessage()));
-            logger.error("Failed to migrate YAML file: {}", yamlFile, e);
+        if (data == null) {
             return false;
         }
+
+        boolean modified = transformYamlData(data, result, yamlFile.getFileName().toString());
+
+        if (modified && !dryRun) {
+            try (OutputStream output = Files.newOutputStream(yamlFile)) {
+                yaml.dump(data, new OutputStreamWriter(output));
+            }
+        }
+
+        return modified;
+
     }
 
     /**
@@ -212,44 +200,37 @@ public class LogbackPropertyMigrator extends AbstractConfigMigrator {
     /**
      * Migrate Logback properties in a properties file.
      */
-    private boolean migratePropertiesFile(Path propFile, MigrationPhaseResult result) {
-        try {
-            Properties props = new Properties();
-            try (InputStream input = Files.newInputStream(propFile)) {
-                props.load(input);
-            }
-
-            boolean modified = false;
-
-            for (Map.Entry<String, String> migration : PROPERTY_MAPPINGS.entrySet()) {
-                String oldKey = migration.getKey();
-                String newKey = migration.getValue();
-
-                if (props.containsKey(oldKey)) {
-                    String value = props.getProperty(oldKey);
-                    props.remove(oldKey);
-                    props.setProperty(newKey, value);
-
-                    result.addChange(String.format("%s: %s → %s",
-                            propFile.getFileName(), oldKey, newKey));
-                    modified = true;
-                }
-            }
-
-            if (modified && !dryRun) {
-                try (OutputStream output = Files.newOutputStream(propFile)) {
-                    props.store(output, "Logback property migration for Spring Boot 2.4");
-                }
-            }
-
-            return modified;
-
-        } catch (Exception e) {
-            result.addError(String.format("Failed to migrate %s: %s",
-                    propFile.getFileName(), e.getMessage()));
-            logger.error("Failed to migrate properties file: {}", propFile, e);
-            return false;
+    private boolean migratePropertiesFile(Path propFile, MigrationPhaseResult result) throws IOException {
+        Properties props = new Properties();
+        try (InputStream input = Files.newInputStream(propFile)) {
+            props.load(input);
         }
+
+        boolean modified = false;
+
+        for (Map.Entry<String, String> migration : PROPERTY_MAPPINGS.entrySet()) {
+            String oldKey = migration.getKey();
+            String newKey = migration.getValue();
+
+            if (props.containsKey(oldKey)) {
+                String value = props.getProperty(oldKey);
+                props.remove(oldKey);
+                props.setProperty(newKey, value);
+
+                result.addChange(String.format("%s: %s → %s",
+                        propFile.getFileName(), oldKey, newKey));
+                modified = true;
+            }
+        }
+
+        if (modified && !dryRun) {
+            try (OutputStream output = Files.newOutputStream(propFile)) {
+                props.store(output, "Logback property migration for Spring Boot 2.4");
+            }
+        }
+
+        return modified;
+
     }
 
     @Override

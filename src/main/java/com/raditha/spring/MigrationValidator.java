@@ -59,8 +59,6 @@ public class MigrationValidator extends MigrationPhase {
      * Validate that the project compiles successfully.
      */
     private boolean validateCompilation(MigrationPhaseResult result) throws IOException, InterruptedException {
-        logger.info("Validating compilation...");
-
         ProcessBuilder pb = new ProcessBuilder("mvn", "clean", "compile", "-q");
         pb.directory(Paths.get(System.getProperty("user.dir")).toFile());
         pb.redirectErrorStream(true);
@@ -81,23 +79,17 @@ public class MigrationValidator extends MigrationPhase {
 
         if (exitCode == 0) {
             result.addChange("✅ Compilation successful");
-            logger.info("Compilation validation passed");
             return true;
-        } else {
-            result.addError("❌ Compilation failed (exit code: " + exitCode + ")");
-            result.addError("Output: " + output.toString());
-            logger.error("Compilation validation failed");
-            return false;
         }
-
+        result.addError("❌ Compilation failed (exit code: " + exitCode + ")");
+        result.addError("Output: " + output);
+        return false;
     }
 
     /**
      * Validate dependency tree for conflicts.
      */
     private void validateDependencies(MigrationPhaseResult result) throws IOException, InterruptedException {
-        logger.info("Validating dependency tree...");
-
         ProcessBuilder pb = new ProcessBuilder("mvn", "dependency:tree", "-q");
         pb.directory(Paths.get(System.getProperty("user.dir")).toFile());
         pb.redirectErrorStream(true);
@@ -134,8 +126,6 @@ public class MigrationValidator extends MigrationPhase {
      * This assumes spring-boot-properties-migrator is in the classpath.
      */
     private void validateProperties(MigrationPhaseResult result) {
-        logger.info("Checking for deprecated properties...");
-        
         // Note: Full property validation would require starting the application
         // For now, we provide guidance
         result.addChange("Property validation: Run application and check logs for deprecated property warnings");

@@ -30,27 +30,19 @@ public final class PomUtils {
      * @return path to pom.xml, or null if not found
      */
     public static Path resolvePomPath() {
-        try {
-            String basePathStr = Settings.getBasePath();
-            if (basePathStr == null) {
-                return null;
-            }
-
-            Path basePath = Paths.get(basePathStr);
-            Path pomPath = basePath.resolve("pom.xml");
-
-            if (!pomPath.toFile().exists()) {
-                pomPath = basePath.getParent().resolve("pom.xml");
-            }
-
-            if (pomPath.toFile().exists()) {
-                return pomPath;
-            }
-        } catch (Exception e) {
-            // Silently fail - caller will handle null
+        String basePathStr = Settings.getBasePath();
+        if (basePathStr == null) {
+            return null;
         }
 
-        return null;
+        Path basePath = Paths.get(basePathStr);
+        Path pomPath = basePath.resolve("pom.xml");
+
+        if (!pomPath.toFile().exists()) {
+            pomPath = basePath.getParent().resolve("pom.xml");
+        }
+
+        return pomPath;
     }
 
     /**

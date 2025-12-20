@@ -121,7 +121,6 @@ public class ConfigPropertiesScanMigrator extends MigrationPhase {
                             a.getNameAsString().equals("org.springframework.boot.autoconfigure.SpringBootApplication"));
 
             if (annotation.isPresent()) {
-                logger.info("Found @SpringBootApplication in {}", className);
                 return cu;
             }
         }
@@ -178,7 +177,6 @@ public class ConfigPropertiesScanMigrator extends MigrationPhase {
             appClass.getType(0).addAnnotation(CONFIG_PROPERTIES_ANNOTATION);
 
             result.addChange("Replaced @EnableConfigurationProperties with @ConfigurationPropertiesScan");
-            logger.info("Migrated to @ConfigurationPropertiesScan");
         } else {
             // Keep @EnableConfigurationProperties with only external classes
             // Add @ConfigurationPropertiesScan for internal ones
@@ -191,7 +189,6 @@ public class ConfigPropertiesScanMigrator extends MigrationPhase {
 
             result.addChange(
                     "Added @ConfigurationPropertiesScan and kept @EnableConfigurationProperties for external classes");
-            logger.info("Added @ConfigurationPropertiesScan alongside @EnableConfigurationProperties");
         }
     }
 
