@@ -1,7 +1,5 @@
 package com.raditha.spring;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.yaml.snakeyaml.Yaml;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 
@@ -39,10 +37,8 @@ import java.util.stream.Stream;
  * 
  * @see MigrationPhase
  */
-public class LogbackPropertyMigrator implements MigrationPhase {
-    private static final Logger logger = LoggerFactory.getLogger(LogbackPropertyMigrator.class);
+public class LogbackPropertyMigrator extends MigrationPhase {
 
-    private final boolean dryRun;
 
     // Property mappings for Logback properties
     private static final Map<String, String> PROPERTY_MAPPINGS = Map.of(
@@ -53,7 +49,7 @@ public class LogbackPropertyMigrator implements MigrationPhase {
             "logging.file.clean-history-on-start", "logging.logback.rollingpolicy.clean-history-on-start");
 
     public LogbackPropertyMigrator(boolean dryRun) {
-        this.dryRun = dryRun;
+        super(dryRun);
     }
 
     @Override

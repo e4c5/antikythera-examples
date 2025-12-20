@@ -1,7 +1,5 @@
 package com.raditha.spring;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.yaml.snakeyaml.Yaml;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 
@@ -35,13 +33,11 @@ import java.util.stream.Stream;
  * 
  * @see MigrationPhase
  */
-public class DataSqlMigrator implements MigrationPhase {
-    private static final Logger logger = LoggerFactory.getLogger(DataSqlMigrator.class);
+public class DataSqlMigrator extends MigrationPhase {
 
-    private final boolean dryRun;
 
     public DataSqlMigrator(boolean dryRun) {
-        this.dryRun = dryRun;
+        super(dryRun);
     }
 
     @Override

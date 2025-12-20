@@ -49,10 +49,9 @@ import java.util.stream.Stream;
  * @see MigrationPhase
  * @see MigrationPhaseResult
  */
-public abstract class AbstractPropertyFileMigrator implements MigrationPhase {
+public abstract class AbstractPropertyFileMigrator extends MigrationPhase {
     private static final Logger logger = LoggerFactory.getLogger(AbstractPropertyFileMigrator.class);
 
-    protected final boolean dryRun;
     protected final Map<String, PropertyMapping> propertyMappings;
 
     /**
@@ -62,7 +61,7 @@ public abstract class AbstractPropertyFileMigrator implements MigrationPhase {
      * @param propertyMappings map of old property keys to new property mappings
      */
     protected AbstractPropertyFileMigrator(boolean dryRun, Map<String, PropertyMapping> propertyMappings) {
-        this.dryRun = dryRun;
+        super(dryRun);
         this.propertyMappings = propertyMappings;
     }
 

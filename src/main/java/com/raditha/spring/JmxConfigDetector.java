@@ -3,8 +3,6 @@ package com.raditha.spring;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.expr.AnnotationExpr;
 import com.github.javaparser.ast.ImportDeclaration;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.yaml.snakeyaml.Yaml;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
@@ -23,13 +21,11 @@ import java.util.stream.Stream;
  * - javax.management.* imports
  * - Spring Kafka usage (often uses JMX for metrics)
  */
-public class JmxConfigDetector implements MigrationPhase {
-    private static final Logger logger = LoggerFactory.getLogger(JmxConfigDetector.class);
+public class JmxConfigDetector extends MigrationPhase {
 
-    private final boolean dryRun;
 
     public JmxConfigDetector(boolean dryRun) {
-        this.dryRun = dryRun;
+        super(dryRun);
     }
 
     /**

@@ -3,8 +3,6 @@ package com.raditha.spring;
 import org.apache.maven.model.Dependency;
 import org.apache.maven.model.Model;
 import org.apache.maven.model.io.xpp3.MavenXpp3Reader;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 
 import java.io.FileReader;
@@ -30,16 +28,14 @@ import java.nio.file.Paths;
  * 
  * @see MigrationPhase
  */
-public class SpringCloudVersionMigrator implements MigrationPhase {
-    private static final Logger logger = LoggerFactory.getLogger(SpringCloudVersionMigrator.class);
+public class SpringCloudVersionMigrator extends MigrationPhase {
 
     private static final String MIN_HOXTON_VERSION = "Hoxton.SR8";
     private static final String RECOMMENDED_VERSION = "2020.0.3";
 
-    private final boolean dryRun;
 
     public SpringCloudVersionMigrator(boolean dryRun) {
-        this.dryRun = dryRun;
+        super(dryRun);
     }
 
     @Override

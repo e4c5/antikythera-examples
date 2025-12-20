@@ -46,8 +46,7 @@ import java.util.Map;
  * 
  * @see MigrationPhase
  */
-public class ValidationStarterDetector implements MigrationPhase {
-    private static final Logger logger = LoggerFactory.getLogger(ValidationStarterDetector.class);
+public class ValidationStarterDetector extends MigrationPhase {
 
     // Validation annotations to detect
     private static final List<String> VALIDATION_ANNOTATIONS = Arrays.asList(
@@ -55,10 +54,8 @@ public class ValidationStarterDetector implements MigrationPhase {
             "Size", "Min", "Max", "Email", "Pattern", "Positive", "Negative",
             "Future", "Past", "AssertTrue", "AssertFalse", "Digits");
 
-    private final boolean dryRun;
-
     public ValidationStarterDetector(boolean dryRun) {
-        this.dryRun = dryRun;
+        super(dryRun);
     }
 
     @Override

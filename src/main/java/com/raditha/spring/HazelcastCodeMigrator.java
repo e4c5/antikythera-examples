@@ -2,8 +2,6 @@ package com.raditha.spring;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.ImportDeclaration;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 
 import java.util.ArrayList;
@@ -36,13 +34,11 @@ import java.util.Map;
  * 
  * @see MigrationPhase
  */
-public class HazelcastCodeMigrator implements MigrationPhase {
-    private static final Logger logger = LoggerFactory.getLogger(HazelcastCodeMigrator.class);
+public class HazelcastCodeMigrator extends MigrationPhase {
 
-    private final boolean dryRun;
 
     public HazelcastCodeMigrator(boolean dryRun) {
-        this.dryRun = dryRun;
+        super(dryRun);
     }
 
     @Override

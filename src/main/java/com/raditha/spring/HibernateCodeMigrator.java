@@ -6,8 +6,6 @@ import com.github.javaparser.ast.expr.AnnotationExpr;
 import com.github.javaparser.ast.expr.MemberValuePair;
 import com.github.javaparser.ast.expr.NormalAnnotationExpr;
 import com.github.javaparser.ast.expr.SingleMemberAnnotationExpr;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 
@@ -28,13 +26,11 @@ import java.util.Map;
  * - Replaces @Type with @Convert annotations
  * - Marks generated stubs for manual completion
  */
-public class HibernateCodeMigrator implements MigrationPhase {
-    private static final Logger logger = LoggerFactory.getLogger(HibernateCodeMigrator.class);
+public class HibernateCodeMigrator extends MigrationPhase {
 
-    private final boolean dryRun;
 
     public HibernateCodeMigrator(boolean dryRun) {
-        this.dryRun = dryRun;
+        super(dryRun);
     }
 
     /**

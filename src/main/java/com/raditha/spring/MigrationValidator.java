@@ -1,7 +1,5 @@
 package com.raditha.spring;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -19,13 +17,11 @@ import java.util.List;
  * 3. Property validation - detect deprecated properties via spring-boot-properties-migrator
  * 4. Rollback instructions generation
  */
-public class MigrationValidator implements MigrationPhase {
-    private static final Logger logger = LoggerFactory.getLogger(MigrationValidator.class);
+public class MigrationValidator extends MigrationPhase {
 
-    private final boolean dryRun;
 
     public MigrationValidator(boolean dryRun) {
-        this.dryRun = dryRun;
+        super(dryRun);
     }
 
     /**

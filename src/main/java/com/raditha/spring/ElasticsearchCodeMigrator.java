@@ -2,8 +2,6 @@ package com.raditha.spring;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.ImportDeclaration;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 
 import java.util.ArrayList;
@@ -31,13 +29,11 @@ import java.util.Map;
  * 
  * @see MigrationPhase
  */
-public class ElasticsearchCodeMigrator implements MigrationPhase {
-    private static final Logger logger = LoggerFactory.getLogger(ElasticsearchCodeMigrator.class);
+public class ElasticsearchCodeMigrator extends MigrationPhase {
 
-    private final boolean dryRun;
 
     public ElasticsearchCodeMigrator(boolean dryRun) {
-        this.dryRun = dryRun;
+        super(dryRun);
     }
 
     @Override

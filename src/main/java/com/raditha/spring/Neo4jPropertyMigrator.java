@@ -2,8 +2,6 @@ package com.raditha.spring;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.ImportDeclaration;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.yaml.snakeyaml.Yaml;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
@@ -40,13 +38,11 @@ import java.util.stream.Stream;
  * 
  * @see MigrationPhase
  */
-public class Neo4jPropertyMigrator implements MigrationPhase {
-    private static final Logger logger = LoggerFactory.getLogger(Neo4jPropertyMigrator.class);
+public class Neo4jPropertyMigrator extends MigrationPhase {
 
-    private final boolean dryRun;
 
     public Neo4jPropertyMigrator(boolean dryRun) {
-        this.dryRun = dryRun;
+        super(dryRun);
     }
 
     @Override

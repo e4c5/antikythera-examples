@@ -39,10 +39,7 @@ import java.util.*;
  * 
  * @see MigrationPhase
  */
-public class CassandraCodeMigrator implements MigrationPhase {
-    private static final Logger logger = LoggerFactory.getLogger(CassandraCodeMigrator.class);
-
-    private final boolean dryRun;
+public class CassandraCodeMigrator extends AbstractCodeMigrator {
 
     // Package mapping: v3 → v4
     private static final Map<String, String> PACKAGE_MAPPINGS = Map.of(
@@ -51,14 +48,14 @@ public class CassandraCodeMigrator implements MigrationPhase {
             "com.datastax.driver.extras", "com.datastax.oss.driver.api.core.cql");
 
     public CassandraCodeMigrator(boolean dryRun) {
-        this.dryRun = dryRun;
+        super(dryRun);
     }
 
     @Override
     public MigrationPhaseResult migrate() {
         MigrationPhaseResult result = new MigrationPhaseResult();
 
-        Map<String, CompilationUnit> units = AntikytheraRunTime.getResolvedCompilationUnits();
+        Map<String, CompilationUnit> units = getCompilationUnits();
         Map<String, CompilationUnit> modifiedUnits = new HashMap<>();
 
         for (Map.Entry<String, CompilationUnit> entry : units.entrySet()) {
@@ -84,10 +81,8 @@ public class CassandraCodeMigrator implements MigrationPhase {
             return result;
         }
 
-        // Write back modified files (if not dry-run)
-        if (!dryRun) {
-            writeModifiedFiles(modifiedUnits, result);
-        }
+        // Write back modified files
+        writeModifiedFiles(modifiedUnits, result);
 
         // Add migration guidance for complex changes
         addManualMigrationGuidance(result, modifiedUnits.size());
@@ -152,69 +147,6 @@ public class CassandraCodeMigrator implements MigrationPhase {
         }
 
         return modified;
-    }
-
-    /**
-     * Write modified compilation units back to files.
-     * 
-     * @param modifiedUnits map of class names to modified compilation units
-     * @param result        migration result
-     */
-    private void writeModifiedFiles(Map<String, CompilationUnit> modifiedUnits, MigrationPhaseResult result) {
-        for (Map.Entry<String, CompilationUnit> entry : modifiedUnits.entrySet()) {
-            String className = entry.getKey();
-            CompilationUnit cu = entry.getValue();
-
-            try {
-                // Get file path from compilation unit's storage
-                cu.getStorage().ifPresent(storage -> {
-                    Path filePath = storage.getPath();
-                    try {
-                        Files.writeString(filePath, cu.toString());
-                        logger.info("Updated file: {}", filePath);
-                    } catch (IOException e) {
-                        result.addError("Failed to write " + className + ": " + e.getMessage());
-                        logger.error("Error writing file", e);
-                    }
-                });
-
-                // If storage not available, try to find file path from className
-                if (cu.getStorage().isEmpty()) {
-                    Path filePath = findSourceFile(className);
-                    if (filePath != null) {
-                        Files.writeString(filePath, cu.toString());
-                        logger.info("Updated file: {}", filePath);
-                    } else {
-                        result.addWarning("Could not determine file path for: " + className);
-                    }
-                }
-
-            } catch (Exception e) {
-                result.addError("Failed to write " + className + ": " + e.getMessage());
-                logger.error("Error writing file", e);
-            }
-        }
-    }
-
-    /**
-     * Find source file path for a class name.
-     * 
-     * @param className fully qualified class name
-     * @return path to source file, or null if not found
-     */
-    private Path findSourceFile(String className) {
-        try {
-            String basePath = sa.com.cloudsolutions.antikythera.configuration.Settings.getBasePath();
-            String relativePath = className.replace('.', '/') + ".java";
-            Path filePath = Paths.get(basePath, "src", "main", "java", relativePath);
-
-            if (Files.exists(filePath)) {
-                return filePath;
-            }
-        } catch (Exception e) {
-            logger.warn("Error finding source file for {}: {}", className, e.getMessage());
-        }
-        return null;
     }
 
     /**
