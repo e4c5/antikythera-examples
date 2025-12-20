@@ -61,7 +61,7 @@ public abstract class AbstractCodeMigrator extends MigrationPhase {
      * @param result        migration result for logging changes/errors
      */
     protected void writeModifiedFiles(Map<String, CompilationUnit> modifiedUnits,
-            MigrationPhaseResult result) {
+            MigrationPhaseResult result) throws IOException {
         if (dryRun) {
             result.addChange(String.format("Would modify %d files (dry-run mode)",
                     modifiedUnits.size()));
@@ -71,28 +71,18 @@ public abstract class AbstractCodeMigrator extends MigrationPhase {
         for (Map.Entry<String, CompilationUnit> entry : modifiedUnits.entrySet()) {
             String className = entry.getKey();
             CompilationUnit cu = entry.getValue();
+            if (cu.getStorage().isPresent()) {
+                Path filePath = cu.getStorage().get().getPath();
+                Files.writeString(filePath, cu.toString());
+                continue;
+            }
 
-            try {
-                // Try to use storage from parser
-                if (cu.getStorage().isPresent()) {
-                    Path filePath = cu.getStorage().get().getPath();
-                    Files.writeString(filePath, cu.toString());
-                    logger.info("Updated file: {}", filePath);
-                    continue;
-                }
-
-                // Fallback: Try to find source file by class name
-                Path filePath = findSourceFile(className);
-                if (filePath != null) {
-                    Files.writeString(filePath, cu.toString());
-                    logger.info("Updated file: {}", filePath);
-                } else {
-                    result.addWarning("Could not determine file path for: " + className);
-                }
-
-            } catch (IOException e) {
-                result.addError("Failed to write " + className + ": " + e.getMessage());
-                logger.error("Error writing file for {}", className, e);
+            // Fallback: Try to find source file by class name
+            Path filePath = findSourceFile(className);
+            if (filePath != null) {
+                Files.writeString(filePath, cu.toString());
+            } else {
+                result.addWarning("Could not determine file path for: " + className);
             }
         }
     }
@@ -104,32 +94,21 @@ public abstract class AbstractCodeMigrator extends MigrationPhase {
      * Converts class name to file path and searches in src/main/java.
      * 
      * @param className fully qualified class name (e.g., "com.example.MyClass")
-     * @return path to source file, or null if not found
+     * @return path to source file
      */
     protected Path findSourceFile(String className) {
-        try {
-            String basePath = sa.com.cloudsolutions.antikythera.configuration.Settings.getBasePath();
-            if (basePath == null) {
-                return null;
-            }
-
-            String relativePath = className.replace('.', '/') + ".java";
-            Path filePath = Paths.get(basePath, "src", "main", "java", relativePath);
-
-            if (Files.exists(filePath)) {
-                return filePath;
-            }
-
-            // Try test sources as fallback
-            filePath = Paths.get(basePath, "src", "test", "java", relativePath);
-            if (Files.exists(filePath)) {
-                return filePath;
-            }
-
-        } catch (Exception e) {
-            logger.warn("Error finding source file for {}: {}", className, e.getMessage());
+        String basePath = sa.com.cloudsolutions.antikythera.configuration.Settings.getBasePath();
+        if (basePath == null) {
+            return null;
         }
 
-        return null;
+        String relativePath = className.replace('.', '/') + ".java";
+        Path filePath = Paths.get(basePath, "src", "main", "java", relativePath);
+
+        if (Files.exists(filePath)) {
+            return filePath;
+        }
+
+        return Paths.get(basePath, "src", "test", "java", relativePath);
     }
 }

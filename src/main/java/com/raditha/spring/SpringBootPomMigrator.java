@@ -2,145 +2,66 @@ package com.raditha.spring;
 
 import org.apache.maven.model.Dependency;
 import org.apache.maven.model.Model;
-import org.apache.maven.model.Parent;
-import org.apache.maven.model.io.xpp3.MavenXpp3Reader;
-import org.apache.maven.model.io.xpp3.MavenXpp3Writer;
-import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.parser.MavenHelper;
-
-import java.io.FileReader;
-import java.io.FileWriter;
-import java.io.IOException;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 
 /**
  * Handles Maven POM migrations specific to Spring Boot 2.1 to 2.2 upgrade.
  * 
- * Responsibilities:
- * - Update Spring Boot parent version from 2.1.x to 2.2.13.RELEASE
- * - Migrate javax.mail to jakarta.mail
- * - Validate kafka-clients version (≥ 2.3.0 required)
- * - Upgrade Spring Cloud from Greenwich to Hoxton
- * - Sync ShedLock versions
- * - Upgrade Springfox to 3.0.0
+ * <p>
+ * Extends {@link AbstractPomMigrator} and implements version-specific dependency rules:
+ * <ul>
+ * <li>Update Spring Boot parent version from 2.1.x to 2.2.13.RELEASE</li>
+ * <li>Migrate javax.mail to jakarta.mail</li>
+ * <li>Validate kafka-clients version (≥ 2.3.0 required)</li>
+ * <li>Upgrade Spring Cloud from Greenwich to Hoxton</li>
+ * <li>Sync ShedLock versions</li>
+ * <li>Upgrade Springfox to 3.0.0</li>
+ * <li>Add spring-boot-properties-migrator for validation</li>
+ * </ul>
+ *
+ * @see AbstractPomMigrator
  */
-public class SpringBootPomMigrator extends MigrationPhase {
+public class SpringBootPomMigrator extends AbstractPomMigrator {
 
     private static final String TARGET_SPRING_BOOT_VERSION = "2.2.13.RELEASE";
     private static final String MIN_KAFKA_CLIENTS_VERSION = "2.3.0";
     private static final String TARGET_SPRING_CLOUD_VERSION = "Hoxton.SR12";
     private static final String TARGET_SPRINGFOX_VERSION = "3.0.0";
-
+    private static final String SPRING_BOOT_GROUP_ID = "org.springframework.boot";
+    private static final String SPRINGFOX_GROUP_ID = "io.springfox";
 
     public SpringBootPomMigrator(boolean dryRun) {
-        super(dryRun);
+        super(TARGET_SPRING_BOOT_VERSION, dryRun);
     }
 
-    /**
-     * Execute Spring Boot specific POM migrations.
-     */
-    public MigrationPhaseResult migrate() {
-        MigrationPhaseResult result = new MigrationPhaseResult();
+    @Override
+    protected void applyVersionSpecificDependencyRules(Model model, MigrationPhaseResult result) {
+        // Migrate Jakarta dependencies
+        migrateJakartaDependencies(model, result);
 
-        Path pomPath = resolvePomPath();
-        if (pomPath == null) {
-            result.addError("Could not find pom.xml");
-            return result;
-        }
+        // Upgrade Spring Cloud from Greenwich to Hoxton
+        upgradeSpringCloud(model, result);
 
-        try {
-            Model model = PomUtils.readPomModel(pomPath);
-            boolean modified = false;
+        // Sync ShedLock versions
+        syncShedLockVersions(model, result);
 
-            // Update Spring Boot parent version
-            if (updateSpringBootParent(model, result)) {
-                modified = true;
-            }
+        // Upgrade Springfox to 3.0.0
+        upgradeSpringfox(model, result);
 
-            // Migrate Jakarta dependencies
-            if (migrateJakartaDependencies(model, result)) {
-                modified = true;
-            }
-
-            // Validate and upgrade Kafka version if needed
-            validateKafkaClientVersion(model, result);
-
-            // Upgrade Spring Cloud from Greenwich to Hoxton
-            if (upgradeSpringCloud(model, result)) {
-                modified = true;
-            }
-
-            // Sync ShedLock versions
-            if (syncShedLockVersions(model, result)) {
-                modified = true;
-            }
-
-            // Upgrade Springfox to 3.0.0
-            if (upgradeSpringfox(model, result)) {
-                modified = true;
-            }
-
-            // Add spring-boot-properties-migrator for validation
-            if (addPropertiesMigrator(model, result)) {
-                modified = true;
-            }
-
-            if (modified && !dryRun) {
-                PomUtils.writePomModel(pomPath, model);
-                logger.info("POM migration completed successfully");
-            }
-
-        } catch (Exception e) {
-            logger.error("Error during POM migration", e);
-            result.addError("POM migration failed: " + e.getMessage());
-        }
-
-        return result;
+        // Add spring-boot-properties-migrator for validation
+        addPropertiesMigrator(model, result);
     }
 
-    /**
-     * Update Spring Boot parent version to 2.2.13.RELEASE.
-     */
-    private boolean updateSpringBootParent(Model model, MigrationPhaseResult result) {
-        Parent parent = model.getParent();
-
-        if (parent == null) {
-            result.addWarning("No parent POM found");
-            return false;
-        }
-
-        if (!"org.springframework.boot".equals(parent.getGroupId()) ||
-                !"spring-boot-starter-parent".equals(parent.getArtifactId())) {
-            result.addWarning("Parent is not spring-boot-starter-parent");
-            return false;
-        }
-
-        String currentVersion = parent.getVersion();
-        if (currentVersion.startsWith("2.2.")) {
-            logger.info("Spring Boot parent already at 2.2.x: {}", currentVersion);
-            return false;
-        }
-
-        if (dryRun) {
-            result.addChange(String.format("Would update Spring Boot parent: %s → %s",
-                    currentVersion, TARGET_SPRING_BOOT_VERSION));
-        } else {
-            parent.setVersion(TARGET_SPRING_BOOT_VERSION);
-            result.addChange(String.format("Updated Spring Boot parent: %s → %s",
-                    currentVersion, TARGET_SPRING_BOOT_VERSION));
-            logger.info("Updated Spring Boot parent version to {}", TARGET_SPRING_BOOT_VERSION);
-        }
-
-        return true;
+    @Override
+    protected void validateVersionSpecificRequirements(Model model, MigrationPhaseResult result) {
+        // Validate and upgrade Kafka version if needed
+        validateKafkaClientVersion(model, result);
     }
 
     /**
      * Migrate Java Mail dependency from javax.mail to jakarta.mail.
      */
-    private boolean migrateJakartaDependencies(Model model, MigrationPhaseResult result) {
-        boolean modified = false;
-
+    private void migrateJakartaDependencies(Model model, MigrationPhaseResult result) {
         // Check for javax.mail dependency
         Dependency javaxMail = model.getDependencies().stream()
                 .filter(dep -> "javax.mail".equals(dep.getGroupId()) &&
@@ -148,14 +69,13 @@ public class SpringBootPomMigrator extends MigrationPhase {
                 .findFirst()
                 .orElse(null);
 
-        if (dryRun) {
-            result.addChange("Would migrate: javax.mail:javax.mail-api → com.sun.mail:jakarta.mail");
+        if (javaxMail != null) {
+            if (dryRun) {
+                result.addChange("Would migrate: javax.mail:javax.mail-api → com.sun.mail:jakarta.mail");
+            } else {
+                migrateJavaXMail(model, result, javaxMail);
+            }
         }
-        else {
-            modified = migrateJavaXMail(model, result, javaxMail);
-        }
-
-        return modified;
     }
 
     /**
@@ -177,8 +97,6 @@ public class SpringBootPomMigrator extends MigrationPhase {
                             "kafka-clients version %s is below required %s for Spring Boot 2.2",
                             version, MIN_KAFKA_CLIENTS_VERSION));
                     result.addWarning("Spring Kafka 2.3+ requires kafka-clients 2.3.0+");
-                } else {
-                    logger.info("kafka-clients version {} is compatible", version);
                 }
             }
         }
@@ -197,12 +115,12 @@ public class SpringBootPomMigrator extends MigrationPhase {
     /**
      * Upgrade Spring Cloud from Greenwich to Hoxton.SR12.
      */
-    private boolean upgradeSpringCloud(Model model, MigrationPhaseResult result) {
+    private void upgradeSpringCloud(Model model, MigrationPhaseResult result) {
         // Check for spring-cloud.version property
         String currentVersion = model.getProperties().getProperty("spring-cloud.version");
         
         if (currentVersion == null) {
-            return false;
+            return;
         }
 
         // Check if it's Greenwich (incompatible with Spring Boot 2.2)
@@ -214,25 +132,21 @@ public class SpringBootPomMigrator extends MigrationPhase {
                 model.getProperties().setProperty("spring-cloud.version", TARGET_SPRING_CLOUD_VERSION);
                 result.addChange(String.format("Upgraded Spring Cloud: %s → %s",
                         currentVersion, TARGET_SPRING_CLOUD_VERSION));
-                logger.info("Upgraded Spring Cloud to {}", TARGET_SPRING_CLOUD_VERSION);
             }
-            return true;
         }
-
-        return false;
     }
 
     /**
      * Sync all ShedLock dependencies to the same version.
      */
-    private boolean syncShedLockVersions(Model model, MigrationPhaseResult result) {
+    private void syncShedLockVersions(Model model, MigrationPhaseResult result) {
         // Find all ShedLock dependencies
         java.util.List<Dependency> shedlockDeps = model.getDependencies().stream()
                 .filter(dep -> "net.javacrumbs.shedlock".equals(dep.getGroupId()))
                 .toList();
 
         if (shedlockDeps.isEmpty()) {
-            return false;
+            return;
         }
 
         // Check for version mismatches
@@ -242,7 +156,7 @@ public class SpringBootPomMigrator extends MigrationPhase {
                 .collect(java.util.stream.Collectors.toSet());
 
         if (versions.size() <= 1) {
-            return false; // All same version or using property
+            return; // All same version or using property
         }
 
         // Find the highest version to sync to
@@ -251,7 +165,7 @@ public class SpringBootPomMigrator extends MigrationPhase {
                 .orElse(null);
 
         if (targetVersion == null) {
-            return false;
+            return;
         }
 
         if (dryRun) {
@@ -264,22 +178,18 @@ public class SpringBootPomMigrator extends MigrationPhase {
             }
             result.addChange(String.format("Synced %d ShedLock dependencies to version %s",
                     shedlockDeps.size(), targetVersion));
-            logger.info("Synced ShedLock versions to {}", targetVersion);
         }
-
-        return true;
     }
 
     /**
      * Upgrade Springfox from 2.x to 3.0.0.
      * Also suggests SpringDoc OpenAPI as modern alternative.
      */
-    private boolean upgradeSpringfox(Model model, MigrationPhaseResult result) {
-        boolean modified = false;
+    private void upgradeSpringfox(Model model, MigrationPhaseResult result) {
 
         // Find Springfox dependencies
         java.util.List<Dependency> springfoxDeps = model.getDependencies().stream()
-                .filter(dep -> "io.springfox".equals(dep.getGroupId()))
+                .filter(dep -> SPRINGFOX_GROUP_ID.equals(dep.getGroupId()))
                 .toList();
 
         for (Dependency dep : springfoxDeps) {
@@ -292,41 +202,39 @@ public class SpringBootPomMigrator extends MigrationPhase {
                     dep.setVersion(TARGET_SPRINGFOX_VERSION);
                     result.addChange(String.format("Upgraded %s: %s → %s",
                             dep.getArtifactId(), version, TARGET_SPRINGFOX_VERSION));
-                    logger.info("Upgraded {} to {}", dep.getArtifactId(), TARGET_SPRINGFOX_VERSION);
                 }
-                modified = true;
             }
         }
 
         // Check if we need to replace swagger2 with boot-starter
         Dependency swagger2 = model.getDependencies().stream()
-                .filter(dep -> "io.springfox".equals(dep.getGroupId()) &&
+                .filter(dep -> SPRINGFOX_GROUP_ID.equals(dep.getGroupId()) &&
                         "springfox-swagger2".equals(dep.getArtifactId()))
                 .findFirst()
                 .orElse(null);
 
         Dependency swaggerUi = model.getDependencies().stream()
-                .filter(dep -> "io.springfox".equals(dep.getGroupId()) &&
+                .filter(dep -> SPRINGFOX_GROUP_ID.equals(dep.getGroupId()) &&
                         "springfox-swagger-ui".equals(dep.getArtifactId()))
                 .findFirst()
                 .orElse(null);
 
-        if (swagger2 != null && swaggerUi != null && !dryRun) {
-            // Remove both and add springfox-boot-starter
-            model.getDependencies().remove(swagger2);
-            model.getDependencies().remove(swaggerUi);
+        if (swagger2 != null && swaggerUi != null) {
+            if (dryRun) {
+                result.addChange("Would replace springfox-swagger2 + springfox-swagger-ui with springfox-boot-starter");
+            } else {
+                // Remove both and add springfox-boot-starter
+                model.getDependencies().remove(swagger2);
+                model.getDependencies().remove(swaggerUi);
 
-            Dependency bootStarter = new Dependency();
-            bootStarter.setGroupId("io.springfox");
-            bootStarter.setArtifactId("springfox-boot-starter");
-            bootStarter.setVersion(TARGET_SPRINGFOX_VERSION);
-            model.addDependency(bootStarter);
+                Dependency bootStarter = new Dependency();
+                bootStarter.setGroupId(SPRINGFOX_GROUP_ID);
+                bootStarter.setArtifactId("springfox-boot-starter");
+                bootStarter.setVersion(TARGET_SPRINGFOX_VERSION);
+                model.addDependency(bootStarter);
 
-            result.addChange("Replaced springfox-swagger2 + springfox-swagger-ui with springfox-boot-starter");
-            modified = true;
-        } else if (swagger2 != null && swaggerUi != null && dryRun) {
-            result.addChange("Would replace springfox-swagger2 + springfox-swagger-ui with springfox-boot-starter");
-            modified = true;
+                result.addChange("Replaced springfox-swagger2 + springfox-swagger-ui with springfox-boot-starter");
+            }
         }
 
         // Suggest SpringDoc OpenAPI as modern alternative
@@ -336,40 +244,35 @@ public class SpringBootPomMigrator extends MigrationPhase {
             result.addWarning("   SpringDoc offers better Spring Boot integration and OpenAPI 3.0 support");
             result.addWarning("   Migration guide: https://springdoc.org/#migrating-from-springfox");
         }
-
-        return modified;
     }
 
     /**
      * Add spring-boot-properties-migrator dependency for validation.
      * This dependency helps detect deprecated properties at runtime.
      */
-    private boolean addPropertiesMigrator(Model model, MigrationPhaseResult result) {
+    private void addPropertiesMigrator(Model model, MigrationPhaseResult result) {
         // Check if dependency already exists
         boolean hasPropertiesMigrator = model.getDependencies().stream()
-                .anyMatch(dep -> "org.springframework.boot".equals(dep.getGroupId()) &&
+                .anyMatch(dep -> SPRING_BOOT_GROUP_ID.equals(dep.getGroupId()) &&
                         "spring-boot-properties-migrator".equals(dep.getArtifactId()));
 
         if (hasPropertiesMigrator) {
             result.addChange("spring-boot-properties-migrator already present");
-            return false;
+            return;
         }
 
         if (dryRun) {
             result.addChange("Would add spring-boot-properties-migrator dependency (scope: runtime)");
         } else {
             Dependency propertiesMigrator = new Dependency();
-            propertiesMigrator.setGroupId("org.springframework.boot");
+            propertiesMigrator.setGroupId(SPRING_BOOT_GROUP_ID);
             propertiesMigrator.setArtifactId("spring-boot-properties-migrator");
             propertiesMigrator.setScope("runtime");
             model.addDependency(propertiesMigrator);
 
             result.addChange("Added spring-boot-properties-migrator (scope: runtime) - helps detect deprecated properties");
             result.addWarning("Remember to remove spring-boot-properties-migrator after migration validation is complete");
-            logger.info("Added spring-boot-properties-migrator dependency");
         }
-
-        return true;
     }
 
     @Override

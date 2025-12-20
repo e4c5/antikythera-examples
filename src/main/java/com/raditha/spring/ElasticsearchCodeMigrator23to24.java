@@ -91,7 +91,6 @@ public class ElasticsearchCodeMigrator23to24 extends MigrationPhase {
 
         if (filesWithLowLevelRestClient.isEmpty()) {
             result.addChange("No low-level Elasticsearch RestClient usage detected");
-            logger.info("No low-level RestClient imports found");
             return result;
         }
 
@@ -146,8 +145,6 @@ public class ElasticsearchCodeMigrator23to24 extends MigrationPhase {
                 guide.append("  - ").append(className).append("\n");
             }
         }
-
-        logger.warn("\n{}", guide);
         result.addChange(guide.toString());
 
         return result;

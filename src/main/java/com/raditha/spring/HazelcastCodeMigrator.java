@@ -5,6 +5,7 @@ import com.github.javaparser.ast.ImportDeclaration;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.NameExpr;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -54,7 +55,7 @@ public class HazelcastCodeMigrator extends AbstractCodeMigrator {
     }
 
     @Override
-    public MigrationPhaseResult migrate() {
+    public MigrationPhaseResult migrate() throws IOException {
         MigrationPhaseResult result = new MigrationPhaseResult();
 
         Map<String, CompilationUnit> units = getCompilationUnits();
@@ -83,21 +84,21 @@ public class HazelcastCodeMigrator extends AbstractCodeMigrator {
             int transformCount = 0;
 
             // Transform static Hazelcast method calls
-            int staticMethodChanges = transformStaticHazelcastCalls(cu, className, result);
+            int staticMethodChanges = transformStaticHazelcastCalls(cu, className);
             if (staticMethodChanges > 0) {
                 modified = true;
                 transformCount += staticMethodChanges;
             }
 
             // Transform GroupConfig to cluster name pattern
-            int groupConfigChanges = transformGroupConfig(cu, className, result);
+            int groupConfigChanges = transformGroupConfig(cu, className);
             if (groupConfigChanges > 0) {
                 modified = true;
                 transformCount += groupConfigChanges;
             }
 
             // Flag ICompletableFuture usage
-            int futureChanges = flagICompletableFuture(cu, className, result);
+            int futureChanges = flagICompletableFuture(cu, className);
             if (futureChanges > 0) {
                 transformCount += futureChanges;
                 // Note: We flag but don't auto-transform ICompletableFuture (too complex)
@@ -118,7 +119,6 @@ public class HazelcastCodeMigrator extends AbstractCodeMigrator {
 
         if (filesWithChanges == 0 && totalTransformations == 0) {
             result.addChange("No Hazelcast usage detected");
-            logger.info("No Hazelcast code found to migrate");
             return result;
         }
 
@@ -142,16 +142,14 @@ public class HazelcastCodeMigrator extends AbstractCodeMigrator {
      * Example: Hazelcast.getMap("name") → // TODO: Use
      * hazelcastInstance.getMap("name")
      */
-    private int transformStaticHazelcastCalls(CompilationUnit cu, String className,
-            MigrationPhaseResult result) {
+    private int transformStaticHazelcastCalls(CompilationUnit cu, String className) {
         int count = 0;
 
         for (MethodCallExpr methodCall : cu.findAll(MethodCallExpr.class)) {
             // Check if it's a static call to Hazelcast class
             if (methodCall.getScope().isPresent() &&
-                    methodCall.getScope().get() instanceof NameExpr) {
+                    methodCall.getScope().get() instanceof NameExpr scope) {
 
-                NameExpr scope = (NameExpr) methodCall.getScope().get();
                 String scopeName = scope.getNameAsString();
                 String methodName = methodCall.getNameAsString();
 
@@ -167,8 +165,6 @@ public class HazelcastCodeMigrator extends AbstractCodeMigrator {
 
                     methodCall.setLineComment(comment);
                     count++;
-
-                    logger.info("Flagged static Hazelcast.{}() call in {}", methodName, className);
                 }
             }
         }
@@ -181,8 +177,7 @@ public class HazelcastCodeMigrator extends AbstractCodeMigrator {
      * 
      * Example: config.getGroupConfig().setName() → config.setClusterName()
      */
-    private int transformGroupConfig(CompilationUnit cu, String className,
-            MigrationPhaseResult result) {
+    private int transformGroupConfig(CompilationUnit cu, String className) {
         int count = 0;
 
         for (MethodCallExpr methodCall : cu.findAll(MethodCallExpr.class)) {
@@ -194,7 +189,6 @@ public class HazelcastCodeMigrator extends AbstractCodeMigrator {
                         " TODO [Hazelcast 4.x]: GroupConfig deprecated. " +
                                 "Use config.setClusterName(\"name\") instead of config.getGroupConfig().setName(\"name\")");
                 count++;
-                logger.info("Flagged GroupConfig usage in {}", className);
             }
 
             // Look for setGroup() calls
@@ -203,7 +197,6 @@ public class HazelcastCodeMigrator extends AbstractCodeMigrator {
                         " TODO [Hazelcast 4.x]: setGroup/setGroupConfig deprecated. " +
                                 "Use setClusterName() instead");
                 count++;
-                logger.info("Flagged setGroup/setGroupConfig call in {}", className);
             }
         }
 
@@ -214,8 +207,7 @@ public class HazelcastCodeMigrator extends AbstractCodeMigrator {
      * Flag ICompletableFuture usage (removed in 4.x, replaced with
      * CompletionStage).
      */
-    private int flagICompletableFuture(CompilationUnit cu, String className,
-            MigrationPhaseResult result) {
+    private int flagICompletableFuture(CompilationUnit cu, String className) {
         int count = 0;
 
         // Check for ICompletableFuture imports
@@ -225,7 +217,6 @@ public class HazelcastCodeMigrator extends AbstractCodeMigrator {
                         " TODO [Hazelcast 4.x]: ICompletableFuture removed. " +
                                 "Use CompletionStage or CompletableFuture instead");
                 count++;
-                logger.info("Flagged ICompletableFuture import in {}", className);
             }
         }
 

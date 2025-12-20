@@ -29,13 +29,6 @@ import java.nio.file.Paths;
  * migrators.
  */
 public abstract class MigrationPhase {
-
-    /**
-     * Logger for migration operations.
-     * Subclasses should use this instead of creating their own.
-     */
-    protected final Logger logger = LoggerFactory.getLogger(getClass());
-
     /**
      * Whether this migration should run in dry-run mode (no file modifications).
      */
@@ -107,19 +100,4 @@ public abstract class MigrationPhase {
         }
         return false;
     }
-
-    protected Path resolvePomPath() {
-        Path basePath = Paths.get(Settings.getBasePath());
-        Path pomPath = basePath.resolve("pom.xml");
-
-        if (!pomPath.toFile().exists()) {
-            pomPath = basePath.getParent().resolve("pom.xml");
-        }
-
-        if (pomPath.toFile().exists()) {
-            return pomPath;
-        }
-        return null;
-    }
-
 }

@@ -83,7 +83,6 @@ public class ActuatorConfigDetector extends MigrationPhase {
             if (clazz.getImplementedTypes().stream()
                     .anyMatch(type -> type.getNameAsString().contains("HttpTraceRepository"))) {
                 result.addChange(className + ": Found HttpTraceRepository implementation");
-                logger.info("Detected HttpTraceRepository in {}", className);
                 return true;
             }
 
@@ -94,7 +93,6 @@ public class ActuatorConfigDetector extends MigrationPhase {
                     if (method.getType().asString().contains("HttpTraceRepository")) {
                         result.addChange(className + "." + method.getNameAsString() + 
                             ": Found @Bean returning HttpTraceRepository");
-                        logger.info("Detected HttpTraceRepository bean in {}", className);
                         return true;
                     }
                 }
@@ -116,7 +114,6 @@ public class ActuatorConfigDetector extends MigrationPhase {
             if (clazz.getImplementedTypes().stream()
                     .anyMatch(type -> type.getNameAsString().contains("AuditEventRepository"))) {
                 result.addChange(className + ": Found AuditEventRepository implementation");
-                logger.info("Detected AuditEventRepository in {}", className);
                 return true;
             }
 
@@ -127,7 +124,6 @@ public class ActuatorConfigDetector extends MigrationPhase {
                     if (method.getType().asString().contains("AuditEventRepository")) {
                         result.addChange(className + "." + method.getNameAsString() + 
                             ": Found @Bean returning AuditEventRepository");
-                        logger.info("Detected AuditEventRepository bean in {}", className);
                         return true;
                     }
                 }
@@ -138,7 +134,6 @@ public class ActuatorConfigDetector extends MigrationPhase {
                     .anyMatch(type -> type.getNameAsString().contains("AbstractAuditListener") ||
                                      type.getNameAsString().contains("AuditListener"))) {
                 result.addChange(className + ": Found AuditListener implementation");
-                logger.info("Detected AuditListener in {}", className);
                 return true;
             }
         }

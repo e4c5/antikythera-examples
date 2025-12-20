@@ -80,7 +80,6 @@ public class R2dbcCodeMigrator extends MigrationPhase {
 
         if (filesWithR2dbc.isEmpty()) {
             result.addChange("No R2DBC usage detected");
-            logger.info("No R2DBC imports found");
             return result;
         }
 
@@ -96,8 +95,6 @@ public class R2dbcCodeMigrator extends MigrationPhase {
         }
 
         result.setRequiresManualReview(true);
-        logger.warn("R2DBC usage detected in {} files", filesWithR2dbc.size());
-
         return result;
     }
 

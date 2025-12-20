@@ -114,7 +114,7 @@ public class PomDependencyMigrator {
      * @return true if migrations were applied, false otherwise
      */
     public boolean migratePom() {
-        Path pomPath = resolvePomPath();
+        Path pomPath = PomUtils.resolvePomPath();
         if (pomPath == null) {
             logger.warn("Could not find pom.xml");
             return false;
@@ -584,27 +584,6 @@ public class PomDependencyMigrator {
         } catch (NumberFormatException e) {
             return 0;
         }
-    }
-
-    // Resolve path to pom.xml
-    private Path resolvePomPath() {
-        try {
-            Path basePath = Paths.get(Settings.getBasePath());
-            Path pomPath = basePath.resolve("pom.xml");
-
-            if (!pomPath.toFile().exists()) {
-                // Try parent directory
-                pomPath = basePath.getParent().resolve("pom.xml");
-            }
-
-            if (pomPath.toFile().exists()) {
-                return pomPath;
-            }
-        } catch (Exception e) {
-            logger.error("Error resolving POM path", e);
-        }
-
-        return null;
     }
 
     // Write the model back to pom.xml

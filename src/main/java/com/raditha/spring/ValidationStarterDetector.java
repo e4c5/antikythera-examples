@@ -53,7 +53,7 @@ public class ValidationStarterDetector extends MigrationPhase {
     }
 
     @Override
-    public MigrationPhaseResult migrate() {
+    public MigrationPhaseResult migrate() throws Exception {
         MigrationPhaseResult result = new MigrationPhaseResult();
 
         // Step 1: Detect validation usage
@@ -61,22 +61,17 @@ public class ValidationStarterDetector extends MigrationPhase {
 
         if (!usesValidation) {
             result.addChange("No validation usage detected - starter not needed");
-            logger.info("No validation usage found in project");
             return result;
         }
 
         // Step 2: Check if validation starter already present
         if (hasValidationStarter()) {
             result.addChange("Validation starter already present in POM");
-            logger.info("Validation starter already configured");
             return result;
         }
 
         // Step 3: Add validation starter
-        if (addValidationStarter(result)) {
-            logger.info("Added spring-boot-starter-validation dependency");
-        }
-
+        addValidationStarter(result);
         return result;
     }
 
@@ -106,8 +101,6 @@ public class ValidationStarterDetector extends MigrationPhase {
                             fileHasValidation = true;
                         }
                         validationUsageCount++;
-                        logger.debug("Found validation annotation in {}: @{} (resolved from {})",
-                                className, annotationName, importWrapper.getImport().getNameAsString());
                     }
                 }
             }
@@ -116,8 +109,6 @@ public class ValidationStarterDetector extends MigrationPhase {
         if (validationUsageCount > 0) {
             result.addChange(String.format("Detected validation usage: %d occurrences across %d files",
                     validationUsageCount, filesWithValidation));
-            logger.info("Validation detected: {} occurrences in {} files",
-                    validationUsageCount, filesWithValidation);
             return true;
         }
 
@@ -139,61 +130,36 @@ public class ValidationStarterDetector extends MigrationPhase {
     /**
      * Check if spring-boot-starter-validation is already in POM.
      */
-    private boolean hasValidationStarter() {
-        try {
-            Path pomPath = resolvePomPath();
-            if (pomPath == null) {
-                logger.warn("Could not find pom.xml");
-                return false;
-            }
+    private boolean hasValidationStarter() throws Exception {
+        Path pomPath = PomUtils.resolvePomPath();
+        Model model = PomUtils.readPomModel(pomPath);
 
-            Model model = PomUtils.readPomModel(pomPath);
-
-            return model.getDependencies().stream()
-                    .anyMatch(dep -> "org.springframework.boot".equals(dep.getGroupId()) &&
-                            "spring-boot-starter-validation".equals(dep.getArtifactId()));
-
-        } catch (Exception e) {
-            logger.error("Error checking POM for validation starter", e);
-            return false;
-        }
+        return model.getDependencies().stream()
+                .anyMatch(dep -> "org.springframework.boot".equals(dep.getGroupId()) &&
+                        "spring-boot-starter-validation".equals(dep.getArtifactId()));
     }
 
     /**
      * Add spring-boot-starter-validation to POM.
      */
-    private boolean addValidationStarter(MigrationPhaseResult result) {
-        try {
-            Path pomPath = resolvePomPath();
-            if (pomPath == null) {
-                result.addError("Could not find pom.xml to add validation starter");
-                return false;
-            }
+    private void addValidationStarter(MigrationPhaseResult result) throws Exception {
+        Path pomPath = PomUtils.resolvePomPath();
+        Model model = PomUtils.readPomModel(pomPath);
 
-            Model model = PomUtils.readPomModel(pomPath);
+        // Add validation starter dependency
+        Dependency validationStarter = new Dependency();
+        validationStarter.setGroupId("org.springframework.boot");
+        validationStarter.setArtifactId("spring-boot-starter-validation");
+        // No version needed - managed by Spring Boot BOM
 
-            // Add validation starter dependency
-            Dependency validationStarter = new Dependency();
-            validationStarter.setGroupId("org.springframework.boot");
-            validationStarter.setArtifactId("spring-boot-starter-validation");
-            // No version needed - managed by Spring Boot BOM
-
-            if (dryRun) {
-                result.addChange("Would add spring-boot-starter-validation dependency");
-            } else {
-                model.addDependency(validationStarter);
-                PomUtils.writePomModel(pomPath, model);
-                result.addChange("Added spring-boot-starter-validation dependency");
-                result.addWarning(
-                        "CRITICAL: Validation starter added - required for @Valid, @Validated annotations to work");
-            }
-
-            return true;
-
-        } catch (Exception e) {
-            logger.error("Error adding validation starter to POM", e);
-            result.addError("Failed to add validation starter: " + e.getMessage());
-            return false;
+        if (dryRun) {
+            result.addChange("Would add spring-boot-starter-validation dependency");
+        } else {
+            model.addDependency(validationStarter);
+            PomUtils.writePomModel(pomPath, model);
+            result.addChange("Added spring-boot-starter-validation dependency");
+            result.addWarning(
+                    "CRITICAL: Validation starter added - required for @Valid, @Validated annotations to work");
         }
     }
 

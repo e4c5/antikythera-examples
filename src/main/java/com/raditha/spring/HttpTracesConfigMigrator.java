@@ -3,6 +3,7 @@ package com.raditha.spring;
 import org.yaml.snakeyaml.Yaml;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -37,55 +38,48 @@ public class HttpTracesConfigMigrator extends AbstractConfigMigrator {
     }
 
     @Override
-    public MigrationPhaseResult migrate() {
+    public MigrationPhaseResult migrate() throws IOException {
         MigrationPhaseResult result = new MigrationPhaseResult();
 
-        try {
-            Path basePath = Paths.get(Settings.getBasePath());
-            Path resourcesPath = basePath.resolve("src/main/resources");
+        Path basePath = Paths.get(Settings.getBasePath());
+        Path resourcesPath = basePath.resolve("src/main/resources");
 
-            if (!Files.exists(resourcesPath)) {
-                result.addChange("No resources directory found");
-                return result;
+        if (!Files.exists(resourcesPath)) {
+            result.addChange("No resources directory found");
+            return result;
+        }
+
+        List<Path> yamlFiles = PropertyFileUtils.findPropertyFiles(resourcesPath, "*.yml", "*.yaml");
+        List<Path> propFiles = PropertyFileUtils.findPropertyFiles(resourcesPath, "*.properties");
+
+        boolean hasHttpTraceConfig = false;
+
+        // Check YAML files
+        for (Path yamlFile : yamlFiles) {
+            if (hasHttpTraceConfigYaml(yamlFile)) {
+                hasHttpTraceConfig = true;
+                result.addChange(String.format("%s: HTTP trace configuration detected",
+                        yamlFile.getFileName()));
             }
+        }
 
-            List<Path> yamlFiles = PropertyFileUtils.findPropertyFiles(resourcesPath, "*.yml", "*.yaml");
-            List<Path> propFiles = PropertyFileUtils.findPropertyFiles(resourcesPath, "*.properties");
-
-            boolean hasHttpTraceConfig = false;
-
-            // Check YAML files
-            for (Path yamlFile : yamlFiles) {
-                if (hasHttpTraceConfigYaml(yamlFile)) {
-                    hasHttpTraceConfig = true;
-                    result.addChange(String.format("%s: HTTP trace configuration detected",
-                            yamlFile.getFileName()));
-                }
+        // Check properties files
+        for (Path propFile : propFiles) {
+            if (hasHttpTraceConfigProperties(propFile)) {
+                hasHttpTraceConfig = true;
+                result.addChange(String.format("%s: HTTP trace configuration detected",
+                        propFile.getFileName()));
             }
+        }
 
-            // Check properties files
-            for (Path propFile : propFiles) {
-                if (hasHttpTraceConfigProperties(propFile)) {
-                    hasHttpTraceConfig = true;
-                    result.addChange(String.format("%s: HTTP trace configuration detected",
-                            propFile.getFileName()));
-                }
-            }
-
-            if (hasHttpTraceConfig) {
-                result.addWarning("HTTP_TRACES: Spring Boot 2.4 excludes cookies from HTTP traces by default");
-                result.addWarning("HTTP_TRACES: Previously, request cookies and Set-Cookie headers were included");
-                result.addWarning("HTTP_TRACES: To restore previous behavior, add:");
-                result.addWarning("  management.trace.http.include=cookie-headers,request-headers,response-headers");
-                result.setRequiresManualReview(true);
-                logger.warn("HTTP trace configuration detected - review cookie exclusion behavior");
-            } else {
-                result.addChange("No HTTP trace configuration detected");
-            }
-
-        } catch (Exception e) {
-            result.addError("HTTP trace configuration detection failed: " + e.getMessage());
-            logger.error("HTTP trace configuration detection failed", e);
+        if (hasHttpTraceConfig) {
+            result.addWarning("HTTP_TRACES: Spring Boot 2.4 excludes cookies from HTTP traces by default");
+            result.addWarning("HTTP_TRACES: Previously, request cookies and Set-Cookie headers were included");
+            result.addWarning("HTTP_TRACES: To restore previous behavior, add:");
+            result.addWarning("  management.trace.http.include=cookie-headers,request-headers,response-headers");
+            result.setRequiresManualReview(true);
+        } else {
+            result.addChange("No HTTP trace configuration detected");
         }
 
         return result;
@@ -95,43 +89,39 @@ public class HttpTracesConfigMigrator extends AbstractConfigMigrator {
      * Check if YAML file has HTTP trace configuration.
      */
     @SuppressWarnings("unchecked")
-    private boolean hasHttpTraceConfigYaml(Path yamlFile) {
-        try {
-            Yaml yaml = YamlUtils.createYaml();
+    private boolean hasHttpTraceConfigYaml(Path yamlFile) throws IOException {
+        Yaml yaml = YamlUtils.createYaml();
 
-            // Process documents while stream is open (loadAll returns lazy iterator)
-            try (InputStream input = Files.newInputStream(yamlFile)) {
-                Iterable<Object> documents = yaml.loadAll(input);
+        // Process documents while stream is open (loadAll returns lazy iterator)
+        try (InputStream input = Files.newInputStream(yamlFile)) {
+            Iterable<Object> documents = yaml.loadAll(input);
 
-                for (Object doc : documents) {
-                    if (!(doc instanceof Map)) {
+            for (Object doc : documents) {
+                if (!(doc instanceof Map)) {
+                    continue;
+                }
+
+                Map<String, Object> data = (Map<String, Object>) doc;
+                if (data.containsKey("management")) {
+                    Object managementObj = data.get("management");
+                    if (!(managementObj instanceof Map)) {
                         continue;
                     }
 
-                    Map<String, Object> data = (Map<String, Object>) doc;
-                    if (data.containsKey("management")) {
-                        Object managementObj = data.get("management");
-                        if (!(managementObj instanceof Map)) {
+                    Map<String, Object> management = (Map<String, Object>) managementObj;
+                    if (management.containsKey("trace")) {
+                        Object traceObj = management.get("trace");
+                        if (!(traceObj instanceof Map)) {
                             continue;
                         }
 
-                        Map<String, Object> management = (Map<String, Object>) managementObj;
-                        if (management.containsKey("trace")) {
-                            Object traceObj = management.get("trace");
-                            if (!(traceObj instanceof Map)) {
-                                continue;
-                            }
-
-                            Map<String, Object> trace = (Map<String, Object>) traceObj;
-                            if (trace.containsKey("http")) {
-                                return true;
-                            }
+                        Map<String, Object> trace = (Map<String, Object>) traceObj;
+                        if (trace.containsKey("http")) {
+                            return true;
                         }
                     }
                 }
             }
-        } catch (Exception e) {
-            logger.debug("Error checking HTTP trace config in {}", yamlFile, e);
         }
 
         return false;
@@ -140,21 +130,15 @@ public class HttpTracesConfigMigrator extends AbstractConfigMigrator {
     /**
      * Check if properties file has HTTP trace configuration.
      */
-    private boolean hasHttpTraceConfigProperties(Path propFile) {
-        try {
-            Properties props = new Properties();
-            try (InputStream input = Files.newInputStream(propFile)) {
-                props.load(input);
-            }
-
-            return props.stringPropertyNames().stream()
-                    .anyMatch(key -> key.startsWith("management.trace.http"));
-
-        } catch (Exception e) {
-            logger.debug("Error checking HTTP trace config in {}", propFile, e);
+    private boolean hasHttpTraceConfigProperties(Path propFile) throws IOException {
+        Properties props = new Properties();
+        try (InputStream input = Files.newInputStream(propFile)) {
+            props.load(input);
         }
 
-        return false;
+        return props.stringPropertyNames().stream()
+                .anyMatch(key -> key.startsWith("management.trace.http"));
+
     }
 
     @Override

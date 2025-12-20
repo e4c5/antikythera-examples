@@ -68,8 +68,6 @@ public class KafkaCodeMigrator extends MigrationPhase {
 
         if (changeCount == 0) {
             result.addChange("No Kafka migrations needed");
-        } else {
-            logger.info("Kafka migration complete: {} classes updated", changeCount);
         }
 
         return result;

@@ -3,6 +3,7 @@ package com.raditha.spring;
 import org.yaml.snakeyaml.Yaml;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
@@ -48,41 +49,35 @@ public class ConfigurationProcessingMigrator extends MigrationPhase {
     }
 
     @Override
-    public MigrationPhaseResult migrate() {
+    public MigrationPhaseResult migrate() throws IOException {
         MigrationPhaseResult result = new MigrationPhaseResult();
 
-        try {
-            Path basePath = Paths.get(Settings.getBasePath());
-            List<Path> yamlFiles = PropertyFileUtils.findPropertyFiles(basePath, "src/main/resources", "*.yml",
-                    "*.yaml");
-            List<Path> propFiles = PropertyFileUtils.findPropertyFiles(basePath, "src/main/resources", "*.properties");
+        Path basePath = Paths.get(Settings.getBasePath());
+        List<Path> yamlFiles = PropertyFileUtils.findPropertyFiles(basePath, "src/main/resources", "*.yml",
+                "*.yaml");
+        List<Path> propFiles = PropertyFileUtils.findPropertyFiles(basePath, "src/main/resources", "*.properties");
 
-            if (yamlFiles.isEmpty() && propFiles.isEmpty()) {
-                result.addChange("No configuration files found");
-                return result;
-            }
+        if (yamlFiles.isEmpty() && propFiles.isEmpty()) {
+            result.addChange("No configuration files found");
+            return result;
+        }
 
-            result.addChange(String.format("Found %d YAML and %d properties configuration file(s)",
-                    yamlFiles.size(), propFiles.size()));
+        result.addChange(String.format("Found %d YAML and %d properties configuration file(s)",
+                yamlFiles.size(), propFiles.size()));
 
-            // Process YAML files
-            for (Path yamlFile : yamlFiles) {
-                processYamlFile(yamlFile, result);
-            }
+        // Process YAML files
+        for (Path yamlFile : yamlFiles) {
+            processYamlFile(yamlFile, result);
+        }
 
-            // Process properties files
-            for (Path propFile : propFiles) {
-                processPropertiesFile(propFile, result);
-            }
+        // Process properties files
+        for (Path propFile : propFiles) {
+            processPropertiesFile(propFile, result);
+        }
 
-            if (result.requiresManualReview()) {
-                result.addWarning("Complex multi-document YAML files detected - manual review recommended");
-                result.addWarning("Consider using spring.config.use-legacy-processing=true temporarily");
-            }
-
-        } catch (Exception e) {
-            result.addError("Configuration processing migration failed: " + e.getMessage());
-            logger.error("Configuration processing migration failed", e);
+        if (result.requiresManualReview()) {
+            result.addWarning("Complex multi-document YAML files detected - manual review recommended");
+            result.addWarning("Consider using spring.config.use-legacy-processing=true temporarily");
         }
 
         return result;
@@ -91,75 +86,69 @@ public class ConfigurationProcessingMigrator extends MigrationPhase {
     /**
      * Process a single YAML file for configuration changes.
      */
-    private void processYamlFile(Path yamlFile, MigrationPhaseResult result) {
-        try {
-            Yaml yaml = YamlUtils.createYaml();
+    private void processYamlFile(Path yamlFile, MigrationPhaseResult result) throws IOException {
+        Yaml yaml = YamlUtils.createYaml();
 
-            // Check for multiple documents - process while stream is open (loadAll returns
-            // lazy iterator)
-            List<Map<String, Object>> docList = new ArrayList<>();
-            boolean hasLegacyProfileDocuments = false;
-            boolean hasNewProfileActivationDocuments = false;
-            boolean hasProfileGroups = false;
+        // Check for multiple documents - process while stream is open (loadAll returns
+        // lazy iterator)
+        List<Map<String, Object>> docList = new ArrayList<>();
+        boolean hasLegacyProfileDocuments = false;
+        boolean hasNewProfileActivationDocuments = false;
+        boolean hasProfileGroups = false;
 
-            try (InputStream input = Files.newInputStream(yamlFile)) {
-                Iterable<Object> documents = yaml.loadAll(input);
+        try (InputStream input = Files.newInputStream(yamlFile)) {
+            Iterable<Object> documents = yaml.loadAll(input);
 
-                for (Object doc : documents) {
-                    if (doc instanceof Map) {
-                        @SuppressWarnings("unchecked")
-                        Map<String, Object> docMap = (Map<String, Object>) doc;
-                        docList.add(docMap);
+            for (Object doc : documents) {
+                if (doc instanceof Map) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> docMap = (Map<String, Object>) doc;
+                    docList.add(docMap);
 
-                        hasLegacyProfileDocuments |= hasLegacyProfileSyntax(docMap);
-                        hasNewProfileActivationDocuments |= hasNewProfileActivationSyntax(docMap);
-                        hasProfileGroups |= hasProfileGroupsSyntax(docMap);
-                    }
+                    hasLegacyProfileDocuments |= hasLegacyProfileSyntax(docMap);
+                    hasNewProfileActivationDocuments |= hasNewProfileActivationSyntax(docMap);
+                    hasProfileGroups |= hasProfileGroupsSyntax(docMap);
                 }
             }
-
-            // Profile groups can affect processing order in Spring Boot 2.4+
-            if (hasProfileGroups) {
-                result.setRequiresManualReview(true);
-                result.addWarning(String.format("%s: Profile groups detected - verify processing order",
-                        yamlFile.getFileName()));
-            }
-
-            // If multi-document file contains profile-specific documents (legacy or new
-            // syntax), flag for manual review
-            boolean hasProfileDocuments = hasLegacyProfileDocuments || hasNewProfileActivationDocuments;
-            if (docList.size() > 1 && hasProfileDocuments) {
-                result.setRequiresManualReview(true);
-                result.addWarning(String.format("%s: Multi-document YAML with profiles requires manual review",
-                        yamlFile.getFileName()));
-
-                // Only add legacy-processing flag when legacy profile syntax is detected.
-                // Multi-document YAML files already using the new activation syntax should be
-                // reviewed,
-                // but we avoid mutating them automatically.
-                if (hasLegacyProfileDocuments) {
-                    addLegacyProcessingFlag(yamlFile, result);
-                }
-                return;
-            }
-
-            // For simple files, transform the profile syntax
-            if (docList.size() == 1) {
-                Map<String, Object> data = docList.get(0);
-                if (transformYamlData(data, result, yamlFile.getFileName().toString())) {
-                    if (!dryRun) {
-                        try (OutputStream output = Files.newOutputStream(yamlFile)) {
-                            yaml.dump(data, new OutputStreamWriter(output));
-                        }
-                    }
-                }
-            }
-
-        } catch (Exception e) {
-            result.addError(String.format("Failed to process %s: %s",
-                    yamlFile.getFileName(), e.getMessage()));
-            logger.error("Failed to process YAML file: {}", yamlFile, e);
         }
+
+        // Profile groups can affect processing order in Spring Boot 2.4+
+        if (hasProfileGroups) {
+            result.setRequiresManualReview(true);
+            result.addWarning(String.format("%s: Profile groups detected - verify processing order",
+                    yamlFile.getFileName()));
+        }
+
+        // If multi-document file contains profile-specific documents (legacy or new
+        // syntax), flag for manual review
+        boolean hasProfileDocuments = hasLegacyProfileDocuments || hasNewProfileActivationDocuments;
+        if (docList.size() > 1 && hasProfileDocuments) {
+            result.setRequiresManualReview(true);
+            result.addWarning(String.format("%s: Multi-document YAML with profiles requires manual review",
+                    yamlFile.getFileName()));
+
+            // Only add legacy-processing flag when legacy profile syntax is detected.
+            // Multi-document YAML files already using the new activation syntax should be
+            // reviewed,
+            // but we avoid mutating them automatically.
+            if (hasLegacyProfileDocuments) {
+                addLegacyProcessingFlag(yamlFile, result);
+            }
+            return;
+        }
+
+        // For simple files, transform the profile syntax
+        if (docList.size() == 1) {
+            Map<String, Object> data = docList.get(0);
+            if (transformYamlData(data, result, yamlFile.getFileName().toString())) {
+                if (!dryRun) {
+                    try (OutputStream output = Files.newOutputStream(yamlFile)) {
+                        yaml.dump(data, new OutputStreamWriter(output));
+                    }
+                }
+            }
+        }
+
     }
 
     /**
@@ -205,7 +194,7 @@ public class ConfigurationProcessingMigrator extends MigrationPhase {
         } catch (Exception e) {
             result.addError(String.format("Failed to process %s: %s",
                     propFile.getFileName(), e.getMessage()));
-            logger.error("Failed to process properties file: {}", propFile, e);
+
         }
     }
 

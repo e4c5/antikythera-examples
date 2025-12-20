@@ -72,8 +72,6 @@ public class HibernateCodeMigrator extends MigrationPhase {
                     } else if (dryRun) {
                         result.addChange(className + ": Would generate AttributeConverter for @TypeDef(name=\"" + typeName + "\")");
                     }
-                    
-                    logger.info("Found @TypeDef in {} - AttributeConverter migration required", className);
                 }
             }
 
@@ -155,7 +153,6 @@ public class HibernateCodeMigrator extends MigrationPhase {
         
         // Write file
         Files.writeString(converterPath, converterCode);
-        logger.info("Generated AttributeConverter stub: {}", converterPath);
         
         return converterPackage + "." + converterClassName;
     }

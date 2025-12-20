@@ -115,7 +115,7 @@ public class SpringBoot21to22Migrator extends AbstractSpringBootMigrator {
     }
 
     @Override
-    protected void executeVersionSpecificMigrations() {
+    protected void executeVersionSpecificMigrations() throws IOException {
         // Phase 3: Code Migrations
         logger.info("Phase 3: Migrating code (Kafka, Redis, Hibernate)...");
 

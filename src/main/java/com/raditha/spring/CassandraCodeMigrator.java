@@ -52,7 +52,7 @@ public class CassandraCodeMigrator extends AbstractCodeMigrator {
     }
 
     @Override
-    public MigrationPhaseResult migrate() {
+    public MigrationPhaseResult migrate() throws IOException {
         MigrationPhaseResult result = new MigrationPhaseResult();
 
         Map<String, CompilationUnit> units = getCompilationUnits();
@@ -77,7 +77,6 @@ public class CassandraCodeMigrator extends AbstractCodeMigrator {
 
         if (modifiedUnits.isEmpty()) {
             result.addChange("No Cassandra Driver v3 usage detected");
-            logger.info("No Cassandra driver v3 imports found");
             return result;
         }
 
@@ -106,9 +105,7 @@ public class CassandraCodeMigrator extends AbstractCodeMigrator {
 
         for (ImportDeclaration imp : imports) {
             String importName = imp.getNameAsString();
-            boolean isWildcard = imp.isAsterisk();
 
-            // Check each v3 package mapping
             for (Map.Entry<String, String> mapping : PACKAGE_MAPPINGS.entrySet()) {
                 String oldPackage = mapping.getKey();
                 String newPackage = mapping.getValue();
@@ -142,8 +139,6 @@ public class CassandraCodeMigrator extends AbstractCodeMigrator {
             for (String newImportName : newImports) {
                 cu.addImport(newImportName);
             }
-
-            logger.info("Transformed {} Cassandra imports in {}", newImports.size(), className);
         }
 
         return modified;
@@ -175,7 +170,6 @@ public class CassandraCodeMigrator extends AbstractCodeMigrator {
         guidance.append("   QueryOptions, PoolingOptions → Use ExecutionProfile\n\n");
         guidance.append("REFERENCE: https://docs.datastax.com/en/developer/java-driver/4.0/upgrade_guide/\n");
 
-        logger.warn("\n{}", guidance);
         result.addChange(guidance.toString());
     }
 
