@@ -48,10 +48,6 @@ public class HibernateCodeMigrator extends MigrationPhase {
             String className = entry.getKey();
             CompilationUnit cu = entry.getValue();
 
-            if (cu == null) {
-                continue;
-            }
-
             // Find @TypeDef annotations
             List<AnnotationExpr> annotations = cu.findAll(AnnotationExpr.class);
             boolean classHasTypeDef = false;

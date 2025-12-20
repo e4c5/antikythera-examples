@@ -58,10 +58,6 @@ public class JakartaEEPrepMigrator extends MigrationPhase {
             String className = entry.getKey();
             CompilationUnit cu = entry.getValue();
 
-            if (cu == null) {
-                continue;
-            }
-
             List<ImportDeclaration> imports = cu.findAll(ImportDeclaration.class);
             boolean modified = false;
 

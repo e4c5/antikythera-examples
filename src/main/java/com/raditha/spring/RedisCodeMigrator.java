@@ -37,7 +37,7 @@ public class RedisCodeMigrator extends MigrationPhase {
         MigrationPhaseResult result = new MigrationPhaseResult();
 
         Map<String, CompilationUnit> units = AntikytheraRunTime.getResolvedCompilationUnits();
-        Set<String> modifiedClasses = new HashSet<>();
+
         int changeCount = 0;
 
         for (Map.Entry<String, CompilationUnit> entry : units.entrySet()) {
@@ -66,7 +66,6 @@ public class RedisCodeMigrator extends MigrationPhase {
             }
 
             if (classModified) {
-                modifiedClasses.add(className);
                 result.addModifiedClass(className);
             }
         }

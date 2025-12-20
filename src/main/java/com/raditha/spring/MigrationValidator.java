@@ -19,7 +19,6 @@ import java.util.List;
  */
 public class MigrationValidator extends MigrationPhase {
 
-
     public MigrationValidator(boolean dryRun) {
         super(dryRun);
     }

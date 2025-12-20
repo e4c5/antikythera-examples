@@ -4,13 +4,11 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.expr.AnnotationExpr;
 import com.github.javaparser.ast.ImportDeclaration;
 import org.yaml.snakeyaml.Yaml;
-import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 
 import java.io.*;
 import java.nio.file.*;
 import java.util.*;
-import java.util.stream.Stream;
 
 /**
  * Detects JMX usage in the codebase and automatically enables JMX

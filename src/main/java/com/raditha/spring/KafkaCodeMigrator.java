@@ -32,11 +32,6 @@ public class KafkaCodeMigrator extends MigrationPhase {
         for (Map.Entry<String, CompilationUnit> entry : units.entrySet()) {
             String className = entry.getKey();
             CompilationUnit cu = entry.getValue();
-
-            if (cu == null) {
-                continue;
-            }
-
             boolean modified = false;
 
             // Replace imports

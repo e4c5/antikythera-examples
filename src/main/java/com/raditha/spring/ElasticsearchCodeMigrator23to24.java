@@ -64,10 +64,6 @@ public class ElasticsearchCodeMigrator23to24 extends MigrationPhase {
             String className = entry.getKey();
             CompilationUnit cu = entry.getValue();
 
-            if (cu == null) {
-                continue;
-            }
-
             RestClientUsage usage = detectRestClientUsage(cu);
             if (usage.hasLowLevelClient) {
                 filesWithLowLevelRestClient.put(className, usage);
