@@ -1,4 +1,4 @@
-base_path: "../antikythera-test-helper/src/main/java"
+base_path: "testbeds/spring-boot-2.1/src/main/java"
 base_package: "sa.com.cloudsolutions.antikythera.testhelper"
 output_path: "src/test/java"
 dependencies:
