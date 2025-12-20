@@ -127,33 +127,34 @@ public class HttpTracesConfigMigrator extends MigrationPhase {
     private boolean hasHttpTraceConfigYaml(Path yamlFile) {
         try {
             Yaml yaml = YamlUtils.createYaml();
-            Iterable<Object> documents;
+
+            // Process documents while stream is open (loadAll returns lazy iterator)
             try (InputStream input = Files.newInputStream(yamlFile)) {
-                documents = yaml.loadAll(input);
-            }
+                Iterable<Object> documents = yaml.loadAll(input);
 
-            for (Object doc : documents) {
-                if (!(doc instanceof Map)) {
-                    continue;
-                }
-
-                Map<String, Object> data = (Map<String, Object>) doc;
-                if (data.containsKey("management")) {
-                    Object managementObj = data.get("management");
-                    if (!(managementObj instanceof Map)) {
+                for (Object doc : documents) {
+                    if (!(doc instanceof Map)) {
                         continue;
                     }
 
-                    Map<String, Object> management = (Map<String, Object>) managementObj;
-                    if (management.containsKey("trace")) {
-                        Object traceObj = management.get("trace");
-                        if (!(traceObj instanceof Map)) {
+                    Map<String, Object> data = (Map<String, Object>) doc;
+                    if (data.containsKey("management")) {
+                        Object managementObj = data.get("management");
+                        if (!(managementObj instanceof Map)) {
                             continue;
                         }
 
-                        Map<String, Object> trace = (Map<String, Object>) traceObj;
-                        if (trace.containsKey("http")) {
-                            return true;
+                        Map<String, Object> management = (Map<String, Object>) managementObj;
+                        if (management.containsKey("trace")) {
+                            Object traceObj = management.get("trace");
+                            if (!(traceObj instanceof Map)) {
+                                continue;
+                            }
+
+                            Map<String, Object> trace = (Map<String, Object>) traceObj;
+                            if (trace.containsKey("http")) {
+                                return true;
+                            }
                         }
                     }
                 }
