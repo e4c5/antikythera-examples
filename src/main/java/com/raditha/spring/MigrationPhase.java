@@ -75,7 +75,7 @@ public abstract class MigrationPhase {
     }
 
 
-    protected static boolean migrateJavaXMail(Model model, MigrationPhaseResult result, Dependency javaxMail) {
+    protected static void migrateJavaXMail(Model model, MigrationPhaseResult result, Dependency javaxMail) {
         if (javaxMail != null) {
             model.getDependencies().remove(javaxMail);
 
@@ -90,8 +90,6 @@ public abstract class MigrationPhase {
             model.addDependency(jakartaMail);
 
             result.addChange("Migrated: javax.mail:javax.mail-api → com.sun.mail:jakarta.mail");
-            return true;
         }
-        return false;
     }
 }

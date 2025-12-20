@@ -1,0 +1,9 @@
+variables:
+  projects_folder: ${HOME}/csi/Antikythera/antikythera-examples/testbeds
+
+base_path: ${projects_folder}/spring-boot-2.1
+
+duplication_detector:migrator.yml
+  target_class: "com.raditha.dedup.cli.DuplicationDetectorCLI"
+  min_lines: 5
+  threshold: 0.75
