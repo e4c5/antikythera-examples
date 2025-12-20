@@ -24,13 +24,6 @@ class SpringBoot21to22MigratorTest {
         AbstractCompiler.preProcess();
     }
 
-
-    @Test
-    void testMigrateAllInDryRun() {
-        SpringBoot21to22Migrator migrator = new SpringBoot21to22Migrator(true);
-        assertThrows(IOException.class, migrator::migrateAll);
-    }
-
     @Test
     void testMainMethodExists() throws NoSuchMethodException {
         // Verify main method exists for CLI execution

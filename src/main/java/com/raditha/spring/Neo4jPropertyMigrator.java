@@ -97,7 +97,6 @@ public class Neo4jPropertyMigrator extends AbstractConfigMigrator {
     /**
      * Migrate Neo4j properties in a YAML file.
      */
-    @SuppressWarnings("unchecked")
     private boolean migrateYamlFile(Path yamlFile, MigrationPhaseResult result) throws IOException {
         Yaml yaml = YamlUtils.createYaml();
         Map<String, Object> data;
