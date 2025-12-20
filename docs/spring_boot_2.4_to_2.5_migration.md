@@ -1,5 +1,9 @@
 # Spring Boot 2.4 to 2.5 Migration Guide
 
+> **Implementation Status**: ✅ **COMPLETE** - Automated migration tool is fully implemented and available in:
+> - `src/main/java/com/raditha/spring/SpringBoot24to25Migrator.java`
+> - See [Implementation Guide](#implementation-guide-for-automated-migration) for usage
+
 ## Overview
 
 This comprehensive guide covers all changes required to migrate from Spring Boot 2.4 to Spring Boot 2.5. This release introduced SQL script initialization redesign, removal of code deprecated in 2.3, Java 16 support, and important security changes to the `/info` actuator endpoint.
@@ -1602,9 +1606,31 @@ String message = errorResponse.has("message")
 
 ## Implementation Guide for Automated Migration
 
-This section provides guidance for implementing an automated Spring Boot 2.4 to 2.5 migrator based on this guide.
+The automated Spring Boot 2.4 to 2.5 migrator has been **fully implemented** and is available in the codebase.
 
-### Recommended Implementation Structure
+### Usage
+
+**Command-line execution:**
+
+```bash
+# Dry-run mode (preview changes without modifying files)
+java com.raditha.spring.SpringBoot24to25Migrator --dry-run --project-path /path/to/project
+
+# Execute migration (modifies files)
+java com.raditha.spring.SpringBoot24to25Migrator --project-path /path/to/project
+```
+
+**Programmatic usage:**
+
+```java
+SpringBoot24to25Migrator migrator = new SpringBoot24to25Migrator(false);
+MigrationResult result = migrator.migrateAll();
+migrator.printReport();
+```
+
+### Implementation Structure
+
+The migrator is implemented following the established pattern from `SpringBoot23to24Migrator`:
 
 ```java
 package com.raditha.spring;
