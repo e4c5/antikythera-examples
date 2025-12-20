@@ -54,6 +54,44 @@ class HttpTracesConfigMigratorTest {
     }
 
     @Test
+    void testHttpTraceDetectionInProfileSpecificMultiDocYaml() throws Exception {
+        // Given: A multi-document YAML where HTTP trace config is in a later (profile-specific) document
+        String yamlContent = """
+            spring:
+              application:
+                name: myapp
+            ---
+            spring:
+              config:
+                activate:
+                  on-profile: dev
+            management:
+              trace:
+                http:
+                  include:
+                    - cookie-headers
+                    - request-headers
+            """;
+
+        Path yamlPath = tempDir.resolve("src/main/resources/application.yml");
+        Files.writeString(yamlPath, yamlContent);
+
+        // When: Running HTTP traces migrator
+        HttpTracesConfigMigrator migrator = new HttpTracesConfigMigrator(true);
+        MigrationPhaseResult result = migrator.migrate();
+
+        // Then: Should detect HTTP trace configuration even if it appears after a '---'
+        assertNotNull(result, "Result should not be null");
+        assertTrue(result.requiresManualReview(), "Should require manual review");
+        assertTrue(result.getChanges().stream()
+                        .anyMatch(c -> c.contains("HTTP trace configuration detected")),
+                "Should report HTTP trace configuration was detected. Changes: " + result.getChanges());
+        assertTrue(result.getWarnings().stream()
+                        .anyMatch(w -> w.contains("HTTP_TRACES")),
+                "Should warn about HTTP trace changes. Warnings: " + result.getWarnings());
+    }
+
+    @Test
     void testHttpTraceDetectionInProperties() throws Exception {
         // Given: A properties file with HTTP trace configuration
         String propertiesContent = """
