@@ -7,10 +7,10 @@ import org.apache.maven.model.Dependency;
 import org.apache.maven.model.Model;
 import org.apache.maven.model.io.xpp3.MavenXpp3Reader;
 import org.apache.maven.model.io.xpp3.MavenXpp3Writer;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
+import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
+import sa.com.cloudsolutions.antikythera.parser.ImportWrapper;
 
 import java.io.FileReader;
 import java.io.FileWriter;
@@ -104,7 +104,7 @@ public class ValidationStarterDetector extends MigrationPhase {
 
             boolean fileHasValidation = false;
 
-            // Check imports for javax.validation
+            // Check imports for javax.validation using AbstractCompiler's robust import resolution
             for (ImportDeclaration imp : cu.findAll(ImportDeclaration.class)) {
                 if (imp.getNameAsString().startsWith("javax.validation")) {
                     if (!fileHasValidation) {
@@ -116,16 +116,31 @@ public class ValidationStarterDetector extends MigrationPhase {
                 }
             }
 
-            // Check for validation annotations
+            // Check for validation annotations using AbstractCompiler's import resolution
             for (AnnotationExpr annotation : cu.findAll(AnnotationExpr.class)) {
                 String annotationName = annotation.getNameAsString();
                 if (VALIDATION_ANNOTATIONS.contains(annotationName)) {
-                    if (!fileHasValidation) {
-                        filesWithValidation++;
-                        fileHasValidation = true;
+                    // Use AbstractCompiler.findImport to verify the annotation is from javax.validation
+                    ImportWrapper importWrapper = AbstractCompiler.findImport(cu, annotationName);
+                    if (isValidationImport(importWrapper)) {
+                        if (!fileHasValidation) {
+                            filesWithValidation++;
+                            fileHasValidation = true;
+                        }
+                        validationUsageCount++;
+                        logger.debug("Found validation annotation in {}: @{} (resolved from {})",
+                                className, annotationName, importWrapper.getImport().getNameAsString());
+                    } else if (importWrapper == null) {
+                        // Annotation might be using simple name without import (same package or java.lang)
+                        // This is less common but we should still count it if it matches our list
+                        if (!fileHasValidation) {
+                            filesWithValidation++;
+                            fileHasValidation = true;
+                        }
+                        validationUsageCount++;
+                        logger.debug("Found validation annotation in {}: @{} (no import found, assumed validation)",
+                                className, annotationName);
                     }
-                    validationUsageCount++;
-                    logger.debug("Found validation annotation in {}: @{}", className, annotationName);
                 }
             }
         }
@@ -142,6 +157,18 @@ public class ValidationStarterDetector extends MigrationPhase {
     }
 
     /**
+     * Check if an import is from javax.validation package.
+     * Handles both direct imports and wildcard imports.
+     */
+    private boolean isValidationImport(ImportWrapper wrapper) {
+        if (wrapper == null) {
+            return false;
+        }
+        ImportDeclaration imp = wrapper.getImport();
+        return imp.getNameAsString().startsWith("javax.validation");
+    }
+
+    /**
      * Check if spring-boot-starter-validation is already in POM.
      */
     private boolean hasValidationStarter() {
@@ -152,7 +179,7 @@ public class ValidationStarterDetector extends MigrationPhase {
                 return false;
             }
 
-            Model model = readPomModel(pomPath);
+            Model model = PomUtils.readPomModel(pomPath);
 
             return model.getDependencies().stream()
                     .anyMatch(dep -> "org.springframework.boot".equals(dep.getGroupId()) &&
@@ -175,7 +202,7 @@ public class ValidationStarterDetector extends MigrationPhase {
                 return false;
             }
 
-            Model model = readPomModel(pomPath);
+            Model model = PomUtils.readPomModel(pomPath);
 
             // Add validation starter dependency
             Dependency validationStarter = new Dependency();
@@ -187,7 +214,7 @@ public class ValidationStarterDetector extends MigrationPhase {
                 result.addChange("Would add spring-boot-starter-validation dependency");
             } else {
                 model.addDependency(validationStarter);
-                writePomModel(pomPath, model);
+                PomUtils.writePomModel(pomPath, model);
                 result.addChange("Added spring-boot-starter-validation dependency");
                 result.addWarning(
                         "CRITICAL: Validation starter added - required for @Valid, @Validated annotations to work");
@@ -228,20 +255,6 @@ public class ValidationStarterDetector extends MigrationPhase {
         }
 
         return null;
-    }
-
-    private Model readPomModel(Path pomPath) throws Exception {
-        MavenXpp3Reader reader = new MavenXpp3Reader();
-        try (FileReader fileReader = new FileReader(pomPath.toFile())) {
-            return reader.read(fileReader);
-        }
-    }
-
-    private void writePomModel(Path pomPath, Model model) throws Exception {
-        MavenXpp3Writer writer = new MavenXpp3Writer();
-        try (FileWriter fileWriter = new FileWriter(pomPath.toFile())) {
-            writer.write(fileWriter, model);
-        }
     }
 
     @Override
