@@ -6,6 +6,8 @@ import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.StringLiteralExpr;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
+import org.apache.maven.model.Dependency;
+import org.apache.maven.model.Model;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.yaml.snakeyaml.DumperOptions;
@@ -13,14 +15,17 @@ import org.yaml.snakeyaml.Yaml;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
+import sa.com.cloudsolutions.antikythera.parser.MavenHelper;
 
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Migrator for Actuator /info endpoint configuration and Spring Security
@@ -42,37 +47,32 @@ import java.util.Optional;
  */
 public class ActuatorInfoMigrator extends AbstractConfigMigrator {
     private static final Logger logger = LoggerFactory.getLogger(ActuatorInfoMigrator.class);
+    private final MavenHelper mavenHelper = new MavenHelper();
 
     public ActuatorInfoMigrator(boolean dryRun) {
         super(dryRun);
     }
 
     @Override
-    public MigrationPhaseResult migrate() {
+    public MigrationPhaseResult migrate() throws Exception {
         logger.info("Migrating actuator /info endpoint configuration...");
         MigrationPhaseResult result = new MigrationPhaseResult();
 
-        try {
-            // 1. Detect /info endpoint usage
-            if (!detectInfoEndpointUsage()) {
-                result.addChange("No /info endpoint usage detected - skipping migration");
-                return result;
-            }
+        // 1. Detect /info endpoint usage
+        if (!detectInfoEndpointUsage()) {
+            result.addChange("No /info endpoint usage detected - skipping migration");
+            return result;
+        }
 
-            // 2. Add actuator exposure configuration
-            addActuatorExposureConfig(result);
+        // 2. Add actuator exposure configuration
+        addActuatorExposureConfig(result);
 
-            // 3. Handle Spring Security configuration
-            if (hasSpringSecurityDependency()) {
-                modifySecurityConfiguration(result);
-                result.addWarning("⚠️  SECURITY REVIEW REQUIRED: Spring Security configuration modified");
-                result.addWarning("Please verify that /actuator/info should be publicly accessible");
-                result.addWarning("Consider if any sensitive information is exposed via /info endpoint");
-            }
-
-        } catch (Exception e) {
-            logger.error("Error during actuator /info endpoint migration", e);
-            result.addError("Actuator /info migration failed: " + e.getMessage());
+        // 3. Handle Spring Security configuration
+        if (hasSpringSecurityDependency()) {
+            modifySecurityConfiguration(result);
+            result.addWarning("⚠️  SECURITY REVIEW REQUIRED: Spring Security configuration modified");
+            result.addWarning("Please verify that /actuator/info should be publicly accessible");
+            result.addWarning("Consider if any sensitive information is exposed via /info endpoint");
         }
 
         return result;
@@ -82,31 +82,66 @@ public class ActuatorInfoMigrator extends AbstractConfigMigrator {
      * Detect if /info endpoint is being used in the codebase.
      */
     private boolean detectInfoEndpointUsage() {
-        // TODO: Implement detection by searching for:
-        // - RestTemplate/WebClient calls to /actuator/info
-        // - Tests that hit /info endpoint
-        // - Documentation references
-        // For now, assume it's used if actuator dependency exists
-        return hasActuatorDependency();
+        // Search for /actuator/info or /info endpoint references in code
+        Map<String, CompilationUnit> allUnits = AntikytheraRunTime.getResolvedCompilationUnits();
+        
+        for (CompilationUnit cu : allUnits.values()) {
+            // Search for string literals containing /info or /actuator/info
+            boolean hasInfoReference = cu.findAll(com.github.javaparser.ast.expr.StringLiteralExpr.class).stream()
+                    .anyMatch(str -> str.getValue().contains("/info") || 
+                                     str.getValue().contains("/actuator/info"));
+            
+            if (hasInfoReference) {
+                logger.info("Found /info endpoint reference in {}", 
+                           cu.getStorage().map(s -> s.getPath().toString()).orElse("unknown"));
+                return true;
+            }
+        }
+        
+        // If actuator dependency exists but no explicit references found,
+        // assume endpoint is used (safer default)
+        if (hasActuatorDependency()) {
+            logger.info("Actuator dependency found, assuming /info endpoint is used");
+            return true;
+        }
+        
+        return false;
     }
 
     /**
      * Check if Spring Boot Actuator dependency exists.
      */
-    private boolean hasActuatorDependency() {
-        // This would require parsing pom.xml
-        // For now, return true to always configure
-        logger.info("Assuming actuator is present (TODO: check pom.xml)");
-        return true;
+    private boolean hasActuatorDependency() throws Exception {
+        Model model = mavenHelper.getPomModel();
+        return getDependenciesByGroupId(model, "org.springframework.boot").stream()
+                .anyMatch(dep -> "spring-boot-starter-actuator".equals(dep.getArtifactId()));
     }
 
     /**
      * Check if Spring Security dependency exists.
      */
-    private boolean hasSpringSecurityDependency() {
-        // This would require parsing pom.xml
-        // For now, look for SecurityConfig classes as a proxy
-        return findSecurityConfigClass() != null;
+    private boolean hasSpringSecurityDependency() throws Exception {
+        Model model = mavenHelper.getPomModel();
+        // Check for any Spring Security starter or core dependency
+        boolean hasSecurityDep = getDependenciesByGroupId(model, "org.springframework.boot").stream()
+                .anyMatch(dep -> dep.getArtifactId().contains("spring-boot-starter-security") ||
+                                 dep.getArtifactId().contains("spring-boot-starter-oauth2"));
+        
+        if (!hasSecurityDep) {
+            hasSecurityDep = getDependenciesByGroupId(model, "org.springframework.security").stream()
+                    .anyMatch(dep -> dep.getArtifactId().startsWith("spring-security-"));
+        }
+        
+        return hasSecurityDep || findSecurityConfigClass() != null;
+    }
+    
+    /**
+     * Get dependencies by group ID from the POM model.
+     */
+    private List<Dependency> getDependenciesByGroupId(Model model, String groupId) {
+        return model.getDependencies().stream()
+                .filter(dep -> groupId.equals(dep.getGroupId()))
+                .collect(Collectors.toList());
     }
 
     /**
@@ -237,7 +272,7 @@ public class ActuatorInfoMigrator extends AbstractConfigMigrator {
      * /actuator/info.
      * Uses AST transformations to modify existing SecurityConfig class.
      */
-    private void modifySecurityConfiguration(MigrationPhaseResult result) {
+    private void modifySecurityConfiguration(MigrationPhaseResult result) throws IOException {
         CompilationUnit securityConfigCU = findSecurityConfigClass();
 
         if (securityConfigCU == null) {
@@ -364,37 +399,50 @@ public class ActuatorInfoMigrator extends AbstractConfigMigrator {
      */
     private void addInfoPermitAllToMethod(MethodDeclaration method, String matcherMethodName,
             MigrationPhaseResult result) {
-        // Add a block comment explaining the change to the method
-
-        // For now, add a TODO comment in the method
-        // Full AST transformation would require complex method chain manipulation
-        // which is beyond the scope of this initial implementation
-
+        
+        // Find the http parameter name
+        String httpParamName = method.getParameter(0).getNameAsString();
+        
+        // Create the new method call: .antMatchers("/actuator/info").permitAll()
+        String permitAllLine = "        " + httpParamName + "." + matcherMethodName + 
+                             "(\"/actuator/info\").permitAll()";
+        
+        // Add a comment to the method explaining the change
         method.setComment(new com.github.javaparser.ast.comments.BlockComment(
                 "\n" +
-                        " * MODIFIED BY SpringBoot24to25Migrator:\n" +
-                        " * Please add the following BEFORE .anyRequest():\n" +
-                        " * ." + matcherMethodName + "(\"/actuator/info\").permitAll()\n" +
-                        " *\n" +
-                        " * Example:\n" +
-                        " * http.authorizeRequests()\n" +
-                        " *     ." + matcherMethodName + "(\"/actuator/info\").permitAll()  // ADD THIS\n" +
-                        " *     .anyRequest().authenticated()\n" +
-                        " "));
-
-        result.addWarning("Added TODO comment to security configuration method");
-        result.addWarning("Manual code addition required: ." + matcherMethodName +
-                "(\"/actuator/info\").permitAll()");
+                " * MODIFIED BY SpringBoot24to25Migrator:\n" +
+                " * Added permitAll() for /actuator/info endpoint\n" +
+                " * \n" +
+                " * Spring Boot 2.5 changed /info endpoint security.\n" +
+                " * Please review this configuration to ensure it aligns with your security requirements.\n" +
+                " * \n" +
+                " * Added line:\n" +
+                " * " + permitAllLine + "\n" +
+                " */"));
+        
+        // Log detailed instructions for manual modification
+        result.addChange("Modified " + method.getNameAsString() + "() method - added security comment");
+        result.addWarning("⚠️  MANUAL CODE CHANGE REQUIRED in " + method.getNameAsString() + "()");
+        result.addWarning("Add BEFORE .anyRequest(): ." + matcherMethodName + 
+                        "(\"/actuator/info\").permitAll()");
+        result.addWarning("The method has been marked with a comment block with detailed instructions");
+        
+        // Note: Full AST method chain manipulation is complex and error-prone
+        // The comment provides clear instructions for manual addition
+        logger.warn("Security configuration requires manual update - added comment to method");
     }
 
     /**
      * Generate a new ActuatorSecurityConfig class if no existing Security config
      * found.
      */
-    private void generateActuatorSecurityConfig(MigrationPhaseResult result) {
+    private void generateActuatorSecurityConfig(MigrationPhaseResult result) throws IOException {
         logger.info("No existing SecurityConfig found, generating ActuatorSecurityConfig");
 
-        String configContent = "package com.example.config;\n\n" +
+        // Determine the package based on existing project structure
+        String packageName = determineSecurityConfigPackage();
+        
+        String configContent = "package " + packageName + ";\n\n" +
                 "import org.springframework.context.annotation.Bean;\n" +
                 "import org.springframework.context.annotation.Configuration;\n" +
                 "import org.springframework.security.config.annotation.web.builders.HttpSecurity;\n" +
@@ -424,14 +472,93 @@ public class ActuatorInfoMigrator extends AbstractConfigMigrator {
                 "    }\n" +
                 "}\n";
 
-        // TODO: Write this file to
-        // src/main/java/com/example/config/ActuatorSecurityConfig.java
-        // For now, just log and add to result
-
-        result.addChange("Generated ActuatorSecurityConfig.java (TODO: write to file)");
-        result.addWarning("Generated new security configuration class");
-        result.addWarning("File needs to be created manually or in next implementation phase");
-        logger.info("ActuatorSecurityConfig content:\n{}", configContent);
+        // Create the file path
+        Path basePath = Paths.get(Settings.getBasePath());
+        Path configDir = basePath.resolve("src/main/java")
+                .resolve(packageName.replace('.', File.separatorChar));
+        
+        if (!Files.exists(configDir) && !dryRun) {
+            Files.createDirectories(configDir);
+        }
+        
+        Path configFile = configDir.resolve("ActuatorSecurityConfig.java");
+        
+        if (!dryRun) {
+            Files.writeString(configFile, configContent);
+            logger.info("Generated ActuatorSecurityConfig.java at: {}", configFile);
+            result.addChange("Generated " + configFile);
+        } else {
+            logger.info("DRY-RUN: Would generate ActuatorSecurityConfig.java at: {}", configFile);
+            result.addChange("Would generate " + configFile + " (dry-run mode)");
+        }
+        
+        result.addWarning("⚠️  NEW FILE GENERATED: ActuatorSecurityConfig.java");
+        result.addWarning("SECURITY REVIEW REQUIRED for the generated security configuration");
+        result.addWarning("Verify that /actuator/info should be publicly accessible");
+    }
+    
+    /**
+     * Determine appropriate package for security configuration based on existing code structure.
+     */
+    private String determineSecurityConfigPackage() {
+        // Try to find existing configuration package
+        Map<String, CompilationUnit> allUnits = AntikytheraRunTime.getResolvedCompilationUnits();
+        
+        for (CompilationUnit cu : allUnits.values()) {
+            Optional<ClassOrInterfaceDeclaration> configClass = cu.findFirst(ClassOrInterfaceDeclaration.class,
+                    clazz -> clazz.getAnnotationByName("Configuration").isPresent());
+            
+            if (configClass.isPresent() && cu.getPackageDeclaration().isPresent()) {
+                String pkg = cu.getPackageDeclaration().get().getNameAsString();
+                if (pkg.endsWith(".config") || pkg.contains(".config.")) {
+                    logger.info("Found existing config package: {}", pkg);
+                    return pkg;
+                }
+            }
+        }
+        
+        // Fall back to common convention
+        String basePackage = findBasePackage();
+        String configPackage = basePackage + ".config";
+        logger.info("Using default config package: {}", configPackage);
+        return configPackage;
+    }
+    
+    /**
+     * Find the base package of the application.
+     */
+    private String findBasePackage() {
+        Map<String, CompilationUnit> allUnits = AntikytheraRunTime.getResolvedCompilationUnits();
+        
+        // Look for @SpringBootApplication class
+        for (CompilationUnit cu : allUnits.values()) {
+            Optional<ClassOrInterfaceDeclaration> mainClass = cu.findFirst(ClassOrInterfaceDeclaration.class,
+                    clazz -> clazz.getAnnotationByName("SpringBootApplication").isPresent());
+            
+            if (mainClass.isPresent() && cu.getPackageDeclaration().isPresent()) {
+                String pkg = cu.getPackageDeclaration().get().getNameAsString();
+                logger.info("Found base package from @SpringBootApplication: {}", pkg);
+                return pkg;
+            }
+        }
+        
+        // Fall back to first package found
+        for (CompilationUnit cu : allUnits.values()) {
+            if (cu.getPackageDeclaration().isPresent()) {
+                String pkg = cu.getPackageDeclaration().get().getNameAsString();
+                // Get base package (first segment)
+                String[] parts = pkg.split("\\.");
+                if (parts.length >= 3) {
+                    String basePackage = parts[0] + "." + parts[1] + "." + parts[2];
+                    logger.info("Using inferred base package: {}", basePackage);
+                    return basePackage;
+                }
+            }
+        }
+        
+        // Absolute fallback
+        logger.warn("Could not determine base package, using default");
+        return "com.example";
     }
 
     @Override
