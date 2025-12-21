@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
+import java.io.File;
 import java.io.IOException;
 
 /**
@@ -77,7 +78,7 @@ public class SpringBoot21to22Migrator extends AbstractSpringBootMigrator {
         logger.info("Initializing Spring Boot 2.1 to 2.2 migration components...");
 
         // Load configuration and pre-process source files
-        Settings.loadConfigMap();
+        Settings.loadConfigMap(new File("src/main/resources/migrator.yml"));
         AbstractCompiler.setEnableLexicalPreservation(true);
         AbstractCompiler.preProcess();
 
@@ -105,7 +106,7 @@ public class SpringBoot21to22Migrator extends AbstractSpringBootMigrator {
     }
 
     @Override
-    protected MigrationPhaseResult migratePom() {
+    protected MigrationPhaseResult migratePom() throws Exception {
         return pomMigrator.migrate();
     }
 
@@ -115,7 +116,7 @@ public class SpringBoot21to22Migrator extends AbstractSpringBootMigrator {
     }
 
     @Override
-    protected void executeVersionSpecificMigrations() {
+    protected void executeVersionSpecificMigrations() throws Exception {
         // Phase 3: Code Migrations
         logger.info("Phase 3: Migrating code (Kafka, Redis, Hibernate)...");
 
@@ -127,17 +128,9 @@ public class SpringBoot21to22Migrator extends AbstractSpringBootMigrator {
         modifiedFiles.addAll(redisResult.getModifiedClasses());
         result.addPhase("Redis Migration", redisResult);
 
-        MigrationPhaseResult hibernateResult;
-        try {
-            hibernateResult = hibernateMigrator.migrate();
-            modifiedFiles.addAll(hibernateResult.getModifiedClasses());
-            result.addPhase("Hibernate Migration", hibernateResult);
-        } catch (Exception e) {
-            hibernateResult = new MigrationPhaseResult();
-            hibernateResult.addError("Hibernate migration failed: " + e.getMessage());
-            result.addPhase("Hibernate Migration", hibernateResult);
-            logger.error("Hibernate migration failed", e);
-        }
+        MigrationPhaseResult hibernateResult = hibernateMigrator.migrate();
+        modifiedFiles.addAll(hibernateResult.getModifiedClasses());
+
 
         MigrationPhaseResult jedisResult = jedisMigrator.migrate();
         modifiedFiles.addAll(jedisResult.getModifiedClasses());

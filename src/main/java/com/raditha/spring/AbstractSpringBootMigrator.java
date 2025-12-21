@@ -235,7 +235,7 @@ public abstract class AbstractSpringBootMigrator {
      * 
      * @return result of POM migration phase
      */
-    protected abstract MigrationPhaseResult migratePom();
+    protected abstract MigrationPhaseResult migratePom() throws Exception;
 
     /**
      * Execute property file migration for this Spring Boot version.
@@ -269,7 +269,7 @@ public abstract class AbstractSpringBootMigrator {
      * result.addPhase("Cassandra Driver v4", cassandraResult);
      * }</pre>
      */
-    protected abstract void executeVersionSpecificMigrations();
+    protected abstract void executeVersionSpecificMigrations() throws Exception;
 
     /**
      * Validate the migration after completion.

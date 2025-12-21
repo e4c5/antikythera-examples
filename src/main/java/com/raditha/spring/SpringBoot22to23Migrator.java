@@ -98,7 +98,7 @@ public class SpringBoot22to23Migrator extends AbstractSpringBootMigrator {
     }
 
     @Override
-    protected MigrationPhaseResult migratePom() {
+    protected MigrationPhaseResult migratePom() throws Exception {
         return pomMigrator.migrate();
     }
 
@@ -108,7 +108,7 @@ public class SpringBoot22to23Migrator extends AbstractSpringBootMigrator {
     }
 
     @Override
-    protected void executeVersionSpecificMigrations() {
+    protected void executeVersionSpecificMigrations() throws Exception {
         // Phase 3: Critical - Validation Starter (HIGHEST PRIORITY for Spring Boot 2.3)
         logger.info("Phase 3: Detecting validation usage and adding starter if needed...");
 

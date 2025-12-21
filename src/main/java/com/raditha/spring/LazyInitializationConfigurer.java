@@ -1,7 +1,5 @@
 package com.raditha.spring;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.yaml.snakeyaml.Yaml;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 
@@ -20,21 +18,19 @@ import java.util.stream.Stream;
  * 
  * Note: This is disabled by default and should be enabled via configuration flag.
  */
-public class LazyInitializationConfigurer implements MigrationPhase {
-    private static final Logger logger = LoggerFactory.getLogger(LazyInitializationConfigurer.class);
+public class LazyInitializationConfigurer extends MigrationPhase {
 
-    private final boolean dryRun;
     private final boolean enableLazyInit;
 
     public LazyInitializationConfigurer(boolean dryRun, boolean enableLazyInit) {
-        this.dryRun = dryRun;
+        super(dryRun);
         this.enableLazyInit = enableLazyInit;
     }
 
     /**
      * Add lazy initialization to test profiles if enabled.
      */
-    public MigrationPhaseResult migrate() {
+    public MigrationPhaseResult migrate() throws IOException {
         MigrationPhaseResult result = new MigrationPhaseResult();
 
         if (!enableLazyInit) {
@@ -44,25 +40,19 @@ public class LazyInitializationConfigurer implements MigrationPhase {
             return result;
         }
 
-        try {
-            Path basePath = Paths.get(Settings.getBasePath());
-            
-            // Find test profile files
-            List<Path> testProfiles = findTestProfileFiles(basePath);
-            
-            if (testProfiles.isEmpty()) {
-                result.addWarning("No test profile files found (application-test.yml/properties)");
-                result.addChange("Create application-test.yml with spring.main.lazy-initialization=true for faster tests");
-                return result;
-            }
+        Path basePath = Paths.get(Settings.getBasePath());
 
-            for (Path profileFile : testProfiles) {
-                addLazyInitialization(profileFile, result);
-            }
+        // Find test profile files
+        List<Path> testProfiles = findTestProfileFiles(basePath);
 
-        } catch (Exception e) {
-            logger.error("Error adding lazy initialization", e);
-            result.addError("Lazy initialization configuration failed: " + e.getMessage());
+        if (testProfiles.isEmpty()) {
+            result.addWarning("No test profile files found (application-test.yml/properties)");
+            result.addChange("Create application-test.yml with spring.main.lazy-initialization=true for faster tests");
+            return result;
+        }
+
+        for (Path profileFile : testProfiles) {
+            addLazyInitialization(profileFile, result);
         }
 
         return result;
@@ -95,20 +85,15 @@ public class LazyInitializationConfigurer implements MigrationPhase {
     /**
      * Add lazy initialization to a profile file.
      */
-    @SuppressWarnings("unchecked")
-    private void addLazyInitialization(Path profileFile, MigrationPhaseResult result) {
+    private void addLazyInitialization(Path profileFile, MigrationPhaseResult result) throws IOException {
         String fileName = profileFile.getFileName().toString();
-        
-        try {
-            if (fileName.endsWith(".yml") || fileName.endsWith(".yaml")) {
-                addToYamlFile(profileFile, result);
-            } else if (fileName.endsWith(".properties")) {
-                addToPropertiesFile(profileFile, result);
-            }
-        } catch (Exception e) {
-            result.addError("Failed to update " + fileName + ": " + e.getMessage());
-            logger.error("Error updating {}", fileName, e);
+
+        if (fileName.endsWith(".yml") || fileName.endsWith(".yaml")) {
+            addToYamlFile(profileFile, result);
+        } else if (fileName.endsWith(".properties")) {
+            addToPropertiesFile(profileFile, result);
         }
+
     }
 
     /**
@@ -140,7 +125,6 @@ public class LazyInitializationConfigurer implements MigrationPhase {
                 }
                 
                 result.addChange(yamlFile.getFileName() + ": Added spring.main.lazy-initialization=true");
-                logger.info("Added lazy initialization to {}", yamlFile.getFileName());
             } else {
                 result.addChange(yamlFile.getFileName() + ": Would add spring.main.lazy-initialization=true");
             }
@@ -170,7 +154,6 @@ public class LazyInitializationConfigurer implements MigrationPhase {
                 }
                 
                 result.addChange(propFile.getFileName() + ": Added spring.main.lazy-initialization=true");
-                logger.info("Added lazy initialization to {}", propFile.getFileName());
             } else {
                 result.addChange(propFile.getFileName() + ": Would add spring.main.lazy-initialization=true");
             }

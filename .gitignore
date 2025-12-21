@@ -42,4 +42,4 @@ src/main/resources/generator.yml
 
 # Migration test beds (set up via setup-testbeds.sh)
 testbeds/
-petclinic-research/
+src/main/resources/migrator.yml

@@ -3,9 +3,8 @@ package com.raditha.spring;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.expr.*;
+import com.github.javaparser.ast.nodeTypes.NodeWithName;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 
 import java.util.*;
@@ -20,13 +19,12 @@ import java.util.*;
  * - Validate classes are within base package scan path
  * - Replace with @ConfigurationPropertiesScan for internal classes
  */
-public class ConfigPropertiesScanMigrator implements MigrationPhase {
-    private static final Logger logger = LoggerFactory.getLogger(ConfigPropertiesScanMigrator.class);
+public class ConfigPropertiesScanMigrator extends MigrationPhase {
+    public static final String CONFIG_PROPERTIES_ANNOTATION = "ConfigurationPropertiesScan";
 
-    private final boolean dryRun;
 
     public ConfigPropertiesScanMigrator(boolean dryRun) {
-        this.dryRun = dryRun;
+        super(dryRun);
     }
 
     /**
@@ -44,7 +42,7 @@ public class ConfigPropertiesScanMigrator implements MigrationPhase {
         }
 
         String basePackage = appClass.getPackageDeclaration()
-                .map(pd -> pd.getNameAsString())
+                .map(NodeWithName::getNameAsString)
                 .orElse("");
 
         // Find @EnableConfigurationProperties
@@ -110,20 +108,13 @@ public class ConfigPropertiesScanMigrator implements MigrationPhase {
         Map<String, CompilationUnit> units = AntikytheraRunTime.getResolvedCompilationUnits();
 
         for (Map.Entry<String, CompilationUnit> entry : units.entrySet()) {
-            String className = entry.getKey();
             CompilationUnit cu = entry.getValue();
 
-            if (cu == null) {
-                continue;
-            }
-
-            // Check for @SpringBootApplication
             Optional<AnnotationExpr> annotation = cu.findFirst(AnnotationExpr.class,
                     a -> a.getNameAsString().equals("SpringBootApplication") ||
                             a.getNameAsString().equals("org.springframework.boot.autoconfigure.SpringBootApplication"));
 
             if (annotation.isPresent()) {
-                logger.info("Found @SpringBootApplication in {}", className);
                 return cu;
             }
         }
@@ -177,10 +168,9 @@ public class ConfigPropertiesScanMigrator implements MigrationPhase {
             enableConfigProps.remove();
 
             // Add @ConfigurationPropertiesScan to the class
-            appClass.getType(0).addAnnotation("ConfigurationPropertiesScan");
+            appClass.getType(0).addAnnotation(CONFIG_PROPERTIES_ANNOTATION);
 
             result.addChange("Replaced @EnableConfigurationProperties with @ConfigurationPropertiesScan");
-            logger.info("Migrated to @ConfigurationPropertiesScan");
         } else {
             // Keep @EnableConfigurationProperties with only external classes
             // Add @ConfigurationPropertiesScan for internal ones
@@ -189,11 +179,10 @@ public class ConfigPropertiesScanMigrator implements MigrationPhase {
             updateEnableConfigurationProperties(enableConfigProps, externalClasses);
 
             // Add @ConfigurationPropertiesScan
-            appClass.getType(0).addAnnotation("ConfigurationPropertiesScan");
+            appClass.getType(0).addAnnotation(CONFIG_PROPERTIES_ANNOTATION);
 
             result.addChange(
                     "Added @ConfigurationPropertiesScan and kept @EnableConfigurationProperties for external classes");
-            logger.info("Added @ConfigurationPropertiesScan alongside @EnableConfigurationProperties");
         }
     }
 
@@ -230,7 +219,7 @@ public class ConfigPropertiesScanMigrator implements MigrationPhase {
 
     @Override
     public String getPhaseName() {
-        return "ConfigurationPropertiesScan";
+        return CONFIG_PROPERTIES_ANNOTATION;
     }
 
     @Override

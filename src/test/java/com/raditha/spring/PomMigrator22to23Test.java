@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -133,14 +134,11 @@ class PomMigrator22to23Test {
     }
 
     @Test
-    void testNoPom() throws Exception {
+    void testNoPom() {
         // Given: No pom.xml file
         // When: Running POM migrator
         PomMigrator22to23 migrator = new PomMigrator22to23(true);
-        MigrationPhaseResult result = migrator.migrate();
-
-        // Then: Should handle gracefully
-        assertNotNull(result, "Should return result even without POM");
+        assertThrows(IOException.class, migrator::migrate);
     }
 
     @Test

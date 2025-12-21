@@ -3,8 +3,6 @@ package com.raditha.spring;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.ImportDeclaration;
 import com.github.javaparser.ast.comments.LineComment;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 
 import java.util.*;
@@ -17,10 +15,8 @@ import java.util.*;
  * 
  * Note: This is disabled by default and should be enabled via configuration flag.
  */
-public class JakartaEEPrepMigrator implements MigrationPhase {
-    private static final Logger logger = LoggerFactory.getLogger(JakartaEEPrepMigrator.class);
+public class JakartaEEPrepMigrator extends MigrationPhase {
 
-    private final boolean dryRun;
     private final boolean enableJakartaPrep;
 
     // javax packages that will move to jakarta in Jakarta EE 9+
@@ -39,7 +35,7 @@ public class JakartaEEPrepMigrator implements MigrationPhase {
     );
 
     public JakartaEEPrepMigrator(boolean dryRun, boolean enableJakartaPrep) {
-        this.dryRun = dryRun;
+        super(dryRun);
         this.enableJakartaPrep = enableJakartaPrep;
     }
 
@@ -61,10 +57,6 @@ public class JakartaEEPrepMigrator implements MigrationPhase {
         for (Map.Entry<String, CompilationUnit> entry : units.entrySet()) {
             String className = entry.getKey();
             CompilationUnit cu = entry.getValue();
-
-            if (cu == null) {
-                continue;
-            }
 
             List<ImportDeclaration> imports = cu.findAll(ImportDeclaration.class);
             boolean modified = false;
@@ -108,9 +100,6 @@ public class JakartaEEPrepMigrator implements MigrationPhase {
                 .anyMatch(importName::startsWith);
     }
 
-    /**
-     * Add a TODO comment for Jakarta migration.
-     */
     private void addJakartaComment(ImportDeclaration imp, String importName) {
         // Determine the jakarta equivalent
         String jakartaPackage = importName.replace("javax.", "jakarta.");
@@ -123,8 +112,6 @@ public class JakartaEEPrepMigrator implements MigrationPhase {
         
         // Add comment to the import
         imp.setComment(comment);
-        
-        logger.debug("Added Jakarta prep comment to import: {}", importName);
     }
 
     @Override

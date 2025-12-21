@@ -5,8 +5,6 @@ import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.NameExpr;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 
 import java.util.HashSet;
@@ -24,14 +22,12 @@ import java.util.Set;
  * 
  * The new API accepts a single Collection of keys instead of (key, Collection).
  */
-public class RedisCodeMigrator implements MigrationPhase {
-    private static final Logger logger = LoggerFactory.getLogger(RedisCodeMigrator.class);
+public class RedisCodeMigrator extends MigrationPhase {
 
-    private final boolean dryRun;
     private static final List<String> REDIS_SET_OPERATIONS = List.of("union", "intersect", "difference");
 
     public RedisCodeMigrator(boolean dryRun) {
-        this.dryRun = dryRun;
+        super(dryRun);
     }
 
     /**
@@ -41,7 +37,7 @@ public class RedisCodeMigrator implements MigrationPhase {
         MigrationPhaseResult result = new MigrationPhaseResult();
 
         Map<String, CompilationUnit> units = AntikytheraRunTime.getResolvedCompilationUnits();
-        Set<String> modifiedClasses = new HashSet<>();
+
         int changeCount = 0;
 
         for (Map.Entry<String, CompilationUnit> entry : units.entrySet()) {
@@ -70,7 +66,6 @@ public class RedisCodeMigrator implements MigrationPhase {
             }
 
             if (classModified) {
-                modifiedClasses.add(className);
                 result.addModifiedClass(className);
             }
         }
@@ -78,7 +73,6 @@ public class RedisCodeMigrator implements MigrationPhase {
         if (changeCount == 0) {
             result.addChange("No Redis migrations needed");
         } else {
-            logger.info("Redis migration complete: {} method calls updated", changeCount);
             result.setRequiresManualReview(true);
             result.addManualReviewItem(String.format(
                 "Verify Redis set operations (%d method calls transformed) compile and function correctly", 
@@ -148,7 +142,6 @@ public class RedisCodeMigrator implements MigrationPhase {
         result.addChange(String.format("%s: Transformed %s(key, otherKeys) → %s(mergedKeys)",
                 className, call.getNameAsString(), call.getNameAsString()));
 
-        logger.debug("Transformed Redis {} operation in {}", call.getNameAsString(), className);
     }
 
     /**

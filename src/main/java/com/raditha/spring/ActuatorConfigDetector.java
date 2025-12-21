@@ -3,9 +3,6 @@ package com.raditha.spring;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
-import com.github.javaparser.ast.expr.AnnotationExpr;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 
 import java.util.List;
@@ -21,13 +18,11 @@ import java.util.Map;
  * These features were auto-configured in Spring Boot 2.1 but require explicit
  * configuration in Spring Boot 2.2.
  */
-public class ActuatorConfigDetector implements MigrationPhase {
-    private static final Logger logger = LoggerFactory.getLogger(ActuatorConfigDetector.class);
+public class ActuatorConfigDetector extends MigrationPhase {
 
-    private final boolean dryRun;
 
     public ActuatorConfigDetector(boolean dryRun) {
-        this.dryRun = dryRun;
+        super(dryRun);
     }
 
     /**
@@ -88,7 +83,6 @@ public class ActuatorConfigDetector implements MigrationPhase {
             if (clazz.getImplementedTypes().stream()
                     .anyMatch(type -> type.getNameAsString().contains("HttpTraceRepository"))) {
                 result.addChange(className + ": Found HttpTraceRepository implementation");
-                logger.info("Detected HttpTraceRepository in {}", className);
                 return true;
             }
 
@@ -99,7 +93,6 @@ public class ActuatorConfigDetector implements MigrationPhase {
                     if (method.getType().asString().contains("HttpTraceRepository")) {
                         result.addChange(className + "." + method.getNameAsString() + 
                             ": Found @Bean returning HttpTraceRepository");
-                        logger.info("Detected HttpTraceRepository bean in {}", className);
                         return true;
                     }
                 }
@@ -121,7 +114,6 @@ public class ActuatorConfigDetector implements MigrationPhase {
             if (clazz.getImplementedTypes().stream()
                     .anyMatch(type -> type.getNameAsString().contains("AuditEventRepository"))) {
                 result.addChange(className + ": Found AuditEventRepository implementation");
-                logger.info("Detected AuditEventRepository in {}", className);
                 return true;
             }
 
@@ -132,7 +124,6 @@ public class ActuatorConfigDetector implements MigrationPhase {
                     if (method.getType().asString().contains("AuditEventRepository")) {
                         result.addChange(className + "." + method.getNameAsString() + 
                             ": Found @Bean returning AuditEventRepository");
-                        logger.info("Detected AuditEventRepository bean in {}", className);
                         return true;
                     }
                 }
@@ -143,7 +134,6 @@ public class ActuatorConfigDetector implements MigrationPhase {
                     .anyMatch(type -> type.getNameAsString().contains("AbstractAuditListener") ||
                                      type.getNameAsString().contains("AuditListener"))) {
                 result.addChange(className + ": Found AuditListener implementation");
-                logger.info("Detected AuditListener in {}", className);
                 return true;
             }
         }
