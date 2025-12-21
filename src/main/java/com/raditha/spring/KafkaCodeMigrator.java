@@ -3,8 +3,6 @@ package com.raditha.spring;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.ImportDeclaration;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 
 import java.util.Map;
@@ -15,13 +13,11 @@ import java.util.Map;
  * Main change:
  * - TopicPartitionInitialOffset → TopicPartitionOffset
  */
-public class KafkaCodeMigrator implements MigrationPhase {
-    private static final Logger logger = LoggerFactory.getLogger(KafkaCodeMigrator.class);
+public class KafkaCodeMigrator extends MigrationPhase {
 
-    private final boolean dryRun;
 
     public KafkaCodeMigrator(boolean dryRun) {
-        this.dryRun = dryRun;
+        super(dryRun);
     }
 
     /**
@@ -36,11 +32,6 @@ public class KafkaCodeMigrator implements MigrationPhase {
         for (Map.Entry<String, CompilationUnit> entry : units.entrySet()) {
             String className = entry.getKey();
             CompilationUnit cu = entry.getValue();
-
-            if (cu == null) {
-                continue;
-            }
-
             boolean modified = false;
 
             // Replace imports
@@ -72,8 +63,6 @@ public class KafkaCodeMigrator implements MigrationPhase {
 
         if (changeCount == 0) {
             result.addChange("No Kafka migrations needed");
-        } else {
-            logger.info("Kafka migration complete: {} classes updated", changeCount);
         }
 
         return result;

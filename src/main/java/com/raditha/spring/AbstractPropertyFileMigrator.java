@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 import org.yaml.snakeyaml.Yaml;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
@@ -49,10 +50,9 @@ import java.util.stream.Stream;
  * @see MigrationPhase
  * @see MigrationPhaseResult
  */
-public abstract class AbstractPropertyFileMigrator implements MigrationPhase {
+public abstract class AbstractPropertyFileMigrator extends MigrationPhase {
     private static final Logger logger = LoggerFactory.getLogger(AbstractPropertyFileMigrator.class);
 
-    protected final boolean dryRun;
     protected final Map<String, PropertyMapping> propertyMappings;
 
     /**
@@ -62,7 +62,7 @@ public abstract class AbstractPropertyFileMigrator implements MigrationPhase {
      * @param propertyMappings map of old property keys to new property mappings
      */
     protected AbstractPropertyFileMigrator(boolean dryRun, Map<String, PropertyMapping> propertyMappings) {
-        this.dryRun = dryRun;
+        super(dryRun);
         this.propertyMappings = propertyMappings;
     }
 
@@ -245,29 +245,22 @@ public abstract class AbstractPropertyFileMigrator implements MigrationPhase {
      * @param propFile path to properties file
      * @param result   migration result
      */
-    protected final void migratePropertiesFile(Path propFile, MigrationPhaseResult result) {
-        logger.info("Migrating properties file: {}", propFile);
+    protected final void migratePropertiesFile(Path propFile, MigrationPhaseResult result) throws IOException {
 
-        try {
-            Properties props = new Properties();
-
-            try (InputStream input = Files.newInputStream(propFile)) {
-                props.load(input);
-            }
-
-            boolean modified = transformProperties(props, result, propFile.getFileName().toString());
-
-            if (modified && !dryRun) {
-                try (OutputStream output = Files.newOutputStream(propFile)) {
-                    props.store(output, "Migrated to Spring Boot " + getTargetVersion());
-                }
-                logger.info("Updated properties file: {}", propFile);
-            }
-
-        } catch (Exception e) {
-            result.addError("Failed to migrate " + propFile + ": " + e.getMessage());
-            logger.error("Error migrating properties file", e);
+        Properties props = new Properties();
+        try (InputStream input = Files.newInputStream(propFile)) {
+            props.load(input);
         }
+
+        boolean modified = transformProperties(props, result, propFile.getFileName().toString());
+
+        if (modified && !dryRun) {
+            try (OutputStream output = Files.newOutputStream(propFile)) {
+                props.store(output, "Migrated to Spring Boot " + getTargetVersion());
+            }
+            logger.info("Updated properties file: {}", propFile);
+        }
+
     }
 
     /**
@@ -343,8 +336,6 @@ public abstract class AbstractPropertyFileMigrator implements MigrationPhase {
     protected final Yaml createYaml() {
         return YamlUtils.createYaml();
     }
-
-    // ==================== Helper Classes ====================
 
     /**
      * Represents a property mapping from old key to new key with transformation

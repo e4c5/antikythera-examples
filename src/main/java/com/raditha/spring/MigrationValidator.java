@@ -1,7 +1,5 @@
 package com.raditha.spring;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -19,13 +17,10 @@ import java.util.List;
  * 3. Property validation - detect deprecated properties via spring-boot-properties-migrator
  * 4. Rollback instructions generation
  */
-public class MigrationValidator implements MigrationPhase {
-    private static final Logger logger = LoggerFactory.getLogger(MigrationValidator.class);
-
-    private final boolean dryRun;
+public class MigrationValidator extends MigrationPhase {
 
     public MigrationValidator(boolean dryRun) {
-        this.dryRun = dryRun;
+        super(dryRun);
     }
 
     /**
@@ -63,8 +58,6 @@ public class MigrationValidator implements MigrationPhase {
      * Validate that the project compiles successfully.
      */
     private boolean validateCompilation(MigrationPhaseResult result) throws IOException, InterruptedException {
-        logger.info("Validating compilation...");
-
         ProcessBuilder pb = new ProcessBuilder("mvn", "clean", "compile", "-q");
         pb.directory(Paths.get(System.getProperty("user.dir")).toFile());
         pb.redirectErrorStream(true);
@@ -85,23 +78,17 @@ public class MigrationValidator implements MigrationPhase {
 
         if (exitCode == 0) {
             result.addChange("✅ Compilation successful");
-            logger.info("Compilation validation passed");
             return true;
-        } else {
-            result.addError("❌ Compilation failed (exit code: " + exitCode + ")");
-            result.addError("Output: " + output.toString());
-            logger.error("Compilation validation failed");
-            return false;
         }
-
+        result.addError("❌ Compilation failed (exit code: " + exitCode + ")");
+        result.addError("Output: " + output);
+        return false;
     }
 
     /**
      * Validate dependency tree for conflicts.
      */
     private void validateDependencies(MigrationPhaseResult result) throws IOException, InterruptedException {
-        logger.info("Validating dependency tree...");
-
         ProcessBuilder pb = new ProcessBuilder("mvn", "dependency:tree", "-q");
         pb.directory(Paths.get(System.getProperty("user.dir")).toFile());
         pb.redirectErrorStream(true);
@@ -138,8 +125,6 @@ public class MigrationValidator implements MigrationPhase {
      * This assumes spring-boot-properties-migrator is in the classpath.
      */
     private void validateProperties(MigrationPhaseResult result) {
-        logger.info("Checking for deprecated properties...");
-        
         // Note: Full property validation would require starting the application
         // For now, we provide guidance
         result.addChange("Property validation: Run application and check logs for deprecated property warnings");

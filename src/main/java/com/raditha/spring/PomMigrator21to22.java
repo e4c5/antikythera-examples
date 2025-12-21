@@ -4,6 +4,7 @@ import org.apache.maven.model.Dependency;
 import org.apache.maven.model.Model;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import sa.com.cloudsolutions.antikythera.parser.MavenHelper;
 
 /**
  * POM migrator for Spring Boot 2.1 to 2.2 upgrade.
@@ -85,20 +86,7 @@ public class PomMigrator21to22 extends AbstractPomMigrator {
             if (dryRun) {
                 result.addChange("Would migrate: javax.mail:javax.mail-api → com.sun.mail:jakarta.mail");
             } else {
-                // Remove old dependency
-                model.getDependencies().remove(javaxMail);
-
-                // Add Jakarta Mail
-                Dependency jakartaMail = new Dependency();
-                jakartaMail.setGroupId("com.sun.mail");
-                jakartaMail.setArtifactId("jakarta.mail");
-                jakartaMail.setVersion(javaxMail.getVersion()); // Keep same version
-                if (javaxMail.getScope() != null) {
-                    jakartaMail.setScope(javaxMail.getScope());
-                }
-                model.addDependency(jakartaMail);
-
-                result.addChange("Migrated: javax.mail:javax.mail-api → com.sun.mail:jakarta.mail");
+                migrateJavaXMail(model, result, javaxMail);
                 logger.info("Migrated javax.mail to jakarta.mail");
             }
             modified = true;
@@ -113,16 +101,18 @@ public class PomMigrator21to22 extends AbstractPomMigrator {
     private void validateKafkaClientVersion(Model model, MigrationPhaseResult result) {
         Dependency kafkaClients = findDependency(model, "org.apache.kafka", "kafka-clients");
 
+        migrateKafka(result, kafkaClients);
+    }
+
+    private static void migrateKafka(MigrationPhaseResult result, Dependency kafkaClients) {
         if (kafkaClients != null) {
             String version = kafkaClients.getVersion();
             if (version != null && !version.startsWith("${")) {
-                if (compareVersions(version, MIN_KAFKA_CLIENTS_VERSION) < 0) {
+                 if (MavenHelper.compareVersions(version, MIN_KAFKA_CLIENTS_VERSION) < 0) {
                     result.addWarning(String.format(
                             "kafka-clients version %s is below required %s for Spring Boot 2.2",
                             version, MIN_KAFKA_CLIENTS_VERSION));
                     result.addWarning("Spring Kafka 2.3+ requires kafka-clients 2.3.0+");
-                } else {
-                    logger.info("kafka-clients version {} is compatible", version);
                 }
             }
         }
@@ -177,7 +167,7 @@ public class PomMigrator21to22 extends AbstractPomMigrator {
         String highestVersion = shedLockDeps.stream()
                 .map(Dependency::getVersion)
                 .filter(v -> v != null && !v.startsWith("${"))
-                .max((v1, v2) -> compareVersions(v1, v2))
+                .max(MavenHelper::compareVersions)
                 .orElse(null);
 
         if (highestVersion == null) {

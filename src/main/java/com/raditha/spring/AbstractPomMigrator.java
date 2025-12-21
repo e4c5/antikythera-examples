@@ -3,17 +3,10 @@ package com.raditha.spring;
 import org.apache.maven.model.Dependency;
 import org.apache.maven.model.Model;
 import org.apache.maven.model.Parent;
-import org.apache.maven.model.io.xpp3.MavenXpp3Reader;
-import org.apache.maven.model.io.xpp3.MavenXpp3Writer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import sa.com.cloudsolutions.antikythera.configuration.Settings;
+import sa.com.cloudsolutions.antikythera.parser.MavenHelper;
 
-import java.io.FileReader;
-import java.io.FileWriter;
-import java.io.IOException;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -70,11 +63,11 @@ import java.util.stream.Collectors;
  * @see MigrationPhase
  * @see MigrationPhaseResult
  */
-public abstract class AbstractPomMigrator implements MigrationPhase {
+public abstract class AbstractPomMigrator extends MigrationPhase {
     private static final Logger logger = LoggerFactory.getLogger(AbstractPomMigrator.class);
 
     protected final String targetSpringBootVersion;
-    protected final boolean dryRun;
+    protected final MavenHelper mavenHelper = new MavenHelper();
 
     /**
      * Constructor for POM migrator.
@@ -85,8 +78,8 @@ public abstract class AbstractPomMigrator implements MigrationPhase {
      *                                mode)
      */
     protected AbstractPomMigrator(String targetSpringBootVersion, boolean dryRun) {
+        super(dryRun);
         this.targetSpringBootVersion = targetSpringBootVersion;
-        this.dryRun = dryRun;
     }
 
     /**
@@ -105,39 +98,27 @@ public abstract class AbstractPomMigrator implements MigrationPhase {
      * @return result of POM migration
      */
     @Override
-    public final MigrationPhaseResult migrate() {
+    public final MigrationPhaseResult migrate() throws Exception {
         MigrationPhaseResult result = new MigrationPhaseResult();
 
-        Path pomPath = resolvePomPath();
-        if (pomPath == null) {
-            result.addError("Could not find pom.xml");
-            return result;
+        Model model = mavenHelper.getPomModel();
+        boolean modified = false;
+
+        // Update Spring Boot parent version
+        if (updateSpringBootParent(model, result)) {
+            modified = true;
         }
 
-        try {
-            Model model = readPomModel(pomPath);
-            boolean modified = false;
+        // Apply version-specific dependency rules
+        applyVersionSpecificDependencyRules(model, result);
 
-            // Update Spring Boot parent version
-            if (updateSpringBootParent(model, result)) {
-                modified = true;
-            }
+        // Validate version-specific requirements
+        validateVersionSpecificRequirements(model, result);
 
-            // Apply version-specific dependency rules
-            applyVersionSpecificDependencyRules(model, result);
-
-            // Validate version-specific requirements
-            validateVersionSpecificRequirements(model, result);
-
-            // Write POM if modifications were made
-            if (modified && !dryRun) {
-                writePomModel(pomPath, model);
-                logger.info("POM migration completed successfully");
-            }
-
-        } catch (Exception e) {
-            logger.error("Error during POM migration", e);
-            result.addError("POM migration failed: " + e.getMessage());
+        // Write POM if modifications were made
+        if (modified && !dryRun) {
+            mavenHelper.writePomModel(model);
+            logger.info("POM migration completed successfully");
         }
 
         return result;
@@ -150,48 +131,180 @@ public abstract class AbstractPomMigrator implements MigrationPhase {
      * This method is final to ensure consistent parent version updates across all
      * Spring Boot versions.
      * 
+     * <p>
+     * Handles multiple scenarios:
+     * <ul>
+     * <li>Direct spring-boot-starter-parent inheritance</li>
+     * <li>Corporate parent POM (adds property override)</li>
+     * <li>Property-based version management (spring-boot.version or spring.boot.version)</li>
+     * <li>Spring Boot BOM in dependencyManagement</li>
+     * </ul>
+     *
      * @param model  Maven model
      * @param result migration result to add changes/warnings
      * @return true if parent version was updated
      */
     protected final boolean updateSpringBootParent(Model model, MigrationPhaseResult result) {
-        Parent parent = model.getParent();
-
-        if (parent == null) {
-            result.addWarning("No parent POM found");
-            return false;
+        // Strategy 1: Direct spring-boot-starter-parent
+        if (tryUpdateDirectParent(model, result)) {
+            return true;
         }
 
-        if (!"org.springframework.boot".equals(parent.getGroupId()) ||
-                !"spring-boot-starter-parent".equals(parent.getArtifactId())) {
-            result.addWarning("Parent is not spring-boot-starter-parent");
+        // Strategy 2: Property-based version management
+        if (tryUpdateVersionProperty(model, result)) {
+            return true;
+        }
+
+        // Strategy 3: Spring Boot BOM in dependencyManagement
+        if (tryUpdateSpringBootBom(model, result)) {
+            return true;
+        }
+
+        // Strategy 4: Corporate parent POM - add property override
+        return handleCorporateParent(model, result);
+    }
+
+    /**
+     * Try to update direct spring-boot-starter-parent.
+     */
+    private boolean tryUpdateDirectParent(Model model, MigrationPhaseResult result) {
+        Parent parent = model.getParent();
+        if (parent == null ||
+            !"org.springframework.boot".equals(parent.getGroupId()) ||
+            !"spring-boot-starter-parent".equals(parent.getArtifactId())) {
             return false;
         }
 
         String currentVersion = parent.getVersion();
+        if (currentVersion == null || currentVersion.startsWith("${")) {
+            return false;
+        }
+
+        return updateVersionIfNeeded(currentVersion,
+            parent::setVersion,
+            "Spring Boot parent",
+            result);
+    }
+
+    /**
+     * Try to update Spring Boot version property.
+     */
+    private boolean tryUpdateVersionProperty(Model model, MigrationPhaseResult result) {
+        if (model.getProperties() == null) {
+            return false;
+        }
+
+        String[] propertyKeys = {"spring-boot.version", "spring.boot.version", "springboot.version"};
+        for (String key : propertyKeys) {
+            if (model.getProperties().containsKey(key)) {
+                String currentVersion = model.getProperties().getProperty(key);
+                return updateVersionIfNeeded(currentVersion,
+                    v -> model.getProperties().setProperty(key, v),
+                    "property " + key,
+                    result);
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Try to update Spring Boot BOM in dependencyManagement.
+     */
+    private boolean tryUpdateSpringBootBom(Model model, MigrationPhaseResult result) {
+        if (model.getDependencyManagement() == null ||
+            model.getDependencyManagement().getDependencies() == null) {
+            return false;
+        }
+
+        Dependency springBootBom = model.getDependencyManagement().getDependencies().stream()
+            .filter(dep -> "org.springframework.boot".equals(dep.getGroupId()) &&
+                          "spring-boot-dependencies".equals(dep.getArtifactId()))
+            .findFirst()
+            .orElse(null);
+
+        if (springBootBom == null) {
+            return false;
+        }
+
+        String currentVersion = springBootBom.getVersion();
+        if (currentVersion == null || currentVersion.startsWith("${")) {
+            return false;
+        }
+
+        return updateVersionIfNeeded(currentVersion,
+            springBootBom::setVersion,
+            "Spring Boot BOM",
+            result);
+    }
+
+    /**
+     * Update version if needed (DRY helper method).
+     */
+    private boolean updateVersionIfNeeded(String currentVersion,
+                                          java.util.function.Consumer<String> versionSetter,
+                                          String componentName,
+                                          MigrationPhaseResult result) {
         String targetVersion = extractVersionPrefix(targetSpringBootVersion);
         String currentPrefix = extractVersionPrefix(currentVersion);
 
         if (currentPrefix.equals(targetVersion)) {
-            logger.info("Spring Boot parent already at {}.x: {}", targetVersion, currentVersion);
+            logger.info("{} already at {}.x: {}", componentName, targetVersion, currentVersion);
             return false;
         }
 
         if (dryRun) {
-            result.addChange(String.format("Would update Spring Boot parent: %s → %s",
-                    currentVersion, targetSpringBootVersion));
+            result.addChange(String.format("Would update %s: %s → %s",
+                    componentName, currentVersion, targetSpringBootVersion));
         } else {
-            parent.setVersion(targetSpringBootVersion);
-            result.addChange(String.format("Updated Spring Boot parent: %s → %s",
-                    currentVersion, targetSpringBootVersion));
-            logger.info("Updated Spring Boot parent version to {}", targetSpringBootVersion);
+            versionSetter.accept(targetSpringBootVersion);
+            result.addChange(String.format("Updated %s: %s → %s",
+                    componentName, currentVersion, targetSpringBootVersion));
+            logger.info("Updated {} to {}", componentName, targetSpringBootVersion);
         }
-
         return true;
     }
 
-    // ==================== Hook Methods - Subclasses Must Implement
-    // ====================
+    /**
+     * Handle corporate parent POM scenarios by adding a version property override.
+     *
+     * <p>
+     * When a corporate parent POM is detected (not spring-boot-starter-parent),
+     * automatically adds a {@code <spring-boot.version>} property to override
+     * the Spring Boot version managed by the parent.
+     *
+     * @return true if property was added, false otherwise
+     */
+    private boolean handleCorporateParent(Model model, MigrationPhaseResult result) {
+        Parent parent = model.getParent();
+        if (parent != null) {
+            result.addWarning(String.format("Corporate parent POM detected: %s:%s:%s",
+                parent.getGroupId(), parent.getArtifactId(), parent.getVersion()));
+            result.addWarning("Spring Boot version may be managed in parent POM");
+
+            // Automatically add property override
+            if (model.getProperties() == null) {
+                model.setProperties(new java.util.Properties());
+            }
+
+            if (dryRun) {
+                result.addChange(String.format("Would add property override: <spring-boot.version>%s</spring-boot.version>",
+                    targetSpringBootVersion));
+                result.addWarning("This property will override the Spring Boot version from parent POM");
+            } else {
+                model.getProperties().setProperty("spring-boot.version", targetSpringBootVersion);
+                result.addChange(String.format("Added property override: <spring-boot.version>%s</spring-boot.version>",
+                    targetSpringBootVersion));
+                result.addWarning("This property overrides the Spring Boot version from parent POM");
+                result.addWarning("Verify that parent POM uses ${spring-boot.version} for version management");
+                logger.info("Added spring-boot.version property to override corporate parent's Spring Boot version");
+            }
+            return true;  // Property was added, need to write POM
+        } else {
+            result.addWarning("No parent POM found and no Spring Boot version property detected");
+            result.addWarning("Consider adding Spring Boot dependency management or parent POM");
+            return false;
+        }
+    }
 
     /**
      * Apply version-specific dependency rules.
@@ -236,8 +349,6 @@ public abstract class AbstractPomMigrator implements MigrationPhase {
      * @param result migration result to add warnings/errors
      */
     protected abstract void validateVersionSpecificRequirements(Model model, MigrationPhaseResult result);
-
-    // ==================== Protected Utility Methods ====================
 
     /**
      * Check if a dependency exists in the POM.
@@ -320,32 +431,6 @@ public abstract class AbstractPomMigrator implements MigrationPhase {
     }
 
     /**
-     * Compare two version strings.
-     * 
-     * @param v1 first version
-     * @param v2 second version
-     * @return negative if v1 < v2, zero if v1 == v2, positive if v1 > v2
-     */
-    protected final int compareVersions(String v1, String v2) {
-        String[] parts1 = v1.split("\\.");
-        String[] parts2 = v2.split("\\.");
-        int maxLength = Math.max(parts1.length, parts2.length);
-
-        for (int i = 0; i < maxLength; i++) {
-            int num1 = i < parts1.length ? parseVersionPart(parts1[i]) : 0;
-            int num2 = i < parts2.length ? parseVersionPart(parts2[i]) : 0;
-
-            if (num1 != num2) {
-                return Integer.compare(num1, num2);
-            }
-        }
-
-        return 0;
-    }
-
-    // ==================== Private Helper Methods ====================
-
-    /**
      * Extract version prefix (e.g., "2.2" from "2.2.13.RELEASE").
      */
     private String extractVersionPrefix(String version) {
@@ -354,58 +439,5 @@ public abstract class AbstractPomMigrator implements MigrationPhase {
             return parts[0] + "." + parts[1];
         }
         return version;
-    }
-
-    /**
-     * Parse version part to integer, extracting only numeric portion.
-     */
-    private int parseVersionPart(String part) {
-        try {
-            return Integer.parseInt(part.replaceAll("[^0-9]", ""));
-        } catch (NumberFormatException e) {
-            return 0;
-        }
-    }
-
-    /**
-     * Resolve path to pom.xml.
-     */
-    protected final Path resolvePomPath() {
-        try {
-            Path basePath = Paths.get(Settings.getBasePath());
-            Path pomPath = basePath.resolve("pom.xml");
-
-            if (!pomPath.toFile().exists()) {
-                pomPath = basePath.getParent().resolve("pom.xml");
-            }
-
-            if (pomPath.toFile().exists()) {
-                return pomPath;
-            }
-        } catch (Exception e) {
-            logger.error("Error resolving POM path", e);
-        }
-
-        return null;
-    }
-
-    /**
-     * Read Maven POM model from file.
-     */
-    protected final Model readPomModel(Path pomPath) throws Exception {
-        MavenXpp3Reader reader = new MavenXpp3Reader();
-        try (FileReader fileReader = new FileReader(pomPath.toFile())) {
-            return reader.read(fileReader);
-        }
-    }
-
-    /**
-     * Write Maven POM model to file.
-     */
-    protected final void writePomModel(Path pomPath, Model model) throws IOException {
-        MavenXpp3Writer writer = new MavenXpp3Writer();
-        try (FileWriter fileWriter = new FileWriter(pomPath.toFile())) {
-            writer.write(fileWriter, model);
-        }
     }
 }

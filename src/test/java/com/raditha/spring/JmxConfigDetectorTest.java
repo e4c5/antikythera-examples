@@ -22,7 +22,7 @@ class JmxConfigDetectorTest {
     @BeforeAll
     static void setup() throws IOException {
         // Load configuration
-        File configFile = new File("src/test/resources/spring-migration-test.yml");
+        File configFile = new File("src/test/resources/generator.yml");
         Settings.loadConfigMap(configFile);
 
         // Reset and initialize parser
@@ -33,7 +33,7 @@ class JmxConfigDetectorTest {
     }
 
     @Test
-    void testNoJmxUsage() {
+    void testNoJmxUsage() throws IOException {
         JmxConfigDetector detector = new JmxConfigDetector(true);
         MigrationPhaseResult result = detector.migrate();
 
@@ -44,7 +44,7 @@ class JmxConfigDetectorTest {
     }
 
     @Test
-    void testDetectorScansAllClasses() {
+    void testDetectorScansAllClasses() throws IOException {
         JmxConfigDetector detector = new JmxConfigDetector(true);
 
         // Verify we have parsed compilation units
