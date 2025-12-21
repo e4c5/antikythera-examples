@@ -73,6 +73,13 @@
             <version>4.12</version>
         </dependency>
         
+        <!-- Picocli for command-line argument parsing -->
+        <dependency>
+            <groupId>info.picocli</groupId>
+            <artifactId>picocli</artifactId>
+            <version>4.7.6</version>
+        </dependency>
+        
         <!-- ANTLR4 Runtime for HQL parsing -->
         <dependency>
             <groupId>org.antlr</groupId>
