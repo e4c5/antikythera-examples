@@ -1,3 +1,43 @@
+# Antikythera Examples
+
+This module contains example utilities and tools built on top of the Antikythera framework.
+
+## Maven Parent POM Converter
+
+A tool that converts Maven POMs with parent inheritance into completely standalone POMs by expanding all inherited configuration.
+
+### Quick Start
+
+```bash
+cd /path/to/your/project
+mvn exec:java -Dexec.mainClass="com.raditha.maven.PomFlattenerCLI"
+```
+
+This will flatten your `pom.xml`, removing the `<parent>` element and making all inherited properties, dependencies, and plugins explicit.
+
+### Features
+
+- ✅ Resolves parent POMs from local repository or relativePath
+- ✅ Supports multi-level parent hierarchies (parent of parent)
+- ✅ Merges all properties, dependencies, plugins, and profiles
+- ✅ Automatic timestamped backups
+- ✅ Dry-run mode to preview changes
+- ✅ Optional profile flattening
+
+### Documentation
+
+- **[User Guide](docs/MAVEN_PARENT_CONVERTER_GUIDE.md)** - Complete guide with examples and troubleshooting
+- **[Walkthrough](../brain/4416b8df-8faa-4f36-93cc-db14a2100fd3/walkthrough.md)** - Implementation details and test results
+
+### Test Coverage
+
+**17 tests | 100% pass rate**
+- 5 ParentPomResolverTest (unit)
+- 8 InheritanceFlattenerTest (unit)
+- 4 PomFlattenerIntegrationTest (integration)
+
+---
+
 # antikythera-examples
 
 This project contains examples and tools for the Antikythera test generation framework, focusing on JPA repository query analysis and optimization.

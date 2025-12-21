@@ -81,30 +81,30 @@ public class ActuatorInfoMigrator extends AbstractConfigMigrator {
     /**
      * Detect if /info endpoint is being used in the codebase.
      */
-    private boolean detectInfoEndpointUsage() {
+    private boolean detectInfoEndpointUsage() throws Exception {
         // Search for /actuator/info or /info endpoint references in code
         Map<String, CompilationUnit> allUnits = AntikytheraRunTime.getResolvedCompilationUnits();
-        
+
         for (CompilationUnit cu : allUnits.values()) {
             // Search for string literals containing /info or /actuator/info
             boolean hasInfoReference = cu.findAll(com.github.javaparser.ast.expr.StringLiteralExpr.class).stream()
-                    .anyMatch(str -> str.getValue().contains("/info") || 
-                                     str.getValue().contains("/actuator/info"));
-            
+                    .anyMatch(str -> str.getValue().contains("/info") ||
+                            str.getValue().contains("/actuator/info"));
+
             if (hasInfoReference) {
-                logger.info("Found /info endpoint reference in {}", 
-                           cu.getStorage().map(s -> s.getPath().toString()).orElse("unknown"));
+                logger.info("Found /info endpoint reference in {}",
+                        cu.getStorage().map(s -> s.getPath().toString()).orElse("unknown"));
                 return true;
             }
         }
-        
+
         // If actuator dependency exists but no explicit references found,
         // assume endpoint is used (safer default)
         if (hasActuatorDependency()) {
             logger.info("Actuator dependency found, assuming /info endpoint is used");
             return true;
         }
-        
+
         return false;
     }
 
@@ -125,16 +125,16 @@ public class ActuatorInfoMigrator extends AbstractConfigMigrator {
         // Check for any Spring Security starter or core dependency
         boolean hasSecurityDep = getDependenciesByGroupId(model, "org.springframework.boot").stream()
                 .anyMatch(dep -> dep.getArtifactId().contains("spring-boot-starter-security") ||
-                                 dep.getArtifactId().contains("spring-boot-starter-oauth2"));
-        
+                        dep.getArtifactId().contains("spring-boot-starter-oauth2"));
+
         if (!hasSecurityDep) {
             hasSecurityDep = getDependenciesByGroupId(model, "org.springframework.security").stream()
                     .anyMatch(dep -> dep.getArtifactId().startsWith("spring-security-"));
         }
-        
+
         return hasSecurityDep || findSecurityConfigClass() != null;
     }
-    
+
     /**
      * Get dependencies by group ID from the POM model.
      */
@@ -399,34 +399,34 @@ public class ActuatorInfoMigrator extends AbstractConfigMigrator {
      */
     private void addInfoPermitAllToMethod(MethodDeclaration method, String matcherMethodName,
             MigrationPhaseResult result) {
-        
+
         // Find the http parameter name
         String httpParamName = method.getParameter(0).getNameAsString();
-        
+
         // Create the new method call: .antMatchers("/actuator/info").permitAll()
-        String permitAllLine = "        " + httpParamName + "." + matcherMethodName + 
-                             "(\"/actuator/info\").permitAll()";
-        
+        String permitAllLine = "        " + httpParamName + "." + matcherMethodName +
+                "(\"/actuator/info\").permitAll()";
+
         // Add a comment to the method explaining the change
         method.setComment(new com.github.javaparser.ast.comments.BlockComment(
                 "\n" +
-                " * MODIFIED BY SpringBoot24to25Migrator:\n" +
-                " * Added permitAll() for /actuator/info endpoint\n" +
-                " * \n" +
-                " * Spring Boot 2.5 changed /info endpoint security.\n" +
-                " * Please review this configuration to ensure it aligns with your security requirements.\n" +
-                " * \n" +
-                " * Added line:\n" +
-                " * " + permitAllLine + "\n" +
-                " */"));
-        
+                        " * MODIFIED BY SpringBoot24to25Migrator:\n" +
+                        " * Added permitAll() for /actuator/info endpoint\n" +
+                        " * \n" +
+                        " * Spring Boot 2.5 changed /info endpoint security.\n" +
+                        " * Please review this configuration to ensure it aligns with your security requirements.\n" +
+                        " * \n" +
+                        " * Added line:\n" +
+                        " * " + permitAllLine + "\n" +
+                        " */"));
+
         // Log detailed instructions for manual modification
         result.addChange("Modified " + method.getNameAsString() + "() method - added security comment");
         result.addWarning("⚠️  MANUAL CODE CHANGE REQUIRED in " + method.getNameAsString() + "()");
-        result.addWarning("Add BEFORE .anyRequest(): ." + matcherMethodName + 
-                        "(\"/actuator/info\").permitAll()");
+        result.addWarning("Add BEFORE .anyRequest(): ." + matcherMethodName +
+                "(\"/actuator/info\").permitAll()");
         result.addWarning("The method has been marked with a comment block with detailed instructions");
-        
+
         // Note: Full AST method chain manipulation is complex and error-prone
         // The comment provides clear instructions for manual addition
         logger.warn("Security configuration requires manual update - added comment to method");
@@ -441,7 +441,7 @@ public class ActuatorInfoMigrator extends AbstractConfigMigrator {
 
         // Determine the package based on existing project structure
         String packageName = determineSecurityConfigPackage();
-        
+
         String configContent = "package " + packageName + ";\n\n" +
                 "import org.springframework.context.annotation.Bean;\n" +
                 "import org.springframework.context.annotation.Configuration;\n" +
@@ -476,13 +476,13 @@ public class ActuatorInfoMigrator extends AbstractConfigMigrator {
         Path basePath = Paths.get(Settings.getBasePath());
         Path configDir = basePath.resolve("src/main/java")
                 .resolve(packageName.replace('.', File.separatorChar));
-        
+
         if (!Files.exists(configDir) && !dryRun) {
             Files.createDirectories(configDir);
         }
-        
+
         Path configFile = configDir.resolve("ActuatorSecurityConfig.java");
-        
+
         if (!dryRun) {
             Files.writeString(configFile, configContent);
             logger.info("Generated ActuatorSecurityConfig.java at: {}", configFile);
@@ -491,23 +491,24 @@ public class ActuatorInfoMigrator extends AbstractConfigMigrator {
             logger.info("DRY-RUN: Would generate ActuatorSecurityConfig.java at: {}", configFile);
             result.addChange("Would generate " + configFile + " (dry-run mode)");
         }
-        
+
         result.addWarning("⚠️  NEW FILE GENERATED: ActuatorSecurityConfig.java");
         result.addWarning("SECURITY REVIEW REQUIRED for the generated security configuration");
         result.addWarning("Verify that /actuator/info should be publicly accessible");
     }
-    
+
     /**
-     * Determine appropriate package for security configuration based on existing code structure.
+     * Determine appropriate package for security configuration based on existing
+     * code structure.
      */
     private String determineSecurityConfigPackage() {
         // Try to find existing configuration package
         Map<String, CompilationUnit> allUnits = AntikytheraRunTime.getResolvedCompilationUnits();
-        
+
         for (CompilationUnit cu : allUnits.values()) {
             Optional<ClassOrInterfaceDeclaration> configClass = cu.findFirst(ClassOrInterfaceDeclaration.class,
                     clazz -> clazz.getAnnotationByName("Configuration").isPresent());
-            
+
             if (configClass.isPresent() && cu.getPackageDeclaration().isPresent()) {
                 String pkg = cu.getPackageDeclaration().get().getNameAsString();
                 if (pkg.endsWith(".config") || pkg.contains(".config.")) {
@@ -516,32 +517,32 @@ public class ActuatorInfoMigrator extends AbstractConfigMigrator {
                 }
             }
         }
-        
+
         // Fall back to common convention
         String basePackage = findBasePackage();
         String configPackage = basePackage + ".config";
         logger.info("Using default config package: {}", configPackage);
         return configPackage;
     }
-    
+
     /**
      * Find the base package of the application.
      */
     private String findBasePackage() {
         Map<String, CompilationUnit> allUnits = AntikytheraRunTime.getResolvedCompilationUnits();
-        
+
         // Look for @SpringBootApplication class
         for (CompilationUnit cu : allUnits.values()) {
             Optional<ClassOrInterfaceDeclaration> mainClass = cu.findFirst(ClassOrInterfaceDeclaration.class,
                     clazz -> clazz.getAnnotationByName("SpringBootApplication").isPresent());
-            
+
             if (mainClass.isPresent() && cu.getPackageDeclaration().isPresent()) {
                 String pkg = cu.getPackageDeclaration().get().getNameAsString();
                 logger.info("Found base package from @SpringBootApplication: {}", pkg);
                 return pkg;
             }
         }
-        
+
         // Fall back to first package found
         for (CompilationUnit cu : allUnits.values()) {
             if (cu.getPackageDeclaration().isPresent()) {
@@ -555,7 +556,7 @@ public class ActuatorInfoMigrator extends AbstractConfigMigrator {
                 }
             }
         }
-        
+
         // Absolute fallback
         logger.warn("Could not determine base package, using default");
         return "com.example";

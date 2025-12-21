@@ -2,10 +2,14 @@ package com.raditha.spring;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import picocli.CommandLine;
+import picocli.CommandLine.Command;
+import picocli.CommandLine.Option;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
 import java.io.IOException;
+import java.util.concurrent.Callable;
 
 /**
  * Main orchestrator for Spring Boot 2.4 to 2.5 migration.
@@ -36,14 +40,17 @@ import java.io.IOException;
  * <li>Cassandra throttling defaults removed - must configure explicitly</li>
  * <li>Groovy upgraded to 3.x (requires Spock 2.0+)</li>
  * <li>Code deprecated in Spring Boot 2.3 has been removed</li>
- * <li>Error message attribute is removed (not blanked) from error responses</li>
+ * <li>Error message attribute is removed (not blanked) from error
+ * responses</li>
  * <li>Java 17 support added (first version to support Java 17 LTS)</li>
  * </ul>
  * 
  * @see AbstractSpringBootMigrator
  */
+@Command(name = "spring-boot-24to25-migrator", mixinStandardHelpOptions = true,
+        version = "Spring Boot 2.4 → 2.5 Migrator v1.0", description = "Migrates Spring Boot 2.4 applications to 2.5")
 @SuppressWarnings("java:S106") // Allow System.out usage for reporting
-public class SpringBoot24to25Migrator extends AbstractSpringBootMigrator {
+public class SpringBoot24to25Migrator extends AbstractSpringBootMigrator implements Callable<Integer> {
     private static final Logger logger = LoggerFactory.getLogger(SpringBoot24to25Migrator.class);
 
     // Migration components - version specific
@@ -55,8 +62,24 @@ public class SpringBoot24to25Migrator extends AbstractSpringBootMigrator {
     private DeprecatedCodeFixer deprecatedCodeFixer;
     private ErrorMessageAttributeDetector errorMessageDetector;
 
+    // CLI Options
+    @Option(names = { "--dry-run" }, description = "Run migration without making changes")
+    private boolean cliDryRun = false;
+
+    @Option(names = {
+            "--project-path" }, description = "Path to Spring Boot project (default: current directory)", paramLabel = "<path>")
+    private String projectPath;
+
+    /**
+     * Default constructor for Picocli.
+     */
+    public SpringBoot24to25Migrator() {
+        super(false); // Will be set by CLI
+    }
+
     /**
      * Constructor with default settings.
+     * For programmatic/testing use.
      * 
      * @param dryRun if true, no files will be modified
      */
@@ -158,45 +181,15 @@ public class SpringBoot24to25Migrator extends AbstractSpringBootMigrator {
     }
 
     /**
-     * Main method for command-line execution.
+     * Picocli call method - executes the migration.
+     * Includes special config loading logic for this migrator.
      * 
-     * <p>
-     * Usage:
-     * 
-     * <pre>
-     * java com.raditha.spring.SpringBoot24to25Migrator [--dry-run] 
-     *      [--project-path &lt;path&gt;]
-     * </pre>
+     * @return exit code (0 for success, 1 for failure)
      */
-    public static void main(String[] args) throws Exception {
-        boolean dryRun = false;
-        String projectPath = null;
-
-        // Parse arguments
-        for (int i = 0; i < args.length; i++) {
-            switch (args[i]) {
-                case "--dry-run":
-                    dryRun = true;
-                    break;
-                case "--project-path":
-                    if (i + 1 < args.length) {
-                        projectPath = args[++i];
-                    } else {
-                        System.err.println("Error: --project-path requires a path argument");
-                        printUsageAndExit();
-                    }
-                    break;
-                case "--help":
-                case "-h":
-                    printUsageAndExit();
-                    break;
-                default:
-                    System.err.println("Unknown argument: " + args[i]);
-                    printUsageAndExit();
-            }
-        }
-
+    @Override
+    public Integer call() throws Exception {
         // Load configuration first (required before setting properties)
+        // This is specific to the 24to25 migrator
         try {
             Settings.loadConfigMap(new java.io.File("src/test/resources/generator.yml"));
         } catch (Exception e) {
@@ -210,28 +203,25 @@ public class SpringBoot24to25Migrator extends AbstractSpringBootMigrator {
             logger.info("Using project path: {}", projectPath);
         }
 
+        // Create migrator with CLI flags
+        SpringBoot24to25Migrator migrator = new SpringBoot24to25Migrator(cliDryRun);
+
         // Run migration
-        SpringBoot24to25Migrator migrator = new SpringBoot24to25Migrator(dryRun);
         MigrationResult result = migrator.migrateAll();
 
         // Print detailed report
         migrator.printReport();
 
-        // Exit with appropriate code
-        System.exit(result.isSuccessful() ? 0 : 1);
+        return result.isSuccessful() ? 0 : 1;
     }
 
-    private static void printUsageAndExit() {
-        System.out.println("Usage: java com.raditha.spring.SpringBoot24to25Migrator [OPTIONS]");
-        System.out.println();
-        System.out.println("Options:");
-        System.out.println("  --dry-run               Run migration without making changes");
-        System.out.println("  --project-path <path>   Path to Spring Boot project (default: current directory)");
-        System.out.println("  --help, -h              Show this help message");
-        System.out.println();
-        System.out.println("Example:");
-        System.out.println(
-                "  java com.raditha.spring.SpringBoot24to25Migrator --dry-run --project-path /path/to/project");
-        System.exit(1);
+    /**
+     * Main method for command-line execution.
+     * 
+     * @param args command-line arguments
+     */
+    public static void main(String[] args) {
+        int exitCode = new CommandLine(new SpringBoot24to25Migrator()).execute(args);
+        System.exit(exitCode);
     }
 }
