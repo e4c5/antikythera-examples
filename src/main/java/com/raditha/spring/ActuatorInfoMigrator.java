@@ -6,6 +6,7 @@ import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.StringLiteralExpr;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
+import org.apache.maven.model.Dependency;
 import org.apache.maven.model.Model;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,14 +15,17 @@ import org.yaml.snakeyaml.Yaml;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
+import sa.com.cloudsolutions.antikythera.parser.MavenHelper;
 
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Migrator for Actuator /info endpoint configuration and Spring Security
@@ -43,37 +47,32 @@ import java.util.Optional;
  */
 public class ActuatorInfoMigrator extends AbstractConfigMigrator {
     private static final Logger logger = LoggerFactory.getLogger(ActuatorInfoMigrator.class);
+    private final MavenHelper mavenHelper = new MavenHelper();
 
     public ActuatorInfoMigrator(boolean dryRun) {
         super(dryRun);
     }
 
     @Override
-    public MigrationPhaseResult migrate() {
+    public MigrationPhaseResult migrate() throws Exception {
         logger.info("Migrating actuator /info endpoint configuration...");
         MigrationPhaseResult result = new MigrationPhaseResult();
 
-        try {
-            // 1. Detect /info endpoint usage
-            if (!detectInfoEndpointUsage()) {
-                result.addChange("No /info endpoint usage detected - skipping migration");
-                return result;
-            }
+        // 1. Detect /info endpoint usage
+        if (!detectInfoEndpointUsage()) {
+            result.addChange("No /info endpoint usage detected - skipping migration");
+            return result;
+        }
 
-            // 2. Add actuator exposure configuration
-            addActuatorExposureConfig(result);
+        // 2. Add actuator exposure configuration
+        addActuatorExposureConfig(result);
 
-            // 3. Handle Spring Security configuration
-            if (hasSpringSecurityDependency()) {
-                modifySecurityConfiguration(result);
-                result.addWarning("⚠️  SECURITY REVIEW REQUIRED: Spring Security configuration modified");
-                result.addWarning("Please verify that /actuator/info should be publicly accessible");
-                result.addWarning("Consider if any sensitive information is exposed via /info endpoint");
-            }
-
-        } catch (Exception e) {
-            logger.error("Error during actuator /info endpoint migration", e);
-            result.addError("Actuator /info migration failed: " + e.getMessage());
+        // 3. Handle Spring Security configuration
+        if (hasSpringSecurityDependency()) {
+            modifySecurityConfiguration(result);
+            result.addWarning("⚠️  SECURITY REVIEW REQUIRED: Spring Security configuration modified");
+            result.addWarning("Please verify that /actuator/info should be publicly accessible");
+            result.addWarning("Consider if any sensitive information is exposed via /info endpoint");
         }
 
         return result;
@@ -112,39 +111,37 @@ public class ActuatorInfoMigrator extends AbstractConfigMigrator {
     /**
      * Check if Spring Boot Actuator dependency exists.
      */
-    private boolean hasActuatorDependency() {
-        try {
-            Model model = loadPomModel();
-            return getDependenciesByGroupId(model, "org.springframework.boot").stream()
-                    .anyMatch(dep -> "spring-boot-starter-actuator".equals(dep.getArtifactId()));
-        } catch (Exception e) {
-            logger.warn("Could not parse POM to check for actuator dependency, assuming present", e);
-            return true; // Safe default - configure endpoint exposure anyway
-        }
+    private boolean hasActuatorDependency() throws Exception {
+        Model model = mavenHelper.getPomModel();
+        return getDependenciesByGroupId(model, "org.springframework.boot").stream()
+                .anyMatch(dep -> "spring-boot-starter-actuator".equals(dep.getArtifactId()));
     }
 
     /**
      * Check if Spring Security dependency exists.
      */
-    private boolean hasSpringSecurityDependency() {
-        try {
-            Model model = loadPomModel();
-            // Check for any Spring Security starter or core dependency
-            boolean hasSecurityDep = getDependenciesByGroupId(model, "org.springframework.boot").stream()
-                    .anyMatch(dep -> dep.getArtifactId().contains("spring-boot-starter-security") ||
-                                     dep.getArtifactId().contains("spring-boot-starter-oauth2"));
-            
-            if (!hasSecurityDep) {
-                hasSecurityDep = getDependenciesByGroupId(model, "org.springframework.security").stream()
-                        .anyMatch(dep -> dep.getArtifactId().startsWith("spring-security-"));
-            }
-            
-            return hasSecurityDep || findSecurityConfigClass() != null;
-        } catch (Exception e) {
-            logger.warn("Could not parse POM to check for security dependency", e);
-            // Fall back to looking for SecurityConfig classes
-            return findSecurityConfigClass() != null;
+    private boolean hasSpringSecurityDependency() throws Exception {
+        Model model = mavenHelper.getPomModel();
+        // Check for any Spring Security starter or core dependency
+        boolean hasSecurityDep = getDependenciesByGroupId(model, "org.springframework.boot").stream()
+                .anyMatch(dep -> dep.getArtifactId().contains("spring-boot-starter-security") ||
+                                 dep.getArtifactId().contains("spring-boot-starter-oauth2"));
+        
+        if (!hasSecurityDep) {
+            hasSecurityDep = getDependenciesByGroupId(model, "org.springframework.security").stream()
+                    .anyMatch(dep -> dep.getArtifactId().startsWith("spring-security-"));
         }
+        
+        return hasSecurityDep || findSecurityConfigClass() != null;
+    }
+    
+    /**
+     * Get dependencies by group ID from the POM model.
+     */
+    private List<Dependency> getDependenciesByGroupId(Model model, String groupId) {
+        return model.getDependencies().stream()
+                .filter(dep -> groupId.equals(dep.getGroupId()))
+                .collect(Collectors.toList());
     }
 
     /**
@@ -275,7 +272,7 @@ public class ActuatorInfoMigrator extends AbstractConfigMigrator {
      * /actuator/info.
      * Uses AST transformations to modify existing SecurityConfig class.
      */
-    private void modifySecurityConfiguration(MigrationPhaseResult result) {
+    private void modifySecurityConfiguration(MigrationPhaseResult result) throws IOException {
         CompilationUnit securityConfigCU = findSecurityConfigClass();
 
         if (securityConfigCU == null) {
@@ -403,116 +400,101 @@ public class ActuatorInfoMigrator extends AbstractConfigMigrator {
     private void addInfoPermitAllToMethod(MethodDeclaration method, String matcherMethodName,
             MigrationPhaseResult result) {
         
-        try {
-            // Find the http parameter name
-            String httpParamName = method.getParameter(0).getNameAsString();
-            
-            // Create the new method call: .antMatchers("/actuator/info").permitAll()
-            String permitAllLine = "        " + httpParamName + "." + matcherMethodName + 
-                                 "(\"/actuator/info\").permitAll()";
-            
-            // Add a comment to the method explaining the change
-            method.setComment(new com.github.javaparser.ast.comments.BlockComment(
-                    "\n" +
-                    " * MODIFIED BY SpringBoot24to25Migrator:\n" +
-                    " * Added permitAll() for /actuator/info endpoint\n" +
-                    " * \n" +
-                    " * Spring Boot 2.5 changed /info endpoint security.\n" +
-                    " * Please review this configuration to ensure it aligns with your security requirements.\n" +
-                    " * \n" +
-                    " * Added line:\n" +
-                    " * " + permitAllLine + "\n" +
-                    " */"));
-            
-            // Log detailed instructions for manual modification
-            result.addChange("Modified " + method.getNameAsString() + "() method - added security comment");
-            result.addWarning("⚠️  MANUAL CODE CHANGE REQUIRED in " + method.getNameAsString() + "()");
-            result.addWarning("Add BEFORE .anyRequest(): ." + matcherMethodName + 
-                            "(\"/actuator/info\").permitAll()");
-            result.addWarning("The method has been marked with a comment block with detailed instructions");
-            
-            // Note: Full AST method chain manipulation is complex and error-prone
-            // The comment provides clear instructions for manual addition
-            logger.warn("Security configuration requires manual update - added comment to method");
-            
-        } catch (Exception e) {
-            logger.error("Failed to add comment to security method", e);
-            result.addError("Could not modify security configuration method: " + e.getMessage());
-            result.addWarning("Please manually add: ." + matcherMethodName + 
-                            "(\"/actuator/info\").permitAll()");
-        }
+        // Find the http parameter name
+        String httpParamName = method.getParameter(0).getNameAsString();
+        
+        // Create the new method call: .antMatchers("/actuator/info").permitAll()
+        String permitAllLine = "        " + httpParamName + "." + matcherMethodName + 
+                             "(\"/actuator/info\").permitAll()";
+        
+        // Add a comment to the method explaining the change
+        method.setComment(new com.github.javaparser.ast.comments.BlockComment(
+                "\n" +
+                " * MODIFIED BY SpringBoot24to25Migrator:\n" +
+                " * Added permitAll() for /actuator/info endpoint\n" +
+                " * \n" +
+                " * Spring Boot 2.5 changed /info endpoint security.\n" +
+                " * Please review this configuration to ensure it aligns with your security requirements.\n" +
+                " * \n" +
+                " * Added line:\n" +
+                " * " + permitAllLine + "\n" +
+                " */"));
+        
+        // Log detailed instructions for manual modification
+        result.addChange("Modified " + method.getNameAsString() + "() method - added security comment");
+        result.addWarning("⚠️  MANUAL CODE CHANGE REQUIRED in " + method.getNameAsString() + "()");
+        result.addWarning("Add BEFORE .anyRequest(): ." + matcherMethodName + 
+                        "(\"/actuator/info\").permitAll()");
+        result.addWarning("The method has been marked with a comment block with detailed instructions");
+        
+        // Note: Full AST method chain manipulation is complex and error-prone
+        // The comment provides clear instructions for manual addition
+        logger.warn("Security configuration requires manual update - added comment to method");
     }
 
     /**
      * Generate a new ActuatorSecurityConfig class if no existing Security config
      * found.
      */
-    private void generateActuatorSecurityConfig(MigrationPhaseResult result) {
+    private void generateActuatorSecurityConfig(MigrationPhaseResult result) throws IOException {
         logger.info("No existing SecurityConfig found, generating ActuatorSecurityConfig");
 
-        try {
-            // Determine the package based on existing project structure
-            String packageName = determineSecurityConfigPackage();
-            
-            String configContent = "package " + packageName + ";\n\n" +
-                    "import org.springframework.context.annotation.Bean;\n" +
-                    "import org.springframework.context.annotation.Configuration;\n" +
-                    "import org.springframework.security.config.annotation.web.builders.HttpSecurity;\n" +
-                    "import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;\n" +
-                    "import org.springframework.security.web.SecurityFilterChain;\n\n" +
-                    "/**\n" +
-                    " * Security configuration for Actuator endpoints.\n" +
-                    " * \n" +
-                    " * Generated by SpringBoot24to25Migrator to allow public access to /actuator/info.\n" +
-                    " * \n" +
-                    " * TODO: SECURITY REVIEW REQUIRED\n" +
-                    " * - Verify /actuator/info should be publicly accessible\n" +
-                    " * - Consider if any sensitive information is exposed\n" +
-                    " * - Integrate with your existing security configuration\n" +
-                    " */\n" +
-                    "@Configuration\n" +
-                    "@EnableWebSecurity\n" +
-                    "public class ActuatorSecurityConfig {\n\n" +
-                    "    @Bean\n" +
-                    "    public SecurityFilterChain actuatorSecurityFilterChain(HttpSecurity http) throws Exception {\n" +
-                    "        http\n" +
-                    "            .authorizeHttpRequests(auth -> auth\n" +
-                    "                .requestMatchers(\"/actuator/info\").permitAll()  // Allow public access to /info\n" +
-                    "                .anyRequest().authenticated()  // Require authentication for all other requests\n" +
-                    "            );\n" +
-                    "        return http.build();\n" +
-                    "    }\n" +
-                    "}\n";
+        // Determine the package based on existing project structure
+        String packageName = determineSecurityConfigPackage();
+        
+        String configContent = "package " + packageName + ";\n\n" +
+                "import org.springframework.context.annotation.Bean;\n" +
+                "import org.springframework.context.annotation.Configuration;\n" +
+                "import org.springframework.security.config.annotation.web.builders.HttpSecurity;\n" +
+                "import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;\n" +
+                "import org.springframework.security.web.SecurityFilterChain;\n\n" +
+                "/**\n" +
+                " * Security configuration for Actuator endpoints.\n" +
+                " * \n" +
+                " * Generated by SpringBoot24to25Migrator to allow public access to /actuator/info.\n" +
+                " * \n" +
+                " * TODO: SECURITY REVIEW REQUIRED\n" +
+                " * - Verify /actuator/info should be publicly accessible\n" +
+                " * - Consider if any sensitive information is exposed\n" +
+                " * - Integrate with your existing security configuration\n" +
+                " */\n" +
+                "@Configuration\n" +
+                "@EnableWebSecurity\n" +
+                "public class ActuatorSecurityConfig {\n\n" +
+                "    @Bean\n" +
+                "    public SecurityFilterChain actuatorSecurityFilterChain(HttpSecurity http) throws Exception {\n" +
+                "        http\n" +
+                "            .authorizeHttpRequests(auth -> auth\n" +
+                "                .requestMatchers(\"/actuator/info\").permitAll()  // Allow public access to /info\n" +
+                "                .anyRequest().authenticated()  // Require authentication for all other requests\n" +
+                "            );\n" +
+                "        return http.build();\n" +
+                "    }\n" +
+                "}\n";
 
-            // Create the file path
-            Path basePath = Paths.get(Settings.getBasePath());
-            Path configDir = basePath.resolve("src/main/java")
-                    .resolve(packageName.replace('.', File.separatorChar));
-            
-            if (!Files.exists(configDir) && !dryRun) {
-                Files.createDirectories(configDir);
-            }
-            
-            Path configFile = configDir.resolve("ActuatorSecurityConfig.java");
-            
-            if (!dryRun) {
-                Files.writeString(configFile, configContent);
-                logger.info("Generated ActuatorSecurityConfig.java at: {}", configFile);
-                result.addChange("Generated " + configFile);
-            } else {
-                logger.info("DRY-RUN: Would generate ActuatorSecurityConfig.java at: {}", configFile);
-                result.addChange("Would generate " + configFile + " (dry-run mode)");
-            }
-            
-            result.addWarning("⚠️  NEW FILE GENERATED: ActuatorSecurityConfig.java");
-            result.addWarning("SECURITY REVIEW REQUIRED for the generated security configuration");
-            result.addWarning("Verify that /actuator/info should be publicly accessible");
-            
-        } catch (Exception e) {
-            logger.error("Failed to generate ActuatorSecurityConfig", e);
-            result.addError("Could not generate ActuatorSecurityConfig.java: " + e.getMessage());
-            result.addWarning("You may need to manually create security configuration for /actuator/info");
+        // Create the file path
+        Path basePath = Paths.get(Settings.getBasePath());
+        Path configDir = basePath.resolve("src/main/java")
+                .resolve(packageName.replace('.', File.separatorChar));
+        
+        if (!Files.exists(configDir) && !dryRun) {
+            Files.createDirectories(configDir);
         }
+        
+        Path configFile = configDir.resolve("ActuatorSecurityConfig.java");
+        
+        if (!dryRun) {
+            Files.writeString(configFile, configContent);
+            logger.info("Generated ActuatorSecurityConfig.java at: {}", configFile);
+            result.addChange("Generated " + configFile);
+        } else {
+            logger.info("DRY-RUN: Would generate ActuatorSecurityConfig.java at: {}", configFile);
+            result.addChange("Would generate " + configFile + " (dry-run mode)");
+        }
+        
+        result.addWarning("⚠️  NEW FILE GENERATED: ActuatorSecurityConfig.java");
+        result.addWarning("SECURITY REVIEW REQUIRED for the generated security configuration");
+        result.addWarning("Verify that /actuator/info should be publicly accessible");
     }
     
     /**
