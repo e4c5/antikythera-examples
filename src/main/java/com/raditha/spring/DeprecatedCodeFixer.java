@@ -31,7 +31,7 @@ public class DeprecatedCodeFixer extends AbstractCodeMigrator {
     private static final Map<String, String> IMPORT_REPLACEMENTS = new HashMap<>();
 
     static {
-        // Actuator metrics exporters (moved to Micrometer)
+        // Actuator metrics exporters (moved to Micrometer in 2.3, removed in 2.5)
         IMPORT_REPLACEMENTS.put("org.springframework.boot.actuate.metrics.export.prometheus",
                 "io.micrometer.prometheus");
         IMPORT_REPLACEMENTS.put("org.springframework.boot.actuate.metrics.export.graphite",
@@ -40,10 +40,22 @@ public class DeprecatedCodeFixer extends AbstractCodeMigrator {
                 "io.micrometer.statsd");
         IMPORT_REPLACEMENTS.put("org.springframework.boot.actuate.metrics.export.simple",
                 "io.micrometer.core.instrument.simple");
+        IMPORT_REPLACEMENTS.put("org.springframework.boot.actuate.metrics.export.influx",
+                "io.micrometer.influx");
+        IMPORT_REPLACEMENTS.put("org.springframework.boot.actuate.metrics.export.jmx",
+                "io.micrometer.jmx");
 
-        // Other deprecated packages
+        // Security properties (moved in 2.3, old package removed in 2.5)
         IMPORT_REPLACEMENTS.put("org.springframework.boot.autoconfigure.security.SecurityProperties",
                 "org.springframework.boot.autoconfigure.security.servlet.SecurityProperties");
+        
+        // Actuator endpoint configuration (restructured in 2.3, old classes removed in 2.5)
+        IMPORT_REPLACEMENTS.put("org.springframework.boot.actuate.endpoint.annotation.Endpoint",
+                "org.springframework.boot.actuate.endpoint.web.annotation.RestControllerEndpoint");
+        
+        // ConfigurationProperties deprecations
+        IMPORT_REPLACEMENTS.put("org.springframework.boot.context.properties.ConfigurationPropertiesBean",
+                "org.springframework.boot.context.properties.ConfigurationProperties");
     }
 
     // Map of deprecated method calls to their replacements
