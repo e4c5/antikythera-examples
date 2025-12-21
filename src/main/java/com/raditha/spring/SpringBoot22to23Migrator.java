@@ -2,10 +2,14 @@ package com.raditha.spring;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import picocli.CommandLine;
+import picocli.CommandLine.Command;
+import picocli.CommandLine.Option;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
 import java.io.IOException;
+import java.util.concurrent.Callable;
 
 /**
  * Main orchestrator for Spring Boot 2.2 to 2.3 migration.
@@ -34,8 +38,10 @@ import java.io.IOException;
  * 
  * @see AbstractSpringBootMigrator
  */
+@Command(name = "spring-boot-22to23-migrator", mixinStandardHelpOptions = true,
+        version = "Spring Boot 2.2 → 2.3 Migrator v1.0", description = "Migrates Spring Boot 2.2 applications to 2.3")
 @SuppressWarnings("java:S106") // Allow System.out usage for reporting
-public class SpringBoot22to23Migrator extends AbstractSpringBootMigrator {
+public class SpringBoot22to23Migrator extends AbstractSpringBootMigrator implements Callable<Integer> {
     private static final Logger logger = LoggerFactory.getLogger(SpringBoot22to23Migrator.class);
 
     // Migration components - version specific
@@ -47,11 +53,27 @@ public class SpringBoot22to23Migrator extends AbstractSpringBootMigrator {
     private ElasticsearchCodeMigrator elasticsearchMigrator;
     private SpringCloudVersionMigrator springCloudMigrator;
 
-    // Optional feature flags (disabled by default)
-    private final boolean enableCloudNativeFeatures;
+    // CLI Options
+    @Option(names = { "--dry-run" }, description = "Run migration without making changes")
+    private boolean cliDryRun = false;
+
+    @Option(names = {
+            "--project-path" }, description = "Path to Spring Boot project (default: current directory)", paramLabel = "<path>")
+    private String projectPath;
+
+    @Option(names = { "--enable-cloud-native" }, description = "Enable optional cloud-native features (optional)")
+    private boolean enableCloudNativeFeatures = false;
+
+    /**
+     * Default constructor for Picocli.
+     */
+    public SpringBoot22to23Migrator() {
+        super(false); // Will be set by CLI
+    }
 
     /**
      * Constructor with default settings (no optional features).
+     * For programmatic/testing use.
      * 
      * @param dryRun if true, no files will be modified
      */
@@ -61,6 +83,7 @@ public class SpringBoot22to23Migrator extends AbstractSpringBootMigrator {
 
     /**
      * Constructor with optional feature flags.
+     * For programmatic/testing use.
      * 
      * @param dryRun                    if true, no files will be modified
      * @param enableCloudNativeFeatures if true, enables optional cloud-native
@@ -177,47 +200,14 @@ public class SpringBoot22to23Migrator extends AbstractSpringBootMigrator {
     }
 
     /**
-     * Main method for command-line execution.
+     * Picocli call method - executes the migration.
      * 
-     * <p>
-     * Usage:
-     * 
-     * <pre>
-     * java com.raditha.spring.SpringBoot22to23Migrator [--dry-run] 
-     *      [--project-path &lt;path&gt;] [--enable-cloud-native]
-     * </pre>
+     * @return exit code (0 for success, 1 for failure)
      */
-    public static void main(String[] args) throws Exception {
-        boolean dryRun = false;
-        boolean enableCloudNative = false;
-        String projectPath = null;
-
-        // Parse arguments
-        for (int i = 0; i < args.length; i++) {
-            switch (args[i]) {
-                case "--dry-run":
-                    dryRun = true;
-                    break;
-                case "--enable-cloud-native":
-                    enableCloudNative = true;
-                    break;
-                case "--project-path":
-                    if (i + 1 < args.length) {
-                        projectPath = args[++i];
-                    } else {
-                        System.err.println("Error: --project-path requires a path argument");
-                        printUsageAndExit();
-                    }
-                    break;
-                case "--help":
-                case "-h":
-                    printUsageAndExit();
-                    break;
-                default:
-                    System.err.println("Unknown argument: " + args[i]);
-                    printUsageAndExit();
-            }
-        }
+    @Override
+    public Integer call() throws Exception {
+        // Create migrator with CLI flags
+        SpringBoot22to23Migrator migrator = new SpringBoot22to23Migrator(cliDryRun, enableCloudNativeFeatures);
 
         // Set project path if provided
         if (projectPath != null) {
@@ -226,30 +216,21 @@ public class SpringBoot22to23Migrator extends AbstractSpringBootMigrator {
         }
 
         // Run migration
-        SpringBoot22to23Migrator migrator = new SpringBoot22to23Migrator(dryRun, enableCloudNative);
         MigrationResult result = migrator.migrateAll();
 
         // Print detailed report
         migrator.printReport();
 
-        // Exit with appropriate code
-        System.exit(result.isSuccessful() ? 0 : 1);
+        return result.isSuccessful() ? 0 : 1;
     }
 
-    private static void printUsageAndExit() {
-        System.out.println("Usage: java com.raditha.spring.SpringBoot22to23Migrator [OPTIONS]");
-        System.out.println();
-        System.out.println("Options:");
-        System.out.println("  --dry-run               Run migration without making changes");
-        System.out.println("  --project-path <path>   Path to Spring Boot project (default: current directory)");
-        System.out.println("  --enable-cloud-native   Enable optional cloud-native features (optional)");
-        System.out.println("  --help, -h              Show this help message");
-        System.out.println();
-        System.out.println("Example:");
-        System.out.println(
-                "  java com.raditha.spring.SpringBoot22to23Migrator --dry-run --project-path /path/to/project");
-        System.out.println(
-                "  java com.raditha.spring.SpringBoot22to23Migrator --enable-cloud-native");
-        System.exit(1);
+    /**
+     * Main method for command-line execution.
+     * 
+     * @param args command-line arguments
+     */
+    public static void main(String[] args) {
+        int exitCode = new CommandLine(new SpringBoot22to23Migrator()).execute(args);
+        System.exit(exitCode);
     }
 }

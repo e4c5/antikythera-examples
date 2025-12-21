@@ -35,6 +35,25 @@ class ActuatorInfoMigratorTest {
         resourcesDir = projectDir.resolve("src/main/resources");
         Files.createDirectories(resourcesDir);
 
+        // Create minimal pom.xml (required by ActuatorInfoMigrator to check
+        // dependencies)
+        String pomContent = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <project xmlns="http://maven.apache.org/POM/4.0.0">
+                    <modelVersion>4.0.0</modelVersion>
+                    <groupId>com.example</groupId>
+                    <artifactId>test-project</artifactId>
+                    <version>1.0.0</version>
+                    <dependencies>
+                        <dependency>
+                            <groupId>org.springframework.boot</groupId>
+                            <artifactId>spring-boot-starter-actuator</artifactId>
+                        </dependency>
+                    </dependencies>
+                </project>
+                """;
+        Files.writeString(projectDir.resolve("pom.xml"), pomContent);
+
         Settings.setProperty(Settings.BASE_PATH, projectDir.toString());
     }
 

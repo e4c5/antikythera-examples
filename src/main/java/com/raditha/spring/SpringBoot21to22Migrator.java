@@ -2,11 +2,15 @@ package com.raditha.spring;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import picocli.CommandLine;
+import picocli.CommandLine.Command;
+import picocli.CommandLine.Option;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.concurrent.Callable;
 
 /**
  * Main orchestrator for Spring Boot 2.1 to 2.2 migration.
@@ -30,8 +34,10 @@ import java.io.IOException;
  * 
  * @see AbstractSpringBootMigrator
  */
+@Command(name = "spring-boot-21to22-migrator", mixinStandardHelpOptions = true,
+        version = "Spring Boot 2.1 → 2.2 Migrator v1.0", description = "Migrates Spring Boot 2.1 applications to 2.2")
 @SuppressWarnings("java:S106") // Allow System.out usage for reporting
-public class SpringBoot21to22Migrator extends AbstractSpringBootMigrator {
+public class SpringBoot21to22Migrator extends AbstractSpringBootMigrator implements Callable<Integer> {
     private static final Logger logger = LoggerFactory.getLogger(SpringBoot21to22Migrator.class);
 
     // Migration components - version specific
@@ -47,12 +53,30 @@ public class SpringBoot21to22Migrator extends AbstractSpringBootMigrator {
     private LazyInitializationConfigurer lazyInitConfigurer;
     private JakartaEEPrepMigrator jakartaPrepMigrator;
 
-    // Optional feature flags (disabled by default)
-    private final boolean enableLazyInit;
-    private final boolean enableJakartaPrep;
+    // CLI Options
+    @Option(names = { "--dry-run" }, description = "Run migration without making changes")
+    private boolean cliDryRun = false;
+
+    @Option(names = {
+            "--project-path" }, description = "Path to Spring Boot project (default: current directory)", paramLabel = "<path>")
+    private String projectPath;
+
+    @Option(names = { "--enable-lazy-init" }, description = "Add lazy initialization to test profiles (optional)")
+    private boolean enableLazyInit = false;
+
+    @Option(names = { "--enable-jakarta-prep" }, description = "Add Jakarta EE migration prep comments (optional)")
+    private boolean enableJakartaPrep = false;
+
+    /**
+     * Default constructor for Picocli.
+     */
+    public SpringBoot21to22Migrator() {
+        super(false); // Will be set by CLI
+    }
 
     /**
      * Constructor with default settings (no optional features).
+     * For programmatic/testing use.
      * 
      * @param dryRun if true, no files will be modified
      */
@@ -62,6 +86,7 @@ public class SpringBoot21to22Migrator extends AbstractSpringBootMigrator {
 
     /**
      * Constructor with optional feature flags.
+     * For programmatic/testing use.
      * 
      * @param dryRun            if true, no files will be modified
      * @param enableLazyInit    if true, adds lazy initialization to test profiles
@@ -131,7 +156,6 @@ public class SpringBoot21to22Migrator extends AbstractSpringBootMigrator {
         MigrationPhaseResult hibernateResult = hibernateMigrator.migrate();
         modifiedFiles.addAll(hibernateResult.getModifiedClasses());
 
-
         MigrationPhaseResult jedisResult = jedisMigrator.migrate();
         modifiedFiles.addAll(jedisResult.getModifiedClasses());
         result.addPhase("Jedis Configuration Migration", jedisResult);
@@ -197,84 +221,58 @@ public class SpringBoot21to22Migrator extends AbstractSpringBootMigrator {
     }
 
     /**
-     * Main method for command-line execution.
+     * Picocli call method - executes the migration.
      * 
-     * <p>
-     * Usage:
-     * 
-     * <pre>
-     * java com.raditha.spring.SpringBoot21to22Migrator [--dry-run] 
-     *      [--project-path &lt;path&gt;] [--enable-lazy-init] [--enable-jakarta-prep]
-     * </pre>
+     * @return exit code (0 for success, 1 for failure)
      */
-    public static void main(String[] args) throws Exception {
-        boolean dryRun = false;
-        boolean enableLazyInit = false;
-        boolean enableJakartaPrep = false;
-        String projectPath = null;
+    @Override
+    public Integer call() throws Exception {
+        // Use CLI dry-run flag if this was invoked via CLI
+        if (cliDryRun) {
+            // Create new instance with CLI flags
+            SpringBoot21to22Migrator migrator = new SpringBoot21to22Migrator(cliDryRun, enableLazyInit,
+                    enableJakartaPrep);
 
-        // Parse arguments
-        for (int i = 0; i < args.length; i++) {
-            switch (args[i]) {
-                case "--dry-run":
-                    dryRun = true;
-                    break;
-                case "--enable-lazy-init":
-                    enableLazyInit = true;
-                    break;
-                case "--enable-jakarta-prep":
-                    enableJakartaPrep = true;
-                    break;
-                case "--project-path":
-                    if (i + 1 < args.length) {
-                        projectPath = args[++i];
-                    } else {
-                        System.err.println("Error: --project-path requires a path argument");
-                        printUsageAndExit();
-                    }
-                    break;
-                case "--help":
-                case "-h":
-                    printUsageAndExit();
-                    break;
-                default:
-                    System.err.println("Unknown argument: " + args[i]);
-                    printUsageAndExit();
+            // Set project path if provided
+            if (projectPath != null) {
+                Settings.setProperty(Settings.BASE_PATH, projectPath);
+                logger.info("Using project path: {}", projectPath);
             }
+
+            // Run migration
+            MigrationResult result = migrator.migrateAll();
+
+            // Print detailed report
+            migrator.printReport();
+
+            return result.isSuccessful() ? 0 : 1;
+        } else {
+            // Non-dry-run from CLI - recreate with proper flag
+            SpringBoot21to22Migrator migrator = new SpringBoot21to22Migrator(false, enableLazyInit, enableJakartaPrep);
+
+            // Set project path if provided
+            if (projectPath != null) {
+                Settings.setProperty(Settings.BASE_PATH, projectPath);
+                logger.info("Using project path: {}", projectPath);
+            }
+
+            // Run migration
+            MigrationResult result = migrator.migrateAll();
+
+            // Print detailed report
+            migrator.printReport();
+
+            return result.isSuccessful() ? 0 : 1;
         }
-
-        // Set project path if provided
-        if (projectPath != null) {
-            Settings.setProperty(Settings.BASE_PATH, projectPath);
-            logger.info("Using project path: {}", projectPath);
-        }
-
-        // Run migration
-        SpringBoot21to22Migrator migrator = new SpringBoot21to22Migrator(dryRun, enableLazyInit, enableJakartaPrep);
-        MigrationResult result = migrator.migrateAll();
-
-        // Print detailed report
-        migrator.printReport();
-
-        // Exit with appropriate code
-        System.exit(result.isSuccessful() ? 0 : 1);
     }
 
-    private static void printUsageAndExit() {
-        System.out.println("Usage: java com.raditha.spring.SpringBoot21to22Migrator [OPTIONS]");
-        System.out.println();
-        System.out.println("Options:");
-        System.out.println("  --dry-run              Run migration without making changes");
-        System.out.println("  --project-path <path>  Path to Spring Boot project (default: current directory)");
-        System.out.println("  --enable-lazy-init     Add lazy initialization to test profiles (optional)");
-        System.out.println("  --enable-jakarta-prep  Add Jakarta EE migration prep comments (optional)");
-        System.out.println("  --help, -h             Show this help message");
-        System.out.println();
-        System.out.println("Example:");
-        System.out.println(
-                "  java com.raditha.spring.SpringBoot21to22Migrator --dry-run --project-path /path/to/project");
-        System.out.println(
-                "  java com.raditha.spring.SpringBoot21to22Migrator --enable-lazy-init --enable-jakarta-prep");
-        System.exit(1);
+    /**
+     * Main method for command-line execution.
+     * 
+     * @param args command-line arguments
+     */
+    public static void main(String[] args) {
+        int exitCode = new CommandLine(new SpringBoot21to22Migrator()).execute(args);
+        System.exit(exitCode);
     }
 }
