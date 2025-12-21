@@ -44,32 +44,26 @@ public class ErrorMessageAttributeDetector extends AbstractCodeMigrator {
         logger.info("Detecting error message attribute usage...");
         MigrationPhaseResult result = new MigrationPhaseResult();
 
-        try {
-            Map<String, CompilationUnit> allUnits = AntikytheraRunTime.getResolvedCompilationUnits();
+        Map<String, CompilationUnit> allUnits = AntikytheraRunTime.getResolvedCompilationUnits();
 
-            for (Map.Entry<String, CompilationUnit> entry : allUnits.entrySet()) {
-                String filePath = entry.getKey();
-                CompilationUnit cu = entry.getValue();
+        for (Map.Entry<String, CompilationUnit> entry : allUnits.entrySet()) {
+            String filePath = entry.getKey();
+            CompilationUnit cu = entry.getValue();
 
-                // Detect JSON parsing of "message" field
-                detectMessageFieldParsing(cu, filePath, result);
+            // Detect JSON parsing of "message" field
+            detectMessageFieldParsing(cu, filePath, result);
 
-                // Detect error response DTOs
-                detectErrorResponseDTOs(cu, filePath, result);
-            }
+            // Detect error response DTOs
+            detectErrorResponseDTOs(cu, filePath, result);
+        }
 
-            if (result.getChangeCount() == 0) {
-                result.addChange("No potential error message attribute issues detected");
-            } else {
-                result.addWarning("⚠️  ERROR MESSAGE ATTRIBUTE CHANGE DETECTED");
-                result.addWarning("Spring Boot 2.5 removes (not blanks) message field from error responses");
-                result.addWarning("Consider adding: server.error.include-message=always");
-                result.addWarning("Or update code to handle missing 'message' field");
-            }
-
-        } catch (Exception e) {
-            logger.error("Error during error message attribute detection", e);
-            result.addError("Error message attribute detection failed: " + e.getMessage());
+        if (result.getChangeCount() == 0) {
+            result.addChange("No potential error message attribute issues detected");
+        } else {
+            result.addWarning("⚠️  ERROR MESSAGE ATTRIBUTE CHANGE DETECTED");
+            result.addWarning("Spring Boot 2.5 removes (not blanks) message field from error responses");
+            result.addWarning("Consider adding: server.error.include-message=always");
+            result.addWarning("Or update code to handle missing 'message' field");
         }
 
         return result;
