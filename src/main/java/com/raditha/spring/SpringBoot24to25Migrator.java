@@ -22,6 +22,7 @@ import java.io.IOException;
  * <li>Groovy 3.x and Spock 2.0 upgrades</li>
  * <li>Deprecated code detection and fixing (code removed from Spring Boot
  * 2.5)</li>
+ * <li>Error message attribute usage detection</li>
  * <li>Validation and reporting</li>
  * </ul>
  * 
@@ -35,6 +36,7 @@ import java.io.IOException;
  * <li>Cassandra throttling defaults removed - must configure explicitly</li>
  * <li>Groovy upgraded to 3.x (requires Spock 2.0+)</li>
  * <li>Code deprecated in Spring Boot 2.3 has been removed</li>
+ * <li>Error message attribute is removed (not blanked) from error responses</li>
  * <li>Java 17 support added (first version to support Java 17 LTS)</li>
  * </ul>
  * 
@@ -51,6 +53,7 @@ public class SpringBoot24to25Migrator extends AbstractSpringBootMigrator {
     private CassandraThrottlingMigrator cassandraMigrator;
     private GroovySpockMigrator groovyMigrator;
     private DeprecatedCodeFixer deprecatedCodeFixer;
+    private ErrorMessageAttributeDetector errorMessageDetector;
 
     /**
      * Constructor with default settings.
@@ -79,8 +82,9 @@ public class SpringBoot24to25Migrator extends AbstractSpringBootMigrator {
         this.cassandraMigrator = new CassandraThrottlingMigrator(dryRun);
         this.groovyMigrator = new GroovySpockMigrator(dryRun);
 
-        // Initialize code fixer
+        // Initialize code fixer and detectors
         this.deprecatedCodeFixer = new DeprecatedCodeFixer(dryRun);
+        this.errorMessageDetector = new ErrorMessageAttributeDetector(dryRun);
 
         // Initialize validator
         this.validator = new MigrationValidator(dryRun);
@@ -116,6 +120,11 @@ public class SpringBoot24to25Migrator extends AbstractSpringBootMigrator {
         MigrationPhaseResult deprecatedResult = deprecatedCodeFixer.migrate();
         modifiedFiles.addAll(deprecatedResult.getModifiedClasses());
         result.addPhase("Deprecated Code Fixes", deprecatedResult);
+
+        // Phase 7: Detection (Error message attribute)
+        logger.info("Phase 7: Detecting error message attribute usage...");
+        MigrationPhaseResult errorMessageResult = errorMessageDetector.migrate();
+        result.addPhase("Error Message Attribute Detection", errorMessageResult);
     }
 
     @Override
