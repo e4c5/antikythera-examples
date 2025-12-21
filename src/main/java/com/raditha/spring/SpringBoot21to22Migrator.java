@@ -227,43 +227,33 @@ public class SpringBoot21to22Migrator extends AbstractSpringBootMigrator impleme
      */
     @Override
     public Integer call() throws Exception {
-        // Use CLI dry-run flag if this was invoked via CLI
-        if (cliDryRun) {
-            // Create new instance with CLI flags
-            SpringBoot21to22Migrator migrator = new SpringBoot21to22Migrator(cliDryRun, enableLazyInit,
-                    enableJakartaPrep);
+        return executeMigration(cliDryRun);
+    }
 
-            // Set project path if provided
-            if (projectPath != null) {
-                Settings.setProperty(Settings.BASE_PATH, projectPath);
-                logger.info("Using project path: {}", projectPath);
-            }
+    /**
+     * Helper method to execute the migration with the specified flags.
+     * 
+     * @param dryRun whether to run in dry-run mode
+     * @return exit code (0 for success, 1 for failure)
+     * @throws Exception if migration fails
+     */
+    private Integer executeMigration(boolean dryRun) throws Exception {
+        // Create new instance with CLI flags
+        SpringBoot21to22Migrator migrator = new SpringBoot21to22Migrator(dryRun, enableLazyInit, enableJakartaPrep);
 
-            // Run migration
-            MigrationResult result = migrator.migrateAll();
-
-            // Print detailed report
-            migrator.printReport();
-
-            return result.isSuccessful() ? 0 : 1;
-        } else {
-            // Non-dry-run from CLI - recreate with proper flag
-            SpringBoot21to22Migrator migrator = new SpringBoot21to22Migrator(false, enableLazyInit, enableJakartaPrep);
-
-            // Set project path if provided
-            if (projectPath != null) {
-                Settings.setProperty(Settings.BASE_PATH, projectPath);
-                logger.info("Using project path: {}", projectPath);
-            }
-
-            // Run migration
-            MigrationResult result = migrator.migrateAll();
-
-            // Print detailed report
-            migrator.printReport();
-
-            return result.isSuccessful() ? 0 : 1;
+        // Set project path if provided
+        if (projectPath != null) {
+            Settings.setProperty(Settings.BASE_PATH, projectPath);
+            logger.info("Using project path: {}", projectPath);
         }
+
+        // Run migration
+        MigrationResult result = migrator.migrateAll();
+
+        // Print detailed report
+        migrator.printReport();
+
+        return result.isSuccessful() ? 0 : 1;
     }
 
     /**
