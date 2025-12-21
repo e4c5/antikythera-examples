@@ -187,6 +187,14 @@ public class SpringBoot24to25Migrator extends AbstractSpringBootMigrator {
             }
         }
 
+        // Load configuration first (required before setting properties)
+        try {
+            Settings.loadConfigMap(new java.io.File("src/test/resources/generator.yml"));
+        } catch (Exception e) {
+            // If config file not found, just initialize Settings props
+            Settings.loadConfigMap();
+        }
+
         // Set project path if provided
         if (projectPath != null) {
             Settings.setProperty(Settings.BASE_PATH, projectPath);
