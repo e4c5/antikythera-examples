@@ -64,7 +64,7 @@ class QueryOptimizationCheckerTest {
         }
         assertTrue(Indexes.load(liquibaseFile).isEmpty(), "Expected empty index map for minimal Liquibase file");
 
-        Settings.loadConfigMap();
+        Settings.loadConfigMap(new File("src/test/resources/generator.yml"));
     }
 
     @BeforeEach
