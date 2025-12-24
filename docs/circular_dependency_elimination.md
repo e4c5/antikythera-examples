@@ -24,6 +24,7 @@ This guide covers how to use Antikythera's **Circular Dependency Tool** to detec
    - [Graph Algorithms](#graph-algorithms)
    - [Tool Architecture](#tool-architecture)
    - [Interface Extraction Strategy](#interface-extraction-strategy)
+9. [Testing](#testing)
 
 ---
 
@@ -127,11 +128,83 @@ for (TypeWrapper wrapper : AntikytheraRunTime.getResolvedTypes().values()) {
 }
 ```
 
+### Bean vs Method Dependencies
+
+> [!IMPORTANT]  
+> The existing `DepSolver` tracks **all** dependencies (method parameters, return types, etc.). For cycle detection, we need a **bean-specific** dependency graph that only tracks Spring injection dependencies.
+
+The `BeanDependencyGraph` filters for:
+- `@Autowired` fields
+- `@Inject` fields (JSR-330)
+- `@Resource` fields (JSR-250)
+- Constructor parameters (when only one constructor or `@Autowired` present)
+- Setter methods with `@Autowired`
+
+### Entity Filtering
+
+> [!WARNING]  
+> JPA entity cycles via `@ManyToOne`/`@OneToMany` are **not** Spring bean cycles and must be excluded.
+
+```java
+private boolean isEntity(TypeWrapper wrapper) {
+    TypeDeclaration<?> type = wrapper.getType();
+    if (type == null) return false;
+    
+    return type.isAnnotationPresent("Entity") ||
+           type.isAnnotationPresent("javax.persistence.Entity") ||
+           type.isAnnotationPresent("jakarta.persistence.Entity");
+}
+
+// In graph building - skip entities
+if (isEntity(targetWrapper)) {
+    return; // Entity relationships are not Spring cycles
+}
+```
+
+### Injection Type Detection
+
+| Injection Type | Detection Logic |
+|----------------|-----------------|
+| **FIELD** | `@Autowired`, `@Inject`, or `@Resource` on field |
+| **CONSTRUCTOR** | Only constructor OR constructor with `@Autowired` |
+| **SETTER** | Method starting with `set` + `@Autowired` |
+| **BEAN_METHOD** | `@Bean` method in `@Configuration` class |
+
+```java
+private boolean isSpringInjectedConstructor(ConstructorDeclaration cd, TypeDeclaration<?> type) {
+    // Spring auto-wires if:
+    // 1. Only one constructor exists, OR
+    // 2. Constructor has @Autowired annotation
+    if (type.getConstructors().size() == 1) {
+        return true;
+    }
+    return cd.isAnnotationPresent("Autowired");
+}
+```
+
+### @Qualifier and @Resource Handling
+
+When adding `@Lazy`, existing `@Qualifier` annotations must be preserved:
+
+```java
+// Before
+@Autowired
+@Qualifier("primaryPaymentService")
+private PaymentService paymentService;
+
+// After (both annotations preserved)
+@Lazy
+@Autowired
+@Qualifier("primaryPaymentService")
+private PaymentService paymentService;
+```
+
 This approach:
 - ✅ Works without running the application
 - ✅ Catches all injection-based cycles (field, constructor, setter)
 - ✅ Works on any Spring Boot version
-- ✅ Provides actionable fix locations with AST node references
+- ✅ Filters out JPA entity relationships
+- ✅ Preserves @Qualifier annotations
 - ✅ Enables programmatic refactoring
 
 ---
@@ -594,8 +667,10 @@ Since Minimum Feedback Arc Set is NP-hard, we use a **weighted greedy heuristic*
 |--------|--------|-------------|
 | Injection Type | 1-3 | FIELD=1, SETTER=2, CONSTRUCTOR=3 |
 | Method Count | +0.1/method | Fewer methods = easier interface extraction |
-| Fan-out | +0.5/edge | Fewer dependencies from target = less impact |
-| Importance | PageRank | Important beans should be preserved |
+| In-degree | +0.5/incoming | High in-degree = "hub" bean, preserve it |
+
+> [!TIP]  
+> **In-degree centrality** is simpler than PageRank: just count incoming edges. Beans with many dependents (high in-degree) are important and should not have edges cut towards them.
 
 ```
 Algorithm: Weighted Edge Selection
@@ -626,7 +701,7 @@ CircularDependencyTool (CLI)
      │     └── Enumerates all elementary cycles
      │
      ├── EdgeSelector (Weighted Greedy)
-     │     └── Selects optimal edges using PageRank + weights
+     │     └── Selects optimal edges using in-degree + weights
      │
      └── InterfaceExtractionStrategy
            └── Generates interface from called methods
@@ -645,6 +720,44 @@ The key resolution strategy that enables **programmatic refactoring**:
 5. **Modify target**: Add `implements InterfaceName` to target class
 6. **Register**: Update `AntikytheraRunTime.addImplementation()` for tracking
 
+#### Generic Type Handling
+
+> [!IMPORTANT]  
+> Interface extraction must correctly handle generic types in method signatures.
+
+**Challenges:**
+- Generic type parameters: `List<T> process(List<T> input)`
+- Bounded generics: `T extends Comparable<T>`
+- Wildcard types: `List<? extends Entity>`
+- Class-level generics: `class Service<T> { T get() }`
+
+**Example transformation:**
+
+```java
+// Source class with generics
+@Service
+public class OrderService<T extends Order> {
+    public List<T> findOrders(Criteria criteria) { ... }
+}
+
+// Generated interface MUST preserve type parameters
+public interface OrderFinder<T extends Order> {
+    List<T> findOrders(Criteria criteria);
+}
+
+// Implementation preserves generic binding
+@Service
+public class OrderService<T extends Order> implements OrderFinder<T> {
+    @Override
+    public List<T> findOrders(Criteria criteria) { ... }
+}
+```
+
+**Implementation approach:**
+- Use `TypeParameter.getTypeBound()` to extract bounds
+- Use `ClassOrInterfaceType.getTypeArguments()` for parameterized types
+- Clone type parameters when generating interface signature
+
 ### Integration with Antikythera
 
 The tool leverages existing Antikythera infrastructure:
@@ -655,6 +768,51 @@ The tool leverages existing Antikythera infrastructure:
 - `DepSolver` patterns - Field/method/constructor analysis
 - `ScopeChain.findScopeChain()` - Trace chained method calls
 - `CopyUtils.writeFile()` - Write modified files
+
+---
+
+## Testing
+
+### Testbed Project
+
+A standalone Spring Boot 2.5 project with intentional circular dependencies is available for testing:
+
+```
+/home/raditha/csi/Antikythera/spring-boot-cycles
+```
+
+| Package | Cycle Type | Hard/Soft |
+|---------|-----------|-----------|
+| `simple/` | Field A↔B | Soft |
+| `transitive/` | Field A→B→C→A | Soft |
+| `constructor/` | Constructor | **Hard** |
+| `setter/` | Setter | Soft |
+| `config/` | @Bean | **Hard** |
+| `complex/` | Field Hub | Soft |
+
+### Hard vs Soft Cycles
+
+| Cycle Type | Spring Boot 2.5 | 2.6+ | With `allow-circular-references=true` |
+|------------|-----------------|------|--------------------------------------|
+| **Soft** (field/setter) | ✅ Works | ❌ Fails | ✅ Works |
+| **Hard** (constructor/@Bean) | ❌ Always fails | ❌ Fails | ❌ Still fails |
+
+### Running Tool Against Testbed
+
+```bash
+java -jar antikythera-examples.jar cycle-detector \
+  --base-path /home/raditha/csi/Antikythera/spring-boot-cycles/src/main/java \
+  --dry-run
+```
+
+### Expected Detection
+
+The tool should detect **8 cycles** across the testbed:
+- 2 simple cycles (Order↔Payment, Report↔Data)
+- 1 transitive cycle (Inventory→Supplier→Purchase)
+- 1 constructor cycle (User↔Notification)
+- 1 @Bean cycle (CacheManager↔ConnectionPool)
+- 3 complex hub cycles (Hub↔A, A↔B, Hub↔C)
 
 ---
 
