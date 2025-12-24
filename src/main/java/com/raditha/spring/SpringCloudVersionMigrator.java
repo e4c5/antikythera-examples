@@ -46,7 +46,7 @@ public class SpringCloudVersionMigrator extends MigrationPhase {
             return result;
         }
 
-        Model model = mavenHelper.getPomModel();
+        Model model = mavenHelper.readPomFile();
 
         // Check if Spring Cloud is used
         if (model.getDependencyManagement() == null ||

@@ -33,3 +33,6 @@ database:
   run_queries: false
 
 log_level: INFO
+ai_service:
+  api_key: test-api-key
+  model: gemini-1.5-pro
