@@ -113,6 +113,8 @@ class MethodExtractionStrategyTest {
         strategy.writeChanges(testbedPath.toString());
         
         // Step 4: Verify cycle is broken
+        // Remove Unknown.java again before re-processing (it may have been restored by git reset)
+        TestbedResetHelper.removeUnknownJava();
         AbstractCompiler.reset();
         AntikytheraRunTime.resetAll();
         AbstractCompiler.preProcess();
