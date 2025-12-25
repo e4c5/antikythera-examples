@@ -35,9 +35,14 @@ class CycleDetectorIntegrationTest {
 
     @BeforeEach
     void setUp() throws IOException {
+        // Reset testbed to clean state first
+        TestbedResetHelper.resetTestbed();
+        // Remove Unknown.java to avoid duplicate class definition errors
+        TestbedResetHelper.removeUnknownJava();
+        
         Settings.loadConfigMap(new File("src/test/resources/cycle-detector.yml"));
         AbstractCompiler.reset();
-        AntikytheraRunTime.reset();
+        AntikytheraRunTime.resetAll();
         AbstractCompiler.preProcess();
 
         graph = new BeanDependencyGraph();
@@ -163,5 +168,10 @@ class CycleDetectorIntegrationTest {
                 assertFalse(strategy.getGeneratedClasses().isEmpty(), "Should generate mediator");
             }
         }
+    }
+    
+    @org.junit.jupiter.api.AfterEach
+    void tearDown() throws IOException {
+        TestbedResetHelper.restoreUnknownJava();
     }
 }

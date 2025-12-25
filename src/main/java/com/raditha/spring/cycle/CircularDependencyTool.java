@@ -16,6 +16,7 @@ import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -89,6 +90,11 @@ public class CircularDependencyTool {
         System.out.println("\nSelecting optimal edges to break cycles...");
         EdgeSelector selector = new EdgeSelector(graph.getDependencies());
         Set<BeanDependency> edgesToCut = selector.selectEdgesToCut(allCycles);
+
+        // For bidirectional cycles (A↔B), we need to fix both sides
+        // Add reverse edges for simple 2-node cycles
+        Set<BeanDependency> additionalEdges = findBidirectionalEdges(edgesToCut, graph.getDependencies());
+        edgesToCut.addAll(additionalEdges);
 
         System.out.println("\n📋 Recommended fixes (" + edgesToCut.size() + " total):");
         for (BeanDependency edge : edgesToCut) {
@@ -200,8 +206,9 @@ public class CircularDependencyTool {
         System.out.println("\n🔍 Validating fixes...");
 
         // Re-parse and check for remaining cycles
+        // Use resetAll() to clear compilation unit cache so files are re-read from disk
+        AntikytheraRunTime.resetAll();
         AbstractCompiler.reset();
-        AntikytheraRunTime.reset();
         AbstractCompiler.preProcess();
 
         BeanDependencyGraph newGraph = new BeanDependencyGraph();
@@ -269,6 +276,35 @@ public class CircularDependencyTool {
             case CONSTRUCTOR -> "Convert to setter injection with @Lazy, or extract interface";
             case BEAN_METHOD -> "Add @Lazy to @Bean method parameter, or redesign";
         };
+    }
+
+    /**
+     * Find reverse edges for bidirectional cycles (A↔B).
+     * For simple 2-node cycles, we need to fix both sides.
+     */
+    private Set<BeanDependency> findBidirectionalEdges(Set<BeanDependency> selectedEdges,
+                                                        Map<String, Set<BeanDependency>> allDependencies) {
+        Set<BeanDependency> additional = new HashSet<>();
+        
+        for (BeanDependency edge : selectedEdges) {
+            String from = edge.fromBean();
+            String to = edge.targetBean();
+            
+            // Check if there's a reverse edge (to → from)
+            Set<BeanDependency> reverseDeps = allDependencies.get(to);
+            if (reverseDeps != null) {
+                for (BeanDependency reverseEdge : reverseDeps) {
+                    if (reverseEdge.targetBean().equals(from)) {
+                        // Found bidirectional cycle - add reverse edge if not already selected
+                        if (!selectedEdges.contains(reverseEdge)) {
+                            additional.add(reverseEdge);
+                        }
+                    }
+                }
+            }
+        }
+        
+        return additional;
     }
 
     private void printHelp() {

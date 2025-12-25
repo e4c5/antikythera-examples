@@ -40,6 +40,11 @@ class CircularDependencyToolIntegrationTest {
 
     @BeforeEach
     void setUp() throws IOException {
+        // Reset testbed to clean state first
+        TestbedResetHelper.resetTestbed();
+        // Remove Unknown.java to avoid duplicate class definition errors
+        TestbedResetHelper.removeUnknownJava();
+        
         // Resolve testbed path - spring-boot-cycles is at the root level
         Path workspaceRoot = Paths.get(System.getProperty("user.dir"));
         if (workspaceRoot.toString().contains("antikythera-examples")) {
@@ -74,6 +79,7 @@ class CircularDependencyToolIntegrationTest {
         if (originalFileContents != null) {
             revertFiles(testbedPath, originalFileContents);
         }
+        TestbedResetHelper.restoreUnknownJava();
     }
 
     @Test
@@ -91,7 +97,6 @@ class CircularDependencyToolIntegrationTest {
         
         assertFalse(initialCycles.isEmpty(), 
                 "Should detect cycles in testbed");
-        System.out.println("Initial cycles detected: " + initialCycles.size());
         
         // Step 2: Apply fixes directly
         sa.com.cloudsolutions.antikythera.depsolver.EdgeSelector selector = 
@@ -147,10 +152,6 @@ class CircularDependencyToolIntegrationTest {
         
         // Note: Some cycles may remain if bidirectional edges weren't fully fixed
         // or if @Lazy detection in BeanDependencyGraph needs improvement
-        System.out.println("Remaining cycles after fixes: " + remainingCycles.size());
-        if (!remainingCycles.isEmpty()) {
-            System.out.println("This may indicate that @Lazy detection in BeanDependencyGraph needs improvement");
-        }
     }
 
     @Test
@@ -379,7 +380,6 @@ class CircularDependencyToolIntegrationTest {
                 .orElse(null);
         
         if (complexCycle != null) {
-            System.out.println("Testing complex cycle: " + complexCycle);
             
             // Apply fixes
             sa.com.cloudsolutions.antikythera.depsolver.EdgeSelector selector = 

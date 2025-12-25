@@ -32,7 +32,7 @@ class SpringBoot24to25MigratorTest {
         Settings.loadConfigMap(new File("src/test/resources/generator.yml"));
 
         // Reset Antikythera runtime state
-        AntikytheraRunTime.reset();
+        AntikytheraRunTime.resetAll();
         AbstractCompiler.reset();
 
         // Create a test project structure
