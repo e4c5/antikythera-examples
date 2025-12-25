@@ -64,10 +64,14 @@ public class TestbedResetHelper {
             unknownJavaPath = workspaceRoot.resolve(UNKNOWN_JAVA);
         }
         
+        // If file exists and hasn't been backed up yet, back it up
         if (Files.exists(unknownJavaPath) && !unknownJavaBackedUp) {
             unknownJavaBackup = unknownJavaPath.resolveSibling("Unknown.java.bak");
             Files.move(unknownJavaPath, unknownJavaBackup);
             unknownJavaBackedUp = true;
+        } else if (Files.exists(unknownJavaPath) && unknownJavaBackedUp) {
+            // File was restored (e.g., by git restore or writeChanges), delete it directly
+            Files.delete(unknownJavaPath);
         }
     }
     
