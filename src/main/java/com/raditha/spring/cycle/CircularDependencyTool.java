@@ -5,7 +5,12 @@ import sa.com.cloudsolutions.antikythera.depsolver.BeanDependency;
 import sa.com.cloudsolutions.antikythera.depsolver.BeanDependencyGraph;
 import sa.com.cloudsolutions.antikythera.depsolver.CycleDetector;
 import sa.com.cloudsolutions.antikythera.depsolver.EdgeSelector;
+import sa.com.cloudsolutions.antikythera.depsolver.InjectionType;
+import sa.com.cloudsolutions.antikythera.depsolver.InterfaceExtractionStrategy;
 import sa.com.cloudsolutions.antikythera.depsolver.JohnsonCycleFinder;
+import sa.com.cloudsolutions.antikythera.depsolver.LazyAnnotationStrategy;
+import sa.com.cloudsolutions.antikythera.depsolver.SetterInjectionStrategy;
+import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
 import java.io.IOException;
@@ -96,10 +101,124 @@ public class CircularDependencyTool {
             return;
         }
 
-        // TODO: Apply fixes in Phase 1 (add @Lazy)
-        System.out.println("\n⚠️  Automatic fix application not yet implemented");
-        System.out.println("   Please manually apply @Lazy to the recommended injection points,");
-        System.out.println("   or consider interface extraction for complex cycles.");
+        // Apply fixes
+        System.out.println("\nApplying fixes...");
+        int applied = applyFixes(edgesToCut);
+        
+        if (applied == 0) {
+            System.out.println("\n⚠️  No fixes were applied. Please review the recommendations above.");
+            return;
+        }
+
+        // Write changes
+        String basePath = Settings.getProperty("base_path", String.class)
+                .orElse("src/main/java");
+        writeAllChanges(basePath);
+
+        // Validate fixes
+        validateFixes(basePath);
+    }
+
+    /**
+     * Apply fixes using appropriate strategies.
+     * 
+     * @param edgesToCut The edges to fix
+     * @return Number of successfully applied fixes
+     */
+    private int applyFixes(Set<BeanDependency> edgesToCut) {
+        LazyAnnotationStrategy lazyStrategy = new LazyAnnotationStrategy(false);
+        SetterInjectionStrategy setterStrategy = new SetterInjectionStrategy(false);
+        InterfaceExtractionStrategy ifaceStrategy = new InterfaceExtractionStrategy(false);
+
+        int applied = 0;
+        int failed = 0;
+
+        for (BeanDependency edge : edgesToCut) {
+            boolean success = false;
+            
+            switch (edge.injectionType()) {
+                case FIELD, SETTER -> {
+                    // Try @Lazy first (simplest)
+                    success = lazyStrategy.apply(edge);
+                }
+                case CONSTRUCTOR -> {
+                    // Try @Lazy on parameter first (simpler than setter conversion)
+                    success = lazyStrategy.apply(edge);
+                    if (!success) {
+                        // Fallback to setter injection conversion
+                        System.out.println("   Falling back to setter injection for: " + edge);
+                        success = setterStrategy.apply(edge);
+                    }
+                }
+                case BEAN_METHOD -> {
+                    // Use interface extraction for @Bean method cycles
+                    success = ifaceStrategy.apply(edge);
+                }
+            }
+
+            if (success) {
+                applied++;
+            } else {
+                failed++;
+                System.out.println("⚠️  Failed to fix: " + edge);
+            }
+        }
+
+        System.out.println("\n✅ Applied " + applied + " fix(es), " + failed + " failed");
+        
+        // Store strategies for writing changes
+        this.lazyStrategy = lazyStrategy;
+        this.setterStrategy = setterStrategy;
+        this.ifaceStrategy = ifaceStrategy;
+
+        return applied;
+    }
+
+    private LazyAnnotationStrategy lazyStrategy;
+    private SetterInjectionStrategy setterStrategy;
+    private InterfaceExtractionStrategy ifaceStrategy;
+
+    /**
+     * Write all changes to disk.
+     */
+    private void writeAllChanges(String basePath) throws IOException {
+        if (lazyStrategy != null) {
+            lazyStrategy.writeChanges(basePath);
+        }
+        if (setterStrategy != null) {
+            setterStrategy.writeChanges(basePath);
+        }
+        if (ifaceStrategy != null) {
+            ifaceStrategy.writeChanges(basePath);
+        }
+    }
+
+    /**
+     * Validate that fixes actually broke the cycles.
+     */
+    private void validateFixes(String basePath) throws IOException {
+        System.out.println("\n🔍 Validating fixes...");
+
+        // Re-parse and check for remaining cycles
+        AbstractCompiler.reset();
+        AntikytheraRunTime.reset();
+        AbstractCompiler.preProcess();
+
+        BeanDependencyGraph newGraph = new BeanDependencyGraph();
+        newGraph.build();
+        CycleDetector newDetector = new CycleDetector(newGraph.getSimpleGraph());
+        List<Set<String>> remainingCycles = newDetector.findCycles();
+
+        if (remainingCycles.isEmpty()) {
+            System.out.println("✅ All cycles successfully broken!");
+        } else {
+            System.out.println("⚠️  " + remainingCycles.size() + " cycle(s) still remain:");
+            for (int i = 0; i < remainingCycles.size(); i++) {
+                Set<String> cycle = remainingCycles.get(i);
+                System.out.println("   Cycle " + (i + 1) + ": " + cycle);
+            }
+            System.out.println("   Consider manual review or using a different strategy.");
+        }
     }
 
     private void parseArgs(String[] args) throws IOException {
