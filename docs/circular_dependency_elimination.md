@@ -347,6 +347,68 @@ public class PaymentService {
 
 **Best for:** Breaking cycles between unrelated domains.
 
+### Strategy 5: Method Extraction to Self-Contained Class (Programmatic)
+
+Extract cycle-causing methods and their dependencies into a new self-contained class that has **NO references** to the original cycle classes. This is the most thorough solution for true cycle breaking.
+
+```java
+// BEFORE: OrderService ↔ PaymentService cycle
+@Service
+public class OrderService {
+    @Autowired
+    private PaymentService paymentService;
+    
+    public void processOrder() {
+        paymentService.charge();
+    }
+}
+
+@Service
+public class PaymentService {
+    @Autowired
+    private OrderService orderService;
+    
+    public void refund() {
+        orderService.updateStatus();
+    }
+}
+
+// AFTER: Methods extracted to self-contained mediator
+@Service
+public class OrderServicePaymentServiceOperations {
+    // NO references to OrderService or PaymentService
+    public void processPayment() { /* extracted logic */ }
+    public void handleRefund() { /* extracted logic */ }
+}
+
+@Service
+public class OrderService {
+    @Autowired
+    private OrderServicePaymentServiceOperations operations;
+    // PaymentService field REMOVED
+}
+
+@Service
+public class PaymentService {
+    @Autowired
+    private OrderServicePaymentServiceOperations operations;
+    // OrderService field REMOVED
+}
+```
+
+**Algorithm:**
+1. Identify methods that use cycle-causing dependencies
+2. Collect transitive dependencies (helper methods, fields)
+3. Generate self-contained mediator class with `@Service`
+4. Move methods + dependencies into mediator
+5. Remove cycle-causing fields from original classes
+6. Add mediator field with `@Autowired` to original classes
+7. Update internal method calls to use mediator
+
+**Implementation:** `MethodExtractionStrategy.java`
+
+**Best for:** Complex cycles where true separation is required; @Bean method cycles.
+
 ---
 
 ### Prerequisites

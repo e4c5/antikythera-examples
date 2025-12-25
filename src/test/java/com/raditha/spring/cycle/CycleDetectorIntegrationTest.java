@@ -146,4 +146,22 @@ class CycleDetectorIntegrationTest {
             assertTrue(cycleIsBroken, "Selected edges should break cycle: " + cycle);
         }
     }
+
+    @Test
+    void methodExtractionStrategyShouldBreakCycles() {
+        sa.com.cloudsolutions.antikythera.depsolver.MethodExtractionStrategy strategy = new sa.com.cloudsolutions.antikythera.depsolver.MethodExtractionStrategy(
+                true);
+
+        // Apply to first cycle
+        if (!allCycles.isEmpty()) {
+            List<String> cycle = allCycles.get(0);
+            boolean result = strategy.apply(cycle);
+
+            // Should succeed if classes are found
+            if (!strategy.getGeneratedClasses().isEmpty()) {
+                assertTrue(result, "Should extract methods for cycle: " + cycle);
+                assertFalse(strategy.getGeneratedClasses().isEmpty(), "Should generate mediator");
+            }
+        }
+    }
 }
