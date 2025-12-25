@@ -36,6 +36,7 @@ class HardDeleteTest {
         mavenHelper.readPomFile();
         mavenHelper.buildJarPaths();
         AbstractCompiler.reset();
+        AntikytheraRunTime.resetAll();
         AbstractCompiler.preProcess();
     }
 

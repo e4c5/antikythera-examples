@@ -40,6 +40,11 @@ class InterfaceExtractionStrategyTest {
 
     @BeforeEach
     void setUp() throws IOException {
+        // Reset testbed to clean state first
+        TestbedResetHelper.resetTestbed();
+        // Remove Unknown.java to avoid duplicate class definition errors
+        TestbedResetHelper.removeUnknownJava();
+        
         Path workspaceRoot = Paths.get(System.getProperty("user.dir"));
         if (workspaceRoot.toString().contains("antikythera-examples")) {
             workspaceRoot = workspaceRoot.getParent();
@@ -60,6 +65,7 @@ class InterfaceExtractionStrategyTest {
         if (originalFileContents != null) {
             revertFiles(testbedPath, originalFileContents);
         }
+        TestbedResetHelper.restoreUnknownJava();
     }
 
     @Test
