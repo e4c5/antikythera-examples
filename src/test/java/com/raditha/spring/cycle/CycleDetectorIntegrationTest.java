@@ -268,4 +268,100 @@ class CycleDetectorIntegrationTest {
 
         assertTrue(lazyApplied + setterConverted > 0, "Should apply at least one fix");
     }
+
+    @Test
+    void applyInterfaceExtraction() throws IOException {
+        AbstractCompiler.preProcess();
+
+        BeanDependencyGraph graph = new BeanDependencyGraph();
+        graph.build();
+
+        // Find @Bean method edges
+        Set<BeanDependency> beanMethodEdges = graph.getDependencies().values().stream()
+                .flatMap(Set::stream)
+                .filter(e -> e.injectionType() == sa.com.cloudsolutions.antikythera.depsolver.InjectionType.BEAN_METHOD)
+                .collect(java.util.stream.Collectors.toSet());
+
+        System.out.println("\n📊 @Bean method edges: " + beanMethodEdges.size());
+        beanMethodEdges.forEach(e -> System.out.println("   " + e));
+
+        // Apply interface extraction on @Bean edges (LIVE MODE)
+        sa.com.cloudsolutions.antikythera.depsolver.InterfaceExtractionStrategy ifaceStrategy = new sa.com.cloudsolutions.antikythera.depsolver.InterfaceExtractionStrategy(
+                false);
+
+        int extracted = 0;
+        for (BeanDependency edge : beanMethodEdges) {
+            if (ifaceStrategy.apply(edge)) {
+                extracted++;
+            }
+        }
+
+        System.out.println("\n📊 Summary:");
+        System.out.println("   Interfaces extracted: " + extracted);
+        System.out.println("   Modified CUs: " + ifaceStrategy.getModifiedCUs().size());
+        System.out.println("   Generated interfaces: " + ifaceStrategy.getGeneratedInterfaces().size());
+
+        ifaceStrategy.writeChanges(TESTBED_PATH);
+    }
+
+    /**
+     * Apply ALL fixes (Phase 1 + Phase 2) to testbed - LIVE MODE.
+     * Run this to actually modify files and verify Spring Boot starts.
+     */
+    @Test
+    void applyAllFixesLive() throws IOException {
+        AbstractCompiler.preProcess();
+
+        BeanDependencyGraph graph = new BeanDependencyGraph();
+        graph.build();
+
+        JohnsonCycleFinder finder = new JohnsonCycleFinder(graph.getSimpleGraph());
+        List<List<String>> allCycles = finder.findAllCycles();
+
+        EdgeSelector selector = new EdgeSelector(graph.getDependencies());
+        Set<BeanDependency> edgesToCut = selector.selectEdgesToCut(allCycles);
+
+        System.out.println("\n🔧 APPLYING ALL FIXES (LIVE MODE)");
+        System.out.println("   Cycles: " + allCycles.size());
+        System.out.println("   Edges to cut: " + edgesToCut.size());
+
+        // Phase 1: @Lazy for field/setter, SetterInjection for constructor
+        var lazyStrategy = new sa.com.cloudsolutions.antikythera.depsolver.LazyAnnotationStrategy(false);
+        var setterStrategy = new sa.com.cloudsolutions.antikythera.depsolver.SetterInjectionStrategy(false);
+
+        // Phase 2: Interface extraction for @Bean methods
+        var ifaceStrategy = new sa.com.cloudsolutions.antikythera.depsolver.InterfaceExtractionStrategy(false);
+
+        int lazyApplied = 0, setterConverted = 0, ifaceExtracted = 0;
+
+        for (BeanDependency edge : edgesToCut) {
+            switch (edge.injectionType()) {
+                case FIELD, SETTER -> {
+                    if (lazyStrategy.apply(edge))
+                        lazyApplied++;
+                }
+                case CONSTRUCTOR -> {
+                    if (setterStrategy.apply(edge))
+                        setterConverted++;
+                }
+                case BEAN_METHOD -> {
+                    if (ifaceStrategy.apply(edge))
+                        ifaceExtracted++;
+                }
+            }
+        }
+
+        // Write all changes
+        lazyStrategy.writeChanges(TESTBED_PATH);
+        setterStrategy.writeChanges(TESTBED_PATH);
+        ifaceStrategy.writeChanges(TESTBED_PATH);
+
+        System.out.println("\n✅ FIXES APPLIED:");
+        System.out.println("   @Lazy added: " + lazyApplied);
+        System.out.println("   Constructor→Setter: " + setterConverted);
+        System.out.println("   Interfaces extracted: " + ifaceExtracted);
+        System.out.println("\n📋 Next: cd " + TESTBED_PATH.replace("/src/main/java", "") + " && mvn spring-boot:run");
+
+        assertTrue(lazyApplied + setterConverted + ifaceExtracted > 0, "Should apply at least one fix");
+    }
 }
