@@ -3,7 +3,6 @@ package com.raditha.spring;
 
 import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
@@ -71,18 +70,25 @@ public class MigrationValidator extends MigrationPhase {
 
         Process process = pb.start();
 
-        // Use a timer to kill the process if it takes too long
-        java.util.Timer timer = new java.util.Timer(true);
-        timer.schedule(new java.util.TimerTask() {
-            @Override
-            public void run() {
-                process.descendants().forEach(ProcessHandle::destroyForcibly);
-                process.destroyForcibly();
-            }
-        }, 5 * 60 * 1000); // 5 minutes
+        // Use ExecutorService for more reliable timeout handling
+        java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors.newSingleThreadExecutor();
+        java.util.concurrent.Future<Integer> future = executor.submit(() -> process.waitFor());
 
-        int exitCode = process.waitFor();
-        timer.cancel();
+        int exitCode;
+        try {
+            exitCode = future.get(30, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (java.util.concurrent.TimeoutException e) {
+            process.descendants().forEach(ProcessHandle::destroyForcibly);
+            process.destroyForcibly();
+            future.cancel(true);
+            result.addError("❌ Compilation timed out");
+            return false;
+        } catch (java.util.concurrent.ExecutionException e) {
+            result.addError("❌ Compilation failed: " + e.getMessage());
+            return false;
+        } finally {
+            executor.shutdownNow();
+        }
 
         if (exitCode == 0) {
             result.addChange("✅ Compilation successful");
@@ -111,12 +117,24 @@ public class MigrationValidator extends MigrationPhase {
 
         Process process = pb.start();
 
-        // Wait with timeout (5 minutes)
-        boolean finished = process.waitFor(5, java.util.concurrent.TimeUnit.MINUTES);
-        if (!finished) {
+        // Use ExecutorService for more reliable timeout handling
+        java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors.newSingleThreadExecutor();
+        java.util.concurrent.Future<Integer> future = executor.submit(() -> process.waitFor());
+
+        int exitCode;
+        try {
+            exitCode = future.get(30, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (java.util.concurrent.TimeoutException e) {
+            process.descendants().forEach(ProcessHandle::destroyForcibly);
             process.destroyForcibly();
+            future.cancel(true);
             result.addWarning("dependency:tree command timed out");
             return;
+        } catch (java.util.concurrent.ExecutionException e) {
+            result.addWarning("dependency:tree command failed: " + e.getMessage());
+            return;
+        } finally {
+            executor.shutdownNow();
         }
 
         // Read output from file and check for conflicts
@@ -138,7 +156,6 @@ public class MigrationValidator extends MigrationPhase {
             result.addChange("✅ No dependency conflicts detected");
         }
 
-        int exitCode = process.exitValue();
         if (exitCode != 0) {
             result.addWarning("dependency:tree command failed (exit code: " + exitCode + ")");
         }
