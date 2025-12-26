@@ -60,28 +60,37 @@ public class MigrationValidator extends MigrationPhase {
      * Validate that the project compiles successfully.
      */
     private boolean validateCompilation(MigrationPhaseResult result) throws IOException, InterruptedException {
-        ProcessBuilder pb = new ProcessBuilder("mvn", "clean", "compile", "-q");
+        java.io.File outputFile = java.io.File.createTempFile("mvn-compile-", ".log");
+        outputFile.deleteOnExit();
+
+        ProcessBuilder pb = new ProcessBuilder("mvn", "clean", "compile", "-q", "-B");
         pb.directory(Paths.get(Settings.getBasePath()).toFile());
         pb.redirectErrorStream(true);
+        pb.redirectOutput(outputFile);
+        pb.redirectInput(ProcessBuilder.Redirect.from(new java.io.File("/dev/null")));
 
         Process process = pb.start();
 
-        // Capture output
-        StringBuilder output = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(process.getInputStream()))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                output.append(line).append("\n");
+        // Use a timer to kill the process if it takes too long
+        java.util.Timer timer = new java.util.Timer(true);
+        timer.schedule(new java.util.TimerTask() {
+            @Override
+            public void run() {
+                process.descendants().forEach(ProcessHandle::destroyForcibly);
+                process.destroyForcibly();
             }
-        }
+        }, 5 * 60 * 1000); // 5 minutes
 
         int exitCode = process.waitFor();
+        timer.cancel();
 
         if (exitCode == 0) {
             result.addChange("✅ Compilation successful");
             return true;
         }
+
+        // Read output from file on failure
+        String output = java.nio.file.Files.readString(outputFile.toPath());
         result.addError("❌ Compilation failed (exit code: " + exitCode + ")");
         result.addError("Output: " + output);
         return false;
@@ -91,32 +100,45 @@ public class MigrationValidator extends MigrationPhase {
      * Validate dependency tree for conflicts.
      */
     private void validateDependencies(MigrationPhaseResult result) throws IOException, InterruptedException {
-        ProcessBuilder pb = new ProcessBuilder("mvn", "dependency:tree", "-q");
+        java.io.File outputFile = java.io.File.createTempFile("mvn-deps-", ".log");
+        outputFile.deleteOnExit();
+
+        ProcessBuilder pb = new ProcessBuilder("mvn", "dependency:tree", "-q", "-B");
         pb.directory(Paths.get(Settings.getBasePath()).toFile());
         pb.redirectErrorStream(true);
+        pb.redirectOutput(outputFile);
+        pb.redirectInput(ProcessBuilder.Redirect.from(new java.io.File("/dev/null")));
 
         Process process = pb.start();
 
-        // Capture output and check for conflicts
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(process.getInputStream()))) {
+        // Wait with timeout (5 minutes)
+        boolean finished = process.waitFor(5, java.util.concurrent.TimeUnit.MINUTES);
+        if (!finished) {
+            process.destroyForcibly();
+            result.addWarning("dependency:tree command timed out");
+            return;
+        }
+
+        // Read output from file and check for conflicts
+        List<String> conflicts = new ArrayList<>();
+        try (BufferedReader br = new BufferedReader(new java.io.FileReader(outputFile))) {
             String line;
-            boolean hasConflicts = false;
-
-            while ((line = reader.readLine()) != null) {
+            while ((line = br.readLine()) != null) {
                 if (line.contains("conflict")) {
-                    hasConflicts = true;
-                    result.addWarning("Dependency conflict: " + line);
+                    conflicts.add(line);
                 }
-            }
-
-            if (!hasConflicts) {
-                result.addChange("✅ No dependency conflicts detected");
             }
         }
 
-        int exitCode = process.waitFor();
+        for (String conflict : conflicts) {
+            result.addWarning("Dependency conflict: " + conflict);
+        }
 
+        if (conflicts.isEmpty()) {
+            result.addChange("✅ No dependency conflicts detected");
+        }
+
+        int exitCode = process.exitValue();
         if (exitCode != 0) {
             result.addWarning("dependency:tree command failed (exit code: " + exitCode + ")");
         }
