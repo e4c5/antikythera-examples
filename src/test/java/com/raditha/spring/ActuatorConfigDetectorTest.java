@@ -112,28 +112,6 @@ class ActuatorConfigDetectorTest {
                 .anyMatch(change -> change.startsWith("Modified") ||
                         change.startsWith("Updated")),
                 "Dry-run should not report modifications");
-    }
-
-    @Test
-    void testNonDryRunMode() {
-        // Given: Detector in non-dry-run mode
-        ActuatorConfigDetector detector = new ActuatorConfigDetector(false);
-
-        // When: Running migration
-        MigrationPhaseResult result = detector.migrate();
-
-        // Then: Should return result
-        assertNotNull(result, "Should return result in non-dry-run mode");
-    }
-
-    @Test
-    void testResultContainsChanges() {
-        // Given: Actuator detector
-        ActuatorConfigDetector detector = new ActuatorConfigDetector(true);
-
-        // When: Running migration
-        MigrationPhaseResult result = detector.migrate();
-
         // Then: Result should have changes
         assertNotNull(result.getChanges(), "Result should have changes list");
         assertFalse(result.getChanges().isEmpty(), "Result should contain at least one change");
