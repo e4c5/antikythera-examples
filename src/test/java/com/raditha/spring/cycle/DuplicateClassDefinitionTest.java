@@ -57,11 +57,11 @@ class DuplicateClassDefinitionTest {
     }
 
     @Test
-    void testPreProcessDetectsDuplicateClassDefinition() throws Exception {
+    void testPreProcessDetectsDuplicateClassDefinition()  {
         // preProcess() should detect the duplicate when processing all files
         IllegalStateException exception = assertThrows(
             IllegalStateException.class,
-            () -> AbstractCompiler.preProcess(),
+                AbstractCompiler::preProcess,
             "preProcess() should throw IllegalStateException when duplicate class definition is detected");
         
         assertTrue(exception.getMessage().contains("Duplicate class definition detected"),

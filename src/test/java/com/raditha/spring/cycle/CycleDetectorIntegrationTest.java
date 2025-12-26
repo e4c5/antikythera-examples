@@ -8,7 +8,6 @@ import sa.com.cloudsolutions.antikythera.depsolver.BeanDependencyGraph;
 import sa.com.cloudsolutions.antikythera.depsolver.EdgeSelector;
 import sa.com.cloudsolutions.antikythera.depsolver.InjectionType;
 import sa.com.cloudsolutions.antikythera.depsolver.JohnsonCycleFinder;
-import sa.com.cloudsolutions.antikythera.depsolver.LazyAnnotationStrategy;
 import sa.com.cloudsolutions.antikythera.depsolver.SetterInjectionStrategy;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;

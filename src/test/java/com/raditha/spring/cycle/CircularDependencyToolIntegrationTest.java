@@ -33,8 +33,6 @@ import static org.junit.jupiter.api.Assertions.*;
  * 5. Files are reverted after each test
  */
 class CircularDependencyToolIntegrationTest {
-
-    private static final String TESTBED_PATH = "../../spring-boot-cycles/src/main/java";
     private Path testbedPath;
     private Map<String, String> originalFileContents;
 
@@ -64,9 +62,8 @@ class CircularDependencyToolIntegrationTest {
         if (!configFile.exists()) {
             // Create config if it doesn't exist
             String configContent = String.format(
-                    "base_path: %s\noutput_path: %s\nbase_package: com.example.cycles\n",
-                    testbedPath.toString(),
-                    testbedPath.toString()
+                    "base_path: %s%noutput_path: %s%nbase_package: com.example.cycles%n",
+                    testbedPath,testbedPath
             );
             Files.writeString(configFile.toPath(), configContent);
         }
@@ -77,7 +74,7 @@ class CircularDependencyToolIntegrationTest {
     void tearDown() throws IOException {
         // Revert all changes
         if (originalFileContents != null) {
-            revertFiles(testbedPath, originalFileContents);
+            revertFiles(originalFileContents);
         }
         TestbedResetHelper.restoreUnknownJava();
     }
@@ -137,7 +134,7 @@ class CircularDependencyToolIntegrationTest {
         newGraph.build();
         
         CycleDetector newDetector = new CycleDetector(newGraph.getSimpleGraph());
-        List<Set<String>> remainingCycles = newDetector.findCycles();
+        newDetector.findCycles();
         
         // Verify that some fixes were applied by checking for @Lazy annotations in files
         boolean hasLazyAnnotation = false;
@@ -262,8 +259,7 @@ class CircularDependencyToolIntegrationTest {
         
         CycleDetector detector1 = new CycleDetector(graph1.getSimpleGraph());
         List<Set<String>> cycles1 = detector1.findCycles();
-        int initialCycleCount = cycles1.size();
-        
+
         // Manually add @Lazy to OrderService.paymentService
         Path orderServiceFile = testbedPath.resolve("com/example/cycles/simple/OrderService.java");
         String originalContent = Files.readString(orderServiceFile);
@@ -330,20 +326,16 @@ class CircularDependencyToolIntegrationTest {
         sa.com.cloudsolutions.antikythera.depsolver.LazyAnnotationStrategy strategy = 
                 new sa.com.cloudsolutions.antikythera.depsolver.LazyAnnotationStrategy(false);
         
-        if (orderDeps != null) {
-            orderDeps.stream()
-                    .filter(d -> d.targetBean().equals(paymentServiceFqn))
-                    .findFirst()
-                    .ifPresent(strategy::apply);
-        }
-        
-        if (paymentDeps != null) {
-            paymentDeps.stream()
-                    .filter(d -> d.targetBean().equals(orderServiceFqn))
-                    .findFirst()
-                    .ifPresent(strategy::apply);
-        }
-        
+
+        orderDeps.stream()
+                .filter(d -> d.targetBean().equals(paymentServiceFqn))
+                .findFirst()
+                .ifPresent(strategy::apply);
+        paymentDeps.stream()
+                .filter(d -> d.targetBean().equals(orderServiceFqn))
+                .findFirst()
+                .ifPresent(strategy::apply);
+
         strategy.writeChanges(testbedPath.toString());
         
         // Verify both sides have @Lazy
@@ -410,7 +402,7 @@ class CircularDependencyToolIntegrationTest {
                 .filter(Files::isRegularFile)
                 .filter(p -> p.toString().endsWith(".java"))
                 .collect(Collectors.toMap(
-                        p -> p.toString(),
+                        Path::toString,
                         p -> {
                             try {
                                 return Files.readString(p);
@@ -424,7 +416,7 @@ class CircularDependencyToolIntegrationTest {
     /**
      * Revert all files to their original state.
      */
-    private void revertFiles(Path basePath, Map<String, String> originalContents) throws IOException {
+    private void revertFiles(Map<String, String> originalContents) throws IOException {
         for (Map.Entry<String, String> entry : originalContents.entrySet()) {
             Path filePath = Paths.get(entry.getKey());
             if (Files.exists(filePath)) {
@@ -437,13 +429,42 @@ class CircularDependencyToolIntegrationTest {
      * Verify that @Lazy annotations were added to expected files.
      */
     private void verifyLazyAnnotationsAdded(Path basePath) throws IOException {
-        // Check a few key files that should have @Lazy
+        // Check key files that should have @Lazy - at least one should have it
         Path orderServiceFile = basePath.resolve("com/example/cycles/simple/OrderService.java");
+        Path paymentServiceFile = basePath.resolve("com/example/cycles/simple/PaymentService.java");
+
+        boolean hasLazyAnnotation = false;
+
         if (Files.exists(orderServiceFile)) {
             String content = Files.readString(orderServiceFile);
-            // At least one of the cycle files should have @Lazy
-            // (We can't guarantee which one was fixed)
+            if (content.contains("@Lazy")) {
+                hasLazyAnnotation = true;
+            }
         }
+
+        if (!hasLazyAnnotation && Files.exists(paymentServiceFile)) {
+            String content = Files.readString(paymentServiceFile);
+            if (content.contains("@Lazy")) {
+                hasLazyAnnotation = true;
+            }
+        }
+
+        // If neither simple cycle file has @Lazy, check all Java files in the testbed
+        if (!hasLazyAnnotation) {
+            hasLazyAnnotation = Files.walk(basePath)
+                    .filter(Files::isRegularFile)
+                    .filter(p -> p.toString().endsWith(".java"))
+                    .anyMatch(p -> {
+                        try {
+                            return Files.readString(p).contains("@Lazy");
+                        } catch (IOException e) {
+                            return false;
+                        }
+                    });
+        }
+
+        assertTrue(hasLazyAnnotation,
+                "At least one file should have @Lazy annotation after fixes are applied");
     }
 
     /**
