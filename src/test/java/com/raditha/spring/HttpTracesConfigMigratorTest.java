@@ -141,11 +141,6 @@ class HttpTracesConfigMigratorTest {
     void testGetPhaseName() {
         HttpTracesConfigMigrator migrator = new HttpTracesConfigMigrator(false);
         assertEquals("HTTP Trace Configuration Detection", migrator.getPhaseName());
-    }
-
-    @Test
-    void testGetPriority() {
-        HttpTracesConfigMigrator migrator = new HttpTracesConfigMigrator(false);
         assertEquals(70, migrator.getPriority());
     }
 }
