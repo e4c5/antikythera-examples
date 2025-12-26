@@ -104,11 +104,6 @@ class SpringCloudVersionMigratorTest {
     void testGetPhaseName() {
         SpringCloudVersionMigrator migrator = new SpringCloudVersionMigrator(false);
         assertEquals("Spring Cloud Version Migration", migrator.getPhaseName());
-    }
-
-    @Test
-    void testGetPriority() {
-        SpringCloudVersionMigrator migrator = new SpringCloudVersionMigrator(false);
         assertEquals(25, migrator.getPriority());
     }
 }

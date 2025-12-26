@@ -102,7 +102,7 @@ class SpringBoot24to25MigratorTest {
     }
 
     @Test
-    void testMigrationWithErrors() throws Exception {
+    void testMigrationWithErrors()  {
         // Given: Invalid project structure (no pom.xml)
         SpringBoot24to25Migrator migrator = new SpringBoot24to25Migrator(false);
 
