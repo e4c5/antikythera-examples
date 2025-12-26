@@ -18,7 +18,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class DuplicateClassDefinitionTest {
 
     @BeforeEach
-    void setUp() throws IOException {
+    void setUp() throws IOException, InterruptedException {
         TestbedResetHelper.resetTestbed();
         
         File configFile = new File("src/test/resources/cycle-detector.yml");

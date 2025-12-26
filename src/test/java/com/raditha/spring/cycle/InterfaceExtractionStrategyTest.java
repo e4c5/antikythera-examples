@@ -39,7 +39,7 @@ class InterfaceExtractionStrategyTest extends TestHelper {
     private Map<String, String> originalFileContents;
 
     @BeforeEach
-    void setUp() throws IOException {
+    void setUp() throws IOException, InterruptedException {
         // Reset testbed to clean state first
         TestbedResetHelper.resetTestbed();
         // Remove Unknown.java to avoid duplicate class definition errors
@@ -202,25 +202,5 @@ class InterfaceExtractionStrategyTest extends TestHelper {
         }
     }
 
-    private void revertFiles(Path basePath, Map<String, String> originalContents) throws IOException {
-        for (Map.Entry<String, String> entry : originalContents.entrySet()) {
-            Path filePath = Paths.get(entry.getKey());
-            if (Files.exists(filePath)) {
-                Files.writeString(filePath, entry.getValue());
-            }
-        }
-        // Also remove any generated interface files
-        Files.walk(basePath)
-                .filter(Files::isRegularFile)
-                .filter(p -> p.toString().contains("IOrderService") || 
-                            p.toString().contains("IPaymentProcessor"))
-                .forEach(p -> {
-                    try {
-                        Files.delete(p);
-                    } catch (IOException e) {
-                        // Ignore
-                    }
-                });
-    }
 }
 

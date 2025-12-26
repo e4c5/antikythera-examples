@@ -19,7 +19,6 @@ import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -39,7 +38,7 @@ class MethodExtractionStrategyTest extends TestHelper {
     private boolean skipRevert = false; // Flag to skip revert for debugging
 
     @BeforeEach
-    void setUp() throws IOException {
+    void setUp() throws IOException, InterruptedException {
         // Reset testbed to clean state first
         TestbedResetHelper.resetTestbed();
         // Remove Unknown.java to avoid duplicate class definition errors
@@ -157,22 +156,20 @@ class MethodExtractionStrategyTest extends TestHelper {
                 .findFirst()
                 .orElse(null);
         
-        if (extractionCycle == null) {
-            return; // Skip if cycle not found
-        }
-        
+        assertNotNull(extractionCycle, "Should find extraction cycle containing OrderProcessingService");
+
         MethodExtractionStrategy strategy = new MethodExtractionStrategy(false);
         boolean applied = strategy.apply(extractionCycle);
         
-        if (applied) {
-            // Verify that mediator classes were generated
-            assertFalse(strategy.getGeneratedClasses().isEmpty(),
-                    "Should generate mediator classes with extracted methods");
-            
-            // Verify that original classes were modified
-            assertFalse(strategy.getModifiedCUs().isEmpty(),
-                    "Should modify original classes");
-        }
+        assertTrue(applied, "MethodExtractionStrategy should apply to the extraction cycle");
+
+        // Verify that mediator classes were generated
+        assertFalse(strategy.getGeneratedClasses().isEmpty(),
+                "Should generate mediator classes with extracted methods");
+
+        // Verify that original classes were modified
+        assertFalse(strategy.getModifiedCUs().isEmpty(),
+                "Should modify original classes");
     }
 
     @Test
@@ -193,49 +190,30 @@ class MethodExtractionStrategyTest extends TestHelper {
                 .findFirst()
                 .orElse(null);
         
-        if (extractionCycle == null) {
-            return;
-        }
-        
+        assertNotNull(extractionCycle, "Should find extraction cycle containing OrderProcessingService");
+
         MethodExtractionStrategy strategy = new MethodExtractionStrategy(false);
         boolean applied = strategy.apply(extractionCycle);
         
-        if (applied) {
-            strategy.writeChanges(testbedPath.toString());
-            
-            // Verify that OrderProcessingService.placeOrder() was extracted
-            // (The method should no longer call paymentProcessingService directly)
-            Path orderServiceFile = testbedPath.resolve(
-                    "com/example/cycles/extraction/OrderProcessingService.java");
-            if (Files.exists(orderServiceFile)) {
-                String content = Files.readString(orderServiceFile);
-                // The placeOrder method should either be removed or modified
-                // to not directly call paymentProcessingService
-                // This is a basic check - more detailed verification would require
-                // parsing the AST
-            }
-        }
-    }
+        assertTrue(applied, "MethodExtractionStrategy should apply successfully");
 
+        strategy.writeChanges(testbedPath.toString());
 
-    private void revertFiles(Path basePath, Map<String, String> originalContents) throws IOException {
-        for (Map.Entry<String, String> entry : originalContents.entrySet()) {
-            Path filePath = Paths.get(entry.getKey());
-            if (Files.exists(filePath)) {
-                Files.writeString(filePath, entry.getValue());
-            }
-        }
-        // Also remove any generated mediator classes
-        Files.walk(basePath)
-                .filter(Files::isRegularFile)
-                .filter(p -> p.toString().endsWith("Mediator.java"))
-                .forEach(p -> {
-                    try {
-                        Files.delete(p);
-                    } catch (IOException e) {
-                        // Ignore
-                    }
-                });
+        // Verify that OrderProcessingService.placeOrder() was extracted
+        // (The method should no longer call paymentProcessingService directly)
+        Path orderServiceFile = testbedPath.resolve(
+                "com/example/cycles/extraction/OrderProcessingService.java");
+        assertTrue(Files.exists(orderServiceFile),
+                "OrderProcessingService.java should exist after extraction");
+
+        String content = Files.readString(orderServiceFile);
+        // After extraction, the service should either delegate to the mediator
+        // or no longer directly reference paymentProcessingService in the extracted method
+        assertFalse(content.isEmpty(), "OrderProcessingService.java should have content");
+
+        // Verify mediator class was generated
+        assertFalse(strategy.getGeneratedClasses().isEmpty(),
+                "Should generate mediator class for extracted methods");
     }
 }
 

@@ -20,35 +20,30 @@ public class TestbedResetHelper {
      * Reset the testbed to a clean git state.
      * This ensures tests run against unmodified source files.
      */
-    public static void resetTestbed() {
-        try {
-            Path workspaceRoot = Paths.get(System.getProperty("user.dir"));
-            if (workspaceRoot.toString().contains("antikythera-examples")) {
-                workspaceRoot = workspaceRoot.getParent();
-            }
-            Path testbedRoot = workspaceRoot.resolve("spring-boot-cycles");
-            
-            if (Files.exists(testbedRoot.resolve(".git"))) {
-                ProcessBuilder pb = new ProcessBuilder("git", "restore", ".");
-                pb.directory(testbedRoot.toFile());
-                pb.redirectErrorStream(true);
-                Process p = pb.start();
-                p.waitFor();
-                
-                pb = new ProcessBuilder("git", "clean", "-fd");
-                pb.directory(testbedRoot.toFile());
-                pb.redirectErrorStream(true);
-                p = pb.start();
-                p.waitFor();
-            }
-            
-            // Reset unknownJavaPath
-            unknownJavaPath = workspaceRoot.resolve(UNKNOWN_JAVA);
-            unknownJavaBackedUp = false;
-        } catch (Exception e) {
-            // If git reset fails, continue - testbed might not be a git repo
-            System.err.println("Warning: Could not reset testbed: " + e.getMessage());
+    public static void resetTestbed() throws IOException, InterruptedException {
+        Path workspaceRoot = Paths.get(System.getProperty("user.dir"));
+        if (workspaceRoot.toString().contains("antikythera-examples")) {
+            workspaceRoot = workspaceRoot.getParent();
         }
+        Path testbedRoot = workspaceRoot.resolve("spring-boot-cycles");
+
+        if (Files.exists(testbedRoot.resolve(".git"))) {
+            ProcessBuilder pb = new ProcessBuilder("git", "restore", ".");
+            pb.directory(testbedRoot.toFile());
+            pb.redirectErrorStream(true);
+            Process p = pb.start();
+            p.waitFor();
+
+            pb = new ProcessBuilder("git", "clean", "-fd");
+            pb.directory(testbedRoot.toFile());
+            pb.redirectErrorStream(true);
+            p = pb.start();
+            p.waitFor();
+        }
+
+        // Reset unknownJavaPath
+        unknownJavaPath = workspaceRoot.resolve(UNKNOWN_JAVA);
+        unknownJavaBackedUp = false;
     }
     
     /**

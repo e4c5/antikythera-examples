@@ -20,7 +20,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class SimpleTypeResolutionTest {
 
     @BeforeEach
-    void setUp() throws IOException {
+    void setUp() throws IOException, InterruptedException {
         // Reset testbed to clean state first
         TestbedResetHelper.resetTestbed();
         // Remove Unknown.java to avoid duplicate class definition errors
@@ -52,7 +52,7 @@ class SimpleTypeResolutionTest {
         // Find paymentProcessingService field
         com.github.javaparser.ast.body.FieldDeclaration paymentField = null;
         for (com.github.javaparser.ast.body.FieldDeclaration field : orderClass.getFields()) {
-            if (field.getVariables().size() > 0) {
+            if (!field.getVariables().isEmpty()) {
                 String fieldName = field.getVariables().get(0).getNameAsString();
                 if (fieldName.equals("paymentProcessingService")) {
                     paymentField = field;
@@ -64,7 +64,7 @@ class SimpleTypeResolutionTest {
         assertNotNull(paymentField, "paymentProcessingService field should be found");
         
         com.github.javaparser.ast.type.Type fieldType = paymentField.getVariables().get(0).getType();
-        assertTrue(fieldType instanceof ClassOrInterfaceType, "Field type should be ClassOrInterfaceType");
+        assertInstanceOf(ClassOrInterfaceType.class, fieldType, "Field type should be ClassOrInterfaceType");
         
         ClassOrInterfaceType paymentType = (ClassOrInterfaceType) fieldType;
         String typeName = paymentType.getNameAsString();

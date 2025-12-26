@@ -33,7 +33,7 @@ class CycleDetectorIntegrationTest {
     private Set<BeanDependency> edgesToCut;
 
     @BeforeEach
-    void setUp() throws IOException {
+    void setUp() throws IOException, InterruptedException {
         // Reset testbed to clean state first
         TestbedResetHelper.resetTestbed();
         // Remove Unknown.java to avoid duplicate class definition errors
