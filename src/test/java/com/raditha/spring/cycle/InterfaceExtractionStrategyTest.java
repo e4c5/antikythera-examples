@@ -33,7 +33,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * 4. The field type is changed to the interface
  * 5. Cycles are broken after interface extraction
  */
-class InterfaceExtractionStrategyTest {
+class InterfaceExtractionStrategyTest extends TestHelper {
 
     private Path testbedPath;
     private Map<String, String> originalFileContents;
@@ -200,22 +200,6 @@ class InterfaceExtractionStrategyTest {
             // This is a basic check - more detailed verification would require
             // finding the generated interface file
         }
-    }
-
-    private Map<String, String> readAllJavaFiles(Path basePath) throws IOException {
-        return Files.walk(basePath)
-                .filter(Files::isRegularFile)
-                .filter(p -> p.toString().endsWith(".java"))
-                .collect(Collectors.toMap(
-                        p -> p.toString(),
-                        p -> {
-                            try {
-                                return Files.readString(p);
-                            } catch (IOException e) {
-                                throw new RuntimeException(e);
-                            }
-                        }
-                ));
     }
 
     private void revertFiles(Path basePath, Map<String, String> originalContents) throws IOException {
