@@ -8,6 +8,8 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 
+import sa.com.cloudsolutions.antikythera.configuration.Settings;
+
 /**
  * Validates migration success through compilation, dependency checks, and property validation.
  * 
@@ -59,7 +61,7 @@ public class MigrationValidator extends MigrationPhase {
      */
     private boolean validateCompilation(MigrationPhaseResult result) throws IOException, InterruptedException {
         ProcessBuilder pb = new ProcessBuilder("mvn", "clean", "compile", "-q");
-        pb.directory(Paths.get(System.getProperty("user.dir")).toFile());
+        pb.directory(Paths.get(Settings.getBasePath()).toFile());
         pb.redirectErrorStream(true);
 
         Process process = pb.start();
@@ -90,7 +92,7 @@ public class MigrationValidator extends MigrationPhase {
      */
     private void validateDependencies(MigrationPhaseResult result) throws IOException, InterruptedException {
         ProcessBuilder pb = new ProcessBuilder("mvn", "dependency:tree", "-q");
-        pb.directory(Paths.get(System.getProperty("user.dir")).toFile());
+        pb.directory(Paths.get(Settings.getBasePath()).toFile());
         pb.redirectErrorStream(true);
 
         Process process = pb.start();

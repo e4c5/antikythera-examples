@@ -36,6 +36,7 @@ class MethodExtractionStrategyTest {
 
     private Path testbedPath;
     private Map<String, String> originalFileContents;
+    private boolean skipRevert = false; // Flag to skip revert for debugging
 
     @BeforeEach
     void setUp() throws IOException {
@@ -62,14 +63,19 @@ class MethodExtractionStrategyTest {
 
     @AfterEach
     void tearDown() throws IOException {
-        if (originalFileContents != null) {
+        if (originalFileContents != null && !skipRevert) {
             revertFiles(testbedPath, originalFileContents);
         }
-        TestbedResetHelper.restoreUnknownJava();
+        if (!skipRevert) {
+            TestbedResetHelper.restoreUnknownJava();
+        }
     }
 
     @Test
     void testMethodExtraction_BreaksCycle() throws IOException {
+        // Temporarily skip revert to inspect generated files
+        skipRevert = true;
+        
         // Step 1: Detect cycle
         AbstractCompiler.reset();
         AntikytheraRunTime.resetAll();
