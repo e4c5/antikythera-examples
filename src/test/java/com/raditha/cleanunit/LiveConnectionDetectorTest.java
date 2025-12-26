@@ -1,134 +1,76 @@
 package com.raditha.cleanunit;
 
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
-import java.io.FileWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Set;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class LiveConnectionDetectorTest {
 
-    @Test
-    void testDetectKafkaWithCustomPropertyName(@TempDir Path tempDir) throws Exception {
-        // Create a test properties file with custom Kafka property name
-        Path testRoot = tempDir;
-        Path resourcesDir = testRoot.resolve("src/test/resources");
-        Files.createDirectories(resourcesDir);
-
-        // Note: The detector looks for "application-test.properties" specifically
-        Path propsFile = resourcesDir.resolve("application-test.properties");
-        try (FileWriter writer = new FileWriter(propsFile.toFile())) {
-            writer.write("kafka.bootstrap-servers=172.15.100.145:9092,172.15.100.145:9093\n");
-        }
-
-        // Test detection - pass null for test class since we're only testing file-based
-        // detection
-        LiveConnectionDetector detector = new LiveConnectionDetector();
-        // Create a mock ClassOrInterfaceDeclaration for the first parameter
-        com.github.javaparser.ast.body.ClassOrInterfaceDeclaration mockClass = new com.github.javaparser.ast.body.ClassOrInterfaceDeclaration();
-
-        Set<LiveConnectionDetector.LiveConnectionType> connections = detector.detectLiveConnections(mockClass,
-                testRoot);
-
-        assertTrue(connections.contains(LiveConnectionDetector.LiveConnectionType.KAFKA),
-                "Should detect Kafka with custom property name 'kafka.bootstrap-servers'");
+    static Stream<Arguments> kafkaDetectionTestCases() {
+        return Stream.of(
+                Arguments.of(
+                        "application-test.properties",
+                        "kafka.bootstrap-servers=172.15.100.145:9092,172.15.100.145:9093\n",
+                        true,
+                        "Should detect Kafka with custom property name 'kafka.bootstrap-servers'"
+                ),
+                Arguments.of(
+                        "application-test.properties",
+                        "spring.kafka.bootstrap-servers=localhost:9092\n",
+                        true,
+                        "Should detect Kafka with standard property name 'spring.kafka.bootstrap-servers'"
+                ),
+                Arguments.of(
+                        "application-test.properties",
+                        "kafka.bootstrap-servers=kafka-server:9093\n",
+                        true,
+                        "Should detect Kafka on port 9093"
+                ),
+                Arguments.of(
+                        "application-test.properties",
+                        "kafka.bootstrap-servers=${KAFKA_HOST:localhost}:9092\n",
+                        true,
+                        "Should detect Kafka - generic placeholders are not recognized as embedded"
+                ),
+                Arguments.of(
+                        "application-test.yml",
+                        """
+                        kafka:
+                          bootstrap-servers: 172.15.100.145:9092,172.15.100.145:9093,172.15.100.210:9092
+                        """,
+                        true,
+                        "Should detect Kafka from YAML with IP:port patterns"
+                )
+        );
     }
 
-    @Test
-    void testDetectKafkaWithStandardPropertyName(@TempDir Path tempDir) throws Exception {
-        // Create a test properties file with standard Spring Boot property name
-        Path testRoot = tempDir;
-        Path resourcesDir = testRoot.resolve("src/test/resources");
+    @ParameterizedTest(name = "{3}")
+    @MethodSource("kafkaDetectionTestCases")
+    void testKafkaDetection(String filename, String content, boolean shouldDetect, String description,
+                            @TempDir Path tempDir) throws Exception {
+        Path resourcesDir = tempDir.resolve("src/test/resources");
         Files.createDirectories(resourcesDir);
 
-        Path propsFile = resourcesDir.resolve("application-test.properties");
-        try (FileWriter writer = new FileWriter(propsFile.toFile())) {
-            writer.write("spring.kafka.bootstrap-servers=localhost:9092\n");
-        }
+        Path configFile = resourcesDir.resolve(filename);
+        Files.writeString(configFile, content);
 
         LiveConnectionDetector detector = new LiveConnectionDetector();
-        com.github.javaparser.ast.body.ClassOrInterfaceDeclaration mockClass = new com.github.javaparser.ast.body.ClassOrInterfaceDeclaration();
+        com.github.javaparser.ast.body.ClassOrInterfaceDeclaration mockClass =
+                new com.github.javaparser.ast.body.ClassOrInterfaceDeclaration();
 
-        Set<LiveConnectionDetector.LiveConnectionType> connections = detector.detectLiveConnections(mockClass,
-                testRoot);
+        Set<LiveConnectionDetector.LiveConnectionType> connections =
+                detector.detectLiveConnections(mockClass, tempDir);
 
-        assertTrue(connections.contains(LiveConnectionDetector.LiveConnectionType.KAFKA),
-                "Should detect Kafka with standard property name 'spring.kafka.bootstrap-servers'");
-    }
-
-    @Test
-    void testDetectKafkaInYamlWithIPAddresses(@TempDir Path tempDir) throws Exception {
-        // Create a test YAML file with IP addresses
-        Path testRoot = tempDir;
-        Path resourcesDir = testRoot.resolve("src/test/resources");
-        Files.createDirectories(resourcesDir);
-
-        Path ymlFile = resourcesDir.resolve("application-test.yml");
-        String yamlContent = """
-                kafka:
-                  bootstrap-servers: 172.15.100.145:9092,172.15.100.145:9093,172.15.100.210:9092
-                """;
-        Files.writeString(ymlFile, yamlContent);
-
-        LiveConnectionDetector detector = new LiveConnectionDetector();
-        com.github.javaparser.ast.body.ClassOrInterfaceDeclaration mockClass = new com.github.javaparser.ast.body.ClassOrInterfaceDeclaration();
-
-        Set<LiveConnectionDetector.LiveConnectionType> connections = detector.detectLiveConnections(mockClass,
-                testRoot);
-
-        assertTrue(connections.contains(LiveConnectionDetector.LiveConnectionType.KAFKA),
-                "Should detect Kafka from YAML with IP:port patterns");
-    }
-
-    @Test
-    void testDetectKafkaWithMultiplePorts(@TempDir Path tempDir) throws Exception {
-        // Test detection of various Kafka ports
-        Path testRoot = tempDir;
-        Path resourcesDir = testRoot.resolve("src/test/resources");
-        Files.createDirectories(resourcesDir);
-
-        // Test with 9093 port
-        Path propsFile = resourcesDir.resolve("application-test.properties");
-        try (FileWriter writer = new FileWriter(propsFile.toFile())) {
-            writer.write("kafka.bootstrap-servers=kafka-server:9093\n");
-        }
-
-        LiveConnectionDetector detector = new LiveConnectionDetector();
-        com.github.javaparser.ast.body.ClassOrInterfaceDeclaration mockClass = new com.github.javaparser.ast.body.ClassOrInterfaceDeclaration();
-
-        Set<LiveConnectionDetector.LiveConnectionType> connections = detector.detectLiveConnections(mockClass,
-                testRoot);
-
-        assertTrue(connections.contains(LiveConnectionDetector.LiveConnectionType.KAFKA),
-                "Should detect Kafka on port 9093");
-    }
-
-    @Test
-    void testNoDetectionWithPlaceholder(@TempDir Path tempDir) throws Exception {
-        // Should not detect when using placeholders
-        Path testRoot = tempDir;
-        Path resourcesDir = testRoot.resolve("src/test/resources");
-        Files.createDirectories(resourcesDir);
-
-        Path propsFile = resourcesDir.resolve("application-test.properties");
-        try (FileWriter writer = new FileWriter(propsFile.toFile())) {
-            writer.write("kafka.bootstrap-servers=${KAFKA_HOST:localhost}:9092\n");
-        }
-
-        LiveConnectionDetector detector = new LiveConnectionDetector();
-        com.github.javaparser.ast.body.ClassOrInterfaceDeclaration mockClass = new com.github.javaparser.ast.body.ClassOrInterfaceDeclaration();
-
-        @SuppressWarnings("unused")
-        Set<LiveConnectionDetector.LiveConnectionType> connections = detector.detectLiveConnections(mockClass,
-                testRoot);
-
-        // This might still detect due to IP regex, but the placeholder check should
-        // work
-        // The current implementation doesn't exclude this case completely
-        // This is acceptable as it errs on the side of caution
+        assertEquals(shouldDetect,
+                connections.contains(LiveConnectionDetector.LiveConnectionType.KAFKA),
+                description);
     }
 }

@@ -3,17 +3,14 @@ package com.raditha.maven;
 import org.apache.maven.model.Model;
 import org.apache.maven.model.Parent;
 import org.apache.maven.model.io.DefaultModelReader;
-import org.apache.maven.model.io.ModelReader;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Collections;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -21,7 +18,6 @@ import static org.junit.jupiter.api.Assertions.*;
 class ParentPomResolverTest {
 
     private ParentPomResolver resolver;
-    private ModelReader modelReader;
     private Path testResourcesPath;
 
     @TempDir
@@ -34,7 +30,6 @@ class ParentPomResolverTest {
 
         // Use temp directory as fake local repository
         resolver = new ParentPomResolver(tempDir);
-        modelReader = new DefaultModelReader();
     }
 
     @Test
