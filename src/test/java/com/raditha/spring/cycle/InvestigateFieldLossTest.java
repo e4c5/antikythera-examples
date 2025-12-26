@@ -25,7 +25,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class InvestigateFieldLossTest {
 
     @BeforeEach
-    void setUp() throws IOException {
+    void setUp() throws IOException, InterruptedException {
         TestbedResetHelper.resetTestbed();
         // Remove Unknown.java to avoid duplicate class definition errors
         TestbedResetHelper.removeUnknownJava();

@@ -36,4 +36,21 @@ public class TestHelper {
             }
         }
     }
+
+
+    protected void revertFiles(Path basePath, Map<String, String> originalContents) throws IOException {
+        revertFiles(originalContents);
+        // Also remove any generated interface files
+        Files.walk(basePath)
+                .filter(Files::isRegularFile)
+                .filter(p -> p.toString().contains("IOrderService") ||
+                        p.toString().contains("IPaymentProcessor"))
+                .forEach(p -> {
+                    try {
+                        Files.delete(p);
+                    } catch (IOException e) {
+                        // Ignore
+                    }
+                });
+    }
 }
