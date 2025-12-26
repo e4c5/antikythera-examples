@@ -32,7 +32,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * 3. Methods are extracted to a mediator class
  * 4. Cycles are broken after extraction
  */
-class MethodExtractionStrategyTest {
+class MethodExtractionStrategyTest extends TestHelper {
 
     private Path testbedPath;
     private Map<String, String> originalFileContents;
@@ -217,21 +217,6 @@ class MethodExtractionStrategyTest {
         }
     }
 
-    private Map<String, String> readAllJavaFiles(Path basePath) throws IOException {
-        return Files.walk(basePath)
-                .filter(Files::isRegularFile)
-                .filter(p -> p.toString().endsWith(".java"))
-                .collect(Collectors.toMap(
-                        p -> p.toString(),
-                        p -> {
-                            try {
-                                return Files.readString(p);
-                            } catch (IOException e) {
-                                throw new RuntimeException(e);
-                            }
-                        }
-                ));
-    }
 
     private void revertFiles(Path basePath, Map<String, String> originalContents) throws IOException {
         for (Map.Entry<String, String> entry : originalContents.entrySet()) {

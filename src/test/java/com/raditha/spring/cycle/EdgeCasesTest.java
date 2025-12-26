@@ -31,7 +31,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * 3. @PostConstruct scenarios
  * 4. Nested method calls
  */
-class EdgeCasesTest {
+class EdgeCasesTest extends TestHelper{
 
     private Path testbedPath;
     private Map<String, String> originalFileContents;
@@ -61,7 +61,7 @@ class EdgeCasesTest {
     @AfterEach
     void tearDown() throws IOException {
         if (originalFileContents != null) {
-            revertFiles(testbedPath, originalFileContents);
+            revertFiles(originalFileContents);
         }
         TestbedResetHelper.restoreUnknownJava();
     }
@@ -181,29 +181,5 @@ class EdgeCasesTest {
         assertTrue(hasNestedCycle, "Should detect cycle with nested method calls");
     }
 
-    private Map<String, String> readAllJavaFiles(Path basePath) throws IOException {
-        return Files.walk(basePath)
-                .filter(Files::isRegularFile)
-                .filter(p -> p.toString().endsWith(".java"))
-                .collect(Collectors.toMap(
-                        p -> p.toString(),
-                        p -> {
-                            try {
-                                return Files.readString(p);
-                            } catch (IOException e) {
-                                throw new RuntimeException(e);
-                            }
-                        }
-                ));
-    }
-
-    private void revertFiles(Path basePath, Map<String, String> originalContents) throws IOException {
-        for (Map.Entry<String, String> entry : originalContents.entrySet()) {
-            Path filePath = Paths.get(entry.getKey());
-            if (Files.exists(filePath)) {
-                Files.writeString(filePath, entry.getValue());
-            }
-        }
-    }
 }
 

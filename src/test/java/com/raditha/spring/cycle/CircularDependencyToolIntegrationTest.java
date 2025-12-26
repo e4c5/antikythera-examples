@@ -32,7 +32,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * 4. Validation correctly identifies broken cycles
  * 5. Files are reverted after each test
  */
-class CircularDependencyToolIntegrationTest {
+class CircularDependencyToolIntegrationTest extends TestHelper {
     private Path testbedPath;
     private Map<String, String> originalFileContents;
 
@@ -391,37 +391,6 @@ class CircularDependencyToolIntegrationTest {
             
             assertTrue(applied > 0, "Should apply fixes to complex cycle");
             strategy.writeChanges(testbedPath.toString());
-        }
-    }
-
-    /**
-     * Read all Java files and store their contents for reverting.
-     */
-    private Map<String, String> readAllJavaFiles(Path basePath) throws IOException {
-        return Files.walk(basePath)
-                .filter(Files::isRegularFile)
-                .filter(p -> p.toString().endsWith(".java"))
-                .collect(Collectors.toMap(
-                        Path::toString,
-                        p -> {
-                            try {
-                                return Files.readString(p);
-                            } catch (IOException e) {
-                                throw new RuntimeException(e);
-                            }
-                        }
-                ));
-    }
-
-    /**
-     * Revert all files to their original state.
-     */
-    private void revertFiles(Map<String, String> originalContents) throws IOException {
-        for (Map.Entry<String, String> entry : originalContents.entrySet()) {
-            Path filePath = Paths.get(entry.getKey());
-            if (Files.exists(filePath)) {
-                Files.writeString(filePath, entry.getValue());
-            }
         }
     }
 

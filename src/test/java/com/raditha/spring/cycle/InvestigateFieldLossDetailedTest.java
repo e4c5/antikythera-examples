@@ -2,7 +2,6 @@ package com.raditha.spring.cycle;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
-import com.github.javaparser.ast.body.FieldDeclaration;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
@@ -11,7 +10,6 @@ import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -51,7 +49,7 @@ class InvestigateFieldLossDetailedTest {
                 c -> c.getNameAsString().equals("OrderProcessingService")).orElseThrow();
         int fields1 = class1.getFields().size();
         boolean hasPayment1 = class1.getFields().stream()
-                .anyMatch(f -> f.getVariables().size() > 0 && 
+                .anyMatch(f -> !f.getVariables().isEmpty() &&
                         f.getVariables().get(0).getNameAsString().equals("paymentProcessingService"));
         
         System.out.println("After compile() - Fields: " + fields1 + ", Has payment: " + hasPayment1);
