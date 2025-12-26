@@ -19,7 +19,6 @@ import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -144,27 +143,27 @@ class InterfaceExtractionStrategyTest extends TestHelper {
         
         Set<BeanDependency> paymentProcessorDeps = graph.getDependencies()
                 .get("com.example.cycles.interfaces.PaymentProcessor");
+        assertNotNull(paymentProcessorDeps, "PaymentProcessor should have dependencies");
+
         BeanDependency edge = paymentProcessorDeps.stream()
                 .filter(dep -> dep.targetBean().equals("com.example.cycles.interfaces.OrderService"))
                 .findFirst()
                 .orElse(null);
         
-        if (edge == null) {
-            return;
-        }
-        
+        assertNotNull(edge, "Should find PaymentProcessor -> OrderService edge");
+
         InterfaceExtractionStrategy strategy = new InterfaceExtractionStrategy(false);
         boolean applied = strategy.apply(edge);
         
-        if (applied) {
-            // Verify that interface was generated
-            assertFalse(strategy.getGeneratedInterfaces().isEmpty(),
-                    "Should generate interface with method signatures");
-            
-            // Verify that OrderService was modified to implement the interface
-            assertFalse(strategy.getModifiedCUs().isEmpty(),
-                    "Should modify OrderService to implement interface");
-        }
+        assertTrue(applied, "InterfaceExtractionStrategy should apply successfully");
+
+        // Verify that interface was generated
+        assertFalse(strategy.getGeneratedInterfaces().isEmpty(),
+                "Should generate interface with method signatures");
+
+        // Verify that OrderService was modified to implement the interface
+        assertFalse(strategy.getModifiedCUs().isEmpty(),
+                "Should modify OrderService to implement interface");
     }
 
     @Test
@@ -178,27 +177,38 @@ class InterfaceExtractionStrategyTest extends TestHelper {
         
         Set<BeanDependency> paymentProcessorDeps = graph.getDependencies()
                 .get("com.example.cycles.interfaces.PaymentProcessor");
+        assertNotNull(paymentProcessorDeps, "PaymentProcessor should have dependencies");
+
         BeanDependency edge = paymentProcessorDeps.stream()
                 .filter(dep -> dep.targetBean().equals("com.example.cycles.interfaces.OrderService"))
                 .findFirst()
                 .orElse(null);
         
-        if (edge == null) {
-            return;
-        }
-        
+        assertNotNull(edge, "Should find PaymentProcessor -> OrderService edge");
+
         InterfaceExtractionStrategy strategy = new InterfaceExtractionStrategy(false);
         boolean applied = strategy.apply(edge);
         
-        if (applied) {
-            strategy.writeChanges(testbedPath.toString());
-            
-            // Verify that interface file was created
+        assertTrue(applied, "InterfaceExtractionStrategy should apply successfully");
+
+        strategy.writeChanges(testbedPath.toString());
+
+        // Verify that at least one interface was generated
+        assertFalse(strategy.getGeneratedInterfaces().isEmpty(),
+                "Should generate at least one interface");
+
+        // Verify interface files were created
+        Map<String, com.github.javaparser.ast.CompilationUnit> generatedInterfaces = strategy.getGeneratedInterfaces();
+        for (Map.Entry<String, com.github.javaparser.ast.CompilationUnit> entry : generatedInterfaces.entrySet()) {
+            String className = entry.getKey();
             Path interfaceFile = testbedPath.resolve(
-                    "com/example/cycles/interfaces/IOrderService.java");
-            // Note: The actual interface name might be different
-            // This is a basic check - more detailed verification would require
-            // finding the generated interface file
+                    className.replace('.', '/') + ".java");
+            assertTrue(Files.exists(interfaceFile),
+                    "Interface file should be created: " + interfaceFile);
+
+            String content = Files.readString(interfaceFile);
+            assertTrue(content.contains("interface"),
+                    "Generated file should contain an interface declaration");
         }
     }
 
