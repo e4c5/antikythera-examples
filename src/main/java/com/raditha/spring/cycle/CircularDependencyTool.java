@@ -9,6 +9,7 @@ import sa.com.cloudsolutions.antikythera.depsolver.InjectionType;
 import sa.com.cloudsolutions.antikythera.depsolver.InterfaceExtractionStrategy;
 import sa.com.cloudsolutions.antikythera.depsolver.JohnsonCycleFinder;
 import sa.com.cloudsolutions.antikythera.depsolver.LazyAnnotationStrategy;
+import sa.com.cloudsolutions.antikythera.depsolver.MethodExtractionStrategy;
 import sa.com.cloudsolutions.antikythera.depsolver.SetterInjectionStrategy;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
@@ -16,6 +17,7 @@ import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -41,6 +43,10 @@ public class CircularDependencyTool {
     private boolean verbose = false;
     private String strategy = "auto"; // auto, lazy, setter, interface, extract
 
+    // Track all cycles for method extraction strategy
+    private List<List<String>> allCycles;
+    private BeanDependencyGraph graph;
+
     public static void main(String[] args) throws IOException {
         CircularDependencyTool tool = new CircularDependencyTool();
         tool.run(args);
@@ -55,8 +61,8 @@ public class CircularDependencyTool {
 
         // Build dependency graph
         System.out.println("Building dependency graph...");
-        BeanDependencyGraph graph = new BeanDependencyGraph();
-        graph.build();
+        this.graph = new BeanDependencyGraph();
+        this.graph.build();
 
         Map<String, Set<String>> simpleGraph = graph.getSimpleGraph();
         System.out.println("Found " + simpleGraph.size() + " Spring beans");
@@ -75,9 +81,9 @@ public class CircularDependencyTool {
 
         // Enumerate all elementary cycles
         JohnsonCycleFinder finder = new JohnsonCycleFinder(simpleGraph);
-        List<List<String>> allCycles = finder.findAllCycles();
+        this.allCycles = finder.findAllCycles();
 
-        System.out.println("   Total elementary cycles: " + allCycles.size());
+        System.out.println("   Total elementary cycles: " + this.allCycles.size());
 
         if (verbose) {
             System.out.println("\nCycle details:");
@@ -136,11 +142,66 @@ public class CircularDependencyTool {
         LazyAnnotationStrategy lazyStrategy = new LazyAnnotationStrategy(false);
         SetterInjectionStrategy setterStrategy = new SetterInjectionStrategy(false);
         InterfaceExtractionStrategy ifaceStrategy = new InterfaceExtractionStrategy(false);
+        MethodExtractionStrategy extractStrategy = new MethodExtractionStrategy(false);
 
         int applied = 0;
         int failed = 0;
 
+        // Handle method extraction separately if selected
+        if ("extract".equals(strategy)) {
+            return applyMethodExtractionStrategy(extractStrategy);
+        }
+
+        Set<BeanDependency> processedEdges = new HashSet<>();
+
+        // For auto strategy: Check for @PostConstruct warnings and apply method
+        // extraction first
+        if ("auto".equals(strategy)) {
+            // Identify beans with @PostConstruct warnings
+            List<String> problematicBeans = graph.getPostConstructWarnings().stream()
+                    .map(BeanDependencyGraph.PostConstructWarning::beanFqn)
+                    .toList();
+
+            if (!problematicBeans.isEmpty()) {
+                Set<List<String>> cyclesToExtract = new HashSet<>();
+                for (List<String> cycle : allCycles) {
+                    if (!Collections.disjoint(cycle, problematicBeans)) {
+                        cyclesToExtract.add(cycle);
+                    }
+                }
+
+                if (!cyclesToExtract.isEmpty()) {
+                    System.out.println("\n⚠️  Detected @PostConstruct cycles, applying method extraction...");
+                    for (List<String> cycle : cyclesToExtract) {
+                        System.out.println("   Extracting methods for cycle: " + formatCycle(cycle));
+                        try {
+                            if (extractStrategy.apply(cycle)) {
+                                applied++;
+                                // Mark edges in this cycle as processed
+                                for (BeanDependency edge : edgesToCut) {
+                                    if (cycle.contains(edge.fromBean()) && cycle.contains(edge.targetBean())) {
+                                        processedEdges.add(edge);
+                                    }
+                                }
+                                // Store the strategy so it writes changes
+                                this.extractStrategy = extractStrategy;
+                            } else {
+                                System.out.println("❌ Failed to extract methods for cycle");
+                            }
+                        } catch (Throwable e) {
+                            System.out.println("❌ Exception during method extraction: ");
+                            e.printStackTrace();
+                        }
+                    }
+                }
+            }
+        }
+
         for (BeanDependency edge : edgesToCut) {
+            if (processedEdges.contains(edge)) {
+                continue;
+            }
+
             boolean success = applyStrategy(edge, lazyStrategy, setterStrategy, ifaceStrategy);
 
             if (success) {
@@ -157,6 +218,7 @@ public class CircularDependencyTool {
         this.lazyStrategy = lazyStrategy;
         this.setterStrategy = setterStrategy;
         this.ifaceStrategy = ifaceStrategy;
+        // extractStrategy is stored inside the auto block if used
 
         return applied;
     }
@@ -173,8 +235,9 @@ public class CircularDependencyTool {
             case "setter" -> setterStrategy.apply(edge);
             case "interface" -> ifaceStrategy.apply(edge);
             case "extract" -> {
-                System.out.println("⚠️  Method extraction requires cycle-level operation, using lazy for edges");
-                yield lazyStrategy.apply(edge);
+                // Should not reach here - handled at cycle level in applyFixes
+                System.out.println("⚠️  Method extraction should be applied at cycle level");
+                yield false;
             }
             default -> applyAutoStrategy(edge, lazyStrategy, setterStrategy, ifaceStrategy);
         };
@@ -208,9 +271,34 @@ public class CircularDependencyTool {
         };
     }
 
+    /**
+     * Apply method extraction strategy to all cycles.
+     * Method extraction works at the cycle level, not edge level.
+     */
+    private int applyMethodExtractionStrategy(MethodExtractionStrategy extractStrategy) {
+        int applied = 0;
+        int failed = 0;
+
+        for (List<String> cycle : allCycles) {
+            boolean success = extractStrategy.apply(cycle);
+            if (success) {
+                applied++;
+                System.out.println("✅ Extracted methods for cycle: " + formatCycle(cycle));
+            } else {
+                failed++;
+                System.out.println("⚠️  Failed to extract methods for cycle: " + formatCycle(cycle));
+            }
+        }
+
+        System.out.println("\n✅ Applied method extraction to " + applied + " cycle(s), " + failed + " failed");
+        this.extractStrategy = extractStrategy;
+        return applied;
+    }
+
     private LazyAnnotationStrategy lazyStrategy;
     private SetterInjectionStrategy setterStrategy;
     private InterfaceExtractionStrategy ifaceStrategy;
+    private MethodExtractionStrategy extractStrategy;
 
     /**
      * Write all changes to disk.
@@ -224,6 +312,9 @@ public class CircularDependencyTool {
         }
         if (ifaceStrategy != null) {
             ifaceStrategy.writeChanges(basePath);
+        }
+        if (extractStrategy != null) {
+            extractStrategy.writeChanges(basePath);
         }
     }
 
