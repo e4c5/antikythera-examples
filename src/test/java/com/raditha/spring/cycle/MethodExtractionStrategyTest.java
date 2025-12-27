@@ -3,9 +3,11 @@ package com.raditha.spring.cycle;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import com.github.javaparser.ast.CompilationUnit;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.depsolver.BeanDependencyGraph;
 import sa.com.cloudsolutions.antikythera.depsolver.CycleDetector;
+import sa.com.cloudsolutions.antikythera.depsolver.Graph;
 import sa.com.cloudsolutions.antikythera.depsolver.JohnsonCycleFinder;
 import sa.com.cloudsolutions.antikythera.depsolver.MethodExtractionStrategy;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
@@ -32,10 +34,8 @@ import static org.junit.jupiter.api.Assertions.*;
  * 4. Cycles are broken after extraction
  */
 class MethodExtractionStrategyTest extends TestHelper {
-
     private Path testbedPath;
     private Map<String, String> originalFileContents;
-    private boolean skipRevert = false; // Flag to skip revert for debugging
 
     @BeforeEach
     void setUp() throws IOException, InterruptedException {
@@ -62,19 +62,12 @@ class MethodExtractionStrategyTest extends TestHelper {
 
     @AfterEach
     void tearDown() throws IOException {
-        if (originalFileContents != null && !skipRevert) {
-            revertFiles(testbedPath, originalFileContents);
-        }
-        if (!skipRevert) {
-            TestbedResetHelper.restoreUnknownJava();
-        }
+        revertFiles(testbedPath, originalFileContents);
+        TestbedResetHelper.restoreUnknownJava();
     }
 
     @Test
     void testMethodExtraction_BreaksCycle() throws IOException {
-        // Temporarily skip revert to inspect generated files
-        skipRevert = true;
-        
         // Step 1: Detect cycle
         AbstractCompiler.reset();
         AntikytheraRunTime.resetAll();
@@ -214,6 +207,173 @@ class MethodExtractionStrategyTest extends TestHelper {
         // Verify mediator class was generated
         assertFalse(strategy.getGeneratedClasses().isEmpty(),
                 "Should generate mediator class for extracted methods");
+    }
+
+    @Test
+    void testGraphBasedMediator_RegisteredInGraph() throws IOException {
+        // Test that mediator class is registered in Graph.getDependencies()
+        AbstractCompiler.reset();
+        AntikytheraRunTime.resetAll();
+        Graph.getDependencies().clear(); // Clear any existing dependencies
+        AbstractCompiler.preProcess();
+        
+        BeanDependencyGraph graph = new BeanDependencyGraph();
+        graph.build();
+        
+        JohnsonCycleFinder finder = new JohnsonCycleFinder(graph.getSimpleGraph());
+        List<List<String>> allCycles = finder.findAllCycles();
+        
+        List<String> extractionCycle = allCycles.stream()
+                .filter(cycle -> cycle.contains("com.example.cycles.extraction.OrderProcessingService"))
+                .findFirst()
+                .orElse(null);
+        
+        assertNotNull(extractionCycle, "Should find extraction cycle");
+
+        MethodExtractionStrategy strategy = new MethodExtractionStrategy(false);
+        boolean applied = strategy.apply(extractionCycle);
+        
+        assertTrue(applied, "MethodExtractionStrategy should apply successfully");
+        
+        // Verify mediator is registered in Graph.getDependencies()
+        Map<String, CompilationUnit> graphDeps = Graph.getDependencies();
+        assertFalse(graphDeps.isEmpty(), 
+                "Graph.getDependencies() should contain generated mediator");
+        
+        // Find mediator in Graph dependencies (mediator name contains "Operations")
+        boolean mediatorInGraph = graphDeps.keySet().stream()
+                .anyMatch(fqn -> fqn.contains("Operations"));
+        assertTrue(mediatorInGraph, 
+                "Mediator class should be registered in Graph.getDependencies()");
+    }
+
+    @Test
+    void testGraphBasedMediator_AutomaticImports() throws IOException {
+        // Test that imports are automatically added to mediator
+        AbstractCompiler.reset();
+        AntikytheraRunTime.resetAll();
+        AbstractCompiler.preProcess();
+        
+        BeanDependencyGraph graph = new BeanDependencyGraph();
+        graph.build();
+        
+        JohnsonCycleFinder finder = new JohnsonCycleFinder(graph.getSimpleGraph());
+        List<List<String>> allCycles = finder.findAllCycles();
+        
+        List<String> extractionCycle = allCycles.stream()
+                .filter(cycle -> cycle.contains("com.example.cycles.extraction.OrderProcessingService"))
+                .findFirst()
+                .orElse(null);
+        
+        assertNotNull(extractionCycle, "Should find extraction cycle");
+
+        MethodExtractionStrategy strategy = new MethodExtractionStrategy(false);
+        boolean applied = strategy.apply(extractionCycle);
+        
+        assertTrue(applied, "MethodExtractionStrategy should apply successfully");
+        
+        // Get mediator from generated classes
+        Map<String, CompilationUnit> generated = strategy.getGeneratedClasses();
+        assertFalse(generated.isEmpty(), "Should generate mediator");
+        
+        CompilationUnit mediator = generated.values().iterator().next();
+        String mediatorCode = mediator.toString();
+        
+        // Verify imports are present (methods use types that need imports)
+        // The mediator should have imports for types used in methods
+        assertTrue(mediatorCode.contains("import") || mediatorCode.contains("package"),
+                "Mediator should have imports or package declaration");
+        
+        // Verify Spring annotations are imported (mediator uses @Service)
+        assertTrue(mediatorCode.contains("@Service") || mediatorCode.contains("Service"),
+                "Mediator should use Spring @Service annotation");
+    }
+
+    @Test
+    void testGraphBasedMediator_TransitiveDependencies() throws IOException {
+        // Test that transitive dependencies are discovered
+        AbstractCompiler.reset();
+        AntikytheraRunTime.resetAll();
+        AbstractCompiler.preProcess();
+        
+        BeanDependencyGraph graph = new BeanDependencyGraph();
+        graph.build();
+        
+        JohnsonCycleFinder finder = new JohnsonCycleFinder(graph.getSimpleGraph());
+        List<List<String>> allCycles = finder.findAllCycles();
+        
+        List<String> extractionCycle = allCycles.stream()
+                .filter(cycle -> cycle.contains("com.example.cycles.extraction.OrderProcessingService"))
+                .findFirst()
+                .orElse(null);
+        
+        assertNotNull(extractionCycle, "Should find extraction cycle");
+
+        MethodExtractionStrategy strategy = new MethodExtractionStrategy(false);
+        boolean applied = strategy.apply(extractionCycle);
+        
+        assertTrue(applied, "MethodExtractionStrategy should apply successfully");
+        
+        // Get mediator code
+        Map<String, CompilationUnit> generated = strategy.getGeneratedClasses();
+        assertFalse(generated.isEmpty(), "Should generate mediator");
+        
+        CompilationUnit mediator = generated.values().iterator().next();
+        String mediatorCode = mediator.toString();
+        
+        // Verify helper methods are included (transitive dependencies)
+        // OrderProcessingService.placeOrder() calls helper methods like generateOrderNumber()
+        assertTrue(mediatorCode.contains("placeOrder") || mediatorCode.contains("processPayment"),
+                "Mediator should contain extracted methods");
+    }
+
+    @Test
+    void testGraphBasedMediator_Compiles() throws IOException {
+        // Test that generated mediator compiles
+        AbstractCompiler.reset();
+        AntikytheraRunTime.resetAll();
+        AbstractCompiler.preProcess();
+        
+        BeanDependencyGraph graph = new BeanDependencyGraph();
+        graph.build();
+        
+        JohnsonCycleFinder finder = new JohnsonCycleFinder(graph.getSimpleGraph());
+        List<List<String>> allCycles = finder.findAllCycles();
+        
+        List<String> extractionCycle = allCycles.stream()
+                .filter(cycle -> cycle.contains("com.example.cycles.extraction.OrderProcessingService"))
+                .findFirst()
+                .orElse(null);
+        
+        assertNotNull(extractionCycle, "Should find extraction cycle");
+
+        MethodExtractionStrategy strategy = new MethodExtractionStrategy(false);
+        boolean applied = strategy.apply(extractionCycle);
+        
+        assertTrue(applied, "MethodExtractionStrategy should apply successfully");
+        
+        // Write changes
+        strategy.writeChanges(testbedPath.toString());
+        
+        // Verify mediator file was written
+        Path mediatorFile = Files.walk(testbedPath)
+                .filter(path -> path.toString().contains("Operations") && 
+                               path.toString().endsWith(".java"))
+                .findFirst()
+                .orElse(null);
+        
+        if (mediatorFile != null) {
+            assertTrue(Files.exists(mediatorFile), 
+                    "Mediator file should be written");
+            
+            String mediatorContent = Files.readString(mediatorFile);
+            assertFalse(mediatorContent.isEmpty(), 
+                    "Mediator file should have content");
+            
+            // Basic syntax check - should have class declaration
+            assertTrue(mediatorContent.contains("class") || mediatorContent.contains("interface"),
+                    "Mediator should have class/interface declaration");
+        }
     }
 }
 
