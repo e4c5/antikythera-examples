@@ -39,6 +39,7 @@ public class CircularDependencyTool {
 
     private boolean dryRun = false;
     private boolean verbose = false;
+    private String strategy = "auto"; // auto, lazy, setter, interface, extract
 
     public static void main(String[] args) throws IOException {
         CircularDependencyTool tool = new CircularDependencyTool();
@@ -110,7 +111,7 @@ public class CircularDependencyTool {
         // Apply fixes
         System.out.println("\nApplying fixes...");
         int applied = applyFixes(edgesToCut);
-        
+
         if (applied == 0) {
             System.out.println("\n⚠️  No fixes were applied. Please review the recommendations above.");
             return;
@@ -140,27 +141,7 @@ public class CircularDependencyTool {
         int failed = 0;
 
         for (BeanDependency edge : edgesToCut) {
-            boolean success = false;
-            
-            switch (edge.injectionType()) {
-                case FIELD, SETTER -> {
-                    // Try @Lazy first (simplest)
-                    success = lazyStrategy.apply(edge);
-                }
-                case CONSTRUCTOR -> {
-                    // Try @Lazy on parameter first (simpler than setter conversion)
-                    success = lazyStrategy.apply(edge);
-                    if (!success) {
-                        // Fallback to setter injection conversion
-                        System.out.println("   Falling back to setter injection for: " + edge);
-                        success = setterStrategy.apply(edge);
-                    }
-                }
-                case BEAN_METHOD -> {
-                    // Use interface extraction for @Bean method cycles
-                    success = ifaceStrategy.apply(edge);
-                }
-            }
+            boolean success = applyStrategy(edge, lazyStrategy, setterStrategy, ifaceStrategy);
 
             if (success) {
                 applied++;
@@ -171,13 +152,60 @@ public class CircularDependencyTool {
         }
 
         System.out.println("\n✅ Applied " + applied + " fix(es), " + failed + " failed");
-        
+
         // Store strategies for writing changes
         this.lazyStrategy = lazyStrategy;
         this.setterStrategy = setterStrategy;
         this.ifaceStrategy = ifaceStrategy;
 
         return applied;
+    }
+
+    /**
+     * Apply the appropriate strategy based on CLI selection and edge type.
+     */
+    private boolean applyStrategy(BeanDependency edge, LazyAnnotationStrategy lazyStrategy,
+            SetterInjectionStrategy setterStrategy, InterfaceExtractionStrategy ifaceStrategy) {
+
+        // If user specified a strategy, use it
+        return switch (strategy) {
+            case "lazy" -> lazyStrategy.apply(edge);
+            case "setter" -> setterStrategy.apply(edge);
+            case "interface" -> ifaceStrategy.apply(edge);
+            case "extract" -> {
+                System.out.println("⚠️  Method extraction requires cycle-level operation, using lazy for edges");
+                yield lazyStrategy.apply(edge);
+            }
+            default -> applyAutoStrategy(edge, lazyStrategy, setterStrategy, ifaceStrategy);
+        };
+    }
+
+    /**
+     * Automatically select best strategy based on injection type.
+     */
+    private boolean applyAutoStrategy(BeanDependency edge, LazyAnnotationStrategy lazyStrategy,
+            SetterInjectionStrategy setterStrategy, InterfaceExtractionStrategy ifaceStrategy) {
+        return switch (edge.injectionType()) {
+            case FIELD, SETTER -> lazyStrategy.apply(edge);
+            case CONSTRUCTOR -> {
+                // Try @Lazy on parameter first (simpler than setter conversion)
+                boolean success = lazyStrategy.apply(edge);
+                if (!success) {
+                    System.out.println("   Falling back to setter injection for: " + edge);
+                    yield setterStrategy.apply(edge);
+                }
+                yield success;
+            }
+            case BEAN_METHOD -> {
+                // Try @Lazy on @Bean method parameter first (new capability)
+                boolean success = lazyStrategy.apply(edge);
+                if (!success) {
+                    // Fall back to interface extraction
+                    yield ifaceStrategy.apply(edge);
+                }
+                yield success;
+            }
+        };
     }
 
     private LazyAnnotationStrategy lazyStrategy;
@@ -236,6 +264,11 @@ public class CircularDependencyTool {
                         loadConfig(args[++i]);
                     }
                 }
+                case "--strategy", "-s" -> {
+                    if (i + 1 < args.length) {
+                        strategy = args[++i];
+                    }
+                }
                 case "--dry-run", "-n" -> dryRun = true;
                 case "--verbose", "-v" -> verbose = true;
                 case "--help", "-h" -> {
@@ -283,13 +316,13 @@ public class CircularDependencyTool {
      * For simple 2-node cycles, we need to fix both sides.
      */
     private Set<BeanDependency> findBidirectionalEdges(Set<BeanDependency> selectedEdges,
-                                                        Map<String, Set<BeanDependency>> allDependencies) {
+            Map<String, Set<BeanDependency>> allDependencies) {
         Set<BeanDependency> additional = new HashSet<>();
-        
+
         for (BeanDependency edge : selectedEdges) {
             String from = edge.fromBean();
             String to = edge.targetBean();
-            
+
             // Check if there's a reverse edge (to → from)
             Set<BeanDependency> reverseDeps = allDependencies.get(to);
             if (reverseDeps != null) {
@@ -303,7 +336,7 @@ public class CircularDependencyTool {
                 }
             }
         }
-        
+
         return additional;
     }
 
@@ -314,14 +347,22 @@ public class CircularDependencyTool {
                 Usage: java -jar antikythera-examples.jar cycle-detector [options]
 
                 Options:
-                  --config, -c <path>  Path to configuration YAML file
-                  --dry-run, -n        Analyze only, don't modify files
-                  --verbose, -v        Show detailed cycle information
-                  --help, -h           Show this help message
+                  --config, -c <path>    Path to configuration YAML file
+                  --strategy, -s <type>  Resolution strategy: auto (default), lazy, setter, interface, extract
+                  --dry-run, -n          Analyze only, don't modify files
+                  --verbose, -v          Show detailed cycle information
+                  --help, -h             Show this help message
+
+                Strategies:
+                  auto       - Automatically select best strategy per edge (default)
+                  lazy       - Always use @Lazy annotation
+                  setter     - Convert constructor injection to setter with @Lazy
+                  interface  - Extract interface to break coupling
+                  extract    - Extract methods to mediator class
 
                 Example:
                   java -jar antikythera-examples.jar cycle-detector \\
-                    --config cycle-detector.yml --dry-run --verbose
+                    --config cycle-detector.yml --strategy lazy --dry-run --verbose
                 """);
     }
 }
