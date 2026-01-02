@@ -40,14 +40,14 @@ public class TestRefactorer {
     }
 
     private void detectVersions() throws IOException, XmlPullParserException {
+        Model model = mavenHelper.getPomModel();
         Path pomPath = mavenHelper.getPomPath();
-        if (!pomPath.toFile().exists()) {
+        if (pomPath == null || !pomPath.toFile().exists()) {
             logger.warn("POM file not found at: {}", pomPath);
             return;
         }
 
         logger.info("Reading POM from: {}", pomPath);
-        Model model = mavenHelper.getPomModel();
 
         detectSpringBootVersion(model);
         detectTestFrameworks(model);
