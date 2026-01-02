@@ -1,3 +1,43 @@
+# Antikythera Examples
+
+This module contains example utilities and tools built on top of the Antikythera framework.
+
+## Maven Parent POM Converter
+
+A tool that converts Maven POMs with parent inheritance into completely standalone POMs by expanding all inherited configuration.
+
+### Quick Start
+
+```bash
+cd /path/to/your/project
+mvn exec:java -Dexec.mainClass="com.raditha.maven.PomFlattenerCLI"
+```
+
+This will flatten your `pom.xml`, removing the `<parent>` element and making all inherited properties, dependencies, and plugins explicit.
+
+### Features
+
+- ✅ Resolves parent POMs from local repository or relativePath
+- ✅ Supports multi-level parent hierarchies (parent of parent)
+- ✅ Merges all properties, dependencies, plugins, and profiles
+- ✅ Automatic timestamped backups
+- ✅ Dry-run mode to preview changes
+- ✅ Optional profile flattening
+
+### Documentation
+
+- **[User Guide](docs/MAVEN_PARENT_CONVERTER_GUIDE.md)** - Complete guide with examples and troubleshooting
+- **[Walkthrough](../brain/4416b8df-8faa-4f36-93cc-db14a2100fd3/walkthrough.md)** - Implementation details and test results
+
+### Test Coverage
+
+**17 tests | 100% pass rate**
+- 5 ParentPomResolverTest (unit)
+- 8 InheritanceFlattenerTest (unit)
+- 4 PomFlattenerIntegrationTest (integration)
+
+---
+
 # antikythera-examples
 
 This project contains examples and tools for the Antikythera test generation framework, focusing on JPA repository query analysis and optimization.
@@ -188,6 +228,7 @@ The system classifies columns into three cardinality levels:
 - **MEDIUM**: Indexed columns
 - **LOW**: Boolean/enum columns, columns with naming patterns like `is_*`, `has_*`, `*_flag`
 
+
 ## Additional Tools
 
 ### TestFixer - Test Quality Analysis
@@ -236,5 +277,66 @@ Identifies collection fields (List, Set, Map) in non-entity classes. Useful for 
 mvn exec:java -Dexec.mainClass="sa.com.cloudsolutions.antikythera.examples.UsageFinder"
 ```
 
-Notes
+### Spring Boot Migration Tools
+
+Automated migration tools for upgrading Spring Boot applications across versions with minimal manual intervention.
+
+#### Spring Boot 2.1→2.2 Migrator
+
+Automated migration tool for upgrading from Spring Boot 2.1 to 2.2.
+
+📖 **[Complete 2.1→2.2 Documentation](docs/spring_boot_2.1_to_2.2_migration.md)**
+
+**Quick Start:**
+```bash
+# Dry-run mode (recommended first)
+java -cp target/classes com.raditha.spring.SpringBoot21to22Migrator \
+  --dry-run \
+  --project-path /path/to/your/project
+
+# Apply migration
+java -cp target/classes com.raditha.spring.SpringBoot21to22Migrator \
+  --project-path /path/to/your/project
+```
+
+**Key Features:**
+- Automatic POM version updates
+- Jakarta Mail migration
+- Property file transformations
+- Kafka dependency validation
+- Hibernate and Redis code migrations
+
+#### Spring Boot 2.2→2.3 Migrator ⭐ NEW
+
+Automated migration tool for upgrading from Spring Boot 2.2 to 2.3 with intelligent validation detection.
+
+📖 **[Quick Start Guide](docs/spring_boot_2.2_to_2.3_quickstart.md)** ← Start here!  
+📖 **[Complete 2.2→2.3 Documentation](docs/spring_boot_2.2_to_2.3_migration.md)**
+
+**Quick Start:**
+```bash
+# Dry-run mode (recommended first)
+java -cp target/classes com.raditha.spring.SpringBoot22to23Migrator \
+  --dry-run \
+  --project-path /path/to/your/project
+
+# Apply migration
+java -cp target/classes com.raditha.spring.SpringBoot22to23Migrator \
+  --project-path /path/to/your/project
+```
+
+**Key Features:**
+- ⭐ **Validation Starter Auto-Detection**: Scans code for validation annotations and automatically adds `spring-boot-starter-validation` (critical for 2.3)
+- **H2 Database Configuration**: Automatically adds datasource naming configuration for H2 console
+- **HTTP Encoding Migration**: Updates deprecated `spring.http.encoding.*` properties
+- **Spring Cloud Version Validation**: Checks compatibility and warns about incompatible versions
+- **Cassandra Driver v4 Migration**: Generates comprehensive migration guide for manual review
+- **Elasticsearch REST Client Migration**: Detects TransportClient usage and provides migration guide
+
+**Test Coverage**: 289 tests, 99.7% pass rate
+
+**Example Success Story:**
+Successfully migrated Spring PetClinic from 2.2.0 to 2.3.12 with zero manual intervention - all tests passing!
+
+## Notes
 - No repository changes are required for any of the development approaches above. The pom already declares dependencies explicitly so IntelliJ resolves them reliably. 

@@ -1,0 +1,18 @@
+variables:
+  projects_folder: ..
+  m2_folder: ${HOME}/.m2/repository
+
+# Points to antikythera-examples for the test case
+base_path: ${projects_folder}/antikythera-examples/src/main/java
+
+base_package: com.raditha.dedup
+
+output_path: /tmp/antikythera-refactor-test
+
+# Duplication detector configuration for testing
+duplication_detector:
+  target_class: "com.raditha.dedup.test.SimpleTestCase"
+  min_lines: 5
+  threshold: 0.75
+
+log_level: INFO

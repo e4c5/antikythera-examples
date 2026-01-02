@@ -8,6 +8,7 @@ variables:
 # Points to the test helper module which contains sample repositories and entities
 base_path: ${projects_folder}/antikythera-test-helper/src/main/java
 
+
 # The top level package for the test helper
 base_package: sa.com.cloudsolutions
 
