@@ -45,7 +45,6 @@ class ActuatorConfigDetectorTest {
 
         MockingRegistry.reset();
         MavenHelper mavenHelper = new MavenHelper();
-        mavenHelper.setPomPath(Paths.get(TESTBED_PATH, "pom.xml"));
         mavenHelper.readPomFile();
         mavenHelper.buildJarPaths();
 

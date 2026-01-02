@@ -339,10 +339,10 @@ class GeminiAIServiceTest {
         String responseBody = """
                 {
                   "usageMetadata": {
-                    "promptTokenCount": 100,
-                    "candidatesTokenCount": 50,
-                    "totalTokenCount": 150,
-                    "cachedContentTokenCount": 25
+                    "promptTokenCount": 1000000,
+                    "candidatesTokenCount": 1000000,
+                    "totalTokenCount": 2000000,
+                    "cachedContentTokenCount": 0
                   }
                 }
                 """;
@@ -350,10 +350,36 @@ class GeminiAIServiceTest {
         geminiAIService.extractTokenUsage(responseBody);
 
         TokenUsage tokenUsage = geminiAIService.getLastTokenUsage();
-        assertEquals(100, tokenUsage.getInputTokens());
-        assertEquals(50, tokenUsage.getOutputTokens());
-        assertEquals(150, tokenUsage.getTotalTokens());
-        assertEquals(25, tokenUsage.getCachedContentTokenCount());
+        assertEquals(1000000, tokenUsage.getInputTokens());
+        assertEquals(1000000, tokenUsage.getOutputTokens());
+        assertEquals(2000000, tokenUsage.getTotalTokens());
+        // Gemini 1.5 Flash (<= 128k prompt): $0.075/1M input, $0.30/1M output
+        // Wait, my test use 1M prompt, so it should use the higher tier (> 128k)
+        // > 128k: $0.15/1M input, $0.60/1M output
+        assertEquals(0.15 + 0.60, tokenUsage.getEstimatedCost(), 0.000001);
+    }
+
+    @Test
+    void testExtractTokenUsage_WithCaching() throws IOException {
+        String responseBody = """
+                {
+                  "usageMetadata": {
+                    "promptTokenCount": 100000,
+                    "candidatesTokenCount": 100000,
+                    "totalTokenCount": 200000,
+                    "cachedContentTokenCount": 50000
+                  }
+                }
+                """;
+
+        geminiAIService.extractTokenUsage(responseBody);
+
+        TokenUsage tokenUsage = geminiAIService.getLastTokenUsage();
+        // <= 128k: $0.075/1M input, $0.30/1M output. Cached: $0.01875/1M
+        // inputCost = (50000/1M)*0.075 + (50000/1M)*0.01875 = 0.00375 + 0.0009375 = 0.0046875
+        // outputCost = (100000/1M)*0.30 = 0.03
+        // total = 0.0346875
+        assertEquals(0.0346875, tokenUsage.getEstimatedCost(), 0.000001);
     }
 
     @Test
@@ -416,6 +442,62 @@ class GeminiAIServiceTest {
 
         assertNotNull(result);
         assertTrue(result.isEmpty());
+    }
+
+    @Test
+    void testExtractTokenUsage_Gemini2_0_Flash() throws IOException {
+        geminiAIService.configure(Map.of("api_key", "test-key", "model", "gemini-2.0-flash"));
+        String responseBody = """
+                {
+                  "usageMetadata": {
+                    "promptTokenCount": 1000000,
+                    "candidatesTokenCount": 1000000,
+                    "totalTokenCount": 2000000
+                  }
+                }
+                """;
+        geminiAIService.extractTokenUsage(responseBody);
+        TokenUsage tokenUsage = geminiAIService.getLastTokenUsage();
+        // $0.10/1M input, $0.40/1M output
+        assertEquals(0.10 + 0.40, tokenUsage.getEstimatedCost(), 0.000001);
+    }
+
+    @Test
+    void testExtractTokenUsage_Gemini2_5_Pro_LowTier() throws IOException {
+        geminiAIService.configure(Map.of("api_key", "test-key", "model", "gemini-2.5-pro"));
+        String responseBody = """
+                {
+                  "usageMetadata": {
+                    "promptTokenCount": 100000,
+                    "candidatesTokenCount": 100000,
+                    "totalTokenCount": 200000
+                  }
+                }
+                """;
+        geminiAIService.extractTokenUsage(responseBody);
+        TokenUsage tokenUsage = geminiAIService.getLastTokenUsage();
+        // <= 200k: $1.25/1M input, $10.00/1M output
+        // (100k/1M)*1.25 + (100k/1M)*10.00 = 0.125 + 1.0 = 1.125
+        assertEquals(1.125, tokenUsage.getEstimatedCost(), 0.000001);
+    }
+
+    @Test
+    void testExtractTokenUsage_Gemini2_5_Pro_HighTier() throws IOException {
+        geminiAIService.configure(Map.of("api_key", "test-key", "model", "gemini-2.5-pro"));
+        String responseBody = """
+                {
+                  "usageMetadata": {
+                    "promptTokenCount": 300000,
+                    "candidatesTokenCount": 100000,
+                    "totalTokenCount": 400000
+                  }
+                }
+                """;
+        geminiAIService.extractTokenUsage(responseBody);
+        TokenUsage tokenUsage = geminiAIService.getLastTokenUsage();
+        // > 200k: $2.50/1M input, $15.00/1M output
+        // (300k/1M)*2.50 + (100k/1M)*15.00 = 0.75 + 1.5 = 2.25
+        assertEquals(2.25, tokenUsage.getEstimatedCost(), 0.000001);
     }
 
     @Test

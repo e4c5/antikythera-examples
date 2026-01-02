@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
+import com.raditha.cleanunit.EmbeddedResourceConverter.ConversionResult;
 
 /**
  * Converter for migrating from MongoDB Testcontainers to embedded MongoDB.

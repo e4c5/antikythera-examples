@@ -40,13 +40,12 @@ public class SpringCloudVersionMigrator extends MigrationPhase {
     public MigrationPhaseResult migrate() throws Exception {
         MigrationPhaseResult result = new MigrationPhaseResult();
 
+        Model model = mavenHelper.getPomModel();
         Path pomPath = mavenHelper.getPomPath();
         if (pomPath == null || !pomPath.toFile().exists()) {
             result.addChange("No pom.xml found - Spring Cloud check skipped");
             return result;
         }
-
-        Model model = mavenHelper.getPomModel();
 
         // Check if Spring Cloud is used
         if (model.getDependencyManagement() == null ||

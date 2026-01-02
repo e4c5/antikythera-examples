@@ -73,6 +73,7 @@ class QueryOptimizationCheckerTest {
         checker = new QueryOptimizationChecker(liquibaseFile);
         checker.setRepositoryParser(mockRepositoryParser);
         checker.setAiService(mockAiService);
+        OptimizationStatsLogger.initialize("test-repo");
     }
 
     @Test
