@@ -107,6 +107,7 @@ public class QueryOptimizationChecker {
                 }
             }
         }
+        OptimizationStatsLogger.flush();
 
         System.out.printf("\n✅ Successfully analyzed %d out of %d repositories%n", repositoriesProcessed, i);
     }
@@ -705,14 +706,18 @@ public class QueryOptimizationChecker {
             if (filteredColumns.size() > 1) {
                 // Create multi-column index for this specific table
                 String key = (table + "|" + String.join(",", filteredColumns)).toLowerCase();
-                suggestedMultiColumnIndexes.add(key);
+                if (suggestedMultiColumnIndexes.add(key)) {
+                    OptimizationStatsLogger.updateIndexesGenerated(1);
+                }
             } else if (filteredColumns.size() == 1) {
                 // Only one column needs indexing - create single-column index
                 String column = filteredColumns.get(0);
                 boolean hasExisting = CardinalityAnalyzer.hasIndexWithLeadingColumn(table, column);
                 if (!hasExisting) {
                     String key = (table + "|" + column).toLowerCase();
-                    suggestedNewIndexes.add(key);
+                    if (suggestedNewIndexes.add(key)) {
+                        OptimizationStatsLogger.updateIndexesGenerated(1);
+                    }
                 }
             }
         }
@@ -810,7 +815,7 @@ public class QueryOptimizationChecker {
                 result.add(indentXml(changeSet, 4));
             }
         }
-        int totalIndexCreateRecommendations = OptimizationStatsLogger.updateIndexesGenerated(result.size());
+        int totalIndexCreateRecommendations = OptimizationStatsLogger.getTotalIndexesGenerated();
 
         // Add create index summary comment (or note no create recommendations)
         if (totalIndexCreateRecommendations > 0) {

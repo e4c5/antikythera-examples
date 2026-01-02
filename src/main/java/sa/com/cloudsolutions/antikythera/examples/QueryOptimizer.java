@@ -448,15 +448,13 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         CardinalityAnalyzer.configureUserDefinedCardinality(lowOverride, highOverride);
 
         QueryOptimizer checker = new QueryOptimizer(getLiquibasePath());
-        OptimizationStatsLogger.initialize("");
-
         checker.analyze();
 
         // Generate Liquibase file with suggested changes and include in master
         checker.generateLiquibaseChangesFile();
 
-        OptimizationStatsLogger.printSummary(System.out);
         OptimizationStatsLogger.updateDependentClassesChanged(modifiedFiles.size());
+        OptimizationStatsLogger.printSummary(System.out);
         updateFiles();
 
         if (!quietMode) {
