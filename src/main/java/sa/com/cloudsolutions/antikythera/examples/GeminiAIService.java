@@ -252,7 +252,7 @@ public class GeminiAIService {
     /**
      * Sends the API request to Gemini AI service.
      */
-    String sendApiRequest(String payload) throws IOException, InterruptedException {
+    public String sendApiRequest(String payload) throws IOException, InterruptedException {
         String apiEndpoint = getConfigString("api_endpoint",
                 "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent");
         String model = getConfigString("model", "gemini-1.5-flash");

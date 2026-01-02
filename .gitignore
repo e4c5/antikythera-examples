@@ -39,3 +39,7 @@ build/
 .idea/
 src/main/resources/generator.yml
 *csv
+
+# Migration test beds (set up via setup-testbeds.sh)
+testbeds/
+src/main/resources/migrator.yml
