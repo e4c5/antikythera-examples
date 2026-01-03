@@ -316,11 +316,6 @@ class ValidationStarterDetectorTest {
     void testGetPhaseName() {
         ValidationStarterDetector detector = new ValidationStarterDetector(false);
         assertEquals("Validation Starter Detection", detector.getPhaseName());
-    }
-
-    @Test
-    void testGetPriority() {
-        ValidationStarterDetector detector = new ValidationStarterDetector(false);
         assertEquals(5, detector.getPriority(), "Should have highest priority for Spring Boot 2.3");
     }
 }

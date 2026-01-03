@@ -1,0 +1,23 @@
+# Configuration for Cycle Detector tests
+# Points to the spring-boot-cycles testbed project
+
+variables:
+  projects_folder: ..
+  m2_folder: ${HOME}/.m2/repository
+
+# Points to the testbed project with intentional cycles
+base_path: /home/raditha/csi/Antikythera/spring-boot-cycles/src/main/java
+
+# The top level package for the testbed
+base_package: com.example.cycles
+
+# Path for any output (not used in detection phase)
+output_path: /tmp/cycle-detector-test
+
+#
+# Dependencies configuration
+#
+dependencies:
+  on_error: log
+
+log_level: INFO

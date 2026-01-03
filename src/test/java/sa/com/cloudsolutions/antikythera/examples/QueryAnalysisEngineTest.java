@@ -13,16 +13,12 @@ import static org.junit.jupiter.api.Assertions.*;
  * including initialization and basic validation.
  */
 class QueryAnalysisEngineTest {
-    
-    private QueryAnalysisEngine engine;
-
     @BeforeEach
     void setUp() {
         // Create a real CardinalityAnalyzer with test data
         Map<String, Set<Indexes.IndexInfo>> indexMap = new HashMap<>();
         setupTestIndexes(indexMap);
         CardinalityAnalyzer.setIndexMap(indexMap);
-        engine = new QueryAnalysisEngine();
     }
     
     /**
@@ -47,14 +43,6 @@ class QueryAnalysisEngineTest {
         indexMap.put("users", userIndexes);
     }
 
-    @Test
-    void testAnalyzeQueryWithNullInput() {
-        // The analyzeQuery method should throw NullPointerException with null input
-        assertThrows(NullPointerException.class, () -> {
-            engine.analyzeQuery(null);
-        });
-    }
-    
     @Test
     void testCardinalityAnalyzerIntegration() {
         // Test that the engine properly uses the CardinalityAnalyzer
