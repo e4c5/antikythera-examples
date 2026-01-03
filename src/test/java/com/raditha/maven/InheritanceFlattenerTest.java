@@ -168,7 +168,7 @@ class InheritanceFlattenerTest {
     }
 
     @Test
-    void testSkipProfiles() throws Exception {
+    void testSkipProfiles()  {
         Model parent = new Model();
         parent.setGroupId("com.example");
         parent.setArtifactId("parent");
@@ -192,7 +192,7 @@ class InheritanceFlattenerTest {
     }
 
     @Test
-    void testProfileMerging() throws Exception {
+    void testProfileMerging() {
         Model parent = new Model();
         parent.setGroupId("com.example");
         parent.setArtifactId("parent");

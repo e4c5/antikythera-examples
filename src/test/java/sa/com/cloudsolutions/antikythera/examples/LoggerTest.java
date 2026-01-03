@@ -12,19 +12,19 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Test class to verify Logger utility behavior
  */
-public class LoggerTest {
+ class LoggerTest {
 
     @Test
-    public void testIsDebugEnabledNotModified() {
+     void testIsDebugEnabledNotModified() {
         String code = """
             package test;
             import org.slf4j.Logger;
             import org.slf4j.LoggerFactory;
             
-            public class TestClass {
+             class TestClass {
                 private static final Logger logger = LoggerFactory.getLogger(TestClass.class);
                 
-                public void testMethod() {
+                 void testMethod() {
                     if (logger.isDebugEnabled()) {
                         logger.debug("Debug message");
                     }
@@ -50,17 +50,17 @@ public class LoggerTest {
     }
     
     @Test
-    public void testEmptyForEachRemoved() {
+     void testEmptyForEachRemoved() {
         String code = """
             package test;
             import org.slf4j.Logger;
             import org.slf4j.LoggerFactory;
             import java.util.List;
             
-            public class TestClass {
+             class TestClass {
                 private static final Logger logger = LoggerFactory.getLogger(TestClass.class);
                 
-                public void testMethod(List<String> items) {
+                 void testMethod(List<String> items) {
                     items.forEach(item -> {
                         logger.info("Processing: " + item);
                     });
@@ -90,16 +90,16 @@ public class LoggerTest {
     }
     
     @Test
-    public void testLoggerInCatchBlockChangedToError() {
+     void testLoggerInCatchBlockChangedToError() {
         String code = """
             package test;
             import org.slf4j.Logger;
             import org.slf4j.LoggerFactory;
             
-            public class TestClass {
+             class TestClass {
                 private static final Logger logger = LoggerFactory.getLogger(TestClass.class);
                 
-                public void testMethod() {
+                 void testMethod() {
                     try {
                         // some code
                     } catch (Exception e) {
@@ -127,16 +127,16 @@ public class LoggerTest {
     }
 
     @Test
-    public void testSystemOutPrintlnConvertedToLogger() {
+     void testSystemOutPrintlnConvertedToLogger() {
         String code = """
             package test;
             import org.slf4j.Logger;
             import org.slf4j.LoggerFactory;
             
-            public class TestClass {
+             class TestClass {
                 private static final Logger logger = LoggerFactory.getLogger(TestClass.class);
                 
-                public void testMethod() {
+                 void testMethod() {
                     System.out.println("This is a message");
                     System.out.print("Another message");
                     System.out.printf("Formatted: %s", "value");
@@ -168,17 +168,17 @@ public class LoggerTest {
     }
 
     @Test
-    public void testSystemOutInLoopRemoved() {
+     void testSystemOutInLoopRemoved() {
         String code = """
             package test;
             import org.slf4j.Logger;
             import org.slf4j.LoggerFactory;
             import java.util.List;
             
-            public class TestClass {
+             class TestClass {
                 private static final Logger logger = LoggerFactory.getLogger(TestClass.class);
                 
-                public void testMethod(List<String> items) {
+                 void testMethod(List<String> items) {
                     items.forEach(item -> {
                         System.out.println("Processing: " + item);
                     });
@@ -207,16 +207,16 @@ public class LoggerTest {
     }
 
     @Test
-    public void testSystemErrInCatchBlockRemoved() {
+     void testSystemErrInCatchBlockRemoved() {
         String code = """
             package test;
             import org.slf4j.Logger;
             import org.slf4j.LoggerFactory;
             
-            public class TestClass {
+             class TestClass {
                 private static final Logger logger = LoggerFactory.getLogger(TestClass.class);
                 
-                public void testMethod() {
+                 void testMethod() {
                     try {
                         // some code
                     } catch (Exception e) {
@@ -246,17 +246,17 @@ public class LoggerTest {
     }
 
     @Test
-    public void testMultipleLoggerFields() {
+     void testMultipleLoggerFields() {
         String code = """
             package test;
             import org.slf4j.Logger;
             import org.slf4j.LoggerFactory;
             
-            public class TestClass {
+             class TestClass {
                 private static final Logger log = LoggerFactory.getLogger(TestClass.class);
                 private static final Logger auditLogger = LoggerFactory.getLogger("audit");
                 
-                public void testMethod() {
+                 void testMethod() {
                     log.info("Main log message");
                     auditLogger.info("Audit message");
                     

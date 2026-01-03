@@ -9,20 +9,17 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.parser.MavenHelper;
 
-import java.io.FileReader;
-import java.io.FileWriter;
 import java.io.IOException;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.HashSet;
 import java.util.Set;
 
+@SuppressWarnings("java:S106")
 public class TestRefactorer {
     private static final Logger logger = LoggerFactory.getLogger(TestRefactorer.class);
 
-    public static enum ResourceType {
+    public enum ResourceType {
         DATABASE_JPA, JDBC, REDIS, KAFKA, WEB, WEBFLUX, REST_CLIENT, JSON, GRAPHQL, NONE
     }
 
@@ -40,14 +37,7 @@ public class TestRefactorer {
     }
 
     private void detectVersions() throws IOException, XmlPullParserException {
-        Model model = mavenHelper.getPomModel();
-        Path pomPath = mavenHelper.getPomPath();
-        if (pomPath == null || !pomPath.toFile().exists()) {
-            logger.warn("POM file not found at: {}", pomPath);
-            return;
-        }
-
-        logger.info("Reading POM from: {}", pomPath);
+        Model model = mavenHelper.readPomFile();
 
         detectSpringBootVersion(model);
         detectTestFrameworks(model);
@@ -57,8 +47,8 @@ public class TestRefactorer {
 
         logger.info("Final Spring Boot Version: {}", springBootVersion);
 
-        ensureSliceTestSupport(model, pomPath.toFile());
-        validateTestAutoConfigureVersion(model, pomPath.toFile());
+        ensureSliceTestSupport(model, mavenHelper.getPomPath().toFile());
+        validateTestAutoConfigureVersion(model, mavenHelper.getPomPath().toFile());
     }
 
     private void detectSpringBootVersion(Model model) {
