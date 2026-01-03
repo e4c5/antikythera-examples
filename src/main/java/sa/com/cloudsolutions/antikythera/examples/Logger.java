@@ -65,7 +65,8 @@ public class Logger {
             loggerFields.clear();
 
             FieldVisitor visitor = new FieldVisitor();
-            if (decl.getAnnotationByName("Slf4j").isPresent()) {
+            if (decl.getAnnotationByName("Slf4j").isPresent() ||
+                    decl.getAnnotationByName("Log4j2").isPresent()) {
                 loggerFields.add("log");
             }
             // Always visit fields to find any explicitly declared loggers

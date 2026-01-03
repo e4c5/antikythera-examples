@@ -15,6 +15,7 @@ public class QueryAnalysisResult {
 
     private final RepositoryQuery query;
     private final List<WhereCondition> whereConditions;
+    private List<JoinCondition> joinConditions;
     private OptimizationIssue optimizationIssue;
     private List<String> indexSuggestions;
 
@@ -27,6 +28,7 @@ public class QueryAnalysisResult {
     public QueryAnalysisResult(RepositoryQuery query, List<WhereCondition> whereConditions) {
         this.query = query;
         this.whereConditions = new ArrayList<>(whereConditions != null ? whereConditions : Collections.emptyList());
+        this.joinConditions = Collections.emptyList();
         this.indexSuggestions = List.of();
     }
 
@@ -119,5 +121,13 @@ public class QueryAnalysisResult {
 
     public void setOptimizationIssue(OptimizationIssue optimizationIssue) {
         this.optimizationIssue = optimizationIssue;
+    }
+
+    public List<JoinCondition> getJoinConditions() {
+        return joinConditions != null ? joinConditions : Collections.emptyList();
+    }
+
+    public void setJoinConditions(List<JoinCondition> joinConditions) {
+        this.joinConditions = joinConditions != null ? new ArrayList<>(joinConditions) : Collections.emptyList();
     }
 }

@@ -34,20 +34,31 @@ public class QueryAnalysisEngine {
         }
 
         ConversionResult conversionResult = repositoryQuery.getConversionResult();
+        Statement statementToAnalyze;
         List<WhereCondition> whereConditions;
+        List<JoinCondition> joinConditions;
+
         if (conversionResult != null && conversionResult.getNativeSql() != null) {
             try {
-                Statement st = CCJSqlParserUtil.parse(conversionResult.getNativeSql());
-                whereConditions = QueryOptimizationExtractor.extractWhereConditions(st);
+                statementToAnalyze = CCJSqlParserUtil.parse(conversionResult.getNativeSql());
+                whereConditions = QueryOptimizationExtractor.extractWhereConditions(statementToAnalyze);
+                joinConditions = QueryOptimizationExtractor.extractJoinConditions(statementToAnalyze);
             } catch (JSQLParserException jsqe) {
                 throw new AntikytheraException(jsqe);
             }
         }
         else {
-            whereConditions = QueryOptimizationExtractor.extractWhereConditions(repositoryQuery.getStatement());
+            statementToAnalyze = repositoryQuery.getStatement();
+            whereConditions = QueryOptimizationExtractor.extractWhereConditions(statementToAnalyze);
+            joinConditions = QueryOptimizationExtractor.extractJoinConditions(statementToAnalyze);
         }
+
         updateWhereConditions(whereConditions, conversionResult);
-        return new QueryAnalysisResult(repositoryQuery, whereConditions);
+        updateJoinConditions(joinConditions, conversionResult);
+
+        QueryAnalysisResult result = new QueryAnalysisResult(repositoryQuery, whereConditions);
+        result.setJoinConditions(joinConditions);
+        return result;
     }
 
     private static void updateWhereConditions(List<WhereCondition> whereConditions, ConversionResult conversionResult) {
@@ -64,6 +75,36 @@ public class QueryAnalysisEngine {
                 condition.setCardinality(CardinalityAnalyzer.analyzeColumnCardinality(
                         condition.tableName(), condition.columnName()
                 ));
+            }
+        }
+    }
+
+    /**
+     * Updates JOIN conditions by resolving entity aliases to actual table names.
+     * Focuses on right-side table/column resolution as these are critical for JOIN performance.
+     *
+     * @param joinConditions the list of JOIN conditions to update
+     * @param conversionResult the conversion result containing entity metadata
+     */
+    private static void updateJoinConditions(List<JoinCondition> joinConditions, ConversionResult conversionResult) {
+        for (JoinCondition condition : joinConditions) {
+            if (conversionResult != null) {
+                // Resolve right-side table name (the probe table - critical for JOIN performance)
+                if (condition.getRightTable() != null) {
+                    String entity = conversionResult.getMetaData().getEntityForAlias(condition.getRightTable());
+                    if (entity != null) {
+                        String tableName = EntityMappingResolver.getTableNameForEntity(entity);
+                        condition.setRightTable(tableName);
+                    }
+                }
+                // Resolve left-side table name for completeness
+                if (condition.getLeftTable() != null) {
+                    String entity = conversionResult.getMetaData().getEntityForAlias(condition.getLeftTable());
+                    if (entity != null) {
+                        String tableName = EntityMappingResolver.getTableNameForEntity(entity);
+                        condition.setLeftTable(tableName);
+                    }
+                }
             }
         }
     }
