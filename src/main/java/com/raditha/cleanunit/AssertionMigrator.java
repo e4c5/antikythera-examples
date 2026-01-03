@@ -132,8 +132,9 @@ public class AssertionMigrator {
         }
 
         // Variable/method that looks like a message
-        return exprStr.toLowerCase().contains("message") ||
-                exprStr.toLowerCase().contains("msg");
+        String lowerExpr = exprStr.toLowerCase(Locale.ROOT);
+            return lowerExpr.contains("message") ||
+                    lowerExpr.contains("msg");
     }
 
     /**
