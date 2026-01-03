@@ -94,13 +94,14 @@ Analyze each input query and provide the optimized code element.
 Return your entire response as a single, structured JSON array ([]). Do not add any introductory text, conversation, or
 closing remarks.
 
-The array must contain one JSON object per input query, in the exact same order as the input. Try to break long queries
-to be multi line/
+The array must contain one JSON object per input query, in the exact same order as the input. 
+
+**CRITICAL:** All SQL queries in the `optimizedCodeElement` field must be formatted as **single-line strings**. Do NOT use `\n` or newline characters to break SQL queries into multiple lines. Keep all SQL on a single line with spaces between clauses.
 
 `
 [{
 "originalMethod": "[The original methodName from the input]",
-"optimizedCodeElement": "[The FULL optimized method signature OR the FULL @Query annotation (including the method signature)]",
+"optimizedCodeElement": "[The FULL optimized method signature OR the FULL @Query annotation (including the method signature) - ALL SQL MUST BE ON A SINGLE LINE]",
 "notes": "[Choose ONE: 'Reordered method signature and parameters for optimal derived query performance.' OR 'Reordered predicates in the HQL/JPQL WHERE clause for optimal performance.' OR 'Reordered predicates in the NATIVE_SQL WHERE clause for optimal performance.' OR 'N/A - Query is already optimized for cardinality.' OR 'N/A - Query is single-column.' OR 'N/A - All predicates have identical cardinality; no optimization possible.']"
 }]`
 

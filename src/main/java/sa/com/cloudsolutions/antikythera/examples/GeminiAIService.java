@@ -153,6 +153,7 @@ public class GeminiAIService {
      * Builds the Gemini API request with proper message structure.
      * Uses Gemini's contents format with separate parts for system and user
      * content.
+     * Enables JSON Mode via responseMimeType to guarantee valid JSON output.
      */
     String buildGeminiApiRequest(String userQueryData) {
         // Escape strings for JSON
@@ -173,7 +174,28 @@ public class GeminiAIService {
                         { "text": "%s" }
                       ]
                     }
-                  ]
+                  ],
+                  "generationConfig": {
+                    "responseMimeType": "application/json",
+                    "responseSchema": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "originalMethod": {
+                            "type": "string"
+                          },
+                          "optimizedCodeElement": {
+                            "type": "string"
+                          },
+                          "notes": {
+                            "type": "string"
+                          }
+                        },
+                        "required": ["originalMethod", "optimizedCodeElement", "notes"]
+                      }
+                    }
+                  }
                 }
                 """, escapedSystemPrompt, escapedUserData);
     }

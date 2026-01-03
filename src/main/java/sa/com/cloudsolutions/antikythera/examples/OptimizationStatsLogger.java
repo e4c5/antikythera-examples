@@ -1,5 +1,8 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.PrintStream;
@@ -14,8 +17,9 @@ import java.nio.file.Paths;
  * the changes made to repository classes.
  */
 public class OptimizationStatsLogger {
+    private static final Logger logger = LoggerFactory.getLogger(OptimizationStatsLogger.class);
     private static final String CSV_FILENAME = "query-optimization-stats.csv";
-    private static final String CSV_HEADER = "Date,Repositories,Queries,Annotations Changed,Signatures Changed,Calls Updated,Dependency Classes,Indexes Created, Indexes Dropped";
+    private static final String CSV_HEADER = "Date,Repository Name,Queries,Annotations Changed,Signatures Changed,Calls Updated,Dependency Classes,Indexes Created,Indexes Dropped";
     private static Stats current = null;
     private static Stats total;
 
@@ -40,7 +44,11 @@ public class OptimizationStatsLogger {
          */
         private int methodCallsChanged = 0;
         /**
-         * The number of classes changed so far!
+         * The number of repository files that were actually modified.
+         */
+        private int repositoriesModified = 0;
+        /**
+         * The number of dependent classes changed (not including repositories).
          */
         private int dependentClassesModified = 0;
         /**
@@ -68,34 +76,59 @@ public class OptimizationStatsLogger {
         return current;
     }
 
-    public static void initialize(String repo) throws IOException {
-        Path csvPath = Paths.get(CSV_FILENAME);
-        FileWriter fw = new FileWriter(CSV_FILENAME, true);
-        PrintWriter out = new PrintWriter(fw);
-
-        if (!csvPath.toFile().exists()) {
-            out.println(CSV_HEADER);
-        }
-
+    public static void initialize(String repo) {
         if (current == null) {
             current = new Stats(repo);
             total = new Stats("");
         } else {
+            flush();
+            current = new Stats(repo);
+        }
+        totalRepositoriesProcessed++;
+    }
+
+    public static void flush() {
+        if (current == null) {
+            return;
+        }
+        logStats(current);
+        // Reset current stats to zero for any post-analysis global updates,
+        // but preserve the repo name to avoid NullPointerException if used.
+        current.queriesAnalyzed = 0;
+        current.queryAnnotationsChanged = 0;
+        current.methodSignaturesChanged = 0;
+        current.methodCallsChanged = 0;
+        current.repositoriesModified = 0;
+        current.dependentClassesModified = 0;
+        current.liquibaseIndexesGenerated = 0;
+        current.liquibaseIndexesDropped = 0;
+    }
+
+
+    private static void logStats(Stats stats) {
+        Path csvPath = Paths.get(CSV_FILENAME);
+        boolean exists = csvPath.toFile().exists();
+
+        try (FileWriter fw = new FileWriter(CSV_FILENAME, true);
+             PrintWriter out = new PrintWriter(fw)) {
+
+            if (!exists) {
+                out.println(CSV_HEADER);
+            }
+
             out.println(String.format("%s,%s,%d,%d,%d,%d,%d,%d,%d",
                     java.time.LocalDate.now(),
-                    current.repo,
-                    current.queriesAnalyzed,
-                    current.queryAnnotationsChanged,
-                    current.methodSignaturesChanged,
-                    current.methodCallsChanged,
-                    current.dependentClassesModified,
-                    current.liquibaseIndexesGenerated,
-                    current.liquibaseIndexesDropped));
-            current = new Stats(repo);
-            totalRepositoriesProcessed++;
+                    stats.repo,
+                    stats.queriesAnalyzed,
+                    stats.queryAnnotationsChanged,
+                    stats.methodSignaturesChanged,
+                    stats.methodCallsChanged,
+                    stats.dependentClassesModified,
+                    stats.liquibaseIndexesGenerated,
+                    stats.liquibaseIndexesDropped));
+        } catch (IOException e) {
+            logger.error("Failed to write to CSV: {}", e.getMessage());
         }
-        out.close();
-        fw.close();
     }
 
     public static void updateQueriesAnalyzed(int queriesAnalyzed) {
@@ -118,6 +151,11 @@ public class OptimizationStatsLogger {
         total.methodCallsChanged += i;
     }
 
+    public static void updateRepositoriesModified(int i) {
+        current.repositoriesModified += i;
+        total.repositoriesModified += i;
+    }
+
     public static void updateDependentClassesChanged(int i) {
         current.dependentClassesModified += i;
         total.dependentClassesModified += i;
@@ -130,7 +168,9 @@ public class OptimizationStatsLogger {
     }
 
     public static void updateIndexesDropped(int i) {
-        current.liquibaseIndexesDropped += i;
+        if (current != null) {
+            current.liquibaseIndexesDropped += i;
+        }
         total.liquibaseIndexesDropped += i;
     }
 
@@ -148,7 +188,7 @@ public class OptimizationStatsLogger {
         out.println("📝 CODE MODIFICATION SUMMARY");
         out.println("=".repeat(80));
         out.printf("Repositories processed:      %d%n", totalRepositoriesProcessed);
-        out.printf("Dependent Files modified:    %d%n", total.dependentClassesModified);
+        out.printf("Repository files modified:   %d%n", total.repositoriesModified);
         out.printf("@Query annotations changed:  %d%n", total.queryAnnotationsChanged);
         out.printf("Method signatures changed:   %d%n", total.methodSignaturesChanged);
         out.printf("Method calls updated:        %d%n", total.methodCallsChanged);

@@ -29,9 +29,7 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.PrintWriter;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -58,30 +56,22 @@ public class QueryOptimizer extends QueryOptimizationChecker {
     @Override
     void analyzeRepository(TypeWrapper typeWrapper)
             throws IOException, ReflectiveOperationException, InterruptedException {
-        if (!typeWrapper.getFullyQualifiedName().equals("com.csi.bm.invoice.repository.InvoiceItemRepository")) {
-            return;
-        }
         super.analyzeRepository(typeWrapper);
 
         OptimizationStatsLogger.updateQueriesAnalyzed(results.size());
 
-        List<QueryAnalysisResult> updates = new ArrayList<>();
         repositoryFileModified = false;
-
         for (QueryAnalysisResult result : results) {
-            actOnAnalysisResult(result, updates);
+            actOnAnalysisResult(result);
         }
 
-        if (repositoryFileModified) {
-            boolean fileWasWritten = writeFile(typeWrapper.getFullyQualifiedName(),
-                    this.repositoryParser.getCompilationUnit());
-            if (!fileWasWritten) {
-                repositoryFileModified = false;
-            }
+        if (repositoryFileModified && writeFile(typeWrapper.getFullyQualifiedName(),
+                this.repositoryParser.getCompilationUnit())) {
+            OptimizationStatsLogger.updateRepositoriesModified(1);
         }
     }
 
-    void actOnAnalysisResult(QueryAnalysisResult result, List<QueryAnalysisResult> updates) {
+    void actOnAnalysisResult(QueryAnalysisResult result) {
         OptimizationIssue issue = result.getOptimizationIssue();
         if (issue != null) {
             RepositoryQuery optimizedQuery = issue.optimizedQuery();
@@ -122,14 +112,13 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                 if (methodNameChanged) {
                     OptimizationStatsLogger.updateMethodSignaturesChanged(1);
                 }
-                updates.add(result);
             }
         }
     }
 
     /**
      * Updates the annotation value with proper text block support.
-     * If the query contains literal \n characters or actual newlines, it uses
+     * If the query contains literal \\n characters or actual newlines, it uses
      * TextBlockLiteralExpr.
      * Otherwise, it uses StringLiteralExpr.
      *
@@ -137,13 +126,13 @@ public class QueryOptimizer extends QueryOptimizationChecker {
      * @param newStringValue the new query value
      */
     private void updateAnnotationValueWithTextBlockSupport(MethodDeclaration method, String newStringValue) {
-        // Check if the string contains literal \n or actual newlines
+        // Check if the string contains literal \\n or actual newlines
         boolean isMultiline = newStringValue != null &&
-                (newStringValue.contains("\\n") || newStringValue.contains("\n"));
+                (newStringValue.contains("\\\\n") || newStringValue.contains("\n"));
 
         if (isMultiline) {
-            // Convert literal \n to actual newlines
-            String processedValue = "    " + newStringValue.replace("\\n", "\n        ");
+            // Convert literal \\n to actual newlines
+            String processedValue = "    " + newStringValue.replace("\\\\n", "\n        ");
             updateAnnotationValue(method, "Query", processedValue, true);
         } else {
             updateAnnotationValue(method, "Query", newStringValue, false);
@@ -459,15 +448,13 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         CardinalityAnalyzer.configureUserDefinedCardinality(lowOverride, highOverride);
 
         QueryOptimizer checker = new QueryOptimizer(getLiquibasePath());
-        OptimizationStatsLogger.initialize("");
-
         checker.analyze();
 
         // Generate Liquibase file with suggested changes and include in master
         checker.generateLiquibaseChangesFile();
 
-        OptimizationStatsLogger.printSummary(System.out);
         OptimizationStatsLogger.updateDependentClassesChanged(modifiedFiles.size());
+        OptimizationStatsLogger.printSummary(System.out);
         updateFiles();
 
         if (!quietMode) {
