@@ -66,7 +66,9 @@ public class MigrationValidator extends MigrationPhase {
         pb.directory(Paths.get(Settings.getBasePath()).toFile());
         pb.redirectErrorStream(true);
         pb.redirectOutput(outputFile);
-        pb.redirectInput(ProcessBuilder.Redirect.from(new java.io.File("/dev/null")));
+        String osName = System.getProperty("os.name");
+        String nullDeviceName = (osName != null && osName.toLowerCase().contains("win")) ? "NUL" : "/dev/null";
+        pb.redirectInput(ProcessBuilder.Redirect.from(new java.io.File(nullDeviceName)));
 
         Process process = pb.start();
 

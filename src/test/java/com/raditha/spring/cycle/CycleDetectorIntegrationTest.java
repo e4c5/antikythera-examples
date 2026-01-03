@@ -110,7 +110,7 @@ class CycleDetectorIntegrationTest {
                 .collect(Collectors.toSet());
 
         if (constructorEdges.isEmpty()) {
-            return; // No constructor cycles in testbed
+            fail("Testbed should contain constructor injection cycles for setter strategy to be exercised");
         }
 
         int converted = 0;
@@ -157,16 +157,15 @@ class CycleDetectorIntegrationTest {
                 true);
 
         // Apply to first cycle
-        if (!allCycles.isEmpty()) {
-            List<String> cycle = allCycles.get(0);
-            boolean result = strategy.apply(cycle);
+        // The testbed is expected to contain at least one cycle
+        assertFalse(allCycles.isEmpty(), "Testbed should contain at least one cycle");
 
-            // Should succeed if classes are found
-            if (!strategy.getGeneratedClasses().isEmpty()) {
-                assertTrue(result, "Should extract methods for cycle: " + cycle);
-                assertFalse(strategy.getGeneratedClasses().isEmpty(), "Should generate mediator");
-            }
-        }
+        // Apply to first cycle and verify extraction works
+        List<String> cycle = allCycles.get(0);
+        boolean result = strategy.apply(cycle);
+
+        assertTrue(result, "Should extract methods for cycle: " + cycle);
+        assertFalse(strategy.getGeneratedClasses().isEmpty(), "Should generate mediator");
     }
     
     @org.junit.jupiter.api.AfterEach
