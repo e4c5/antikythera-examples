@@ -2,11 +2,17 @@ package com.raditha.cleanunit;
 
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
+import com.raditha.cleanunit.TestRefactorer.RefactorOutcome;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import com.raditha.cleanunit.TestRefactorer.RefactorOutcome;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
-import static org.junit.jupiter.api.Assertions.*;
+import java.util.stream.Stream;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TestRefactorerTest {
 
@@ -20,76 +26,172 @@ class TestRefactorerTest {
         refactorer = new TestRefactorer(true); // dry-run
     }
 
-    @Test
-    void testHeavyweightUnitTest() {
-        String src = "" +
-                "import org.springframework.boot.test.context.SpringBootTest;\n" +
-                "import org.mockito.Mock;\n" +
-                "@SpringBootTest\n" +
-                "class HeavyweightUnitTest {\n" +
-                "  @Mock Object dep;\n" +
-                "  @org.junit.jupiter.api.Test void t() { /* no real resources used */ }\n" +
-                "}\n";
-        CompilationUnit cu = StaticJavaParser.parse(src);
-
-        RefactorOutcome outcome = refactorer.refactor(cu);
-
-        assertEquals("CONVERTED", outcome.action);
-        assertEquals("Unit Test", outcome.newAnnotation);
-        assertEquals("No resources detected (all mocked)", outcome.reason);
+    static Stream<Arguments> refactorTestCases() {
+        return Stream.of(
+                Arguments.of(
+                        "HeavyweightUnitTest",
+                        """
+                        import org.springframework.boot.test.context.SpringBootTest;
+                        import org.mockito.Mock;
+                        @SpringBootTest
+                        class HeavyweightUnitTest {
+                          @Mock Object dep;
+                          @org.junit.jupiter.api.Test void t() { /* no real resources used */ }
+                        }
+                        """,
+                        "CONVERTED",
+                        "Unit Test",
+                        "No resources detected (all mocked)"
+                ),
+                Arguments.of(
+                        "InefficientControllerTest",
+                        """
+                        import org.springframework.boot.test.context.SpringBootTest;
+                        import org.springframework.test.web.servlet.MockMvc;
+                        @SpringBootTest
+                        class InefficientControllerTest {
+                          @org.springframework.beans.factory.annotation.Autowired MockMvc mockMvc;
+                          @org.junit.jupiter.api.Test void t() throws Exception {
+                            mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/x"));
+                          }
+                        }
+                        """,
+                        "CONVERTED",
+                        "@WebMvcTest",
+                        "Only WEB resource detected (JSON allowed)"
+                ),
+                Arguments.of(
+                        "InefficientRepositoryTest",
+                        """
+                        import org.springframework.boot.test.context.SpringBootTest;
+                        @SpringBootTest
+                        class InefficientRepositoryTest {
+                          @org.springframework.beans.factory.annotation.Autowired UserRepository repo;
+                          @org.junit.jupiter.api.Test void t() { repo.findAll(); }
+                        }
+                        interface UserRepository { java.util.List findAll(); }
+                        """,
+                        "CONVERTED",
+                        "@DataJpaTest",
+                        "Only DATABASE_JPA resource detected"
+                ),
+                Arguments.of(
+                        "UnsafeIntegrationTest",
+                        """
+                        import org.springframework.boot.test.context.SpringBootTest;
+                        import org.springframework.boot.test.web.server.LocalServerPort;
+                        @SpringBootTest
+                        class UnsafeIntegrationTest {
+                          @LocalServerPort int port;
+                          @org.junit.jupiter.api.Test void t() {}
+                        }
+                        """,
+                        "KEPT",
+                        "@SpringBootTest(webEnvironment = RANDOM_PORT)",
+                        "Requires running server"
+                ),
+                Arguments.of(
+                        "JdbcOnlyTest",
+                        """
+                        import org.springframework.boot.test.context.SpringBootTest;
+                        @SpringBootTest
+                        class JdbcOnlyTest {
+                          @org.springframework.beans.factory.annotation.Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;
+                          @org.junit.jupiter.api.Test void t() { jdbc.execute("select 1"); }
+                        }
+                        """,
+                        "CONVERTED",
+                        "@JdbcTest",
+                        "Only JDBC resource detected"
+                ),
+                Arguments.of(
+                        "ReactiveControllerTest",
+                        """
+                        import org.springframework.boot.test.context.SpringBootTest;
+                        import org.springframework.test.web.reactive.server.WebTestClient;
+                        @SpringBootTest
+                        class ReactiveControllerTest {
+                          @org.springframework.beans.factory.annotation.Autowired WebTestClient client;
+                          @org.junit.jupiter.api.Test void t() { client.get().uri("/x").exchange(); }
+                        }
+                        """,
+                        "CONVERTED",
+                        "@WebFluxTest",
+                        "Only WEBFLUX resource detected"
+                ),
+                Arguments.of(
+                        "GraphQlOnlyTest",
+                        """
+                        import org.springframework.boot.test.context.SpringBootTest;
+                        import org.springframework.graphql.test.tester.GraphQlTester;
+                        @SpringBootTest
+                        class GraphQlOnlyTest {
+                          @org.springframework.beans.factory.annotation.Autowired GraphQlTester tester;
+                          @org.junit.jupiter.api.Test void t() { tester.toString(); }
+                        }
+                        """,
+                        "CONVERTED",
+                        "@GraphQlTest",
+                        "Only GRAPHQL resource detected"
+                ),
+                Arguments.of(
+                        "RestClientOnlyTest",
+                        """
+                        import org.springframework.boot.test.context.SpringBootTest;
+                        import org.springframework.test.web.client.MockRestServiceServer;
+                        @SpringBootTest
+                        class RestClientOnlyTest {
+                          @org.springframework.beans.factory.annotation.Autowired MockRestServiceServer server;
+                          @org.junit.jupiter.api.Test void t() { server.toString(); }
+                        }
+                        """,
+                        "CONVERTED",
+                        "@RestClientTest",
+                        "Only REST_CLIENT resource detected"
+                ),
+                Arguments.of(
+                        "JsonOnlyTest",
+                        """
+                        import org.springframework.boot.test.context.SpringBootTest;
+                        import com.fasterxml.jackson.databind.ObjectMapper;
+                        @SpringBootTest
+                        class JsonOnlyTest {
+                          @org.springframework.beans.factory.annotation.Autowired ObjectMapper mapper;
+                          @org.junit.jupiter.api.Test void t() { mapper.createObjectNode(); }
+                        }
+                        """,
+                        "CONVERTED",
+                        "@JsonTest",
+                        "Only JSON resource detected"
+                )
+        );
     }
 
-    @Test
-    void testInefficientControllerTest() {
-        String src = "" +
-                "import org.springframework.boot.test.context.SpringBootTest;\n" +
-                "import org.springframework.test.web.servlet.MockMvc;\n" +
-                "@SpringBootTest\n" +
-                "class InefficientControllerTest {\n" +
-                "  @org.springframework.beans.factory.annotation.Autowired MockMvc mockMvc;\n" +
-                "  @org.junit.jupiter.api.Test void t() throws Exception {\n" +
-                "    mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(\"/x\"));\n" +
-                "  }\n" +
-                "}\n";
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("refactorTestCases")
+    void testRefactoring(String testName, String src, String expectedAction,
+                         String expectedAnnotation, String expectedReason) {
         CompilationUnit cu = StaticJavaParser.parse(src);
 
         RefactorOutcome outcome = refactorer.refactor(cu);
 
-        assertEquals("CONVERTED", outcome.action);
-        assertEquals("@WebMvcTest", outcome.newAnnotation);
-        assertEquals("Only WEB resource detected (JSON allowed)", outcome.reason);
-    }
-
-    @Test
-    void testInefficientRepositoryTest() {
-        String src = "" +
-                "import org.springframework.boot.test.context.SpringBootTest;\n" +
-                "@SpringBootTest\n" +
-                "class InefficientRepositoryTest {\n" +
-                "  @org.springframework.beans.factory.annotation.Autowired UserRepository repo;\n" +
-                "  @org.junit.jupiter.api.Test void t() { repo.findAll(); }\n" +
-                "}\n" +
-                "interface UserRepository { java.util.List findAll(); }\n";
-        CompilationUnit cu = StaticJavaParser.parse(src);
-
-        RefactorOutcome outcome = refactorer.refactor(cu);
-
-        assertEquals("CONVERTED", outcome.action);
-        assertEquals("@DataJpaTest", outcome.newAnnotation);
-        assertEquals("Only DATABASE_JPA resource detected", outcome.reason);
+        assertEquals(expectedAction, outcome.action);
+        assertEquals(expectedAnnotation, outcome.newAnnotation);
+        assertEquals(expectedReason, outcome.reason);
     }
 
     @Test
     void testLegacyContextTest() {
-        String src = "" +
-                "import org.springframework.boot.test.context.SpringBootTest;\n" +
-                "import org.springframework.test.context.ContextConfiguration;\n" +
-                "@SpringBootTest\n" +
-                "@ContextConfiguration(classes = {LegacyConfig.class})\n" +
-                "class LegacyContextTest {\n" +
-                "  @org.junit.jupiter.api.Test void t() {}\n" +
-                "}\n" +
-                "class LegacyConfig {}\n";
+        String src = """
+                import org.springframework.boot.test.context.SpringBootTest;
+                import org.springframework.test.context.ContextConfiguration;
+                @SpringBootTest
+                @ContextConfiguration(classes = {LegacyConfig.class})
+                class LegacyContextTest {
+                  @org.junit.jupiter.api.Test void t() {}
+                }
+                class LegacyConfig {}
+                """;
         CompilationUnit cu = StaticJavaParser.parse(src);
 
         RefactorOutcome outcome = refactorer.refactor(cu);
@@ -101,121 +203,18 @@ class TestRefactorerTest {
     }
 
     @Test
-    void testUnsafeIntegrationTest() {
-        String src = "" +
-                "import org.springframework.boot.test.context.SpringBootTest;\n" +
-                "import org.springframework.boot.test.web.server.LocalServerPort;\n" +
-                "@SpringBootTest\n" +
-                "class UnsafeIntegrationTest {\n" +
-                "  @LocalServerPort int port;\n" +
-                "  @org.junit.jupiter.api.Test void t() {}\n" +
-                "}\n";
-        CompilationUnit cu = StaticJavaParser.parse(src);
-
-        RefactorOutcome outcome = refactorer.refactor(cu);
-
-        assertEquals("KEPT", outcome.action);
-        assertEquals("@SpringBootTest(webEnvironment = RANDOM_PORT)", outcome.newAnnotation);
-        assertEquals("Requires running server", outcome.reason);
-    }
-
-
-    @Test
-    void testJdbcSlice() {
-        String src = "" +
-                "import org.springframework.boot.test.context.SpringBootTest;\n" +
-                "@SpringBootTest\n" +
-                "class JdbcOnlyTest {\n" +
-                "  @org.springframework.beans.factory.annotation.Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;\n" +
-                "  @org.junit.jupiter.api.Test void t() { jdbc.execute(\"select 1\"); }\n" +
-                "}\n";
-        CompilationUnit cu = StaticJavaParser.parse(src);
-        RefactorOutcome outcome = refactorer.refactor(cu);
-        assertEquals("CONVERTED", outcome.action);
-        assertEquals("@JdbcTest", outcome.newAnnotation);
-        assertEquals("Only JDBC resource detected", outcome.reason);
-    }
-
-    @Test
-    void testWebFluxSlice() {
-        String src = "" +
-                "import org.springframework.boot.test.context.SpringBootTest;\n" +
-                "import org.springframework.test.web.reactive.server.WebTestClient;\n" +
-                "@SpringBootTest\n" +
-                "class ReactiveControllerTest {\n" +
-                "  @org.springframework.beans.factory.annotation.Autowired WebTestClient client;\n" +
-                "  @org.junit.jupiter.api.Test void t() { client.get().uri(\"/x\").exchange(); }\n" +
-                "}\n";
-        CompilationUnit cu = StaticJavaParser.parse(src);
-        RefactorOutcome outcome = refactorer.refactor(cu);
-        assertEquals("CONVERTED", outcome.action);
-        assertEquals("@WebFluxTest", outcome.newAnnotation);
-        assertEquals("Only WEBFLUX resource detected", outcome.reason);
-    }
-
-    @Test
-    void testGraphQlSlice() {
-        String src = "" +
-                "import org.springframework.boot.test.context.SpringBootTest;\n" +
-                "import org.springframework.graphql.test.tester.GraphQlTester;\n" +
-                "@SpringBootTest\n" +
-                "class GraphQlOnlyTest {\n" +
-                "  @org.springframework.beans.factory.annotation.Autowired GraphQlTester tester;\n" +
-                "  @org.junit.jupiter.api.Test void t() { tester.toString(); }\n" +
-                "}\n";
-        CompilationUnit cu = StaticJavaParser.parse(src);
-        RefactorOutcome outcome = refactorer.refactor(cu);
-        assertEquals("CONVERTED", outcome.action);
-        assertEquals("@GraphQlTest", outcome.newAnnotation);
-        assertEquals("Only GRAPHQL resource detected", outcome.reason);
-    }
-
-    @Test
-    void testRestClientSlice() {
-        String src = "" +
-                "import org.springframework.boot.test.context.SpringBootTest;\n" +
-                "import org.springframework.test.web.client.MockRestServiceServer;\n" +
-                "@SpringBootTest\n" +
-                "class RestClientOnlyTest {\n" +
-                "  @org.springframework.beans.factory.annotation.Autowired MockRestServiceServer server;\n" +
-                "  @org.junit.jupiter.api.Test void t() { server.toString(); }\n" +
-                "}\n";
-        CompilationUnit cu = StaticJavaParser.parse(src);
-        RefactorOutcome outcome = refactorer.refactor(cu);
-        assertEquals("CONVERTED", outcome.action);
-        assertEquals("@RestClientTest", outcome.newAnnotation);
-        assertEquals("Only REST_CLIENT resource detected", outcome.reason);
-    }
-
-    @Test
-    void testJsonSlice() {
-        String src = "" +
-                "import org.springframework.boot.test.context.SpringBootTest;\n" +
-                "import com.fasterxml.jackson.databind.ObjectMapper;\n" +
-                "@SpringBootTest\n" +
-                "class JsonOnlyTest {\n" +
-                "  @org.springframework.beans.factory.annotation.Autowired ObjectMapper mapper;\n" +
-                "  @org.junit.jupiter.api.Test void t() { mapper.createObjectNode(); }\n" +
-                "}\n";
-        CompilationUnit cu = StaticJavaParser.parse(src);
-        RefactorOutcome outcome = refactorer.refactor(cu);
-        assertEquals("CONVERTED", outcome.action);
-        assertEquals("@JsonTest", outcome.newAnnotation);
-        assertEquals("Only JSON resource detected", outcome.reason);
-    }
-
-    @Test
     void testMixedResourcesFallBackToSpringBootTest() {
-        String src = "" +
-                "import org.springframework.boot.test.context.SpringBootTest;\n" +
-                "import org.springframework.test.web.servlet.MockMvc;\n" +
-                "@SpringBootTest\n" +
-                "class MixedResourcesTest {\n" +
-                "  @org.springframework.beans.factory.annotation.Autowired MockMvc mockMvc;\n" +
-                "  @org.springframework.beans.factory.annotation.Autowired UserRepository repo;\n" +
-                "  @org.junit.jupiter.api.Test void t() { mockMvc.toString(); repo.findAll(); }\n" +
-                "}\n" +
-                "interface UserRepository { java.util.List findAll(); }\n";
+        String src = """
+                import org.springframework.boot.test.context.SpringBootTest;
+                import org.springframework.test.web.servlet.MockMvc;
+                @SpringBootTest
+                class MixedResourcesTest {
+                  @org.springframework.beans.factory.annotation.Autowired MockMvc mockMvc;
+                  @org.springframework.beans.factory.annotation.Autowired UserRepository repo;
+                  @org.junit.jupiter.api.Test void t() { mockMvc.toString(); repo.findAll(); }
+                }
+                interface UserRepository { java.util.List findAll(); }
+                """;
         CompilationUnit cu = StaticJavaParser.parse(src);
         RefactorOutcome outcome = refactorer.refactor(cu);
         assertTrue(outcome.action.equals("REVERTED") || outcome.action.equals("KEPT"));
@@ -224,20 +223,21 @@ class TestRefactorerTest {
 
     @Test
     void testMultiClassCompilationUnit() {
-        String src = "" +
-                "import org.springframework.boot.test.context.SpringBootTest;\n" +
-                "import org.springframework.test.web.servlet.MockMvc;\n" +
-                "@SpringBootTest\n" +
-                "class AControllerTest {\n" +
-                "  @org.springframework.beans.factory.annotation.Autowired MockMvc mockMvc;\n" +
-                "  @org.junit.jupiter.api.Test void t() { mockMvc.toString(); }\n" +
-                "}\n" +
-                "@SpringBootTest\n" +
-                "class BRepositoryTest {\n" +
-                "  @org.springframework.beans.factory.annotation.Autowired UserRepository repo;\n" +
-                "  @org.junit.jupiter.api.Test void t() { repo.findAll(); }\n" +
-                "}\n" +
-                "interface UserRepository { java.util.List findAll(); }\n";
+        String src = """
+                import org.springframework.boot.test.context.SpringBootTest;
+                import org.springframework.test.web.servlet.MockMvc;
+                @SpringBootTest
+                class AControllerTest {
+                  @org.springframework.beans.factory.annotation.Autowired MockMvc mockMvc;
+                  @org.junit.jupiter.api.Test void t() { mockMvc.toString(); }
+                }
+                @SpringBootTest
+                class BRepositoryTest {
+                  @org.springframework.beans.factory.annotation.Autowired UserRepository repo;
+                  @org.junit.jupiter.api.Test void t() { repo.findAll(); }
+                }
+                interface UserRepository { java.util.List findAll(); }
+                """;
         CompilationUnit cu = StaticJavaParser.parse(src);
         java.util.List<RefactorOutcome> outcomes = refactorer.refactorAll(cu);
         assertEquals(2, outcomes.size());
@@ -249,14 +249,15 @@ class TestRefactorerTest {
 
     @Test
     void testIdempotency() {
-        String src = "" +
-                "import org.springframework.boot.test.context.SpringBootTest;\n" +
-                "import org.springframework.test.web.servlet.MockMvc;\n" +
-                "@SpringBootTest\n" +
-                "class IdempotentControllerTest {\n" +
-                "  @org.springframework.beans.factory.annotation.Autowired MockMvc mockMvc;\n" +
-                "  @org.junit.jupiter.api.Test void t() { mockMvc.toString(); }\n" +
-                "}\n";
+        String src = """
+                import org.springframework.boot.test.context.SpringBootTest;
+                import org.springframework.test.web.servlet.MockMvc;
+                @SpringBootTest
+                class IdempotentControllerTest {
+                  @org.springframework.beans.factory.annotation.Autowired MockMvc mockMvc;
+                  @org.junit.jupiter.api.Test void t() { mockMvc.toString(); }
+                }
+                """;
         CompilationUnit cu = StaticJavaParser.parse(src);
         RefactorOutcome outcome1 = refactorer.refactor(cu);
         RefactorOutcome outcome2 = refactorer.refactor(cu);

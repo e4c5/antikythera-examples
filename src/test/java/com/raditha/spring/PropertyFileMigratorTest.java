@@ -31,7 +31,7 @@ class PropertyFileMigratorTest {
     }
 
     @Test
-    void testNoPropertyFiles() throws Exception {
+    void testNoPropertyFiles()  {
         String originalPath = (String) Settings.getProperty(Settings.BASE_PATH);
         Settings.setProperty(Settings.BASE_PATH, tempDir.toString());
 

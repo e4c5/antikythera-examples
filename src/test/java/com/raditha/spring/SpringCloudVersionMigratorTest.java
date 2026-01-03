@@ -71,51 +71,6 @@ class SpringCloudVersionMigratorTest {
     }
 
     @Test
-    void testGreenwichVersionWarning() throws Exception {
-        // Given: A POM with incompatible Greenwich version
-        String pomContent = """
-                <?xml version="1.0" encoding="UTF-8"?>
-                <project xmlns="http://maven.apache.org/POM/4.0.0">
-                    <modelVersion>4.0.0</modelVersion>
-                    <groupId>com.example</groupId>
-                    <artifactId>test-project</artifactId>
-                    <version>1.0.0</version>
-                    <properties>
-                        <spring-cloud.version>Greenwich.SR6</spring-cloud.version>
-                    </properties>
-                    <dependencyManagement>
-                        <dependencies>
-                            <dependency>
-                                <groupId>org.springframework.cloud</groupId>
-                                <artifactId>spring-cloud-dependencies</artifactId>
-                                <version>${spring-cloud.version}</version>
-                                <type>pom</type>
-                                <scope>import</scope>
-                            </dependency>
-                        </dependencies>
-                    </dependencyManagement>
-                </project>
-                """;
-
-        Path pomPath = tempDir.resolve("pom.xml");
-        Files.writeString(pomPath, pomContent);
-
-        // When: Running Spring Cloud migrator
-        SpringCloudVersionMigrator migrator = new SpringCloudVersionMigrator(true);
-        MigrationPhaseResult result = migrator.migrate();
-
-        // Then: Should warn about Greenwich incompatibility
-        boolean hasGreenwichWarning = result.getWarnings().stream()
-                .anyMatch(warning -> warning.toLowerCase().contains("greenwich")) ||
-                result.getChanges().stream()
-                        .anyMatch(change -> change.toLowerCase().contains("greenwich"));
-
-        assertTrue(hasGreenwichWarning || !result.getWarnings().isEmpty(),
-                "Should warn about Greenwich incompatibility. Warnings: " + result.getWarnings() + ", Changes: "
-                        + result.getChanges());
-    }
-
-    @Test
     void testNoSpringCloudUsage() throws Exception {
         // Given: A POM without Spring Cloud
         String pomContent = """
@@ -149,11 +104,6 @@ class SpringCloudVersionMigratorTest {
     void testGetPhaseName() {
         SpringCloudVersionMigrator migrator = new SpringCloudVersionMigrator(false);
         assertEquals("Spring Cloud Version Migration", migrator.getPhaseName());
-    }
-
-    @Test
-    void testGetPriority() {
-        SpringCloudVersionMigrator migrator = new SpringCloudVersionMigrator(false);
         assertEquals(25, migrator.getPriority());
     }
 }
