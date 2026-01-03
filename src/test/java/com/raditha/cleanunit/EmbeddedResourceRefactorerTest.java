@@ -1,9 +1,5 @@
 package com.raditha.cleanunit;
 
-import com.github.javaparser.StaticJavaParser;
-import com.github.javaparser.ast.CompilationUnit;
-import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
-import org.apache.maven.model.Dependency;
 import org.junit.jupiter.api.Test;
 
 import java.util.*;
@@ -21,26 +17,9 @@ class EmbeddedResourceRefactorerTest {
         // Initialize Settings (required by EmbeddedResourceRefactorer)
         sa.com.cloudsolutions.antikythera.configuration.Settings.loadConfigMap();
 
-        // Given: a refactorer
-        EmbeddedResourceRefactorer refactorer = new EmbeddedResourceRefactorer(false);
-
-        // Create outcomes that only use Database converter
-        List<ConversionOutcome> outcomes = new ArrayList<>();
         ConversionOutcome dbOutcome = new ConversionOutcome("TestClass1");
         dbOutcome.modified = true;
         dbOutcome.embeddedAlternative = "@AutoConfigureTestDatabase with H2";
-        outcomes.add(dbOutcome);
-
-        // Create a simple test class for conversion
-        String code = """
-                class TestClass1 {
-                }
-                """;
-        CompilationUnit cu = StaticJavaParser.parse(code);
-
-        // When: we check what dependencies would be collected
-        // We can't directly test the private method, but we can verify the concept
-        // by checking the embeddedAlternative mapping logic
 
         // Then: verify that the mapping correctly identifies Database converter
         assertTrue(dbOutcome.embeddedAlternative.toLowerCase().contains("h2") ||

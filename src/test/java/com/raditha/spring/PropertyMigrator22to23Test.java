@@ -78,7 +78,7 @@ class PropertyMigrator22to23Test {
     }
 
     @Test
-    void testNoPropertyFiles() throws Exception {
+    void testNoPropertyFiles()  {
         // Given: No property files exist
         // When: Running property migrator
         PropertyMigrator22to23 migrator = new PropertyMigrator22to23(true);

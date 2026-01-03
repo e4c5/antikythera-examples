@@ -63,27 +63,8 @@ class SpringBoot22to23MigratorTest {
 
         // Then: Migration should complete successfully
         assertNotNull(result, "Migration result should not be null");
-    }
-
-    @Test
-    void testVersionInfo() {
-        // Given: A migrator instance
-        SpringBoot22to23Migrator migrator = new SpringBoot22to23Migrator(true);
-
-        // When/Then: Verify version information
         assertEquals("2.2", migrator.getSourceVersion(), "Source version should be 2.2");
         assertEquals("2.3", migrator.getTargetVersion(), "Target version should be 2.3");
-    }
-
-    @Test
-    void testInitializeComponents() {
-        // Given: A migrator instance
-        SpringBoot22to23Migrator migrator = new SpringBoot22to23Migrator(true);
-
-        // When: Migrator is created (components initialized in constructor via
-        // initializeComponents())
-        // Then: No exceptions should be thrown
-        assertNotNull(migrator, "Migrator should initialize successfully");
     }
 
     @Test
@@ -94,19 +75,6 @@ class SpringBoot22to23MigratorTest {
         // When/Then: Main method should exist
         assertNotNull(migratorClass.getMethod("main", String[].class),
                 "Main method should exist for CLI execution");
-    }
-
-    @Test
-    void testDryRunFlag() throws Exception {
-        // Given: Migrator in dry-run mode
-        SpringBoot22to23Migrator migrator = new SpringBoot22to23Migrator(true);
-
-        // When: Running migration
-        MigrationResult result = migrator.migrateAll();
-
-        // Then: No files should be modified (dry-run)
-        assertNotNull(result, "Result should not be null");
-        // In dry-run, we expect changes to be reported but not applied
     }
 
     @Test

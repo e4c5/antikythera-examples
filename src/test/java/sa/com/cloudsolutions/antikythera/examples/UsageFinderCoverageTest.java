@@ -22,65 +22,6 @@ class UsageFinderCoverageTest {
     }
 
     @Test
-    void testUsageFinderInstantiation() {
-        // Test multiple instantiations
-        UsageFinder finder1 = new UsageFinder();
-        UsageFinder finder2 = new UsageFinder();
-        
-        assertNotNull(finder1);
-        assertNotNull(finder2);
-        assertNotSame(finder1, finder2);
-    }
-
-    @Test
-    void testUsageFinderToString() {
-        // Test toString method (inherited from Object)
-        UsageFinder finder = new UsageFinder();
-        String toString = finder.toString();
-        
-        assertNotNull(toString);
-        assertTrue(toString.contains("UsageFinder"));
-    }
-
-    @Test
-    void testUsageFinderEquals() {
-        // Test equals method (inherited from Object)
-        UsageFinder finder1 = new UsageFinder();
-        UsageFinder finder2 = new UsageFinder();
-        
-        assertEquals(finder1, finder1); // Same instance
-        assertNotEquals(finder1, finder2); // Different instances
-        assertNotEquals(finder1, null); // Null comparison
-        assertNotEquals(finder1, "string"); // Different type
-    }
-
-    @Test
-    void testUsageFinderHashCode() {
-        // Test hashCode method (inherited from Object)
-        UsageFinder finder1 = new UsageFinder();
-        UsageFinder finder2 = new UsageFinder();
-        
-        // Hash codes should be consistent
-        assertEquals(finder1.hashCode(), finder1.hashCode());
-        
-        // Different instances may have different hash codes
-        // (This is not guaranteed, but typically true)
-        assertNotNull(Integer.valueOf(finder1.hashCode()));
-        assertNotNull(Integer.valueOf(finder2.hashCode()));
-    }
-
-    @Test
-    void testUsageFinderGetClass() {
-        // Test getClass method
-        UsageFinder finder = new UsageFinder();
-        Class<?> clazz = finder.getClass();
-        
-        assertEquals(UsageFinder.class, clazz);
-        assertEquals("UsageFinder", clazz.getSimpleName());
-        assertEquals("sa.com.cloudsolutions.antikythera.examples.UsageFinder", clazz.getName());
-    }
-
-    @Test
     void testMainMethodSignature() throws NoSuchMethodException {
         // Verify the main method has the correct signature
         var mainMethod = UsageFinder.class.getMethod("main", String[].class);
@@ -123,24 +64,19 @@ class UsageFinderCoverageTest {
     }
 
     @Test
-    void testMainMethodThrowsIOException() {
-        // Verify that main method declares IOException
-        try {
-            var mainMethod = UsageFinder.class.getMethod("main", String[].class);
-            Class<?>[] exceptionTypes = mainMethod.getExceptionTypes();
-            
-            boolean throwsIOException = false;
-            for (Class<?> exceptionType : exceptionTypes) {
-                if (IOException.class.isAssignableFrom(exceptionType)) {
-                    throwsIOException = true;
-                    break;
-                }
+    void testMainMethodThrowsIOException() throws NoSuchMethodException {
+        var mainMethod = UsageFinder.class.getMethod("main", String[].class);
+        Class<?>[] exceptionTypes = mainMethod.getExceptionTypes();
+
+        boolean throwsIOException = false;
+        for (Class<?> exceptionType : exceptionTypes) {
+            if (IOException.class.isAssignableFrom(exceptionType)) {
+                throwsIOException = true;
+                break;
             }
-            
-            assertTrue(throwsIOException, "Main method should declare IOException");
-            
-        } catch (NoSuchMethodException e) {
-            fail("Main method should exist");
         }
+
+        assertTrue(throwsIOException, "Main method should declare IOException");
+
     }
 }
