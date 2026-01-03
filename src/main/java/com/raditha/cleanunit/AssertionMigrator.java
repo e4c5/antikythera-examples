@@ -132,12 +132,8 @@ public class AssertionMigrator {
         }
 
         // Variable/method that looks like a message
-        if (exprStr.toLowerCase().contains("message") ||
-                exprStr.toLowerCase().contains("msg")) {
-            return true;
-        }
-
-        return false;
+        return exprStr.toLowerCase().contains("message") ||
+                exprStr.toLowerCase().contains("msg");
     }
 
     /**
