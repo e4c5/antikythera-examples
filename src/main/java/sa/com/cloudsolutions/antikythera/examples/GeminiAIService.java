@@ -2,6 +2,8 @@ package sa.com.cloudsolutions.antikythera.examples;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
@@ -132,35 +134,25 @@ public class GeminiAIService {
      * interaction.
      */
     String buildRequestPayload(QueryBatch batch) {
-        // Build the JSON array of queries as expected by the new prompt
-        StringBuilder queriesJson = new StringBuilder();
-        queriesJson.append("[");
+        try {
+            ArrayNode queries = objectMapper.createArrayNode();
 
-        for (int i = 0; i < batch.getQueries().size(); i++) {
-            RepositoryQuery query = batch.getQueries().get(i);
-            if (i > 0) {
-                queriesJson.append(",");
+            for (RepositoryQuery query : batch.getQueries()) {
+                ObjectNode queryNode = queries.addObject();
+
+                String tableSchemaAndCardinality = buildTableSchemaString(batch, query);
+                String fullMethodSignature = query.getMethodDeclaration().getCallableDeclaration().toString();
+                String queryText = getQueryText(query);
+
+                queryNode.put("method", fullMethodSignature);
+                queryNode.put("queryType", query.getQueryType().toString());
+                queryNode.put("queryText", queryText);
+                queryNode.put("tableSchemaAndCardinality", tableSchemaAndCardinality);
             }
-
-            // Build table schema and cardinality string
-            String tableSchemaAndCardinality = buildTableSchemaString(batch, query);
-
-            // Build full method signature and escape JSON strings properly
-            String fullMethodSignature = escapeJsonString(
-                    query.getMethodDeclaration().getCallableDeclaration().toString());
-            String queryText = escapeJsonString(getQueryText(query));
-
-            queriesJson.append(String.format("""
-                    {
-                      "method": "%s",
-                      "queryType": "%s",
-                      "queryText": "%s",
-                      "tableSchemaAndCardinality": "%s"
-                    }""", fullMethodSignature, query.getQueryType(), queryText, tableSchemaAndCardinality));
+            return buildGeminiApiRequest(objectMapper.writeValueAsString(queries));
+        } catch (Exception e) {
+            throw new RuntimeException("Error building request payload", e);
         }
-
-        queriesJson.append("]");
-        return buildGeminiApiRequest(queriesJson.toString());
     }
 
     /**
@@ -170,48 +162,46 @@ public class GeminiAIService {
      * Enables JSON Mode via responseMimeType to guarantee valid JSON output.
      */
     String buildGeminiApiRequest(String userQueryData) {
-        // Escape strings for JSON
-        String escapedSystemPrompt = escapeJsonString(systemPrompt);
-        String escapedUserData = escapeJsonString(userQueryData);
+        try {
+            // Create root node
+            ObjectNode root = objectMapper.createObjectNode();
 
-        return String.format("""
-                {
-                  "system_instruction": {
-                    "parts": [
-                      { "text": "%s" }
-                    ]
-                  },
-                  "contents": [
-                    {
-                      "role": "user",
-                      "parts": [
-                        { "text": "%s" }
-                      ]
-                    }
-                  ],
-                  "generationConfig": {
-                    "responseMimeType": "application/json",
-                    "responseSchema": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "originalMethod": {
-                            "type": "string"
-                          },
-                          "optimizedCodeElement": {
-                            "type": "string"
-                          },
-                          "notes": {
-                            "type": "string"
-                          }
-                        },
-                        "required": ["originalMethod", "optimizedCodeElement", "notes"]
-                      }
-                    }
-                  }
-                }
-                """, escapedSystemPrompt, escapedUserData);
+            // system_instruction
+            ObjectNode systemInstruction = root.putObject("system_instruction");
+            ArrayNode parts = systemInstruction.putArray("parts");
+            parts.addObject().put("text", systemPrompt);
+
+            // contents
+            ArrayNode contents = root.putArray("contents");
+            ObjectNode content = contents.addObject();
+            content.put("role", "user");
+            ArrayNode contentParts = content.putArray("parts");
+            contentParts.addObject().put("text", userQueryData);
+
+            // generationConfig
+            ObjectNode generationConfig = root.putObject("generationConfig");
+            generationConfig.put("responseMimeType", "application/json");
+
+            ObjectNode responseSchema = generationConfig.putObject("responseSchema");
+            responseSchema.put("type", "array");
+
+            ObjectNode items = responseSchema.putObject("items");
+            items.put("type", "object");
+
+            ObjectNode properties = items.putObject("properties");
+            properties.putObject("originalMethod").put("type", "string");
+            properties.putObject("optimizedCodeElement").put("type", "string");
+            properties.putObject("notes").put("type", "string");
+
+            ArrayNode required = items.putArray("required");
+            required.add("originalMethod");
+            required.add("optimizedCodeElement");
+            required.add("notes");
+
+            return objectMapper.writeValueAsString(root);
+        } catch (Exception e) {
+            throw new RuntimeException("Error building Gemini API request", e);
+        }
     }
 
     /**
