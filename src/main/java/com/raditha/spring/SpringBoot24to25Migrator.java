@@ -173,14 +173,6 @@ public class SpringBoot24to25Migrator extends AbstractSpringBootMigrator impleme
     }
 
     /**
-     * Print a summary of the migration results.
-     * Delegates to base class implementation.
-     */
-    public void printReport() {
-        printSummary();
-    }
-
-    /**
      * Picocli call method - executes the migration.
      * Includes special config loading logic for this migrator.
      * 

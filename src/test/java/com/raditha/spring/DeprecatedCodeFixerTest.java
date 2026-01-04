@@ -30,7 +30,7 @@ class DeprecatedCodeFixerTest {
     @BeforeEach
     void setUp() throws IOException {
         Settings.loadConfigMap(new File("src/test/resources/generator.yml"));
-        AntikytheraRunTime.reset();
+        AntikytheraRunTime.resetAll();
         AbstractCompiler.reset();
 
         projectDir = tempDir.resolve("test-project");

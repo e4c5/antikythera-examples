@@ -8,6 +8,8 @@ public class TokenUsage {
     private int inputTokens;
     private int outputTokens;
     private int totalTokens;
+    private double inputCost;
+    private double outputCost;
     private double estimatedCost;
     private int cachedContentTokenCount;
 
@@ -15,6 +17,8 @@ public class TokenUsage {
         this.inputTokens = 0;
         this.outputTokens = 0;
         this.totalTokens = 0;
+        this.inputCost = 0.0;
+        this.outputCost = 0.0;
         this.estimatedCost = 0.0;
         this.cachedContentTokenCount = 0;
     }
@@ -24,6 +28,8 @@ public class TokenUsage {
         this.outputTokens = outputTokens;
         this.totalTokens = totalTokens;
         this.estimatedCost = estimatedCost;
+        this.inputCost = 0.0;
+        this.outputCost = 0.0;
         this.cachedContentTokenCount = 0;
     }
 
@@ -32,7 +38,20 @@ public class TokenUsage {
         this.outputTokens = outputTokens;
         this.totalTokens = totalTokens;
         this.estimatedCost = estimatedCost;
+        this.inputCost = 0.0;
+        this.outputCost = 0.0;
         this.cachedContentTokenCount = cachedContentTokenCount;
+    }
+
+    public TokenUsage(int inputTokens, int outputTokens, int totalTokens, int cachedContentTokenCount,
+                      double inputCost, double outputCost) {
+        this.inputTokens = inputTokens;
+        this.outputTokens = outputTokens;
+        this.totalTokens = totalTokens;
+        this.cachedContentTokenCount = cachedContentTokenCount;
+        this.inputCost = inputCost;
+        this.outputCost = outputCost;
+        this.estimatedCost = inputCost + outputCost;
     }
 
     public int getInputTokens() {
@@ -84,6 +103,8 @@ public class TokenUsage {
             this.inputTokens += other.inputTokens;
             this.outputTokens += other.outputTokens;
             this.totalTokens += other.totalTokens;
+            this.inputCost += other.inputCost;
+            this.outputCost += other.outputCost;
             this.estimatedCost += other.estimatedCost;
             this.cachedContentTokenCount += other.cachedContentTokenCount;
         }

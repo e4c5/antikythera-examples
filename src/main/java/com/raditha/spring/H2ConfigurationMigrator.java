@@ -36,6 +36,8 @@ import java.util.Map;
  */
 public class H2ConfigurationMigrator extends AbstractConfigMigrator {
 
+    public static final String DATASOURCE = "datasource";
+
     public H2ConfigurationMigrator(boolean dryRun) {
         super(dryRun);
     }
@@ -116,8 +118,8 @@ public class H2ConfigurationMigrator extends AbstractConfigMigrator {
                 }
 
                 // Check for spring.datasource.generate-unique-name
-                if (spring.containsKey("datasource")) {
-                    Map<String, Object> datasource = (Map<String, Object>) spring.get("datasource");
+                if (spring.containsKey(DATASOURCE)) {
+                    Map<String, Object> datasource = (Map<String, Object>) spring.get(DATASOURCE);
                     datasourceConfigured = datasource.containsKey("generate-unique-name");
                 }
             }
@@ -173,10 +175,10 @@ public class H2ConfigurationMigrator extends AbstractConfigMigrator {
         }
         Map<String, Object> spring = (Map<String, Object>) data.get("spring");
 
-        if (!spring.containsKey("datasource")) {
-            spring.put("datasource", new java.util.LinkedHashMap<>());
+        if (!spring.containsKey(DATASOURCE)) {
+            spring.put(DATASOURCE, new java.util.LinkedHashMap<>());
         }
-        Map<String, Object> datasource = (Map<String, Object>) spring.get("datasource");
+        Map<String, Object> datasource = (Map<String, Object>) spring.get(DATASOURCE);
 
         datasource.put("generate-unique-name", false);
 

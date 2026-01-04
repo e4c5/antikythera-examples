@@ -192,14 +192,6 @@ public class SpringBoot22to23Migrator extends AbstractSpringBootMigrator impleme
     }
 
     /**
-     * Print a summary of the migration results.
-     * Delegates to base class implementation.
-     */
-    public void printReport() {
-        printSummary();
-    }
-
-    /**
      * Picocli call method - executes the migration.
      * 
      * @return exit code (0 for success, 1 for failure)

@@ -2,6 +2,7 @@ package com.raditha.cleanunit;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.FieldDeclaration;
 import org.apache.maven.model.Dependency;
 
 import java.util.List;
@@ -54,6 +55,29 @@ public interface EmbeddedResourceConverter {
      * @return list of dependencies to remove
      */
     List<Dependency> getDependenciesToRemove();
+
+
+    static boolean removeFields(ClassOrInterfaceDeclaration testClass, List<FieldDeclaration> fieldsToRemove) {
+        boolean modified = false;
+        for (FieldDeclaration field : fieldsToRemove) {
+            field.remove();
+            modified = true;
+        }
+
+        // Remove @Testcontainers if no more containers
+        if (!fieldsToRemove.isEmpty()) {
+            boolean hasRemainingContainers = testClass.getFields().stream()
+                    .anyMatch(f -> f.getAnnotationByName("Container").isPresent());
+
+            if (!hasRemainingContainers) {
+                testClass.getAnnotationByName("Testcontainers").ifPresent(annotation -> {
+                    annotation.remove();
+                });
+            }
+        }
+
+        return modified;
+    }
 
     /**
      * Result of a conversion operation.

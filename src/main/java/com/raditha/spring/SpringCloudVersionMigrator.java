@@ -4,8 +4,6 @@ import org.apache.maven.model.Dependency;
 import org.apache.maven.model.Model;
 import sa.com.cloudsolutions.antikythera.parser.MavenHelper;
 
-import java.nio.file.Path;
-
 /**
  * Validates Spring Cloud version compatibility with Spring Boot 2.3.
  * 
@@ -39,13 +37,6 @@ public class SpringCloudVersionMigrator extends MigrationPhase {
     @Override
     public MigrationPhaseResult migrate() throws Exception {
         MigrationPhaseResult result = new MigrationPhaseResult();
-
-        Path pomPath = mavenHelper.getPomPath();
-        if (pomPath == null || !pomPath.toFile().exists()) {
-            result.addChange("No pom.xml found - Spring Cloud check skipped");
-            return result;
-        }
-
         Model model = mavenHelper.readPomFile();
 
         // Check if Spring Cloud is used

@@ -40,6 +40,20 @@ import java.util.Map;
 public class GeminiAIService {
     private static final Logger logger = LoggerFactory.getLogger(GeminiAIService.class);
 
+    public static final String GEMINI_1_5_FLASH = "gemini-1.5-flash";
+    public static final String GEMINI_3_FLASH = "gemini-3-flash";
+    private static final Map<String, ModelPricing> MODEL_PRICING = Map.ofEntries(
+        Map.entry(GEMINI_1_5_FLASH, new ModelPricing(0.075, 0.15, 0.30, 0.60, 0.25)),
+        Map.entry("gemini-1.5-pro", new ModelPricing(3.50, 7.00, 10.50, 21.00, 0.25)),
+        Map.entry("gemini-2.0-flash", new ModelPricing(0.10, 0.40, 0.25)),
+        Map.entry("gemini-2.0-flash-lite", new ModelPricing(0.075, 0.30, 0.25)),
+        Map.entry("gemini-2.5-pro", new ModelPricing(1.25, 2.50, 10.00, 15.00, 0.10, 200000)),
+        Map.entry("gemini-2.5-flash", new ModelPricing(0.15, 0.30, 1.25, 1.875, 0.25, 200000)),
+        Map.entry("gemini-3-pro", new ModelPricing(2.00, 4.00, 12.00, 18.00, 0.10, 200000)),
+        Map.entry(GEMINI_3_FLASH, new ModelPricing(0.50, 1.00, 3.00, 4.50, 0.10, 200000)),
+        Map.entry("gemini-1.0-pro", new ModelPricing(0.50, 1.50, 0.25))
+    );
+
     private Map<String, Object> config;
     private HttpClient httpClient;
     private final ObjectMapper objectMapper;
@@ -255,7 +269,7 @@ public class GeminiAIService {
     public String sendApiRequest(String payload) throws IOException, InterruptedException {
         String apiEndpoint = getConfigString("api_endpoint",
                 "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent");
-        String model = getConfigString("model", "gemini-1.5-flash");
+        String model = getConfigString("model", GEMINI_3_FLASH);
         String apiKey = getConfigString("api_key", null);
         int timeoutSeconds = getConfigInt("timeout_seconds", 60);
 
@@ -299,11 +313,27 @@ public class GeminiAIService {
             int totalTokens = usageMetadata.path("totalTokenCount").asInt(inputTokens + outputTokens);
             int cachedContentTokenCount = usageMetadata.path("cachedContentTokenCount").asInt(0);
 
-            double costPer1kTokens = getConfigDouble("cost_per_1k_tokens", 0.00015);
-            double estimatedCost = (totalTokens / 1000.0) * costPer1kTokens;
+            String model = getConfigString("model", GEMINI_1_5_FLASH);
+            double inputCost = 0;
+            double outputCost = 0;
 
-            lastTokenUsage = new TokenUsage(inputTokens, outputTokens, totalTokens, estimatedCost,
-                    cachedContentTokenCount);
+            ModelPricing pricing = MODEL_PRICING.entrySet().stream()
+                    .filter(entry -> model.contains(entry.getKey()))
+                    .map(Map.Entry::getValue)
+                    .findFirst()
+                    .orElse(null);
+
+            if (pricing != null) {
+                inputCost = pricing.calculateInputCost(inputTokens, cachedContentTokenCount);
+                outputCost = pricing.calculateOutputCost(inputTokens, outputTokens);
+            } else {
+                // Fallback to a default if model is unknown
+                double costPer1kTokens = getConfigDouble("cost_per_1k_tokens", 0.00015);
+                inputCost = (inputTokens / 1000.0) * costPer1kTokens;
+                outputCost = 0; // Legacy behavior didn't separate
+            }
+
+            lastTokenUsage = new TokenUsage(inputTokens, outputTokens, totalTokens, cachedContentTokenCount, inputCost, outputCost);
 
             boolean trackUsage = getConfigBoolean("track_usage", true);
             if (trackUsage) {

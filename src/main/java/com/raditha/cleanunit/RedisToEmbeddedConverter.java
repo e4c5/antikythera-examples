@@ -40,7 +40,7 @@ public class RedisToEmbeddedConverter implements EmbeddedResourceConverter {
 
         // Remove Redis container fields & @Testcontainers
         if (containerTypes.contains(TestContainerDetector.ContainerType.REDIS)) {
-            modified |= removeRedisContainerFields(testClass, cu);
+            modified |= removeRedisContainerFields(testClass);
         }
 
         // Modify test property files
@@ -59,9 +59,7 @@ public class RedisToEmbeddedConverter implements EmbeddedResourceConverter {
     /**
      * Remove Redis container fields and @Testcontainers annotation.
      */
-    private boolean removeRedisContainerFields(ClassOrInterfaceDeclaration testClass, CompilationUnit cu) {
-        boolean modified = false;
-
+    private boolean removeRedisContainerFields(ClassOrInterfaceDeclaration testClass) {
         // Find and remove Redis container fields
         List<FieldDeclaration> fieldsToRemove = new ArrayList<>();
         for (FieldDeclaration field : testClass.getFields()) {
@@ -72,25 +70,7 @@ public class RedisToEmbeddedConverter implements EmbeddedResourceConverter {
             }
         }
 
-        for (FieldDeclaration field : fieldsToRemove) {
-            field.remove();
-            modified = true;
-        }
-
-        // Remove @Testcontainers if no more containers
-        if (!fieldsToRemove.isEmpty()) {
-            boolean hasRemainingContainers = testClass.getFields().stream()
-                    .anyMatch(f -> f.getAnnotationByName("Container").isPresent());
-
-            if (!hasRemainingContainers) {
-                testClass.getAnnotationByName("Testcontainers").ifPresent(annotation -> {
-                    annotation.remove();
-                    logger.info("Removed @Testcontainers annotation");
-                });
-            }
-        }
-
-        return modified;
+        return EmbeddedResourceConverter.removeFields(testClass, fieldsToRemove);
     }
 
     /**
