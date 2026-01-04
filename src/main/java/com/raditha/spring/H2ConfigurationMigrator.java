@@ -147,9 +147,9 @@ public class H2ConfigurationMigrator extends AbstractConfigMigrator {
             MigrationPhaseResult result) throws IOException {
         // Prefer to add to first YAML file, fall back to properties
         if (!yamlFiles.isEmpty()) {
-            addToYamlFile(yamlFiles.get(0), result);
+            addToYamlFile(yamlFiles.getFirst(), result);
         } else if (!propFiles.isEmpty()) {
-            addToPropertiesFile(propFiles.get(0), result);
+            addToPropertiesFile(propFiles.getFirst(), result);
         } else {
             result.addWarning("H2 console enabled but no application.yml/properties found to add configuration");
             result.addWarning("Manually add: spring.datasource.generate-unique-name=false");

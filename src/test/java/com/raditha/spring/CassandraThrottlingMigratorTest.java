@@ -69,7 +69,7 @@ class CassandraThrottlingMigratorTest {
 
         // When: Run migrator
         CassandraThrottlingMigrator migrator = new CassandraThrottlingMigrator(false);
-        MigrationPhaseResult result = migrator.migrate();
+        migrator.migrate();
 
         // Then: File should remain unchanged
         String content = Files.readString(yamlPath);
@@ -86,7 +86,7 @@ class CassandraThrottlingMigratorTest {
         MigrationPhaseResult result = migrator.migrate();
 
         // Then: No changes
-        assertTrue(result.getChanges().isEmpty() || result.getChanges().contains("No Cassandra dependency detected"));
+        assertTrue(result.getChanges().isEmpty() || result.getChanges().contains("No Cassandra configuration detected - skipping"));
     }
 
     private void createPomWithDependency(String artifactId) throws Exception {
