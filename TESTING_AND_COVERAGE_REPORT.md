@@ -53,6 +53,8 @@ Despite the inability to run tests, a static analysis of the source vs. test fil
 | | `GroovySpockMigrator` | `GroovySpockMigratorTest` | ✅ Covered |
 | | `DeprecatedCodeFixer` | `DeprecatedCodeFixerTest` | ✅ Covered |
 | | `ErrorMessageAttributeDetector` | `ErrorMessageAttributeDetectorTest` | ✅ Covered |
+| **Others** | `JakartaEEPrepMigrator` | `JakartaEEPrepMigratorTest` | ✅ Covered |
+| | `LazyInitializationConfigurer` | `LazyInitializationConfigurerTest` | ✅ Covered |
 
 ### JUnit Migration (`com.raditha.cleanunit`)
 
