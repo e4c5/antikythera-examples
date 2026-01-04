@@ -457,6 +457,10 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         OptimizationStatsLogger.printSummary(System.out);
         updateFiles();
 
+        System.out.println("\n--- Final AI Token Usage Report ---");
+        System.out.println(checker.getCumulativeTokenUsage().getFormattedReport());
+        System.out.println("-----------------------------------\n");
+
         if (!quietMode) {
             System.out.println("\nTime taken " + (System.currentTimeMillis() - s) + " ms.");
         }

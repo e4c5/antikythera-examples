@@ -1,12 +1,17 @@
 package com.raditha.spring;
 
+import org.yaml.snakeyaml.Yaml;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.OutputStreamWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Stream;
 
 /**
@@ -89,4 +94,35 @@ public abstract class AbstractConfigMigrator extends MigrationPhase {
         String basePathStr = Settings.getBasePath();
         return basePathStr != null ? Paths.get(basePathStr) : null;
     }
+
+    /**
+     * Migrate Logback properties in a YAML file.
+     */
+    protected boolean migrateYamlFile(Path yamlFile, MigrationPhaseResult result) throws IOException {
+        Yaml yaml = YamlUtils.createYaml();
+        Map<String, Object> data;
+
+        try (InputStream input = Files.newInputStream(yamlFile)) {
+            data = yaml.load(input);
+        }
+
+        if (data == null) {
+            return false;
+        }
+
+        boolean modified = transformYamlData(data, result, yamlFile.getFileName().toString());
+
+        if (modified && !dryRun) {
+            try (OutputStream output = Files.newOutputStream(yamlFile)) {
+                yaml.dump(data, new OutputStreamWriter(output));
+            }
+        }
+
+        return modified;
+    }
+
+    boolean transformYamlData(Map<String, Object> data, MigrationPhaseResult result, String string) {
+        throw new IllegalStateException("No implemented");
+    }
+
 }

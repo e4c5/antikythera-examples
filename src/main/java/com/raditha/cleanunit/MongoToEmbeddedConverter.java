@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
+import com.raditha.cleanunit.EmbeddedResourceConverter.ConversionResult;
 
 /**
  * Converter for migrating from MongoDB Testcontainers to embedded MongoDB.
@@ -41,7 +42,7 @@ public class MongoToEmbeddedConverter implements EmbeddedResourceConverter {
 
         // Remove MongoDB container fields & @Testcontainers
         if (containerTypes.contains(TestContainerDetector.ContainerType.MONGODB)) {
-            modified |= removeMongoContainerFields(testClass, cu);
+            modified |= removeMongoContainerFields(testClass);
         }
 
         // Add @DataMongoTest annotation for Spring Data MongoDB tests
@@ -63,9 +64,7 @@ public class MongoToEmbeddedConverter implements EmbeddedResourceConverter {
     /**
      * Remove MongoDB container fields and @Testcontainers annotation.
      */
-    private boolean removeMongoContainerFields(ClassOrInterfaceDeclaration testClass, CompilationUnit cu) {
-        boolean modified = false;
-
+    private boolean removeMongoContainerFields(ClassOrInterfaceDeclaration testClass) {
         // Find and remove MongoDB container fields
         List<FieldDeclaration> fieldsToRemove = new ArrayList<>();
         for (FieldDeclaration field : testClass.getFields()) {
@@ -75,26 +74,7 @@ public class MongoToEmbeddedConverter implements EmbeddedResourceConverter {
                 logger.info("Removing MongoDB container field: {}", field.getVariable(0).getNameAsString());
             }
         }
-
-        for (FieldDeclaration field : fieldsToRemove) {
-            field.remove();
-            modified = true;
-        }
-
-        // Remove @Testcontainers if no more containers
-        if (!fieldsToRemove.isEmpty()) {
-            boolean hasRemainingContainers = testClass.getFields().stream()
-                    .anyMatch(f -> f.getAnnotationByName("Container").isPresent());
-
-            if (!hasRemainingContainers) {
-                testClass.getAnnotationByName("Testcontainers").ifPresent(annotation -> {
-                    annotation.remove();
-                    logger.info("Removed @Testcontainers annotation");
-                });
-            }
-        }
-
-        return modified;
+        return EmbeddedResourceConverter.removeFields(testClass, fieldsToRemove);
     }
 
     /**

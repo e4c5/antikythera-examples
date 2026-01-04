@@ -328,10 +328,10 @@ public class SqlScriptPropertiesMigrator extends MigrationPhase {
             }
 
             if (Files.exists(yamlFile)) {
-                addDeferPropertyToYaml(yamlFile, result);
+                addDeferPropertyToYaml(yamlFile);
             } else {
                 // Create new application.yml with the property
-                createYamlWithDeferProperty(resourcesPath.resolve("application.yml"), result);
+                createYamlWithDeferProperty(resourcesPath.resolve("application.yml"));
             }
 
             result.addChange("Added spring.jpa.defer-datasource-initialization=true (JPA + data.sql detected)");
@@ -345,7 +345,7 @@ public class SqlScriptPropertiesMigrator extends MigrationPhase {
     }
 
     @SuppressWarnings("unchecked")
-    private void addDeferPropertyToYaml(Path yamlFile, MigrationPhaseResult result) throws IOException {
+    private void addDeferPropertyToYaml(Path yamlFile) throws IOException {
         Yaml yaml = YamlUtils.createYaml();
         Map<String, Object> data;
 
@@ -381,7 +381,7 @@ public class SqlScriptPropertiesMigrator extends MigrationPhase {
         }
     }
 
-    private void createYamlWithDeferProperty(Path yamlFile, MigrationPhaseResult result) throws IOException {
+    private void createYamlWithDeferProperty(Path yamlFile) throws IOException {
         if (dryRun) {
             return;
         }

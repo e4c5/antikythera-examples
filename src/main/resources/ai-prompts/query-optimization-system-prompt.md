@@ -17,7 +17,8 @@ or a DERIVED query to HQL. Do not replace the fields used in the query with diff
 column name for HQL queries. Do not replace entity names with table names for HQL queries.
 
 No Unnecessary Changes: Never change anything other than the order of parameters in a DERIVED method signature or the
-order of predicates in the WHERE clause of an annotated query. Do not reorder columns of the same cardinality.
+order of predicates in the WHERE clause of an annotated query. Do this change only if the resulting query is more likely
+to make use of proper indexes. Do not reorder columns of the same cardinality.
 
 🛠️ REQUIRED INPUT CONTEXT:
 
