@@ -133,26 +133,22 @@ public class GeminiAIService {
      * Separates system instructions from user query data for better API
      * interaction.
      */
-    String buildRequestPayload(QueryBatch batch) {
-        try {
-            ArrayNode queries = objectMapper.createArrayNode();
+    String buildRequestPayload(QueryBatch batch) throws IOException {
+        ArrayNode queries = objectMapper.createArrayNode();
 
-            for (RepositoryQuery query : batch.getQueries()) {
-                ObjectNode queryNode = queries.addObject();
+        for (RepositoryQuery query : batch.getQueries()) {
+            ObjectNode queryNode = queries.addObject();
 
-                String tableSchemaAndCardinality = buildTableSchemaString(batch, query);
-                String fullMethodSignature = query.getMethodDeclaration().getCallableDeclaration().toString();
-                String queryText = getQueryText(query);
+            String tableSchemaAndCardinality = buildTableSchemaString(batch, query);
+            String fullMethodSignature = query.getMethodDeclaration().getCallableDeclaration().toString();
+            String queryText = getQueryText(query);
 
-                queryNode.put("method", fullMethodSignature);
-                queryNode.put("queryType", query.getQueryType().toString());
-                queryNode.put("queryText", queryText);
-                queryNode.put("tableSchemaAndCardinality", tableSchemaAndCardinality);
-            }
-            return buildGeminiApiRequest(objectMapper.writeValueAsString(queries));
-        } catch (Exception e) {
-            throw new RuntimeException("Error building request payload", e);
+            queryNode.put("method", fullMethodSignature);
+            queryNode.put("queryType", query.getQueryType().toString());
+            queryNode.put("queryText", queryText);
+            queryNode.put("tableSchemaAndCardinality", tableSchemaAndCardinality);
         }
+        return buildGeminiApiRequest(objectMapper.writeValueAsString(queries));
     }
 
     /**
@@ -161,47 +157,43 @@ public class GeminiAIService {
      * content.
      * Enables JSON Mode via responseMimeType to guarantee valid JSON output.
      */
-    String buildGeminiApiRequest(String userQueryData) {
-        try {
-            // Create root node
-            ObjectNode root = objectMapper.createObjectNode();
+    String buildGeminiApiRequest(String userQueryData) throws IOException {
+        // Create root node
+        ObjectNode root = objectMapper.createObjectNode();
 
-            // system_instruction
-            ObjectNode systemInstruction = root.putObject("system_instruction");
-            ArrayNode parts = systemInstruction.putArray("parts");
-            parts.addObject().put("text", systemPrompt);
+        // system_instruction
+        ObjectNode systemInstruction = root.putObject("system_instruction");
+        ArrayNode parts = systemInstruction.putArray("parts");
+        parts.addObject().put("text", systemPrompt);
 
-            // contents
-            ArrayNode contents = root.putArray("contents");
-            ObjectNode content = contents.addObject();
-            content.put("role", "user");
-            ArrayNode contentParts = content.putArray("parts");
-            contentParts.addObject().put("text", userQueryData);
+        // contents
+        ArrayNode contents = root.putArray("contents");
+        ObjectNode content = contents.addObject();
+        content.put("role", "user");
+        ArrayNode contentParts = content.putArray("parts");
+        contentParts.addObject().put("text", userQueryData);
 
-            // generationConfig
-            ObjectNode generationConfig = root.putObject("generationConfig");
-            generationConfig.put("responseMimeType", "application/json");
+        // generationConfig
+        ObjectNode generationConfig = root.putObject("generationConfig");
+        generationConfig.put("responseMimeType", "application/json");
 
-            ObjectNode responseSchema = generationConfig.putObject("responseSchema");
-            responseSchema.put("type", "array");
+        ObjectNode responseSchema = generationConfig.putObject("responseSchema");
+        responseSchema.put("type", "array");
 
-            ObjectNode items = responseSchema.putObject("items");
-            items.put("type", "object");
+        ObjectNode items = responseSchema.putObject("items");
+        items.put("type", "object");
 
-            ObjectNode properties = items.putObject("properties");
-            properties.putObject("originalMethod").put("type", "string");
-            properties.putObject("optimizedCodeElement").put("type", "string");
-            properties.putObject("notes").put("type", "string");
+        ObjectNode properties = items.putObject("properties");
+        properties.putObject("originalMethod").put("type", "string");
+        properties.putObject("optimizedCodeElement").put("type", "string");
+        properties.putObject("notes").put("type", "string");
 
-            ArrayNode required = items.putArray("required");
-            required.add("originalMethod");
-            required.add("optimizedCodeElement");
-            required.add("notes");
+        ArrayNode required = items.putArray("required");
+        required.add("originalMethod");
+        required.add("optimizedCodeElement");
+        required.add("notes");
 
-            return objectMapper.writeValueAsString(root);
-        } catch (Exception e) {
-            throw new RuntimeException("Error building Gemini API request", e);
-        }
+        return objectMapper.writeValueAsString(root);
     }
 
     /**
