@@ -162,9 +162,9 @@ public class ActuatorInfoMigrator extends AbstractConfigMigrator {
         }
 
         if (Files.exists(yamlFile)) {
-            addExposureToExistingYaml(yamlFile, result);
+            addExposureToExistingYaml(yamlFile);
         } else {
-            createYamlWithExposure(resourcesPath.resolve("application.yml"), result);
+            createYamlWithExposure(resourcesPath.resolve("application.yml"));
         }
 
         result.addChange("Added management.endpoints.web.exposure.include=info");
@@ -172,7 +172,7 @@ public class ActuatorInfoMigrator extends AbstractConfigMigrator {
     }
 
     @SuppressWarnings("unchecked")
-    private void addExposureToExistingYaml(Path yamlFile, MigrationPhaseResult result) throws IOException {
+    private void addExposureToExistingYaml(Path yamlFile) throws IOException {
         Yaml yaml = YamlUtils.createYaml();
         Map<String, Object> data;
 
@@ -231,7 +231,7 @@ public class ActuatorInfoMigrator extends AbstractConfigMigrator {
         }
     }
 
-    private void createYamlWithExposure(Path yamlFile, MigrationPhaseResult result) throws IOException {
+    private void createYamlWithExposure(Path yamlFile) throws IOException {
         if (dryRun) {
             return;
         }

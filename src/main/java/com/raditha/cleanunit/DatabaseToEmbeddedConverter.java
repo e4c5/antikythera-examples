@@ -99,7 +99,7 @@ public class DatabaseToEmbeddedConverter implements EmbeddedResourceConverter {
     /**
      * Remove @Testcontainers annotation if no containers remain.
      */
-    private boolean removeTestcontainersAnnotation(ClassOrInterfaceDeclaration testClass) {
+    protected boolean removeTestcontainersAnnotation(ClassOrInterfaceDeclaration testClass) {
         if (!hasContainerFields(testClass)) {
             testClass.getAnnotationByName("Testcontainers").ifPresent(annotation -> {
                 annotation.remove();
