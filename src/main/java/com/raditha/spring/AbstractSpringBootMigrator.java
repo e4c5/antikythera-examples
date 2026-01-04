@@ -206,6 +206,14 @@ public abstract class AbstractSpringBootMigrator {
         System.out.println(result.getSummary());
     }
 
+    /**
+     * Print a summary of the migration results.
+     * Delegates to base class implementation.
+     */
+    public void printReport() {
+        printSummary();
+    }
+
     // ==================== Hook Methods - Subclasses Must Implement
     // ====================
 

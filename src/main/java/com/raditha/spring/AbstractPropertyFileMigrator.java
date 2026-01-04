@@ -340,23 +340,11 @@ public abstract class AbstractPropertyFileMigrator extends MigrationPhase {
     /**
      * Represents a property mapping from old key to new key with transformation
      * type.
+     *
+     * @param newKey New property key
+     * @param type   Type of transformation needed
      */
-    protected static class PropertyMapping {
-        /** New property key */
-        public final String newKey;
-        /** Type of transformation needed */
-        public final TransformationType type;
-
-        /**
-         * Create a property mapping.
-         * 
-         * @param newKey new property key
-         * @param type   transformation type
-         */
-        public PropertyMapping(String newKey, TransformationType type) {
-            this.newKey = newKey;
-            this.type = type;
-        }
+    protected record PropertyMapping(String newKey, TransformationType type) {
     }
 
     /**

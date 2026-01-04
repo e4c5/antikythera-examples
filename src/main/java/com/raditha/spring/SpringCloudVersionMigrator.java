@@ -4,8 +4,6 @@ import org.apache.maven.model.Dependency;
 import org.apache.maven.model.Model;
 import sa.com.cloudsolutions.antikythera.parser.MavenHelper;
 
-import java.nio.file.Path;
-
 /**
  * Validates Spring Cloud version compatibility with Spring Boot 2.3.
  * 

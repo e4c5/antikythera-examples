@@ -94,36 +94,10 @@ public class Neo4jPropertyMigrator extends AbstractConfigMigrator {
     }
 
     /**
-     * Migrate Neo4j properties in a YAML file.
-     */
-    private boolean migrateYamlFile(Path yamlFile, MigrationPhaseResult result) throws IOException {
-        Yaml yaml = YamlUtils.createYaml();
-        Map<String, Object> data;
-
-        try (InputStream input = Files.newInputStream(yamlFile)) {
-            data = yaml.load(input);
-        }
-
-        if (data == null) {
-            return false;
-        }
-
-        boolean modified = transformYamlData(data, result, yamlFile.getFileName().toString());
-
-        if (modified && !dryRun) {
-            try (OutputStream output = Files.newOutputStream(yamlFile)) {
-                yaml.dump(data, new OutputStreamWriter(output));
-            }
-        }
-
-        return modified;
-    }
-
-    /**
      * Transform Neo4j properties in YAML data.
      */
     @SuppressWarnings("unchecked")
-    private boolean transformYamlData(Map<String, Object> data, MigrationPhaseResult result, String fileName) {
+    protected boolean transformYamlData(Map<String, Object> data, MigrationPhaseResult result, String fileName) {
         boolean modified = false;
 
         if (!data.containsKey("spring")) {
