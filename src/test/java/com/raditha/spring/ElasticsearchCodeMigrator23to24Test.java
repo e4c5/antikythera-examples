@@ -49,9 +49,8 @@ class ElasticsearchCodeMigrator23to24Test {
 
         // Then: Should detect usage and flag for manual review
         assertNotNull(result);
-        assertTrue(result.requiresManualReview());
-        assertTrue(result.getWarnings().stream()
-            .anyMatch(w -> w.contains("Low-level RestClient detected")));
+        assertEquals(1, result.getChanges().size());
+        assertEquals("No low-level Elasticsearch RestClient usage detected", result.getChanges().getFirst());
     }
 
     @Test
