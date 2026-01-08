@@ -49,25 +49,23 @@ public class HibernateCodeMigrator extends MigrationPhase {
             CompilationUnit cu = entry.getValue();
 
             // Find @TypeDef annotations
-            List<AnnotationExpr> annotations = cu.findAll(AnnotationExpr.class);
+            List<AnnotationExpr> annotations = cu.findAll(AnnotationExpr.class,
+                    ann -> ann.getNameAsString().equals("TypeDef") ||
+                            ann.getNameAsString().equals("org.hibernate.annotations.TypeDef"));
             boolean classHasTypeDef = false;
 
             for (AnnotationExpr annotation : annotations) {
-                if (annotation.getNameAsString().equals("TypeDef") ||
-                        annotation.getNameAsString().equals("org.hibernate.annotations.TypeDef")) {
+                typeDefCount++;
+                classHasTypeDef = true;
 
-                    typeDefCount++;
-                    classHasTypeDef = true;
-                    
-                    // Extract type name from @TypeDef
-                    String typeName = extractTypeDefName(annotation);
-                    if (typeName != null && !dryRun) {
-                        String converterClassName = generateAttributeConverter(className, typeName, result);
-                        generatedConverters.add(converterClassName);
-                        result.addChange(className + ": Generated AttributeConverter stub for @TypeDef(name=\"" + typeName + "\")");
-                    } else if (dryRun) {
-                        result.addChange(className + ": Would generate AttributeConverter for @TypeDef(name=\"" + typeName + "\")");
-                    }
+                // Extract type name from @TypeDef
+                String typeName = extractTypeDefName(annotation);
+                if (typeName != null && !dryRun) {
+                    String converterClassName = generateAttributeConverter(className, typeName);
+                    generatedConverters.add(converterClassName);
+                    result.addChange(className + ": Generated AttributeConverter stub for @TypeDef(name=\"" + typeName + "\")");
+                } else if (dryRun) {
+                    result.addChange(className + ": Would generate AttributeConverter for @TypeDef(name=\"" + typeName + "\")");
                 }
             }
 
@@ -128,7 +126,7 @@ public class HibernateCodeMigrator extends MigrationPhase {
     /**
      * Generate an AttributeConverter stub class.
      */
-    private String generateAttributeConverter(String entityClassName, String typeName, MigrationPhaseResult result) throws IOException {
+    private String generateAttributeConverter(String entityClassName, String typeName) throws IOException {
         // Determine package and converter name
         String packageName = entityClassName.contains(".") ? 
             entityClassName.substring(0, entityClassName.lastIndexOf(".")) : "";
