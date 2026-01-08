@@ -42,8 +42,7 @@ public class TestAnnotationMigrator {
         if (testAnnotation.get() instanceof SingleMemberAnnotationExpr) {
             // This is @Test(value) which is not valid JUnit 4 syntax, skip
             return false;
-        } else if (testAnnotation.get() instanceof NormalAnnotationExpr) {
-            NormalAnnotationExpr normalAnnotation = (NormalAnnotationExpr) testAnnotation.get();
+        } else if (testAnnotation.get() instanceof NormalAnnotationExpr normalAnnotation) {
 
             // Check for 'expected' parameter
             Optional<MemberValuePair> expectedParam = normalAnnotation.getPairs().stream()
@@ -51,9 +50,7 @@ public class TestAnnotationMigrator {
                     .findFirst();
 
             if (expectedParam.isPresent()) {
-                if (convertExpectedException(method, normalAnnotation, expectedParam.get())) {
-                    modified = true;
-                }
+                modified = convertExpectedException(method, normalAnnotation, expectedParam.get());
             }
 
             // Check for 'timeout' parameter
@@ -62,9 +59,7 @@ public class TestAnnotationMigrator {
                     .findFirst();
 
             if (timeoutParam.isPresent()) {
-                if (convertTimeout(method, normalAnnotation, timeoutParam.get())) {
-                    modified = true;
-                }
+                modified = convertTimeout(method, normalAnnotation, timeoutParam.get());
             }
 
             // If all parameters were removed, convert to simple @Test
@@ -84,50 +79,48 @@ public class TestAnnotationMigrator {
             MemberValuePair expectedParam) {
         // Extract exception class
         Expression exceptionClassExpr = expectedParam.getValue();
-        if (!(exceptionClassExpr instanceof ClassExpr)) {
-            logger.warn("Unexpected expected parameter format in method: {}", method.getNameAsString());
-            return false;
+        if (exceptionClassExpr instanceof ClassExpr classExpr) {
+
+            ClassOrInterfaceType exceptionType = (ClassOrInterfaceType) classExpr.getType();
+
+            // Get method body
+            Optional<BlockStmt> bodyOpt = method.getBody();
+            if (bodyOpt.isEmpty()) {
+                logger.warn("Test method {} has no body", method.getNameAsString());
+                return false;
+            }
+
+            BlockStmt body = bodyOpt.get();
+
+            // Create assertThrows wrapper
+            MethodCallExpr assertThrows = new MethodCallExpr("assertThrows");
+            assertThrows.addArgument(new ClassExpr(exceptionType));
+
+            // Create lambda with original body
+            LambdaExpr lambda = new LambdaExpr();
+            lambda.setEnclosingParameters(true);
+
+            // Clone the body for the lambda (removing any try-catch that just rethrows)
+            BlockStmt lambdaBody = cleanBodyForAssertThrows(body.clone(), exceptionType.getNameAsString());
+            lambda.setBody(lambdaBody);
+
+            assertThrows.addArgument(lambda);
+
+            // Replace method body with assertThrows call
+            BlockStmt newBody = new BlockStmt();
+            newBody.addStatement(new ExpressionStmt(assertThrows));
+            method.setBody(newBody);
+
+            // Remove 'expected' parameter from annotation
+            testAnnotation.getPairs().remove(expectedParam);
+
+            conversions.add("@Test(expected=" + exceptionType.getNameAsString() + ".class) → assertThrows() in " +
+                    method.getNameAsString());
+
+            return true;
         }
-
-        ClassExpr classExpr = (ClassExpr) exceptionClassExpr;
-        ClassOrInterfaceType exceptionType = (ClassOrInterfaceType) classExpr.getType();
-
-        // Get method body
-        Optional<BlockStmt> bodyOpt = method.getBody();
-        if (bodyOpt.isEmpty()) {
-            logger.warn("Test method {} has no body", method.getNameAsString());
-            return false;
-        }
-
-        BlockStmt body = bodyOpt.get();
-
-        // Create assertThrows wrapper
-        // assertThrows(ExceptionClass.class, () -> { original body });
-        MethodCallExpr assertThrows = new MethodCallExpr("assertThrows");
-        assertThrows.addArgument(new ClassExpr(exceptionType));
-
-        // Create lambda with original body
-        LambdaExpr lambda = new LambdaExpr();
-        lambda.setEnclosingParameters(true);
-
-        // Clone the body for the lambda (removing any try-catch that just rethrows)
-        BlockStmt lambdaBody = cleanBodyForAssertThrows(body.clone(), exceptionType.getNameAsString());
-        lambda.setBody(lambdaBody);
-
-        assertThrows.addArgument(lambda);
-
-        // Replace method body with assertThrows call
-        BlockStmt newBody = new BlockStmt();
-        newBody.addStatement(new ExpressionStmt(assertThrows));
-        method.setBody(newBody);
-
-        // Remove 'expected' parameter from annotation
-        testAnnotation.getPairs().remove(expectedParam);
-
-        conversions.add("@Test(expected=" + exceptionType.getNameAsString() + ".class) → assertThrows() in " +
-                method.getNameAsString());
-
-        return true;
+        throw new IllegalArgumentException(
+                "Expected parameter is not a class expression in method " + method.getNameAsString());
     }
 
     /**
