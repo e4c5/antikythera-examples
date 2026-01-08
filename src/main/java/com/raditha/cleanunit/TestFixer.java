@@ -9,6 +9,9 @@ import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import com.github.javaparser.printer.lexicalpreservation.LexicalPreservingPrinter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import picocli.CommandLine;
+import picocli.CommandLine.Command;
+import picocli.CommandLine.Option;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
@@ -21,17 +24,46 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.Callable;
 
+@Command(name = "test-fixer", mixinStandardHelpOptions = true,
+        version = "TestFixer v1.0",
+        description = "Refactors tests, converts embedded resources, and optionally migrates JUnit 4→5")
 @SuppressWarnings("java:S106")
-public class TestFixer {
+public class TestFixer implements Callable<Integer> {
     private static final Logger logger = LoggerFactory.getLogger(TestFixer.class);
     private static boolean dryRun = false;
     private static boolean refactor = false;
     private static boolean convertEmbedded = false;
     private static boolean migrate425 = false;
 
+    // CLI options
+    @Option(names = "--dry-run", description = "Run without modifying files")
+    private boolean cliDryRun;
+
+    @Option(names = "--refactor", description = "Enable general test refactoring")
+    private boolean cliRefactor;
+
+    @Option(names = "--convert-embedded", description = "Convert embedded resources to alternatives")
+    private boolean cliConvertEmbedded;
+
+    @Option(names = "--425", description = "Enable JUnit 4 to 5 migration")
+    private boolean cliMigrate425;
+
     public static void main(String[] args) throws Exception {
-        detectArguments(args);
+        int exitCode = new CommandLine(new TestFixer()).execute(args);
+        if (exitCode != 0) {
+            System.exit(exitCode);
+        }
+    }
+
+    @Override
+    public Integer call() throws Exception {
+        // Map CLI options to static flags to preserve existing implementation
+        dryRun = cliDryRun;
+        refactor = cliRefactor;
+        convertEmbedded = cliConvertEmbedded;
+        migrate425 = cliMigrate425;
 
         Settings.loadConfigMap();
         AbstractCompiler.preProcess();
@@ -81,6 +113,7 @@ public class TestFixer {
         }
 
         displayStats(outcomes, conversionOutcomes, migrationOutcomes, migrator);
+        return 0;
     }
 
     private static void displayStats(List<TestRefactorer.RefactorOutcome> outcomes,
