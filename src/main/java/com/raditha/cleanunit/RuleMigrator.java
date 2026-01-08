@@ -36,13 +36,31 @@ public class RuleMigrator {
     public boolean migrate(ClassOrInterfaceDeclaration testClass, CompilationUnit cu) {
         conversions.clear();
         requiredImports.clear();
-        boolean modified = false;
 
         // Find all fields with @Rule or @ClassRule
-        List<FieldDeclaration> fields = testClass.getFields();
         List<FieldDeclaration> rulesToRemove = new ArrayList<>();
 
-        for (FieldDeclaration field : fields) {
+        boolean modified =  migrateFields(testClass, rulesToRemove);
+
+        // Remove converted rule fields
+        for (FieldDeclaration field : rulesToRemove) {
+            testClass.remove(field);
+        }
+
+        // Add required imports
+        for (String importStr : requiredImports) {
+            if (!hasImport(cu, importStr)) {
+                cu.addImport(importStr);
+            }
+        }
+
+        return modified;
+    }
+
+    private boolean migrateFields(ClassOrInterfaceDeclaration testClass,  List<FieldDeclaration> rulesToRemove) {
+        boolean modified = false;
+
+        for (FieldDeclaration field : testClass.getFields()) {
             if (hasRuleAnnotation(field)) {
                 String ruleType = getRuleType(field);
 
@@ -72,19 +90,6 @@ public class RuleMigrator {
                 }
             }
         }
-
-        // Remove converted rule fields
-        for (FieldDeclaration field : rulesToRemove) {
-            testClass.remove(field);
-        }
-
-        // Add required imports
-        for (String importStr : requiredImports) {
-            if (!hasImport(cu, importStr)) {
-                cu.addImport(importStr);
-            }
-        }
-
         return modified;
     }
 
