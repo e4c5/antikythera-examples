@@ -6,6 +6,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.raditha.cleanunit.TestRefactorer;
 import com.raditha.cleanunit.TestRefactoringStrategy;
+import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
 
 import java.util.Set;
 
@@ -563,7 +564,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
     }
 
     protected void injectValueFields(ClassOrInterfaceDeclaration decl, String sutClassName, String sutFieldName) {
-        java.util.Optional<sa.com.cloudsolutions.antikythera.generator.TypeWrapper> sutType = java.util.Optional
+        java.util.Optional<TypeWrapper> sutType = java.util.Optional
                 .ofNullable(sa.com.cloudsolutions.antikythera.parser.AbstractCompiler.findType(currentCu,
                         new com.github.javaparser.ast.type.ClassOrInterfaceType(null, sutClassName)));
 
