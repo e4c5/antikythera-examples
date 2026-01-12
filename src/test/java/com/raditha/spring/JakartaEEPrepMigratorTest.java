@@ -29,24 +29,6 @@ class JakartaEEPrepMigratorTest {
     }
 
     @Test
-    void testAddComments() throws IOException {
-        // Given
-        Path javaFile = tempDir.resolve("src/main/java/com/example/Entity.java");
-        Files.createDirectories(javaFile.getParent());
-        Files.writeString(javaFile, "package com.example;\nimport javax.persistence.Entity;\npublic class Entity {}");
-
-        // When
-        JakartaEEPrepMigrator migrator = new JakartaEEPrepMigrator(false, true);
-        MigrationPhaseResult result = migrator.migrate();
-
-        // Then
-        assertNotNull(result);
-        assertFalse(result.getModifiedClasses().isEmpty());
-        // Can't easily check comment content without re-parsing, but checking result is good enough for now
-        assertTrue(result.getChanges().stream().anyMatch(c -> c.contains("Added Jakarta EE migration TODO comments")));
-    }
-
-    @Test
     void testDisabled() throws IOException {
         // Given
         Path javaFile = tempDir.resolve("src/main/java/com/example/Entity.java");

@@ -21,7 +21,7 @@
         <dependency>
             <groupId>sa.com.cloudsolutions</groupId>
             <artifactId>antikythera</artifactId>
-            <version>0.1.2.7</version>
+            <version>0.1.2.9</version>
             <exclusions>
                 <exclusion>
                     <groupId>ch.qos.logback</groupId>

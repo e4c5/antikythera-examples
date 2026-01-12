@@ -49,7 +49,7 @@ class HardDeleteTest {
     void testNoHardDeleteDetection() {
         TypeDeclaration<?> decl = AntikytheraRunTime.getTypeDeclaration(
                 "sa.com.cloudsolutions.antikythera.testhelper.repository.FakeRepository").orElseThrow();
-        MethodDeclaration method = decl.getMethodsByName("deleteByNothing").get(0);
+        MethodDeclaration method = decl.getMethodsByName("deleteByNothing").getFirst();
         NodeList<AnnotationExpr> ann = method.getAnnotations();
         method.setAnnotations(new NodeList<>());
         HardDelete.detectHardDeletes();

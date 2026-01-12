@@ -6,7 +6,7 @@ variables:
   m2_folder: ${HOME}/.m2/repository
 
 # Points to the testbed project with intentional cycles
-base_path: /home/raditha/csi/Antikythera/spring-boot-cycles/src/main/java
+base_path: testbeds/spring-boot-cycles/src/main/java
 
 # The top level package for the testbed
 base_package: com.example.cycles

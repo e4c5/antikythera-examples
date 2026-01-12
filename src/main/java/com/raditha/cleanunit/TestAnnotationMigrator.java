@@ -3,8 +3,14 @@ package com.raditha.cleanunit;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.*;
 import com.github.javaparser.ast.stmt.BlockStmt;
+import com.github.javaparser.ast.stmt.CatchClause;
 import com.github.javaparser.ast.stmt.ExpressionStmt;
+import com.github.javaparser.ast.stmt.Statement;
+import com.github.javaparser.ast.stmt.ThrowStmt;
+import com.github.javaparser.ast.stmt.TryStmt;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
+import com.github.javaparser.ast.type.Type;
+import com.github.javaparser.ast.type.UnionType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -42,8 +48,7 @@ public class TestAnnotationMigrator {
         if (testAnnotation.get() instanceof SingleMemberAnnotationExpr) {
             // This is @Test(value) which is not valid JUnit 4 syntax, skip
             return false;
-        } else if (testAnnotation.get() instanceof NormalAnnotationExpr) {
-            NormalAnnotationExpr normalAnnotation = (NormalAnnotationExpr) testAnnotation.get();
+        } else if (testAnnotation.get() instanceof NormalAnnotationExpr normalAnnotation) {
 
             // Check for 'expected' parameter
             Optional<MemberValuePair> expectedParam = normalAnnotation.getPairs().stream()
@@ -51,9 +56,7 @@ public class TestAnnotationMigrator {
                     .findFirst();
 
             if (expectedParam.isPresent()) {
-                if (convertExpectedException(method, normalAnnotation, expectedParam.get())) {
-                    modified = true;
-                }
+                modified = convertExpectedException(method, normalAnnotation, expectedParam.get());
             }
 
             // Check for 'timeout' parameter
@@ -62,9 +65,7 @@ public class TestAnnotationMigrator {
                     .findFirst();
 
             if (timeoutParam.isPresent()) {
-                if (convertTimeout(method, normalAnnotation, timeoutParam.get())) {
-                    modified = true;
-                }
+                modified = convertTimeout(method, normalAnnotation, timeoutParam.get());
             }
 
             // If all parameters were removed, convert to simple @Test
@@ -84,25 +85,26 @@ public class TestAnnotationMigrator {
             MemberValuePair expectedParam) {
         // Extract exception class
         Expression exceptionClassExpr = expectedParam.getValue();
-        if (!(exceptionClassExpr instanceof ClassExpr)) {
-            logger.warn("Unexpected expected parameter format in method: {}", method.getNameAsString());
-            return false;
+        if (exceptionClassExpr instanceof ClassExpr classExpr) {
+            return convertExpectedException(method, testAnnotation, expectedParam, classExpr);
         }
+        throw new IllegalArgumentException(
+                "Expected parameter is not a class expression in method " + method.getNameAsString());
+    }
 
-        ClassExpr classExpr = (ClassExpr) exceptionClassExpr;
+    private boolean convertExpectedException(MethodDeclaration method, NormalAnnotationExpr testAnnotation, MemberValuePair expectedParam, ClassExpr classExpr) {
         ClassOrInterfaceType exceptionType = (ClassOrInterfaceType) classExpr.getType();
 
         // Get method body
         Optional<BlockStmt> bodyOpt = method.getBody();
         if (bodyOpt.isEmpty()) {
             logger.warn("Test method {} has no body", method.getNameAsString());
-            return false;
+            return true;
         }
 
         BlockStmt body = bodyOpt.get();
 
         // Create assertThrows wrapper
-        // assertThrows(ExceptionClass.class, () -> { original body });
         MethodCallExpr assertThrows = new MethodCallExpr("assertThrows");
         assertThrows.addArgument(new ClassExpr(exceptionType));
 
@@ -126,7 +128,6 @@ public class TestAnnotationMigrator {
 
         conversions.add("@Test(expected=" + exceptionType.getNameAsString() + ".class) → assertThrows() in " +
                 method.getNameAsString());
-
         return true;
     }
 
@@ -142,11 +143,73 @@ public class TestAnnotationMigrator {
      * }
      */
     private BlockStmt cleanBodyForAssertThrows(BlockStmt body, String expectedExceptionName) {
-        // For now, return the body as-is
-        // In a more sophisticated implementation, we would parse try-catch blocks
-        // and extract only the try portion if the catch just rethrows
-        // This is complex and would require additional AST analysis
+        // Iteratively unwrap top-level try-catch that only rethrows the expected exception
+        boolean unwrapped = true;
+        while (unwrapped) {
+            unwrapped = false;
+            if (body.getStatements().size() == 1) {
+                Statement only = body.getStatement(0);
+                if (only.isTryStmt()) {
+                    TryStmt tryStmt = only.asTryStmt();
+                    // Do not modify if there is a finally block
+                    if (tryStmt.getFinallyBlock().isPresent()) {
+                        break;
+                    }
+
+                    // Find a catch that matches expected exception and simply rethrows the caught var
+                    Optional<CatchClause> matching = tryStmt.getCatchClauses().stream()
+                            .filter(c -> catchMatchesExpected(c, expectedExceptionName) && isSimpleRethrow(c))
+                            .findFirst();
+
+                    if (matching.isPresent()) {
+                        // Unwrap: keep the try block content
+                        body = tryStmt.getTryBlock().clone();
+                        unwrapped = true; // continue in case of nested wrapping
+                    }
+                }
+            }
+        }
         return body;
+    }
+
+    private boolean catchMatchesExpected(CatchClause catchClause, String expectedSimpleName) {
+        Type t = catchClause.getParameter().getType();
+        if (t.isUnionType()) {
+            UnionType ut = t.asUnionType();
+            return ut.getElements().stream().anyMatch(elem -> typeSimpleNameEquals(elem, expectedSimpleName));
+        }
+        return typeSimpleNameEquals(t, expectedSimpleName);
+    }
+
+    private boolean typeSimpleNameEquals(Type type, String expectedSimpleName) {
+        if (type.isClassOrInterfaceType()) {
+            String simple = type.asClassOrInterfaceType().getName().asString();
+            return simple.equals(expectedSimpleName);
+        }
+        // Fallback: compare toString simple form
+        return type.asString().endsWith("." + expectedSimpleName) || type.asString().equals(expectedSimpleName);
+    }
+
+    private boolean isSimpleRethrow(CatchClause catchClause) {
+        String paramName = catchClause.getParameter().getNameAsString();
+        List<Statement> stmts = catchClause.getBody().getStatements();
+        if (stmts.isEmpty()) return false;
+        // Allow assertions or other expressions before the final throw
+        // Require that the last statement is `throw <paramName>;`
+        Statement last = stmts.getLast();
+        if (!(last.isThrowStmt())) return false;
+        ThrowStmt throwStmt = last.asThrowStmt();
+        Expression thrown = throwStmt.getExpression();
+        if (!(thrown instanceof NameExpr nameExpr)) return false;
+        if (!nameExpr.getNameAsString().equals(paramName)) return false;
+        // If there are preceding throw statements or returns, reject (we only allow expression statements)
+        for (int i = 0; i < stmts.size() - 1; i++) {
+            Statement s = stmts.get(i);
+            if (!(s.isExpressionStmt())) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**

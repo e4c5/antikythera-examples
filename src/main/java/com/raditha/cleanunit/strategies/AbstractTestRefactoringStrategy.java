@@ -6,6 +6,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.raditha.cleanunit.TestRefactorer;
 import com.raditha.cleanunit.TestRefactoringStrategy;
+import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
 
 import java.util.Set;
 
@@ -41,6 +42,8 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
             JSON_TEST,
             GRAPH_QL_TEST
     };
+    public static final String SPRING_BOOT_TEST_FQN = "org.springframework.boot.test.context.SpringBootTest";
+    public static final String ALREADY_OPTIMAL = "Already optimal";
 
     protected CompilationUnit currentCu;
 
@@ -86,8 +89,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                 outcome.newAnnotation = "@SpringBootTest(webEnvironment = RANDOM_PORT)";
                 outcome.reason = "Requires running server (TestRestTemplate/LocalServerPort)";
                 logger.info("Reverting {} to @SpringBootTest (Requires running server)", className);
-                modified = replaceAnnotation(decl, currentAnnotation, SPRING_BOOT_TEST,
-                        "org.springframework.boot.test.context.SpringBootTest");
+                modified = replaceAnnotation(decl, currentAnnotation, SPRING_BOOT_TEST,SPRING_BOOT_TEST_FQN);
                 addRandomPortConfig(decl);
             } else {
                 outcome.action = "KEPT";
@@ -115,7 +117,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                 } else {
                     outcome.action = "KEPT";
                     outcome.newAnnotation = "@DataJpaTest";
-                    outcome.reason = "Already optimal";
+                    outcome.reason = ALREADY_OPTIMAL;
                 }
                 // JDBC slice
             } else if (isOnlyResource(resources, TestRefactorer.ResourceType.JDBC)) {
@@ -129,7 +131,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                 } else {
                     outcome.action = "KEPT";
                     outcome.newAnnotation = "@JdbcTest";
-                    outcome.reason = "Already optimal";
+                    outcome.reason = ALREADY_OPTIMAL;
                 }
                 // Web MVC slice (JSON allowed)
             } else if (resources.contains(TestRefactorer.ResourceType.WEB)
@@ -149,7 +151,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                 } else {
                     outcome.action = "KEPT";
                     outcome.newAnnotation = "@WebMvcTest";
-                    outcome.reason = "Already optimal";
+                    outcome.reason = ALREADY_OPTIMAL;
                 }
                 // WebFlux slice
             } else if (isOnlyResource(resources, TestRefactorer.ResourceType.WEBFLUX)) {
@@ -163,7 +165,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                 } else {
                     outcome.action = "KEPT";
                     outcome.newAnnotation = "@WebFluxTest";
-                    outcome.reason = "Already optimal";
+                    outcome.reason = ALREADY_OPTIMAL;
                 }
                 // REST client slice
             } else if (isOnlyResource(resources, TestRefactorer.ResourceType.REST_CLIENT)) {
@@ -177,7 +179,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                 } else {
                     outcome.action = "KEPT";
                     outcome.newAnnotation = "@RestClientTest";
-                    outcome.reason = "Already optimal";
+                    outcome.reason = ALREADY_OPTIMAL;
                 }
                 // JSON slice
             } else if (isOnlyResource(resources, TestRefactorer.ResourceType.JSON)) {
@@ -191,7 +193,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                 } else {
                     outcome.action = "KEPT";
                     outcome.newAnnotation = "@JsonTest";
-                    outcome.reason = "Already optimal";
+                    outcome.reason = ALREADY_OPTIMAL;
                 }
                 // GraphQL slice
             } else if (isOnlyResource(resources, TestRefactorer.ResourceType.GRAPHQL)) {
@@ -205,7 +207,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                 } else {
                     outcome.action = "KEPT";
                     outcome.newAnnotation = "@GraphQlTest";
-                    outcome.reason = "Already optimal";
+                    outcome.reason = ALREADY_OPTIMAL;
                 }
             } else {
                 if (!SPRING_BOOT_TEST.equals(currentAnnotation)) {
@@ -214,7 +216,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                     outcome.reason = "Complex resources found: " + resources;
                     logger.info("Reverting {} to @SpringBootTest (Complex resources found)", className);
                     modified = replaceAnnotation(decl, currentAnnotation, SPRING_BOOT_TEST,
-                            "org.springframework.boot.test.context.SpringBootTest");
+                            SPRING_BOOT_TEST_FQN);
                 } else {
                     outcome.action = "KEPT";
                     outcome.newAnnotation = "@SpringBootTest";
@@ -229,7 +231,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
                 outcome.reason = "Slice tests not supported (version/deps)";
                 logger.info("Reverting {} to @SpringBootTest (Slice tests not supported)", className);
                 modified = replaceAnnotation(decl, currentAnnotation, SPRING_BOOT_TEST,
-                        "org.springframework.boot.test.context.SpringBootTest");
+                        SPRING_BOOT_TEST_FQN);
             } else {
                 outcome.action = "KEPT";
                 outcome.newAnnotation = "@SpringBootTest";
@@ -259,7 +261,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
         return compareVersions(springBootVersion, version) >= 0;
     }
 
-    private int compareVersions(String v1, String v2) {
+    public static int compareVersions(String v1, String v2) {
         if (v1 == null)
             return -1;
         if (v2 == null)
@@ -277,7 +279,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
         return 0;
     }
 
-    private int parseVersionPart(String part) {
+    private static int parseVersionPart(String part) {
         try {
             return Integer.parseInt(part.replaceAll("[^0-9]", ""));
         } catch (NumberFormatException e) {
@@ -563,7 +565,7 @@ public abstract class AbstractTestRefactoringStrategy implements TestRefactoring
     }
 
     protected void injectValueFields(ClassOrInterfaceDeclaration decl, String sutClassName, String sutFieldName) {
-        java.util.Optional<sa.com.cloudsolutions.antikythera.generator.TypeWrapper> sutType = java.util.Optional
+        java.util.Optional<TypeWrapper> sutType = java.util.Optional
                 .ofNullable(sa.com.cloudsolutions.antikythera.parser.AbstractCompiler.findType(currentCu,
                         new com.github.javaparser.ast.type.ClassOrInterfaceType(null, sutClassName)));
 
