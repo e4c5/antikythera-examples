@@ -1,0 +1,21 @@
+# Test configuration for HibernateCodeMigrator typedef coverage
+variables:
+  projects_folder: ..
+  m2_folder: ${HOME}/.m2/repository
+
+# Point to the in-repo hb-samples project root used in tests
+base_path: src/test/resources/hb-samples
+
+# Optional but required by loader
+base_package: com.example
+
+# Unused here but required keys in some flows
+output_path: /tmp/antikythera-examples-test
+
+dependencies:
+  on_error: log
+
+log_level: INFO
+ai_service:
+  api_key: test-api-key
+  model: gemini-1.5-pro

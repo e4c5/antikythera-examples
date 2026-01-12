@@ -2,6 +2,7 @@ package com.raditha.cleanunit;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.raditha.cleanunit.strategies.AbstractTestRefactoringStrategy;
 import org.apache.maven.model.Dependency;
 import org.apache.maven.model.Model;
 import org.codehaus.plexus.util.xml.pull.XmlPullParserException;
@@ -120,8 +121,8 @@ public class TestRefactorer {
     }
 
     private void inferMockitoVersion() {
-        if (compareVersions(springBootVersion, "2.0.0") < 0) {
-            if (!isMockito1 && compareVersions(springBootVersion, "1.0.0") > 0) {
+        if (AbstractTestRefactoringStrategy.compareVersions(springBootVersion, "2.0.0") < 0) {
+            if (!isMockito1 && AbstractTestRefactoringStrategy.compareVersions(springBootVersion, "1.0.0") > 0) {
                 isMockito1 = true;
                 logger.debug("Inferred Mockito 1.x from Spring Boot version");
             }
@@ -129,7 +130,7 @@ public class TestRefactorer {
     }
 
     private void ensureSliceTestSupport(Model model, java.io.File pomFile) throws IOException {
-        if (!hasSliceTestSupport && compareVersions(springBootVersion, "2.0.0") >= 0) {
+        if (!hasSliceTestSupport && AbstractTestRefactoringStrategy.compareVersions(springBootVersion, "2.0.0") >= 0) {
             logger.info("Slice test support missing. Adding spring-boot-starter-test dependency...");
             addDependencyToPom(model, pomFile);
             hasSliceTestSupport = true;
@@ -149,7 +150,7 @@ public class TestRefactorer {
         boolean needsUpdate = false;
         String updateReason = "";
 
-        if (compareVersions(testAutoConfigureVersion, "1.4.1") < 0) {
+        if (AbstractTestRefactoringStrategy.compareVersions(testAutoConfigureVersion, "1.4.1") < 0) {
             needsUpdate = true;
             updateReason = "Version " + testAutoConfigureVersion
                     + " is too old (< 1.4.1) and missing EmbeddedDatabaseConnection class";
@@ -249,32 +250,6 @@ public class TestRefactorer {
             }
         }
         return version;
-    }
-
-    private int compareVersions(String v1, String v2) {
-        if (v1 == null)
-            return -1;
-        if (v2 == null)
-            return 1;
-        String[] parts1 = v1.split("\\.");
-        String[] parts2 = v2.split("\\.");
-        int length = Math.max(parts1.length, parts2.length);
-        for (int i = 0; i < length; i++) {
-            int part1 = i < parts1.length ? parseVersionPart(parts1[i]) : 0;
-            int part2 = i < parts2.length ? parseVersionPart(parts2[i]) : 0;
-            if (part1 != part2) {
-                return Integer.compare(part1, part2);
-            }
-        }
-        return 0;
-    }
-
-    private int parseVersionPart(String part) {
-        try {
-            return Integer.parseInt(part.replaceAll("[^0-9]", ""));
-        } catch (NumberFormatException e) {
-            return 0;
-        }
     }
 
     /**

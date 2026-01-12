@@ -2,7 +2,6 @@ package com.raditha.cleanunit;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Modifier;
-import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
@@ -36,42 +35,11 @@ public class RuleMigrator {
     public boolean migrate(ClassOrInterfaceDeclaration testClass, CompilationUnit cu) {
         conversions.clear();
         requiredImports.clear();
-        boolean modified = false;
 
         // Find all fields with @Rule or @ClassRule
-        List<FieldDeclaration> fields = testClass.getFields();
         List<FieldDeclaration> rulesToRemove = new ArrayList<>();
 
-        for (FieldDeclaration field : fields) {
-            if (hasRuleAnnotation(field)) {
-                String ruleType = getRuleType(field);
-
-                switch (ruleType) {
-                    case "TemporaryFolder":
-                        if (convertTemporaryFolder(field, testClass)) {
-                            rulesToRemove.add(field);
-                            modified = true;
-                        }
-                        break;
-                    case "TestName":
-                        if (convertTestName(field, testClass)) {
-                            rulesToRemove.add(field);
-                            modified = true;
-                        }
-                        break;
-                    case "ExpectedException":
-                        if (convertExpectedException(field, testClass)) {
-                            rulesToRemove.add(field);
-                            modified = true;
-                        }
-                        break;
-                    default:
-                        flagCustomRule(field);
-                        conversions.add("Flagged custom rule for manual migration: " + ruleType);
-                        break;
-                }
-            }
-        }
+        boolean modified =  migrateFields(testClass, rulesToRemove);
 
         // Remove converted rule fields
         for (FieldDeclaration field : rulesToRemove) {
@@ -86,6 +54,50 @@ public class RuleMigrator {
         }
 
         return modified;
+    }
+
+    private boolean migrateFields(ClassOrInterfaceDeclaration testClass, List<FieldDeclaration> rulesToRemove) {
+        boolean modified = false;
+
+        for (FieldDeclaration field : testClass.getFields()) {
+            if (hasRuleAnnotation(field)) {
+                if (processFieldRule(field, testClass, rulesToRemove)) {
+                    modified = true;
+                }
+            }
+        }
+        return modified;
+    }
+
+    private boolean processFieldRule(FieldDeclaration field, ClassOrInterfaceDeclaration testClass, List<FieldDeclaration> rulesToRemove) {
+        String ruleType = getRuleType(field);
+        boolean fieldModified = false;
+
+        switch (ruleType) {
+            case "TemporaryFolder":
+                if (convertTemporaryFolder(field, testClass)) {
+                    rulesToRemove.add(field);
+                    fieldModified = true;
+                }
+                break;
+            case "TestName":
+                if (convertTestName(field, testClass)) {
+                    rulesToRemove.add(field);
+                    fieldModified = true;
+                }
+                break;
+            case "ExpectedException":
+                if (convertExpectedException(field, testClass)) {
+                    rulesToRemove.add(field);
+                    fieldModified = true;
+                }
+                break;
+            default:
+                flagCustomRule(field);
+                conversions.add("Flagged custom rule for manual migration: " + ruleType);
+                break;
+        }
+        return fieldModified;
     }
 
     /**

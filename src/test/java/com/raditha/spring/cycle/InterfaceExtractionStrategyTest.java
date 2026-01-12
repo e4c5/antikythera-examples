@@ -32,10 +32,8 @@ import static org.junit.jupiter.api.Assertions.*;
  * 4. The field type is changed to the interface
  * 5. Cycles are broken after interface extraction
  */
-class InterfaceExtractionStrategyTest extends TestHelper {
-
+class InterfaceExtractionStrategyTest {
     private Path testbedPath;
-    private Map<String, String> originalFileContents;
 
     @BeforeEach
     void setUp() throws IOException, InterruptedException {
@@ -45,34 +43,34 @@ class InterfaceExtractionStrategyTest extends TestHelper {
         TestbedResetHelper.removeUnknownJava();
         
         Path workspaceRoot = Paths.get(System.getProperty("user.dir"));
-        if (workspaceRoot.toString().contains("antikythera-examples")) {
-            workspaceRoot = workspaceRoot.getParent();
+        if (!workspaceRoot.toString().endsWith("antikythera-examples")) {
+            workspaceRoot = workspaceRoot.resolve("antikythera-examples");
         }
-        testbedPath = workspaceRoot.resolve("spring-boot-cycles/src/main/java").normalize();
+        testbedPath = workspaceRoot.resolve("testbeds/spring-boot-cycles/src/main/java").normalize();
         
         assertTrue(Files.exists(testbedPath), 
                 "Testbed path should exist: " + testbedPath);
         
-        originalFileContents = readAllJavaFiles(testbedPath);
+        assertTrue(Files.exists(testbedPath), 
+                "Testbed path should exist: " + testbedPath);
         
         File configFile = new File("src/test/resources/cycle-detector.yml");
         Settings.loadConfigMap(configFile);
+
+        AbstractCompiler.reset();
+        AntikytheraRunTime.resetAll();
+        AbstractCompiler.preProcess();
     }
 
     @AfterEach
-    void tearDown() throws IOException {
-        if (originalFileContents != null) {
-            revertFiles(testbedPath, originalFileContents);
-        }
+    void tearDown() throws IOException, InterruptedException {
+        TestbedResetHelper.resetTestbed();
         TestbedResetHelper.restoreUnknownJava();
     }
 
     @Test
     void testInterfaceExtraction_BreaksCycle() throws IOException {
         // Step 1: Detect cycle
-        AbstractCompiler.reset();
-        AntikytheraRunTime.resetAll();
-        AbstractCompiler.preProcess();
         
         BeanDependencyGraph graph = new BeanDependencyGraph();
         graph.build();
@@ -113,9 +111,7 @@ class InterfaceExtractionStrategyTest extends TestHelper {
         strategy.writeChanges(testbedPath.toString());
         
         // Step 5: Verify cycle is broken
-        AbstractCompiler.reset();
-        AntikytheraRunTime.resetAll();
-        AbstractCompiler.preProcess();
+        // Step 5: Verify cycle is broken
         
         BeanDependencyGraph newGraph = new BeanDependencyGraph();
         newGraph.build();
@@ -134,9 +130,6 @@ class InterfaceExtractionStrategyTest extends TestHelper {
 
     @Test
     void testInterfaceExtraction_FindsAllMethodCalls() throws IOException {
-        AbstractCompiler.reset();
-        AntikytheraRunTime.resetAll();
-        AbstractCompiler.preProcess();
         
         BeanDependencyGraph graph = new BeanDependencyGraph();
         graph.build();
@@ -168,9 +161,6 @@ class InterfaceExtractionStrategyTest extends TestHelper {
 
     @Test
     void testInterfaceExtraction_GeneratesCorrectInterface() throws IOException {
-        AbstractCompiler.reset();
-        AntikytheraRunTime.resetAll();
-        AbstractCompiler.preProcess();
         
         BeanDependencyGraph graph = new BeanDependencyGraph();
         graph.build();

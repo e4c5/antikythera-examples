@@ -286,9 +286,7 @@ public class ElasticsearchCodeMigrator extends MigrationPhase {
 
         Path basePath = Paths.get(Settings.getBasePath());
         // Try to find an existing config package
-        Path configPath = basePath.resolve("src/main/java/config/ElasticsearchConfig.java");
-
-        return configPath;
+        return basePath.resolve("src/main/java/config/ElasticsearchConfig.java");
     }
 
     /**
@@ -352,20 +350,9 @@ public class ElasticsearchCodeMigrator extends MigrationPhase {
     }
 
     /**
-     * Represents a transformation to be performed.
-     */
-    private static class TransformationInfo {
-        final TransformationType type;
-        final int lineNumber;
-        final String itemName;
-        final String description;
-
-        TransformationInfo(TransformationType type, int lineNumber, String itemName, String description) {
-            this.type = type;
-            this.lineNumber = lineNumber;
-            this.itemName = itemName;
-            this.description = description;
-        }
+         * Represents a transformation to be performed.
+         */
+    private record TransformationInfo(TransformationType type, int lineNumber, String itemName, String description) {
     }
 
     private enum TransformationType {

@@ -86,7 +86,7 @@ public class DatabaseToEmbeddedConverter implements EmbeddedResourceConverter {
      * Check if field is a database container.
      */
     private boolean isDatabaseContainerField(FieldDeclaration field) {
-        if (!field.getAnnotationByName("Container").isPresent()) {
+        if (field.getAnnotationByName("Container").isEmpty()) {
             return false;
         }
 

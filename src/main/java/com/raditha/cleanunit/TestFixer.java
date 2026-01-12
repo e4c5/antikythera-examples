@@ -9,6 +9,9 @@ import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import com.github.javaparser.printer.lexicalpreservation.LexicalPreservingPrinter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import picocli.CommandLine;
+import picocli.CommandLine.Command;
+import picocli.CommandLine.Option;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
@@ -19,19 +22,49 @@ import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.Callable;
 
+@Command(name = "test-fixer", mixinStandardHelpOptions = true,
+        version = "TestFixer v1.0",
+        description = "Refactors tests, converts embedded resources, and optionally migrates JUnit 4→5")
 @SuppressWarnings("java:S106")
-public class TestFixer {
+public class TestFixer implements Callable<Integer> {
     private static final Logger logger = LoggerFactory.getLogger(TestFixer.class);
-    private static boolean dryRun = false;
-    private static boolean refactor = false;
-    private static boolean convertEmbedded = false;
-    private static boolean migrate425 = false;
+    private boolean dryRun = false;
+    private boolean refactor = false;
+    private boolean convertEmbedded = false;
+    private boolean migrate425 = false;
 
-    public static void main(String[] args) throws Exception {
-        detectArguments(args);
+    // CLI options
+    @Option(names = "--dry-run", description = "Run without modifying files")
+    private boolean cliDryRun;
+
+    @Option(names = "--refactor", description = "Enable general test refactoring")
+    private boolean cliRefactor;
+
+    @Option(names = "--convert-embedded", description = "Convert embedded resources to alternatives")
+    private boolean cliConvertEmbedded;
+
+    @Option(names = "--425", description = "Enable JUnit 4 to 5 migration")
+    private boolean cliMigrate425;
+
+    public static void main(String[] args) {
+        int exitCode = new CommandLine(new TestFixer()).execute(args);
+        if (exitCode != 0) {
+            System.exit(exitCode);
+        }
+    }
+
+    @Override
+    public Integer call() throws Exception {
+        // Map CLI options to static flags to preserve existing implementation
+        dryRun = cliDryRun;
+        refactor = cliRefactor;
+        convertEmbedded = cliConvertEmbedded;
+        migrate425 = cliMigrate425;
 
         Settings.loadConfigMap();
         AbstractCompiler.preProcess();
@@ -46,13 +79,7 @@ public class TestFixer {
             boolean modified = processCu(entry.getKey(), entry.getValue());
 
             if (refactor) {
-                List<TestRefactorer.RefactorOutcome> localOutcomes = refactorer.refactorAll(entry.getValue());
-                if (localOutcomes != null && !localOutcomes.isEmpty()) {
-                    outcomes.addAll(localOutcomes);
-                    if (localOutcomes.stream().anyMatch(o -> o.modified)) {
-                        modified = true;
-                    }
-                }
+                modified = refactorTests(entry, refactorer, outcomes);
             }
             if (migrate425 && migrator != null) {
                 List<ConversionOutcome> localMigrations = migrator.migrateAll(entry.getValue());
@@ -81,9 +108,19 @@ public class TestFixer {
         }
 
         displayStats(outcomes, conversionOutcomes, migrationOutcomes, migrator);
+        return 0;
     }
 
-    private static void displayStats(List<TestRefactorer.RefactorOutcome> outcomes,
+    private static boolean refactorTests(Map.Entry<String, CompilationUnit> entry, TestRefactorer refactorer, List<TestRefactorer.RefactorOutcome> outcomes) {
+        List<TestRefactorer.RefactorOutcome> localOutcomes = refactorer.refactorAll(entry.getValue());
+        if (localOutcomes != null && !localOutcomes.isEmpty()) {
+            outcomes.addAll(localOutcomes);
+            return localOutcomes.stream().anyMatch(o -> o.modified);
+        }
+        return false;
+    }
+
+    private void displayStats(List<TestRefactorer.RefactorOutcome> outcomes,
             List<ConversionOutcome> conversionOutcomes, List<ConversionOutcome> migrationOutcomes,
             JUnit425Migrator migrator) {
         if (refactor) {
@@ -146,33 +183,7 @@ public class TestFixer {
         }
     }
 
-    private static void detectArguments(String[] args) {
-        for (String arg : args) {
-            switch (arg) {
-                case "--dry-run" -> {
-                    dryRun = true;
-                    System.out.println("Running in DRY RUN mode. No changes will be made.");
-                }
-                case "--refactor" -> {
-                    refactor = true;
-                    System.out.println("Refactoring enabled.");
-                }
-                case "--convert-embedded" -> {
-                    convertEmbedded = true;
-                    System.out.println("Embedded resource conversion enabled.");
-                }
-                case "--425" -> {
-                    migrate425 = true;
-                    System.out.println("JUnit 4 to 5 migration enabled.");
-                }
-                default -> {
-                    System.err.println("Unknown argument: " + arg);
-                }
-            }
-        }
-    }
-
-    private static boolean processCu(String classname, CompilationUnit cu) {
+    private boolean processCu(String classname, CompilationUnit cu) {
         boolean modified = false;
         LexicalPreservingPrinter.setup(cu);
 
