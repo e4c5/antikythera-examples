@@ -11,7 +11,7 @@ import java.nio.file.Paths;
  */
 public class TestbedResetHelper {
     
-    private static final String UNKNOWN_JAVA = "spring-boot-cycles/src/main/java/com/example/cycles/extraction/Unknown.java";
+    private static final String UNKNOWN_JAVA = "testbeds/spring-boot-cycles/src/main/java/com/example/cycles/extraction/Unknown.java";
     private static Path unknownJavaPath;
     private static boolean unknownJavaBackedUp = false;
     private static Path unknownJavaBackup;
@@ -22,10 +22,10 @@ public class TestbedResetHelper {
      */
     public static void resetTestbed() throws IOException, InterruptedException {
         Path workspaceRoot = Paths.get(System.getProperty("user.dir"));
-        if (workspaceRoot.toString().contains("antikythera-examples")) {
-            workspaceRoot = workspaceRoot.getParent();
+        if (!workspaceRoot.toString().endsWith("antikythera-examples")) {
+            workspaceRoot = workspaceRoot.resolve("antikythera-examples");
         }
-        Path testbedRoot = workspaceRoot.resolve("spring-boot-cycles");
+        Path testbedRoot = workspaceRoot.resolve("testbeds/spring-boot-cycles");
 
         if (Files.exists(testbedRoot.resolve(".git"))) {
             ProcessBuilder pb = new ProcessBuilder("git", "restore", ".");
@@ -53,8 +53,8 @@ public class TestbedResetHelper {
     public static void removeUnknownJava() throws IOException {
         if (unknownJavaPath == null) {
             Path workspaceRoot = Paths.get(System.getProperty("user.dir"));
-            if (workspaceRoot.toString().contains("antikythera-examples")) {
-                workspaceRoot = workspaceRoot.getParent();
+            if (!workspaceRoot.toString().endsWith("antikythera-examples")) {
+                workspaceRoot = workspaceRoot.resolve("antikythera-examples");
             }
             unknownJavaPath = workspaceRoot.resolve(UNKNOWN_JAVA);
         }

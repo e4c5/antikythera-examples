@@ -31,10 +31,10 @@ import static org.junit.jupiter.api.Assertions.*;
  * 3. @PostConstruct scenarios
  * 4. Nested method calls
  */
-class EdgeCasesTest extends TestHelper{
+class EdgeCasesTest {
 
     private Path testbedPath;
-    private Map<String, String> originalFileContents;
+
 
     @BeforeEach
     void setUp() throws IOException, InterruptedException {
@@ -44,33 +44,30 @@ class EdgeCasesTest extends TestHelper{
         TestbedResetHelper.removeUnknownJava();
         
         Path workspaceRoot = Paths.get(System.getProperty("user.dir"));
-        if (workspaceRoot.toString().contains("antikythera-examples")) {
-            workspaceRoot = workspaceRoot.getParent();
+        if (!workspaceRoot.toString().endsWith("antikythera-examples")) {
+            workspaceRoot = workspaceRoot.resolve("antikythera-examples");
         }
-        testbedPath = workspaceRoot.resolve("spring-boot-cycles/src/main/java").normalize();
+        testbedPath = workspaceRoot.resolve("testbeds/spring-boot-cycles/src/main/java").normalize();
         
         assertTrue(Files.exists(testbedPath), 
                 "Testbed path should exist: " + testbedPath);
         
-        originalFileContents = readAllJavaFiles(testbedPath);
-        
         File configFile = new File("src/test/resources/cycle-detector.yml");
         Settings.loadConfigMap(configFile);
+
+        AbstractCompiler.reset();
+        AntikytheraRunTime.resetAll();
+        AbstractCompiler.preProcess();
     }
 
     @AfterEach
-    void tearDown() throws IOException {
-        if (originalFileContents != null) {
-            revertFiles(originalFileContents);
-        }
+    void tearDown() throws IOException, InterruptedException {
+        TestbedResetHelper.resetTestbed();
         TestbedResetHelper.restoreUnknownJava();
     }
 
     @Test
     void testGenericTypes_DetectedAndHandled() throws IOException {
-        AbstractCompiler.reset();
-        AntikytheraRunTime.resetAll();
-        AbstractCompiler.preProcess();
         
         BeanDependencyGraph graph = new BeanDependencyGraph();
         graph.build();
@@ -88,9 +85,6 @@ class EdgeCasesTest extends TestHelper{
 
     @Test
     void testQualifier_Preserved() throws IOException {
-        AbstractCompiler.reset();
-        AntikytheraRunTime.resetAll();
-        AbstractCompiler.preProcess();
         
         BeanDependencyGraph graph = new BeanDependencyGraph();
         graph.build();
@@ -140,9 +134,6 @@ class EdgeCasesTest extends TestHelper{
 
     @Test
     void testPostConstruct_Detected() throws IOException {
-        AbstractCompiler.reset();
-        AntikytheraRunTime.resetAll();
-        AbstractCompiler.preProcess();
         
         BeanDependencyGraph graph = new BeanDependencyGraph();
         graph.build();
@@ -163,9 +154,6 @@ class EdgeCasesTest extends TestHelper{
 
     @Test
     void testNestedCalls_Detected() throws IOException {
-        AbstractCompiler.reset();
-        AntikytheraRunTime.resetAll();
-        AbstractCompiler.preProcess();
         
         BeanDependencyGraph graph = new BeanDependencyGraph();
         graph.build();

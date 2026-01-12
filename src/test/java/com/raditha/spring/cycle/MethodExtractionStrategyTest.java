@@ -33,9 +33,8 @@ import static org.junit.jupiter.api.Assertions.*;
  * 3. Methods are extracted to a mediator class
  * 4. Cycles are broken after extraction
  */
-class MethodExtractionStrategyTest extends TestHelper {
+class MethodExtractionStrategyTest {
     private Path testbedPath;
-    private Map<String, String> originalFileContents;
 
     @BeforeEach
     void setUp() throws IOException, InterruptedException {
@@ -45,33 +44,32 @@ class MethodExtractionStrategyTest extends TestHelper {
         TestbedResetHelper.removeUnknownJava();
         
         Path workspaceRoot = Paths.get(System.getProperty("user.dir"));
-        if (workspaceRoot.toString().contains("antikythera-examples")) {
-            workspaceRoot = workspaceRoot.getParent();
+        if (!workspaceRoot.toString().endsWith("antikythera-examples")) {
+            workspaceRoot = workspaceRoot.resolve("antikythera-examples");
         }
-        testbedPath = workspaceRoot.resolve("spring-boot-cycles/src/main/java").normalize();
+        testbedPath = workspaceRoot.resolve("testbeds/spring-boot-cycles/src/main/java").normalize();
         
         assertTrue(Files.exists(testbedPath), 
                 "Testbed path should exist: " + testbedPath);
         
-        originalFileContents = readAllJavaFiles(testbedPath);
-        
         File configFile = new File("src/test/resources/cycle-detector.yml");
         Settings.loadConfigMap(configFile);
+
+        AbstractCompiler.reset();
+        AntikytheraRunTime.resetAll();
+        AbstractCompiler.preProcess();
     }
     
 
     @AfterEach
-    void tearDown() throws IOException {
-        revertFiles(testbedPath, originalFileContents);
+    void tearDown() throws IOException, InterruptedException {
+        TestbedResetHelper.resetTestbed();
         TestbedResetHelper.restoreUnknownJava();
     }
 
     @Test
     void testMethodExtraction_BreaksCycle() throws IOException {
         // Step 1: Detect cycle
-        AbstractCompiler.reset();
-        AntikytheraRunTime.resetAll();
-        AbstractCompiler.preProcess();
         
         BeanDependencyGraph graph = new BeanDependencyGraph();
         graph.build();
@@ -113,9 +111,6 @@ class MethodExtractionStrategyTest extends TestHelper {
         // Step 4: Verify cycle is broken
         // Remove Unknown.java again before re-processing (it may have been restored by git reset)
         TestbedResetHelper.removeUnknownJava();
-        AbstractCompiler.reset();
-        AntikytheraRunTime.resetAll();
-        AbstractCompiler.preProcess();
         
         BeanDependencyGraph newGraph = new BeanDependencyGraph();
         newGraph.build();
@@ -134,9 +129,6 @@ class MethodExtractionStrategyTest extends TestHelper {
 
     @Test
     void testMethodExtraction_CollectsTransitiveDependencies() throws IOException {
-        AbstractCompiler.reset();
-        AntikytheraRunTime.resetAll();
-        AbstractCompiler.preProcess();
         
         BeanDependencyGraph graph = new BeanDependencyGraph();
         graph.build();
@@ -168,9 +160,6 @@ class MethodExtractionStrategyTest extends TestHelper {
     @Test
     void testMethodExtraction_HandlesHelperMethods() throws IOException {
         // This test verifies that helper methods are correctly identified and moved
-        AbstractCompiler.reset();
-        AntikytheraRunTime.resetAll();
-        AbstractCompiler.preProcess();
         
         BeanDependencyGraph graph = new BeanDependencyGraph();
         graph.build();
@@ -212,10 +201,7 @@ class MethodExtractionStrategyTest extends TestHelper {
     @Test
     void testGraphBasedMediator_RegisteredInGraph() throws IOException {
         // Test that mediator class is registered in Graph.getDependencies()
-        AbstractCompiler.reset();
-        AntikytheraRunTime.resetAll();
         Graph.getDependencies().clear(); // Clear any existing dependencies
-        AbstractCompiler.preProcess();
         
         BeanDependencyGraph graph = new BeanDependencyGraph();
         graph.build();
@@ -250,9 +236,6 @@ class MethodExtractionStrategyTest extends TestHelper {
     @Test
     void testGraphBasedMediator_AutomaticImports() throws IOException {
         // Test that imports are automatically added to mediator
-        AbstractCompiler.reset();
-        AntikytheraRunTime.resetAll();
-        AbstractCompiler.preProcess();
         
         BeanDependencyGraph graph = new BeanDependencyGraph();
         graph.build();
@@ -292,9 +275,6 @@ class MethodExtractionStrategyTest extends TestHelper {
     @Test
     void testGraphBasedMediator_TransitiveDependencies() throws IOException {
         // Test that transitive dependencies are discovered
-        AbstractCompiler.reset();
-        AntikytheraRunTime.resetAll();
-        AbstractCompiler.preProcess();
         
         BeanDependencyGraph graph = new BeanDependencyGraph();
         graph.build();
@@ -330,9 +310,6 @@ class MethodExtractionStrategyTest extends TestHelper {
     @Test
     void testGraphBasedMediator_Compiles() throws IOException {
         // Test that generated mediator compiles
-        AbstractCompiler.reset();
-        AntikytheraRunTime.resetAll();
-        AbstractCompiler.preProcess();
         
         BeanDependencyGraph graph = new BeanDependencyGraph();
         graph.build();
