@@ -22,6 +22,7 @@ import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -32,10 +33,10 @@ import java.util.concurrent.Callable;
 @SuppressWarnings("java:S106")
 public class TestFixer implements Callable<Integer> {
     private static final Logger logger = LoggerFactory.getLogger(TestFixer.class);
-    private static boolean dryRun = false;
-    private static boolean refactor = false;
-    private static boolean convertEmbedded = false;
-    private static boolean migrate425 = false;
+    private boolean dryRun = false;
+    private boolean refactor = false;
+    private boolean convertEmbedded = false;
+    private boolean migrate425 = false;
 
     // CLI options
     @Option(names = "--dry-run", description = "Run without modifying files")
@@ -50,7 +51,7 @@ public class TestFixer implements Callable<Integer> {
     @Option(names = "--425", description = "Enable JUnit 4 to 5 migration")
     private boolean cliMigrate425;
 
-    public static void main(String[] args) throws Exception {
+    public static void main(String[] args) {
         int exitCode = new CommandLine(new TestFixer()).execute(args);
         if (exitCode != 0) {
             System.exit(exitCode);
@@ -78,13 +79,7 @@ public class TestFixer implements Callable<Integer> {
             boolean modified = processCu(entry.getKey(), entry.getValue());
 
             if (refactor) {
-                List<TestRefactorer.RefactorOutcome> localOutcomes = refactorer.refactorAll(entry.getValue());
-                if (localOutcomes != null && !localOutcomes.isEmpty()) {
-                    outcomes.addAll(localOutcomes);
-                    if (localOutcomes.stream().anyMatch(o -> o.modified)) {
-                        modified = true;
-                    }
-                }
+                modified = refactorTests(entry, refactorer, outcomes);
             }
             if (migrate425 && migrator != null) {
                 List<ConversionOutcome> localMigrations = migrator.migrateAll(entry.getValue());
@@ -116,7 +111,16 @@ public class TestFixer implements Callable<Integer> {
         return 0;
     }
 
-    private static void displayStats(List<TestRefactorer.RefactorOutcome> outcomes,
+    private static boolean refactorTests(Map.Entry<String, CompilationUnit> entry, TestRefactorer refactorer, List<TestRefactorer.RefactorOutcome> outcomes) {
+        List<TestRefactorer.RefactorOutcome> localOutcomes = refactorer.refactorAll(entry.getValue());
+        if (localOutcomes != null && !localOutcomes.isEmpty()) {
+            outcomes.addAll(localOutcomes);
+            return localOutcomes.stream().anyMatch(o -> o.modified);
+        }
+        return false;
+    }
+
+    private void displayStats(List<TestRefactorer.RefactorOutcome> outcomes,
             List<ConversionOutcome> conversionOutcomes, List<ConversionOutcome> migrationOutcomes,
             JUnit425Migrator migrator) {
         if (refactor) {
@@ -179,33 +183,7 @@ public class TestFixer implements Callable<Integer> {
         }
     }
 
-    private static void detectArguments(String[] args) {
-        for (String arg : args) {
-            switch (arg) {
-                case "--dry-run" -> {
-                    dryRun = true;
-                    System.out.println("Running in DRY RUN mode. No changes will be made.");
-                }
-                case "--refactor" -> {
-                    refactor = true;
-                    System.out.println("Refactoring enabled.");
-                }
-                case "--convert-embedded" -> {
-                    convertEmbedded = true;
-                    System.out.println("Embedded resource conversion enabled.");
-                }
-                case "--425" -> {
-                    migrate425 = true;
-                    System.out.println("JUnit 4 to 5 migration enabled.");
-                }
-                default -> {
-                    System.err.println("Unknown argument: " + arg);
-                }
-            }
-        }
-    }
-
-    private static boolean processCu(String classname, CompilationUnit cu) {
+    private boolean processCu(String classname, CompilationUnit cu) {
         boolean modified = false;
         LexicalPreservingPrinter.setup(cu);
 

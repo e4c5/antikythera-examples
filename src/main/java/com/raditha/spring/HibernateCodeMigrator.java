@@ -4,7 +4,12 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.ImportDeclaration;
 import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.body.FieldDeclaration;
-import com.github.javaparser.ast.expr.*;
+import com.github.javaparser.ast.expr.AnnotationExpr;
+import com.github.javaparser.ast.expr.ClassExpr;
+import com.github.javaparser.ast.expr.Expression;
+import com.github.javaparser.ast.expr.MemberValuePair;
+import com.github.javaparser.ast.expr.NormalAnnotationExpr;
+import com.github.javaparser.ast.expr.SingleMemberAnnotationExpr;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
@@ -13,11 +18,14 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Migrates Hibernate code from Spring Boot 2.1 to 2.2.
- *
+ * <p>
  * Main changes:
  * - Detects @TypeDef annotations
  * - Generates AttributeConverter stub classes
@@ -110,53 +118,60 @@ public class HibernateCodeMigrator extends AbstractCodeMigrator {
 
     private boolean convert(Map<String, String> typedefToConverter, CompilationUnit cu, MigrationPhaseResult result, String className) {
         boolean cuModified = false;
-        if (!typedefToConverter.isEmpty()) {
-            List<FieldDeclaration> fields = cu.findAll(FieldDeclaration.class);
-            for (FieldDeclaration field : fields) {
-                NodeList<AnnotationExpr> fieldAnns = field.getAnnotations();
-                for (int i = 0; i < fieldAnns.size(); i++) {
-                    AnnotationExpr fieldAnnotation = fieldAnns.get(i);
-                    String annName = fieldAnnotation.getNameAsString();
-                    if (annName.equals("Type") || annName.equals("org.hibernate.annotations.Type")) {
-                        String referencedTypeName = extractTypeAnnotationValue(fieldAnnotation);
-                        if (referencedTypeName != null && typedefToConverter.containsKey(referencedTypeName)) {
-                            String converterFqcn = typedefToConverter.get(referencedTypeName);
+        if (typedefToConverter.isEmpty()) {
+            return false;
+        }
+        List<FieldDeclaration> fields = cu.findAll(FieldDeclaration.class);
+        for (FieldDeclaration field : fields) {
+            cuModified = convertField(typedefToConverter, cu, result, className, field);
+        }
 
-                            if (dryRun) {
-                                result.addChange(className + ": Would replace @Type(type=\"" + referencedTypeName + "\") with @Convert(converter="
-                                        + simpleName(converterFqcn) + ".class) on field " + field.getVariable(0).getNameAsString());
-                            } else {
-                                // Replace annotation
-                                NormalAnnotationExpr convertAnn = new NormalAnnotationExpr();
-                                convertAnn.setName("Convert");
-                                ClassExpr classExpr = new ClassExpr(new ClassOrInterfaceType(null, simpleName(converterFqcn)));
-                                MemberValuePair pair = new MemberValuePair("converter", classExpr);
-                                convertAnn.setPairs(new NodeList<>(pair));
-                                fieldAnns.set(i, convertAnn);
+        return cuModified;
+    }
 
-                                // Ensure imports
-                                ensureImport(cu, "javax.persistence.Convert");
-                                ensureImport(cu, converterFqcn);
-                                // Optionally remove Hibernate Type import if present
-                                removeImportIfPresent(cu, "org.hibernate.annotations.Type");
+    private boolean convertField(Map<String, String> typedefToConverter, CompilationUnit cu, MigrationPhaseResult result, String className, FieldDeclaration field) {
+        NodeList<AnnotationExpr> fieldAnns = field.getAnnotations();
+        for (int i = 0; i < fieldAnns.size(); i++) {
+            AnnotationExpr fieldAnnotation = fieldAnns.get(i);
+            String annName = fieldAnnotation.getNameAsString();
+            if (annName.equals("Type") || annName.equals("org.hibernate.annotations.Type")) {
+                String referencedTypeName = extractTypeAnnotationValue(fieldAnnotation);
+                if (referencedTypeName != null && typedefToConverter.containsKey(referencedTypeName)) {
+                    String converterFqcn = typedefToConverter.get(referencedTypeName);
 
-                                cuModified = true;
-                                result.addChange(className + ": Replaced @Type(type=\"" + referencedTypeName + "\") with @Convert(converter="
-                                        + simpleName(converterFqcn) + ".class) on field " + field.getVariable(0).getNameAsString());
-                                result.addWarning(className + "." + field.getVariable(0).getNameAsString() +
-                                        ": Replace @Type annotation with @Convert(converter=" + simpleName(converterFqcn) + ".class)");
-                            }
-                        } else if (!dryRun) {
-                            // Could not resolve mapping automatically
-                            result.addWarning(className + "." + field.getVariable(0).getNameAsString()
-                                    + ": @Type references unknown typedef '" + referencedTypeName
-                                    + "' - manual migration may be required");
-                        }
+                    if (dryRun) {
+                        result.addChange(className + ": Would replace @Type(type=\"" + referencedTypeName + "\") with @Convert(converter="
+                                + simpleName(converterFqcn) + ".class) on field " + field.getVariable(0).getNameAsString());
+                    } else {
+                        // Replace annotation
+                        NormalAnnotationExpr convertAnn = new NormalAnnotationExpr();
+                        convertAnn.setName("Convert");
+                        ClassExpr classExpr = new ClassExpr(new ClassOrInterfaceType(null, simpleName(converterFqcn)));
+                        MemberValuePair pair = new MemberValuePair("converter", classExpr);
+                        convertAnn.setPairs(new NodeList<>(pair));
+                        fieldAnns.set(i, convertAnn);
+
+                        // Ensure imports
+                        ensureImport(cu, "javax.persistence.Convert");
+                        ensureImport(cu, converterFqcn);
+                        // Optionally remove Hibernate Type import if present
+                        removeImportIfPresent(cu, "org.hibernate.annotations.Type");
+
+                        result.addChange(className + ": Replaced @Type(type=\"" + referencedTypeName + "\") with @Convert(converter="
+                                + simpleName(converterFqcn) + ".class) on field " + field.getVariable(0).getNameAsString());
+                        result.addWarning(className + "." + field.getVariable(0).getNameAsString() +
+                                ": Replace @Type annotation with @Convert(converter=" + simpleName(converterFqcn) + ".class)");
+                        return true;
                     }
+                } else if (!dryRun) {
+                    // Could not resolve mapping automatically
+                    result.addWarning(className + "." + field.getVariable(0).getNameAsString()
+                            + ": @Type references unknown typedef '" + referencedTypeName
+                            + "' - manual migration may be required");
                 }
             }
         }
-        return cuModified;
+        return false;
     }
 
     /**
@@ -209,44 +224,44 @@ public class HibernateCodeMigrator extends AbstractCodeMigrator {
      */
     private String generateConverterStub(String packageName, String className, String typeName) {
         return String.format("""
-package %s;
-
-import javax.persistence.AttributeConverter;
-import javax.persistence.Converter;
-
-/**
- * AttributeConverter for %s type.
- * 
- * Generated stub - requires manual completion.
- * TODO: Implement conversion logic for database column to entity attribute
- * TODO: Add proper null handling
- * TODO: Add error handling
- * TODO: Consider using Jackson ObjectMapper or similar for complex types
- */
-@Converter
-public class %s implements AttributeConverter<Object, String> {
-    
-    // TODO: Configure any required dependencies (e.g., ObjectMapper for JSON)
-    
-    @Override
-    public String convertToDatabaseColumn(Object attribute) {
-        // TODO: Implement conversion from entity attribute to database column
-        if (attribute == null) {
-            return null;
-        }
-        throw new UnsupportedOperationException("TODO: Implement convertToDatabaseColumn for %s");
-    }
-    
-    @Override
-    public Object convertToEntityAttribute(String dbData) {
-        // TODO: Implement conversion from database column to entity attribute
-        if (dbData == null) {
-            return null;
-        }
-        throw new UnsupportedOperationException("TODO: Implement convertToEntityAttribute for %s");
-    }
-}
-""", packageName, typeName, className, typeName, typeName);
+                package %s;
+                
+                import javax.persistence.AttributeConverter;
+                import javax.persistence.Converter;
+                
+                /**
+                 * AttributeConverter for %s type.
+                 * 
+                 * Generated stub - requires manual completion.
+                 * TODO: Implement conversion logic for database column to entity attribute
+                 * TODO: Add proper null handling
+                 * TODO: Add error handling
+                 * TODO: Consider using Jackson ObjectMapper or similar for complex types
+                 */
+                @Converter
+                public class %s implements AttributeConverter<Object, String> {
+                
+                    // TODO: Configure any required dependencies (e.g., ObjectMapper for JSON)
+                
+                    @Override
+                    public String convertToDatabaseColumn(Object attribute) {
+                        // TODO: Implement conversion from entity attribute to database column
+                        if (attribute == null) {
+                            return null;
+                        }
+                        throw new UnsupportedOperationException("TODO: Implement convertToDatabaseColumn for %s");
+                    }
+                
+                    @Override
+                    public Object convertToEntityAttribute(String dbData) {
+                        // TODO: Implement conversion from database column to entity attribute
+                        if (dbData == null) {
+                            return null;
+                        }
+                        throw new UnsupportedOperationException("TODO: Implement convertToEntityAttribute for %s");
+                    }
+                }
+                """, packageName, typeName, className, typeName, typeName);
     }
 
     // Helpers

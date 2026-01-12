@@ -16,11 +16,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Tests for edge cases using the edgecases/ package.
@@ -98,7 +97,7 @@ class EdgeCasesTest {
                         cycle.contains("com.example.cycles.edgecases.DataService"))
                 .findFirst()
                 .orElse(null);
-
+        assertNotNull(qualifiedCycle, "Should detect qualified cycle");
 
         // Find edge with @Qualifier
         Set<sa.com.cloudsolutions.antikythera.depsolver.BeanDependency> qualifiedDeps =
@@ -110,30 +109,27 @@ class EdgeCasesTest {
                 .findFirst()
                 .orElse(null);
 
-        if (edge != null) {
-            // Apply @Lazy fix
-            LazyAnnotationStrategy strategy = new LazyAnnotationStrategy(false);
-            boolean applied = strategy.apply(edge);
 
-            if (applied) {
-                strategy.writeChanges(testbedPath.toString());
+        // Apply @Lazy fix
+        LazyAnnotationStrategy strategy = new LazyAnnotationStrategy(false);
+        boolean applied = strategy.apply(edge);
 
-                // Verify @Qualifier is preserved
-                Path qualifiedServiceFile = testbedPath.resolve(
-                        "com/example/cycles/edgecases/QualifiedService.java");
-                if (Files.exists(qualifiedServiceFile)) {
-                    String content = Files.readString(qualifiedServiceFile);
-                    assertTrue(content.contains("@Qualifier") || content.contains("Qualifier"),
-                            "@Qualifier annotation should be preserved");
-                }
+        if (applied) {
+            strategy.writeChanges(testbedPath.toString());
+
+            // Verify @Qualifier is preserved
+            Path qualifiedServiceFile = testbedPath.resolve(
+                    "com/example/cycles/edgecases/QualifiedService.java");
+            if (Files.exists(qualifiedServiceFile)) {
+                String content = Files.readString(qualifiedServiceFile);
+                assertTrue(content.contains("@Qualifier") || content.contains("Qualifier"),
+                        "@Qualifier annotation should be preserved");
             }
         }
-
-
     }
 
     @Test
-    void testPostConstruct_Detected() throws IOException {
+    void testPostConstruct_Detected() {
 
         BeanDependencyGraph graph = new BeanDependencyGraph();
         graph.build();
@@ -153,7 +149,7 @@ class EdgeCasesTest {
     }
 
     @Test
-    void testNestedCalls_Detected() throws IOException {
+    void testNestedCalls_Detected() {
 
         BeanDependencyGraph graph = new BeanDependencyGraph();
         graph.build();
