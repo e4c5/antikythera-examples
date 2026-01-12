@@ -78,9 +78,7 @@ class InvestigateFieldLossTest {
         boolean compilerHasPaymentField = compilerClass.getFields().stream()
                 .anyMatch(f -> f.getVariables().size() > 0 && 
                         f.getVariables().get(0).getNameAsString().equals("paymentProcessingService"));
-        
-        // Check if they're the same object
-        boolean sameObject = (directCu == compilerCu);
+
         
         // Now check what's in AntikytheraRunTime
         AntikytheraRunTime.resetAll();
@@ -96,9 +94,6 @@ class InvestigateFieldLossTest {
         boolean runtimeHasPaymentField = runtimeClass.getFields().stream()
                 .anyMatch(f -> f.getVariables().size() > 0 && 
                         f.getVariables().get(0).getNameAsString().equals("paymentProcessingService"));
-        
-        // Check if runtimeCu is the same as compilerCu
-        boolean runtimeSameAsCompiler = (runtimeCu == compilerCu);
 
         // Assertions
         assertEquals(directFieldCount, compilerFieldCount, 

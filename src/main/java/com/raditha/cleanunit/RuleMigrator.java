@@ -56,40 +56,48 @@ public class RuleMigrator {
         return modified;
     }
 
-    private boolean migrateFields(ClassOrInterfaceDeclaration testClass,  List<FieldDeclaration> rulesToRemove) {
+    private boolean migrateFields(ClassOrInterfaceDeclaration testClass, List<FieldDeclaration> rulesToRemove) {
         boolean modified = false;
 
         for (FieldDeclaration field : testClass.getFields()) {
             if (hasRuleAnnotation(field)) {
-                String ruleType = getRuleType(field);
-
-                switch (ruleType) {
-                    case "TemporaryFolder":
-                        if (convertTemporaryFolder(field, testClass)) {
-                            rulesToRemove.add(field);
-                            modified = true;
-                        }
-                        break;
-                    case "TestName":
-                        if (convertTestName(field, testClass)) {
-                            rulesToRemove.add(field);
-                            modified = true;
-                        }
-                        break;
-                    case "ExpectedException":
-                        if (convertExpectedException(field, testClass)) {
-                            rulesToRemove.add(field);
-                            modified = true;
-                        }
-                        break;
-                    default:
-                        flagCustomRule(field);
-                        conversions.add("Flagged custom rule for manual migration: " + ruleType);
-                        break;
+                if (processFieldRule(field, testClass, rulesToRemove)) {
+                    modified = true;
                 }
             }
         }
         return modified;
+    }
+
+    private boolean processFieldRule(FieldDeclaration field, ClassOrInterfaceDeclaration testClass, List<FieldDeclaration> rulesToRemove) {
+        String ruleType = getRuleType(field);
+        boolean fieldModified = false;
+
+        switch (ruleType) {
+            case "TemporaryFolder":
+                if (convertTemporaryFolder(field, testClass)) {
+                    rulesToRemove.add(field);
+                    fieldModified = true;
+                }
+                break;
+            case "TestName":
+                if (convertTestName(field, testClass)) {
+                    rulesToRemove.add(field);
+                    fieldModified = true;
+                }
+                break;
+            case "ExpectedException":
+                if (convertExpectedException(field, testClass)) {
+                    rulesToRemove.add(field);
+                    fieldModified = true;
+                }
+                break;
+            default:
+                flagCustomRule(field);
+                conversions.add("Flagged custom rule for manual migration: " + ruleType);
+                break;
+        }
+        return fieldModified;
     }
 
     /**
