@@ -75,53 +75,7 @@ public class HibernateCodeMigrator extends AbstractCodeMigrator {
             }
 
             // If we have typedefs, attempt to replace @Type annotations on fields
-            boolean cuModified = false;
-            if (!typedefToConverter.isEmpty()) {
-                List<FieldDeclaration> fields = cu.findAll(FieldDeclaration.class);
-                for (FieldDeclaration field : fields) {
-                    NodeList<AnnotationExpr> fieldAnns = field.getAnnotations();
-                    for (int i = 0; i < fieldAnns.size(); i++) {
-                        AnnotationExpr fieldAnnotation = fieldAnns.get(i);
-                        String annName = fieldAnnotation.getNameAsString();
-                        if (annName.equals("Type") || annName.equals("org.hibernate.annotations.Type")) {
-                            String referencedTypeName = extractTypeAnnotationValue(fieldAnnotation);
-                            if (referencedTypeName != null && typedefToConverter.containsKey(referencedTypeName)) {
-                                String converterFqcn = typedefToConverter.get(referencedTypeName);
-
-                                if (dryRun) {
-                                    result.addChange(className + ": Would replace @Type(type=\"" + referencedTypeName + "\") with @Convert(converter="
-                                            + simpleName(converterFqcn) + ".class) on field " + field.getVariable(0).getNameAsString());
-                                } else {
-                                    // Replace annotation
-                                    NormalAnnotationExpr convertAnn = new NormalAnnotationExpr();
-                                    convertAnn.setName("Convert");
-                                    ClassExpr classExpr = new ClassExpr(new ClassOrInterfaceType(null, simpleName(converterFqcn)));
-                                    MemberValuePair pair = new MemberValuePair("converter", classExpr);
-                                    convertAnn.setPairs(new NodeList<>(pair));
-                                    fieldAnns.set(i, convertAnn);
-
-                                    // Ensure imports
-                                    ensureImport(cu, "javax.persistence.Convert");
-                                    ensureImport(cu, converterFqcn);
-                                    // Optionally remove Hibernate Type import if present
-                                    removeImportIfPresent(cu, "org.hibernate.annotations.Type");
-
-                                    cuModified = true;
-                                    result.addChange(className + ": Replaced @Type(type=\"" + referencedTypeName + "\") with @Convert(converter="
-                                            + simpleName(converterFqcn) + ".class) on field " + field.getVariable(0).getNameAsString());
-                                    result.addWarning(className + "." + field.getVariable(0).getNameAsString() +
-                                            ": Replace @Type annotation with @Convert(converter=" + simpleName(converterFqcn) + ".class)");
-                                }
-                            } else if (!dryRun) {
-                                // Could not resolve mapping automatically
-                                result.addWarning(className + "." + field.getVariable(0).getNameAsString()
-                                        + ": @Type references unknown typedef '" + referencedTypeName
-                                        + "' - manual migration may be required");
-                            }
-                        }
-                    }
-                }
-            }
+            boolean cuModified = convert(typedefToConverter, cu, result, className);
 
             if (cuModified) {
                 modifiedUnits.put(className, cu);
@@ -152,6 +106,57 @@ public class HibernateCodeMigrator extends AbstractCodeMigrator {
         }
 
         return result;
+    }
+
+    private boolean convert(Map<String, String> typedefToConverter, CompilationUnit cu, MigrationPhaseResult result, String className) {
+        boolean cuModified = false;
+        if (!typedefToConverter.isEmpty()) {
+            List<FieldDeclaration> fields = cu.findAll(FieldDeclaration.class);
+            for (FieldDeclaration field : fields) {
+                NodeList<AnnotationExpr> fieldAnns = field.getAnnotations();
+                for (int i = 0; i < fieldAnns.size(); i++) {
+                    AnnotationExpr fieldAnnotation = fieldAnns.get(i);
+                    String annName = fieldAnnotation.getNameAsString();
+                    if (annName.equals("Type") || annName.equals("org.hibernate.annotations.Type")) {
+                        String referencedTypeName = extractTypeAnnotationValue(fieldAnnotation);
+                        if (referencedTypeName != null && typedefToConverter.containsKey(referencedTypeName)) {
+                            String converterFqcn = typedefToConverter.get(referencedTypeName);
+
+                            if (dryRun) {
+                                result.addChange(className + ": Would replace @Type(type=\"" + referencedTypeName + "\") with @Convert(converter="
+                                        + simpleName(converterFqcn) + ".class) on field " + field.getVariable(0).getNameAsString());
+                            } else {
+                                // Replace annotation
+                                NormalAnnotationExpr convertAnn = new NormalAnnotationExpr();
+                                convertAnn.setName("Convert");
+                                ClassExpr classExpr = new ClassExpr(new ClassOrInterfaceType(null, simpleName(converterFqcn)));
+                                MemberValuePair pair = new MemberValuePair("converter", classExpr);
+                                convertAnn.setPairs(new NodeList<>(pair));
+                                fieldAnns.set(i, convertAnn);
+
+                                // Ensure imports
+                                ensureImport(cu, "javax.persistence.Convert");
+                                ensureImport(cu, converterFqcn);
+                                // Optionally remove Hibernate Type import if present
+                                removeImportIfPresent(cu, "org.hibernate.annotations.Type");
+
+                                cuModified = true;
+                                result.addChange(className + ": Replaced @Type(type=\"" + referencedTypeName + "\") with @Convert(converter="
+                                        + simpleName(converterFqcn) + ".class) on field " + field.getVariable(0).getNameAsString());
+                                result.addWarning(className + "." + field.getVariable(0).getNameAsString() +
+                                        ": Replace @Type annotation with @Convert(converter=" + simpleName(converterFqcn) + ".class)");
+                            }
+                        } else if (!dryRun) {
+                            // Could not resolve mapping automatically
+                            result.addWarning(className + "." + field.getVariable(0).getNameAsString()
+                                    + ": @Type references unknown typedef '" + referencedTypeName
+                                    + "' - manual migration may be required");
+                        }
+                    }
+                }
+            }
+        }
+        return cuModified;
     }
 
     /**

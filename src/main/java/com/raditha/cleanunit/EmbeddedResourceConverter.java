@@ -1,6 +1,7 @@
 package com.raditha.cleanunit;
 
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import org.apache.maven.model.Dependency;
@@ -70,9 +71,7 @@ public interface EmbeddedResourceConverter {
                     .anyMatch(f -> f.getAnnotationByName("Container").isPresent());
 
             if (!hasRemainingContainers) {
-                testClass.getAnnotationByName("Testcontainers").ifPresent(annotation -> {
-                    annotation.remove();
-                });
+                testClass.getAnnotationByName("Testcontainers").ifPresent(Node::remove);
             }
         }
 

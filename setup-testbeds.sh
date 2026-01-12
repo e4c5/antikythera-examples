@@ -17,6 +17,7 @@ NC='\033[0m' # No Color
 # Configuration
 PETCLINIC_REPO="https://github.com/spring-projects/spring-petclinic.git"
 TESTBEDS_DIR="./testbeds"
+CYCLES_REPO="git@github.com:e4c5/spring-boot-cycles.git"
 
 # Commit hashes for each Spring Boot version
 # These were identified from Spring PetClinic git history
@@ -119,6 +120,28 @@ setup_version() {
     fi
 }
 
+# Setup spring-boot-cycles project
+setup_cycles_project() {
+    local dir_name="spring-boot-cycles"
+    local full_path="${TESTBEDS_DIR}/${dir_name}"
+    
+    print_info "Setting up Spring Boot Cycles testbed..."
+    
+    # Check if directory already exists
+    if [ -d "$full_path" ]; then
+        print_info "Directory exists, resetting to main branch..."
+        (cd "$full_path" && git fetch origin >/dev/null 2>&1 || true)
+        (cd "$full_path" && git reset --hard origin/main >/dev/null 2>&1)
+        (cd "$full_path" && git clean -fd >/dev/null 2>&1)
+        print_success "Reset Spring Boot Cycles testbed"
+    else
+        # Clone the repository
+        print_info "Cloning Spring Boot Cycles..."
+        git clone -b main "$CYCLES_REPO" "$full_path" >/dev/null 2>&1
+        print_success "Cloned Spring Boot Cycles testbed"
+    fi
+}
+
 # Main function
 main() {
     echo ""
@@ -154,6 +177,9 @@ main() {
         setup_version "$version" "${COMMITS[$version]}"
         echo ""
     done
+
+    # Setup spring-boot-cycles
+    setup_cycles_project
     
     # Summary
     echo "=========================================="
@@ -166,6 +192,7 @@ main() {
     for version in 2.1 2.2 2.3 2.4 2.5; do
         echo "  - spring-boot-${version}/"
     done
+    echo "  - spring-boot-cycles/"
     echo ""
     print_info "Next steps:"
     echo "  1. Navigate to a testbed: cd $TESTBEDS_DIR/spring-boot-2.1"

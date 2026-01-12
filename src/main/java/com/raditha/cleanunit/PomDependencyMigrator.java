@@ -438,9 +438,8 @@ public class PomDependencyMigrator {
                 if (version != null && !version.startsWith("${")) {
                     int majorVersion = getMajorVersion(version);
                     if (majorVersion < MOCKITO_MIN_MAJOR_VERSION) {
-                        String oldVersion = version;
                         dep.setVersion(MOCKITO_VERSION);
-                        changes.add("Upgraded: " + MOCKITO_GROUP + ":" + MOCKITO_CORE + " from " + oldVersion + " to "
+                        changes.add("Upgraded: " + MOCKITO_GROUP + ":" + MOCKITO_CORE + " from " + version + " to "
                                 + MOCKITO_VERSION);
                         modified = true;
                     }
@@ -524,9 +523,8 @@ public class PomDependencyMigrator {
             String version = surefirePlugin.getVersion();
             if (version != null && !version.startsWith("${")) {
                 if (compareVersions(version, SUREFIRE_MIN_VERSION) < 0) {
-                    String oldVersion = version;
                     surefirePlugin.setVersion(SUREFIRE_RECOMMENDED_VERSION);
-                    changes.add("Upgraded: " + SUREFIRE_GROUP + ":" + SUREFIRE_ARTIFACT + " from " + oldVersion + " to "
+                    changes.add("Upgraded: " + SUREFIRE_GROUP + ":" + SUREFIRE_ARTIFACT + " from " + version + " to "
                             + SUREFIRE_RECOMMENDED_VERSION);
                     return true;
                 }
