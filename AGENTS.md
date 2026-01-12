@@ -12,6 +12,14 @@ Utilities and examples for the Antikythera framework, focused on JPA repository 
 - **Logger**: Adds or updates SLF4J logger fields in Java classes
 - **TestFixer**: Refactors tests, converts embedded resources, and optionally migrates JUnit 4→5
 
+## Setup
+
+Before running tests or using the tools, you must set up the testbeds. This downloads the necessary repositories (like Spring PetClinic and Spring Boot Cycles) to the `testbeds/` directory.
+
+```bash
+./setup-testbeds.sh
+```
+
 ## Build & Development Commands
 
 ### Build and Compile
