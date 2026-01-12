@@ -32,9 +32,8 @@ import static org.junit.jupiter.api.Assertions.*;
  * 4. Validation correctly identifies broken cycles
  * 5. Files are reverted after each test
  */
-class CircularDependencyToolIntegrationTest extends TestHelper {
+class CircularDependencyToolIntegrationTest {
     private Path testbedPath;
-    private Map<String, String> originalFileContents;
 
     @BeforeEach
     void setUp() throws IOException, InterruptedException {
@@ -45,46 +44,33 @@ class CircularDependencyToolIntegrationTest extends TestHelper {
         
         // Resolve testbed path - spring-boot-cycles is at the root level
         Path workspaceRoot = Paths.get(System.getProperty("user.dir"));
-        if (workspaceRoot.toString().contains("antikythera-examples")) {
-            // If we're in antikythera-examples, go up one level
-            workspaceRoot = workspaceRoot.getParent();
+        if (!workspaceRoot.toString().endsWith("antikythera-examples")) {
+            workspaceRoot = workspaceRoot.resolve("antikythera-examples");
         }
-        testbedPath = workspaceRoot.resolve("spring-boot-cycles/src/main/java").normalize();
+        testbedPath = workspaceRoot.resolve("testbeds/spring-boot-cycles/src/main/java").normalize();
         
         assertTrue(Files.exists(testbedPath), 
                 "Testbed path should exist: " + testbedPath);
-        
-        // Store original file contents for reverting
-        originalFileContents = readAllJavaFiles(testbedPath);
-        
+
         // Load config pointing to testbed
         File configFile = new File("src/test/resources/cycle-detector.yml");
-        if (!configFile.exists()) {
-            // Create config if it doesn't exist
-            String configContent = String.format(
-                    "base_path: %s%noutput_path: %s%nbase_package: com.example.cycles%n",
-                    testbedPath,testbedPath
-            );
-            Files.writeString(configFile.toPath(), configContent);
-        }
         Settings.loadConfigMap(configFile);
+
+        AbstractCompiler.reset();
+        AntikytheraRunTime.resetAll();
+        AbstractCompiler.preProcess();
     }
 
     @AfterEach
-    void tearDown() throws IOException {
+    void tearDown() throws IOException, InterruptedException {
         // Revert all changes
-        if (originalFileContents != null) {
-            revertFiles(originalFileContents);
-        }
+        TestbedResetHelper.resetTestbed();
         TestbedResetHelper.restoreUnknownJava();
     }
 
     @Test
     void testFullWorkflow_DetectAndFixCycles() throws IOException {
         // Step 1: Initial detection
-        AbstractCompiler.reset();
-        AntikytheraRunTime.resetAll();
-        AbstractCompiler.preProcess();
         
         BeanDependencyGraph graph = new BeanDependencyGraph();
         graph.build();
@@ -154,9 +140,6 @@ class CircularDependencyToolIntegrationTest extends TestHelper {
     @Test
     void testFieldInjectionCycle_FixApplied() throws IOException {
         // Test simple field injection cycle: OrderService ↔ PaymentService
-        AbstractCompiler.reset();
-        AntikytheraRunTime.resetAll();
-        AbstractCompiler.preProcess();
         
         BeanDependencyGraph graph = new BeanDependencyGraph();
         graph.build();
@@ -197,9 +180,6 @@ class CircularDependencyToolIntegrationTest extends TestHelper {
     @Test
     void testConstructorInjectionCycle_FixApplied() throws IOException {
         // Test constructor injection cycle: UserService ↔ NotificationService
-        AbstractCompiler.reset();
-        AntikytheraRunTime.resetAll();
-        AbstractCompiler.preProcess();
         
         BeanDependencyGraph graph = new BeanDependencyGraph();
         graph.build();
@@ -250,9 +230,6 @@ class CircularDependencyToolIntegrationTest extends TestHelper {
     @Test
     void testLazyAnnotationDetection() throws IOException {
         // Verify that @Lazy annotations are correctly detected and skipped in graph building
-        AbstractCompiler.reset();
-        AntikytheraRunTime.resetAll();
-        AbstractCompiler.preProcess();
         
         BeanDependencyGraph graph1 = new BeanDependencyGraph();
         graph1.build();
@@ -298,9 +275,6 @@ class CircularDependencyToolIntegrationTest extends TestHelper {
     @Test
     void testBidirectionalCycle_BothSidesFixed() throws IOException {
         // Test that bidirectional cycles (A↔B) get both sides fixed
-        AbstractCompiler.reset();
-        AntikytheraRunTime.resetAll();
-        AbstractCompiler.preProcess();
         
         BeanDependencyGraph graph = new BeanDependencyGraph();
         graph.build();
@@ -354,9 +328,6 @@ class CircularDependencyToolIntegrationTest extends TestHelper {
     @Test
     void testComplexCycle_MultipleNodes() throws IOException {
         // Test complex cycle: ServiceA → ServiceB → ServiceC → HubService → ServiceA
-        AbstractCompiler.reset();
-        AntikytheraRunTime.resetAll();
-        AbstractCompiler.preProcess();
         
         BeanDependencyGraph graph = new BeanDependencyGraph();
         graph.build();
