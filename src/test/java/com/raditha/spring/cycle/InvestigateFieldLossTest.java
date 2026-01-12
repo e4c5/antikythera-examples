@@ -35,6 +35,7 @@ class InvestigateFieldLossTest {
         
         AbstractCompiler.reset();
         AntikytheraRunTime.resetAll();
+        AbstractCompiler.preProcess();
     }
     
     @org.junit.jupiter.api.AfterEach
@@ -45,10 +46,10 @@ class InvestigateFieldLossTest {
     @Test
     void testDirectParsingVsAbstractCompiler() throws Exception {
         Path workspaceRoot = Paths.get(System.getProperty("user.dir"));
-        if (workspaceRoot.toString().contains("antikythera-examples")) {
-            workspaceRoot = workspaceRoot.getParent();
+        if (!workspaceRoot.toString().endsWith("antikythera-examples")) {
+            workspaceRoot = workspaceRoot.resolve("antikythera-examples");
         }
-        Path filePath = workspaceRoot.resolve("spring-boot-cycles/src/main/java/com/example/cycles/extraction/OrderProcessingService.java");
+        Path filePath = workspaceRoot.resolve("testbeds/spring-boot-cycles/src/main/java/com/example/cycles/extraction/OrderProcessingService.java");
         
         // Parse directly
         JavaParser parser = new JavaParser(new ParserConfiguration());
@@ -98,14 +99,7 @@ class InvestigateFieldLossTest {
         
         // Check if runtimeCu is the same as compilerCu
         boolean runtimeSameAsCompiler = (runtimeCu == compilerCu);
-        
-        // Print findings
-        System.out.println("Direct parsing - Field count: " + directFieldCount + ", Has payment field: " + directHasPaymentField);
-        System.out.println("AbstractCompiler - Field count: " + compilerFieldCount + ", Has payment field: " + compilerHasPaymentField);
-        System.out.println("AntikytheraRunTime - Field count: " + runtimeFieldCount + ", Has payment field: " + runtimeHasPaymentField);
-        System.out.println("Direct CU == Compiler CU: " + sameObject);
-        System.out.println("Runtime CU == Compiler CU: " + runtimeSameAsCompiler);
-        
+
         // Assertions
         assertEquals(directFieldCount, compilerFieldCount, 
                 "AbstractCompiler should parse the same number of fields as direct parsing");

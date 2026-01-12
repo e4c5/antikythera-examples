@@ -14,6 +14,8 @@ import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -38,6 +40,15 @@ class CycleDetectorIntegrationTest {
         TestbedResetHelper.resetTestbed();
         // Remove Unknown.java to avoid duplicate class definition errors
         TestbedResetHelper.removeUnknownJava();
+        
+        // Fix path resolution
+        Path workspaceRoot = Paths.get(System.getProperty("user.dir"));
+        if (!workspaceRoot.toString().endsWith("antikythera-examples")) {
+            workspaceRoot = workspaceRoot.resolve("antikythera-examples");
+        }
+        // CycleDetectorIntegrationTest doesn't explicitly use path but TestbedResetHelper does. 
+        // Wait, unrelated to path resolution? 
+        // CycleDetectorIntegrationTest loads config. config uses base_path.
         
         Settings.loadConfigMap(new File("src/test/resources/cycle-detector.yml"));
         AbstractCompiler.reset();

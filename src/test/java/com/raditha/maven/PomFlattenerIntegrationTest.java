@@ -149,7 +149,7 @@ class PomFlattenerIntegrationTest {
         Model flattened = flattener.flattenInheritance(child, parentChain);
 
         assertNotNull(flattened.getProfiles());
-        assertTrue(flattened.getProfiles().size() > 0, "Should inherit parent profiles");
+        assertFalse(flattened.getProfiles().isEmpty(), "Should inherit parent profiles");
 
         boolean hasCorporateCi = flattened.getProfiles().stream()
                 .anyMatch(p -> "corporate-ci".equals(p.getId()));
