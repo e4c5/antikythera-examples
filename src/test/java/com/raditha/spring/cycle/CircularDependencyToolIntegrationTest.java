@@ -18,13 +18,14 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * End-to-end integration tests for CircularDependencyTool against spring-boot-cycles testbed.
- * 
+ * <p>
  * Tests verify:
  * 1. Cycle detection works correctly
  * 2. Fixes are applied correctly
@@ -41,15 +42,15 @@ class CircularDependencyToolIntegrationTest {
         TestbedResetHelper.resetTestbed();
         // Remove Unknown.java to avoid duplicate class definition errors
         TestbedResetHelper.removeUnknownJava();
-        
+
         // Resolve testbed path - spring-boot-cycles is at the root level
         Path workspaceRoot = Paths.get(System.getProperty("user.dir"));
         if (!workspaceRoot.toString().endsWith("antikythera-examples")) {
             workspaceRoot = workspaceRoot.resolve("antikythera-examples");
         }
         testbedPath = workspaceRoot.resolve("testbeds/spring-boot-cycles/src/main/java").normalize();
-        
-        assertTrue(Files.exists(testbedPath), 
+
+        assertTrue(Files.exists(testbedPath),
                 "Testbed path should exist: " + testbedPath);
 
         // Load config pointing to testbed
@@ -71,32 +72,32 @@ class CircularDependencyToolIntegrationTest {
     @Test
     void testFullWorkflow_DetectAndFixCycles() throws IOException {
         // Step 1: Initial detection
-        
+
         BeanDependencyGraph graph = new BeanDependencyGraph();
         graph.build();
-        
+
         CycleDetector detector = new CycleDetector(graph.getSimpleGraph());
         List<Set<String>> initialCycles = detector.findCycles();
-        
-        assertFalse(initialCycles.isEmpty(), 
+
+        assertFalse(initialCycles.isEmpty(),
                 "Should detect cycles in testbed");
-        
+
         // Step 2: Apply fixes directly
-        sa.com.cloudsolutions.antikythera.depsolver.EdgeSelector selector = 
+        sa.com.cloudsolutions.antikythera.depsolver.EdgeSelector selector =
                 new sa.com.cloudsolutions.antikythera.depsolver.EdgeSelector(graph.getDependencies());
-        sa.com.cloudsolutions.antikythera.depsolver.JohnsonCycleFinder finder = 
+        sa.com.cloudsolutions.antikythera.depsolver.JohnsonCycleFinder finder =
                 new sa.com.cloudsolutions.antikythera.depsolver.JohnsonCycleFinder(graph.getSimpleGraph());
         List<List<String>> allCycles = finder.findAllCycles();
-        Set<sa.com.cloudsolutions.antikythera.depsolver.BeanDependency> edgesToCut = 
+        Set<sa.com.cloudsolutions.antikythera.depsolver.BeanDependency> edgesToCut =
                 selector.selectEdgesToCut(allCycles);
-        
+
         // For bidirectional cycles, add reverse edges
-        Set<sa.com.cloudsolutions.antikythera.depsolver.BeanDependency> additionalEdges = 
+        Set<sa.com.cloudsolutions.antikythera.depsolver.BeanDependency> additionalEdges =
                 findBidirectionalEdges(edgesToCut, graph.getDependencies());
         edgesToCut.addAll(additionalEdges);
-        
+
         // Apply @Lazy fixes
-        sa.com.cloudsolutions.antikythera.depsolver.LazyAnnotationStrategy strategy = 
+        sa.com.cloudsolutions.antikythera.depsolver.LazyAnnotationStrategy strategy =
                 new sa.com.cloudsolutions.antikythera.depsolver.LazyAnnotationStrategy(false);
         int applied = 0;
         for (sa.com.cloudsolutions.antikythera.depsolver.BeanDependency edge : edgesToCut) {
@@ -104,24 +105,24 @@ class CircularDependencyToolIntegrationTest {
                 applied++;
             }
         }
-        
+
         assertTrue(applied > 0, "Should apply at least one fix");
         strategy.writeChanges(testbedPath.toString());
-        
+
         // Step 3: Verify fixes were applied
         verifyLazyAnnotationsAdded(testbedPath);
-        
+
         // Step 4: Verify cycles are broken (or at least reduced)
         AbstractCompiler.reset();
         AntikytheraRunTime.resetAll();
         AbstractCompiler.preProcess();
-        
+
         BeanDependencyGraph newGraph = new BeanDependencyGraph();
         newGraph.build();
-        
+
         CycleDetector newDetector = new CycleDetector(newGraph.getSimpleGraph());
         newDetector.findCycles();
-        
+
         // Verify that some fixes were applied by checking for @Lazy annotations in files
         boolean hasLazyAnnotation = false;
         Path orderServiceFile = testbedPath.resolve("com/example/cycles/simple/OrderService.java");
@@ -129,10 +130,10 @@ class CircularDependencyToolIntegrationTest {
             String content = Files.readString(orderServiceFile);
             hasLazyAnnotation = content.contains("@Lazy");
         }
-        
-        assertTrue(hasLazyAnnotation || applied > 0, 
+
+        assertTrue(hasLazyAnnotation || applied > 0,
                 "At least one @Lazy annotation should have been added");
-        
+
         // Note: Some cycles may remain if bidirectional edges weren't fully fixed
         // or if @Lazy detection in BeanDependencyGraph needs improvement
     }
@@ -140,38 +141,38 @@ class CircularDependencyToolIntegrationTest {
     @Test
     void testFieldInjectionCycle_FixApplied() throws IOException {
         // Test simple field injection cycle: OrderService ↔ PaymentService
-        
+
         BeanDependencyGraph graph = new BeanDependencyGraph();
         graph.build();
-        
+
         // Find the OrderService -> PaymentService edge
         String orderServiceFqn = "com.example.cycles.simple.OrderService";
         String paymentServiceFqn = "com.example.cycles.simple.PaymentService";
-        
-        Set<sa.com.cloudsolutions.antikythera.depsolver.BeanDependency> orderDeps = 
+
+        Set<sa.com.cloudsolutions.antikythera.depsolver.BeanDependency> orderDeps =
                 graph.getDependencies().get(orderServiceFqn);
         assertNotNull(orderDeps, "OrderService should have dependencies");
-        
+
         boolean hasPaymentDep = orderDeps.stream()
                 .anyMatch(d -> d.targetBean().equals(paymentServiceFqn));
         assertTrue(hasPaymentDep, "OrderService should depend on PaymentService");
-        
+
         // Apply @Lazy fix
-        sa.com.cloudsolutions.antikythera.depsolver.LazyAnnotationStrategy strategy = 
+        sa.com.cloudsolutions.antikythera.depsolver.LazyAnnotationStrategy strategy =
                 new sa.com.cloudsolutions.antikythera.depsolver.LazyAnnotationStrategy(false);
-        
+
         sa.com.cloudsolutions.antikythera.depsolver.BeanDependency edge = orderDeps.stream()
                 .filter(d -> d.targetBean().equals(paymentServiceFqn))
                 .findFirst()
                 .orElseThrow();
-        
+
         assertTrue(strategy.apply(edge), "Should apply @Lazy to OrderService.paymentService");
         strategy.writeChanges(testbedPath.toString());
-        
+
         // Verify @Lazy was added
         Path orderServiceFile = testbedPath.resolve("com/example/cycles/simple/OrderService.java");
         String content = Files.readString(orderServiceFile);
-        assertTrue(content.contains("@Lazy"), 
+        assertTrue(content.contains("@Lazy"),
                 "OrderService should have @Lazy annotation");
         assertTrue(content.contains("import org.springframework.context.annotation.Lazy"),
                 "OrderService should import @Lazy");
@@ -180,60 +181,58 @@ class CircularDependencyToolIntegrationTest {
     @Test
     void testConstructorInjectionCycle_FixApplied() throws IOException {
         // Test constructor injection cycle: UserService ↔ NotificationService
-        
+
         BeanDependencyGraph graph = new BeanDependencyGraph();
         graph.build();
-        
+
         String userServiceFqn = "com.example.cycles.constructor.UserService";
         String notificationServiceFqn = "com.example.cycles.constructor.NotificationService";
-        
-        Set<sa.com.cloudsolutions.antikythera.depsolver.BeanDependency> userDeps = 
+
+        Set<sa.com.cloudsolutions.antikythera.depsolver.BeanDependency> userDeps =
                 graph.getDependencies().get(userServiceFqn);
-        
-        if (userDeps != null) {
-            sa.com.cloudsolutions.antikythera.depsolver.BeanDependency edge = userDeps.stream()
-                    .filter(d -> d.targetBean().equals(notificationServiceFqn))
-                    .findFirst()
-                    .orElse(null);
-            
-            if (edge != null && edge.injectionType() == 
-                    sa.com.cloudsolutions.antikythera.depsolver.InjectionType.CONSTRUCTOR) {
-                // Try @Lazy on constructor parameter first
-                sa.com.cloudsolutions.antikythera.depsolver.LazyAnnotationStrategy lazyStrategy = 
-                        new sa.com.cloudsolutions.antikythera.depsolver.LazyAnnotationStrategy(false);
-                
-                boolean applied = lazyStrategy.apply(edge);
-                
-                if (!applied) {
-                    // Fallback to setter injection
-                    sa.com.cloudsolutions.antikythera.depsolver.SetterInjectionStrategy setterStrategy = 
-                            new sa.com.cloudsolutions.antikythera.depsolver.SetterInjectionStrategy(false);
-                    applied = setterStrategy.apply(edge);
-                    if (applied) {
-                        setterStrategy.writeChanges(testbedPath.toString());
-                    }
-                } else {
-                    lazyStrategy.writeChanges(testbedPath.toString());
-                }
-                
-                assertTrue(applied, "Should apply fix to constructor injection cycle");
-                
-                // Verify fix was applied
-                Path userServiceFile = testbedPath.resolve("com/example/cycles/constructor/UserService.java");
-                String content = Files.readString(userServiceFile);
-                assertTrue(content.contains("@Lazy") || content.contains("setNotificationService"),
-                        "UserService should have @Lazy or setter method");
+
+
+        sa.com.cloudsolutions.antikythera.depsolver.BeanDependency edge = userDeps.stream()
+                .filter(d -> d.targetBean().equals(notificationServiceFqn))
+                .findFirst()
+                .orElse(null);
+
+
+        // Try @Lazy on constructor parameter first
+        sa.com.cloudsolutions.antikythera.depsolver.LazyAnnotationStrategy lazyStrategy =
+                new sa.com.cloudsolutions.antikythera.depsolver.LazyAnnotationStrategy(false);
+
+        boolean applied = lazyStrategy.apply(edge);
+
+        if (!applied) {
+            // Fallback to setter injection
+            sa.com.cloudsolutions.antikythera.depsolver.SetterInjectionStrategy setterStrategy =
+                    new sa.com.cloudsolutions.antikythera.depsolver.SetterInjectionStrategy(false);
+            applied = setterStrategy.apply(edge);
+            if (applied) {
+                setterStrategy.writeChanges(testbedPath.toString());
             }
+        } else {
+            lazyStrategy.writeChanges(testbedPath.toString());
         }
+
+        assertTrue(applied, "Should apply fix to constructor injection cycle");
+
+        // Verify fix was applied
+        Path userServiceFile = testbedPath.resolve("com/example/cycles/constructor/UserService.java");
+        String content = Files.readString(userServiceFile);
+        assertTrue(content.contains("@Lazy") || content.contains("setNotificationService"),
+                "UserService should have @Lazy or setter method");
+
     }
 
     @Test
     void testLazyAnnotationDetection() throws IOException {
         // Verify that @Lazy annotations are correctly detected and skipped in graph building
-        
+
         BeanDependencyGraph graph1 = new BeanDependencyGraph();
         graph1.build();
-        
+
         CycleDetector detector1 = new CycleDetector(graph1.getSimpleGraph());
         List<Set<String>> cycles1 = detector1.findCycles();
 
@@ -244,7 +243,7 @@ class CircularDependencyToolIntegrationTest {
                 "@Autowired\n    private PaymentService paymentService;",
                 "@Autowired\n    @Lazy\n    private PaymentService paymentService;"
         );
-        
+
         // Add import if not present
         if (!modifiedContent.contains("import org.springframework.context.annotation.Lazy")) {
             modifiedContent = modifiedContent.replace(
@@ -252,20 +251,20 @@ class CircularDependencyToolIntegrationTest {
                     "import org.springframework.stereotype.Service;\nimport org.springframework.context.annotation.Lazy;"
             );
         }
-        
+
         Files.writeString(orderServiceFile, modifiedContent);
-        
+
         // Re-build graph and verify cycle is broken
         AbstractCompiler.reset();
         AntikytheraRunTime.resetAll();
         AbstractCompiler.preProcess();
-        
+
         BeanDependencyGraph graph2 = new BeanDependencyGraph();
         graph2.build();
-        
+
         CycleDetector detector2 = new CycleDetector(graph2.getSimpleGraph());
         List<Set<String>> cycles2 = detector2.findCycles();
-        
+
         // The cycle count should be reduced (OrderService ↔ PaymentService cycle should be broken)
         // Note: This might not be exactly initialCycleCount - 1 if there are overlapping cycles
         assertTrue(cycles2.size() <= cycles1.size(),
@@ -275,31 +274,31 @@ class CircularDependencyToolIntegrationTest {
     @Test
     void testBidirectionalCycle_BothSidesFixed() throws IOException {
         // Test that bidirectional cycles (A↔B) get both sides fixed
-        
+
         BeanDependencyGraph graph = new BeanDependencyGraph();
         graph.build();
-        
+
         String orderServiceFqn = "com.example.cycles.simple.OrderService";
         String paymentServiceFqn = "com.example.cycles.simple.PaymentService";
-        
+
         // Check both directions exist
-        Set<sa.com.cloudsolutions.antikythera.depsolver.BeanDependency> orderDeps = 
+        Set<sa.com.cloudsolutions.antikythera.depsolver.BeanDependency> orderDeps =
                 graph.getDependencies().get(orderServiceFqn);
-        Set<sa.com.cloudsolutions.antikythera.depsolver.BeanDependency> paymentDeps = 
+        Set<sa.com.cloudsolutions.antikythera.depsolver.BeanDependency> paymentDeps =
                 graph.getDependencies().get(paymentServiceFqn);
-        
+
         boolean orderToPayment = orderDeps != null && orderDeps.stream()
                 .anyMatch(d -> d.targetBean().equals(paymentServiceFqn));
         boolean paymentToOrder = paymentDeps != null && paymentDeps.stream()
                 .anyMatch(d -> d.targetBean().equals(orderServiceFqn));
-        
-        assertTrue(orderToPayment && paymentToOrder, 
+
+        assertTrue(orderToPayment && paymentToOrder,
                 "Should have bidirectional dependency");
-        
+
         // Apply fixes to both sides
-        sa.com.cloudsolutions.antikythera.depsolver.LazyAnnotationStrategy strategy = 
+        sa.com.cloudsolutions.antikythera.depsolver.LazyAnnotationStrategy strategy =
                 new sa.com.cloudsolutions.antikythera.depsolver.LazyAnnotationStrategy(false);
-        
+
 
         orderDeps.stream()
                 .filter(d -> d.targetBean().equals(paymentServiceFqn))
@@ -311,58 +310,57 @@ class CircularDependencyToolIntegrationTest {
                 .ifPresent(strategy::apply);
 
         strategy.writeChanges(testbedPath.toString());
-        
+
         // Verify both sides have @Lazy
         Path orderFile = testbedPath.resolve("com/example/cycles/simple/OrderService.java");
         Path paymentFile = testbedPath.resolve("com/example/cycles/simple/PaymentService.java");
-        
+
         String orderContent = Files.readString(orderFile);
         String paymentContent = Files.readString(paymentFile);
-        
-        assertTrue(orderContent.contains("@Lazy"), 
+
+        assertTrue(orderContent.contains("@Lazy"),
                 "OrderService should have @Lazy");
-        assertTrue(paymentContent.contains("@Lazy"), 
+        assertTrue(paymentContent.contains("@Lazy"),
                 "PaymentService should have @Lazy");
     }
 
     @Test
     void testComplexCycle_MultipleNodes() throws IOException {
         // Test complex cycle: ServiceA → ServiceB → ServiceC → HubService → ServiceA
-        
+
         BeanDependencyGraph graph = new BeanDependencyGraph();
         graph.build();
-        
-        sa.com.cloudsolutions.antikythera.depsolver.JohnsonCycleFinder finder = 
+
+        sa.com.cloudsolutions.antikythera.depsolver.JohnsonCycleFinder finder =
                 new sa.com.cloudsolutions.antikythera.depsolver.JohnsonCycleFinder(graph.getSimpleGraph());
         List<List<String>> allCycles = finder.findAllCycles();
-        
+
         // Find a complex cycle (more than 2 nodes)
         List<String> complexCycle = allCycles.stream()
                 .filter(cycle -> cycle.size() > 2)
                 .findFirst()
                 .orElse(null);
-        
-        if (complexCycle != null) {
-            
-            // Apply fixes
-            sa.com.cloudsolutions.antikythera.depsolver.EdgeSelector selector = 
-                    new sa.com.cloudsolutions.antikythera.depsolver.EdgeSelector(graph.getDependencies());
-            Set<sa.com.cloudsolutions.antikythera.depsolver.BeanDependency> edgesToCut = 
-                    selector.selectEdgesToCut(List.of(complexCycle));
-            
-            sa.com.cloudsolutions.antikythera.depsolver.LazyAnnotationStrategy strategy = 
-                    new sa.com.cloudsolutions.antikythera.depsolver.LazyAnnotationStrategy(false);
-            
-            int applied = 0;
-            for (sa.com.cloudsolutions.antikythera.depsolver.BeanDependency edge : edgesToCut) {
-                if (strategy.apply(edge)) {
-                    applied++;
-                }
+
+
+        // Apply fixes
+        sa.com.cloudsolutions.antikythera.depsolver.EdgeSelector selector =
+                new sa.com.cloudsolutions.antikythera.depsolver.EdgeSelector(graph.getDependencies());
+        Set<sa.com.cloudsolutions.antikythera.depsolver.BeanDependency> edgesToCut =
+                selector.selectEdgesToCut(List.of(complexCycle));
+
+        sa.com.cloudsolutions.antikythera.depsolver.LazyAnnotationStrategy strategy =
+                new sa.com.cloudsolutions.antikythera.depsolver.LazyAnnotationStrategy(false);
+
+        int applied = 0;
+        for (sa.com.cloudsolutions.antikythera.depsolver.BeanDependency edge : edgesToCut) {
+            if (strategy.apply(edge)) {
+                applied++;
             }
-            
-            assertTrue(applied > 0, "Should apply fixes to complex cycle");
-            strategy.writeChanges(testbedPath.toString());
         }
+
+        assertTrue(applied > 0, "Should apply fixes to complex cycle");
+        strategy.writeChanges(testbedPath.toString());
+
     }
 
     /**
@@ -415,11 +413,11 @@ class CircularDependencyToolIntegrationTest {
             Set<sa.com.cloudsolutions.antikythera.depsolver.BeanDependency> selectedEdges,
             Map<String, Set<sa.com.cloudsolutions.antikythera.depsolver.BeanDependency>> allDependencies) {
         Set<sa.com.cloudsolutions.antikythera.depsolver.BeanDependency> additional = new HashSet<>();
-        
+
         for (sa.com.cloudsolutions.antikythera.depsolver.BeanDependency edge : selectedEdges) {
             String from = edge.fromBean();
             String to = edge.targetBean();
-            
+
             // Check if there's a reverse edge (to → from)
             Set<sa.com.cloudsolutions.antikythera.depsolver.BeanDependency> reverseDeps = allDependencies.get(to);
             if (reverseDeps != null) {
@@ -434,7 +432,7 @@ class CircularDependencyToolIntegrationTest {
                 }
             }
         }
-        
+
         return additional;
     }
 }

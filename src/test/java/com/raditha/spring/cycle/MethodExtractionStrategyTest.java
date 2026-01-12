@@ -339,7 +339,7 @@ class MethodExtractionStrategyTest {
                 .findFirst()
                 .orElse(null);
         
-        if (mediatorFile != null) {
+
             assertTrue(Files.exists(mediatorFile), 
                     "Mediator file should be written");
             
@@ -350,7 +350,7 @@ class MethodExtractionStrategyTest {
             // Basic syntax check - should have class declaration
             assertTrue(mediatorContent.contains("class") || mediatorContent.contains("interface"),
                     "Mediator should have class/interface declaration");
-        }
+
     }
 }
 
