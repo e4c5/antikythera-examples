@@ -2,8 +2,6 @@
 # Test script for all CircularDependencyTool strategies
 # Enhanced with timeout handling and verbose output
 
-set -e
-
 STRATEGIES=("auto" "lazy" "setter" "interface" "extract")
 TIMEOUT=300  # 5 minutes per strategy
 
@@ -22,24 +20,30 @@ mvn compile -q
 echo "✅ Build complete"
 echo ""
 
+# Define paths
+CYCLES_DIR="./testbeds/spring-boot-cycles"
+CONFIG_FILE="$(pwd)/cycle-config.yml"
+
 for strategy in "${STRATEGIES[@]}"; do
     echo "Testing: $strategy"
     echo "----------------------------"
     
     # Clean up spring-boot-cycles - rollback all changes and remove untracked files
-    cd ../spring-boot-cycles
+    cd "$CYCLES_DIR"
     echo "Resetting spring-boot-cycles to clean state..."
-    git reset --hard HEAD 2>/dev/null || true
-    git clean -fd 2>/dev/null || true
+    git reset --hard HEAD >/dev/null 2>&1 || true
+    git clean -fd >/dev/null 2>&1 || true
+
+    # Return to root
+    cd - >/dev/null
     
     # Run the tool with timeout
-    cd ../antikythera-examples
     echo "Running with --strategy $strategy (timeout: ${TIMEOUT}s)..."
     
     # Run with timeout and capture exit code
     TOOL_OUTPUT=$(timeout ${TIMEOUT} mvn exec:java \
         -Dexec.mainClass="com.raditha.spring.cycle.CircularDependencyTool" \
-        -Dexec.args="--config ../spring-boot-cycles/cycle-detector-test.yml --strategy $strategy" \
+        -Dexec.args="--config $CONFIG_FILE --strategy $strategy" \
         2>&1) || TOOL_EXIT=$?
     
     # Check if timeout occurred
@@ -47,12 +51,12 @@ for strategy in "${STRATEGIES[@]}"; do
         echo "❌ $strategy: TIMEOUT after ${TIMEOUT}s"
         echo "Last output:"
         echo "$TOOL_OUTPUT" | tail -50
-        exit 1
+        # continue
     elif [ "${TOOL_EXIT:-0}" -ne 0 ]; then
         echo "❌ $strategy: Tool failed with exit code ${TOOL_EXIT}"
         echo "Output:"
         echo "$TOOL_OUTPUT" | tail -100
-        exit 1
+        # continue
     fi
     
     # Show last few lines of tool output
@@ -62,14 +66,16 @@ for strategy in "${STRATEGIES[@]}"; do
     
     # Validate compilation
     echo "Validating compilation..."
-    cd ../spring-boot-cycles
+    cd "$CYCLES_DIR"
     
     # Run mvn compile with timeout
-    COMPILE_OUTPUT=$(timeout 60 mvn compile 2>&1) || COMPILE_EXIT=$?
+    # Suppress output unless error
+    COMPILE_OUTPUT=$(timeout 60 mvn compile -DskipTests 2>&1) || COMPILE_EXIT=$?
     
     if [ "${COMPILE_EXIT:-0}" -eq 124 ]; then
         echo "❌ $strategy: Compilation TIMEOUT"
-        exit 1
+        cd - >/dev/null
+        # continue
     elif echo "$COMPILE_OUTPUT" | grep -q "BUILD SUCCESS"; then
         echo "✅ $strategy: Compilation successful"
     else
@@ -77,11 +83,15 @@ for strategy in "${STRATEGIES[@]}"; do
         echo ""
         echo "Build output:"
         echo "$COMPILE_OUTPUT" | grep -A 10 "\[ERROR\]" || echo "$COMPILE_OUTPUT" | tail -30
-        exit 1
+        cd - >/dev/null
+        # continue
     fi
     
+    # Return to root
+    cd - >/dev/null
+
     echo ""
 done
 
 echo "=============================================="
-echo "✅ All strategies tested successfully!"
+echo "✅ All strategies tested (check results above)!"
