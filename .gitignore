@@ -43,3 +43,4 @@ src/main/resources/generator.yml
 # Migration test beds (set up via setup-testbeds.sh)
 testbeds/
 src/main/resources/migrator.yml
+src/main/resources/graph.yml
