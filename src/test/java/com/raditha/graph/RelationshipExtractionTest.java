@@ -220,4 +220,45 @@ class RelationshipExtractionTest {
         assertEquals(EdgeType.USES, edge.type());
         assertTrue(edge.targetId().contains("String"));
     }
+
+    @Test
+    @DisplayName("CALLS: method call captures local variable arguments")
+    void testCallsEdge_CapturesArguments() {
+        String code = """
+            package com.example;
+            class Service {
+                void process() {
+                    String localVar = "value";
+                    int num = 10;
+                    helper(localVar, num);
+                }
+                void helper(String s, int i) {}
+            }
+            """;
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        MethodDeclaration caller = cu.findAll(MethodDeclaration.class).stream()
+                .filter(m -> m.getNameAsString().equals("process"))
+                .findFirst().orElseThrow();
+        MethodCallExpr mce = cu.findFirst(MethodCallExpr.class).orElseThrow();
+
+        GraphNode node = Graph.createGraphNode(caller);
+
+        // Act
+        builder.onMethodCalled(node, mce);
+
+        // Assert
+        ArgumentCaptor<KnowledgeGraphEdge> captor = ArgumentCaptor.forClass(KnowledgeGraphEdge.class);
+        verify(mockStore).persistEdge(captor.capture());
+
+        KnowledgeGraphEdge edge = captor.getValue();
+        assertEquals(EdgeType.CALLS, edge.type());
+
+        // Verify attributes
+        assertNotNull(edge.attributes(), "Attributes should not be null");
+        assertTrue(edge.attributes().containsKey("parameterValues"), "Should contain parameterValues attribute");
+
+        String paramValues = edge.attributes().get("parameterValues");
+        assertTrue(paramValues.contains("localVar"), "Should contain 'localVar'");
+        assertTrue(paramValues.contains("num"), "Should contain 'num'");
+    }
 }

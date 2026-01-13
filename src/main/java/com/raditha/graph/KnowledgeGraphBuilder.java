@@ -18,6 +18,7 @@ import sa.com.cloudsolutions.antikythera.depsolver.GraphNode;
 import java.io.File;
 import java.io.IOException;
 import java.util.Collection;
+import java.util.stream.Collectors;
 
 /**
  * Knowledge Graph Builder that extends DependencyAnalyzer.
@@ -222,10 +223,15 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
                     .orElse(node.getEnclosingType().getNameAsString()) + "#" + mce.getNameAsString() + "()";
         }
 
+        String params = mce.getArguments().stream()
+                .map(Object::toString)
+                .collect(Collectors.joining(","));
+
         KnowledgeGraphEdge edge = KnowledgeGraphEdge.builder()
                 .source(sourceId)
                 .target(targetId)
                 .type(EdgeType.CALLS)
+                .attribute("parameterValues", params)
                 .build();
 
         graphStore.persistEdge(edge);
