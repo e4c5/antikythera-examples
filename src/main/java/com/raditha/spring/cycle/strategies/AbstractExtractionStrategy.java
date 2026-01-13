@@ -21,11 +21,11 @@ public abstract class AbstractExtractionStrategy {
     protected boolean dryRun;
     protected final Set<CompilationUnit> modifiedCUs = new HashSet<>();
 
-    public AbstractExtractionStrategy() {
+    protected AbstractExtractionStrategy() {
         this.dryRun = false;
     }
 
-    public AbstractExtractionStrategy(boolean dryRun) {
+    protected AbstractExtractionStrategy(boolean dryRun) {
         this.dryRun = dryRun;
     }
 
