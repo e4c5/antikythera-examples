@@ -1,0 +1,360 @@
+diff --git a/src/main/java/sa/com/cloudsolutions/antikythera/depsolver/InterfaceExtractionStrategy.java b/src/main/java/sa/com/cloudsolutions/antikythera/depsolver/InterfaceExtractionStrategy.java
+index 1f874ca5..d5b9a174 100644
+--- a/src/main/java/sa/com/cloudsolutions/antikythera/depsolver/InterfaceExtractionStrategy.java
++++ b/src/main/java/sa/com/cloudsolutions/antikythera/depsolver/InterfaceExtractionStrategy.java
+@@ -4,6 +4,7 @@ import com.github.javaparser.ast.CompilationUnit;
+ import com.github.javaparser.ast.Modifier;
+ import com.github.javaparser.ast.Node;
+ import com.github.javaparser.ast.NodeList;
++import com.github.javaparser.ast.body.BodyDeclaration;
+ import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+ import com.github.javaparser.ast.body.FieldDeclaration;
+ import com.github.javaparser.ast.body.MethodDeclaration;
+@@ -23,6 +24,7 @@ import java.util.HashSet;
+ import java.util.Map;
+ import java.util.Optional;
+ import java.util.Set;
++import java.util.stream.Collectors;
+
+ /**
+  * Strategy for breaking circular dependencies by extracting an interface.
+@@ -96,14 +98,22 @@ public class InterfaceExtractionStrategy extends AbstractExtractionStrategy {
+         // Step 2: Resolve method signatures from target class
+         Set<MethodDeclaration> usedMethods = resolveMethodSignatures(targetClass, calledMethodNames);
+         if (usedMethods.isEmpty()) {
++            System.out.println("DEBUG: No methods found in " + edge.targetBean() + " matching " + calledMethodNames);
+             return false;
+         }
+
+-        // Step 3: Generate interface
++        // Step 3: Generate interface or update existing one
+         String interfaceName = INTERFACE_PREFIX + getSimpleClassName(edge.targetBean());
+         String targetPackage = getPackageName(edge.targetBean());
+-        CompilationUnit interfaceCU = generateInterface(interfaceName, targetPackage, usedMethods, targetClass);
+-        generatedInterfaces.put(edge.targetBean(), interfaceCU);
++
++        CompilationUnit interfaceCU;
++        if (generatedInterfaces.containsKey(edge.targetBean())) {
++            interfaceCU = generatedInterfaces.get(edge.targetBean());
++            updateInterface(interfaceCU, usedMethods, targetClass);
++        } else {
++            interfaceCU = generateInterface(interfaceName, targetPackage, usedMethods, targetClass);
++            generatedInterfaces.put(edge.targetBean(), interfaceCU);
++        }
+
+         // Step 4: Modify target class to implement interface
+         addImplementsClause(targetClass, interfaceName);
+@@ -144,10 +154,12 @@ public class InterfaceExtractionStrategy extends AbstractExtractionStrategy {
+         Set<MethodDeclaration> methods = new HashSet<>();
+
+         for (String methodName : methodNames) {
++            // Include ALL public methods with the matching name to handle overloads
++            // This ensures we capture the specific version used by the caller,
++            // and maybe others, but that's safe for an interface.
+             targetClass.getMethodsByName(methodName).stream()
+                     .filter(MethodDeclaration::isPublic)
+-                    .findFirst()
+-                    .ifPresent(methods::add);
++                    .forEach(methods::add);
+         }
+
+         return methods;
+@@ -165,6 +177,11 @@ public class InterfaceExtractionStrategy extends AbstractExtractionStrategy {
+             cu.setPackageDeclaration(packageName);
+         }
+
++        // Copy imports from the target class to ensure types in method signatures resolve
++        targetClass.findCompilationUnit().ifPresent(sourceCu ->
++                sourceCu.getImports().forEach(cu::addImport)
++        );
++
+         ClassOrInterfaceDeclaration iface = cu.addInterface(interfaceName);
+         iface.setModifier(Modifier.Keyword.PUBLIC, true);
+
+@@ -177,8 +194,33 @@ public class InterfaceExtractionStrategy extends AbstractExtractionStrategy {
+             iface.setTypeParameters(typeParams);
+         }
+
+-        // Add method signatures
++        addMethodsToInterface(iface, methods, targetClass);
++
++        return cu;
++    }
++
++    private void updateInterface(CompilationUnit cu, Set<MethodDeclaration> methods, ClassOrInterfaceDeclaration targetClass) {
++        cu.findFirst(ClassOrInterfaceDeclaration.class).ifPresent(iface -> {
++            addMethodsToInterface(iface, methods, targetClass);
++        });
++
++        // Also merge imports? imports are set on CU.
++        // We already copied imports from targetClass when creating.
++        // Since targetClass is the same, imports should be same.
++        // But if we had multiple target classes (not possible, targetBean is unique key), it would matter.
++        // So imports are fine.
++    }
++
++    private void addMethodsToInterface(ClassOrInterfaceDeclaration iface, Set<MethodDeclaration> methods, ClassOrInterfaceDeclaration targetClass) {
+         for (MethodDeclaration method : methods) {
++            // Check if method already exists in interface
++            boolean exists = iface.getMethods().stream().anyMatch(m ->
++                m.getNameAsString().equals(method.getNameAsString()) &&
++                m.getParameters().toString().equals(method.getParameters().toString()) // Simple signature check
++            );
++
++            if (exists) continue;
++
+             MethodDeclaration sig = new MethodDeclaration();
+             sig.setName(method.getNameAsString());
+             sig.setType(method.getType().clone());
+@@ -200,11 +242,29 @@ public class InterfaceExtractionStrategy extends AbstractExtractionStrategy {
+
+             // Interface methods have no body
+             sig.removeBody();
++
++            // Qualify inner class types in signatures
++            qualifyInnerTypes(sig, targetClass);
+
+             iface.addMember(sig);
+         }
+-
+-        return cu;
++    }
++
++    /**
++     * Qualify inner class types in the method signature (parameters and return type).
++     * If a type refers to an inner class of the target class, qualify it with the target class name.
++     */
++    private void qualifyInnerTypes(MethodDeclaration method, ClassOrInterfaceDeclaration targetClass) {
++        Set<String> innerClassNames = targetClass.getMembers().stream()
++                .filter(BodyDeclaration::isTypeDeclaration)
++                .map(bd -> bd.asTypeDeclaration().getNameAsString())
++                .collect(Collectors.toSet());
++
++        method.findAll(ClassOrInterfaceType.class).forEach(t -> {
++            if (t.getScope().isEmpty() && innerClassNames.contains(t.getNameAsString())) {
++                t.setScope(new ClassOrInterfaceType(null, targetClass.getNameAsString()));
++            }
++        });
+     }
+
+     /**
+diff --git a/src/main/java/sa/com/cloudsolutions/antikythera/depsolver/MethodExtractionStrategy.java b/src/main/java/sa/com/cloudsolutions/antikythera/depsolver/MethodExtractionStrategy.java
+index 58d4a384..c40c28a1 100644
+--- a/src/main/java/sa/com/cloudsolutions/antikythera/depsolver/MethodExtractionStrategy.java
++++ b/src/main/java/sa/com/cloudsolutions/antikythera/depsolver/MethodExtractionStrategy.java
+@@ -2,15 +2,18 @@ package sa.com.cloudsolutions.antikythera.depsolver;
+
+ import com.github.javaparser.ast.CompilationUnit;
+ import com.github.javaparser.ast.Modifier;
++import com.github.javaparser.ast.body.BodyDeclaration;
+ import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+ import com.github.javaparser.ast.body.FieldDeclaration;
+ import com.github.javaparser.ast.body.MethodDeclaration;
++import com.github.javaparser.ast.expr.FieldAccessExpr;
+ import com.github.javaparser.ast.expr.MarkerAnnotationExpr;
+ import com.github.javaparser.ast.expr.MethodCallExpr;
+ import com.github.javaparser.ast.expr.Name;
+ import com.github.javaparser.ast.expr.NameExpr;
+ import com.github.javaparser.ast.expr.ThisExpr;
+ import com.github.javaparser.ast.nodeTypes.NodeWithName;
++import com.github.javaparser.ast.type.ClassOrInterfaceType;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+
+@@ -55,6 +58,7 @@ public class MethodExtractionStrategy extends AbstractExtractionStrategy {
+         Set<MethodDeclaration> methods;
+         String dependencyBeanName;
+         String dependencyFieldName;
++        Set<String> fieldsToMove = new HashSet<>();
+     }
+
+     /**
+@@ -76,15 +80,6 @@ public class MethodExtractionStrategy extends AbstractExtractionStrategy {
+             return false;
+         }
+
+-        // Create ONE Mediator for the cycle
+-        // Name: Concatenate all bean simple names + "Operations"? Or just the first two
+-        // (OrderServicePaymentServiceOperations match test)?
+-        // The test matches "OrderServicePaymentServiceOperations".
+-        // Since candidates might be in any order, we should probably stick to the order
+-        // in processing or cycle list.
+-        // Let's use the first candidate and its dependency to name it, or if multiple,
+-        // concatenate unique names.
+-
+         String mediatorName = generateMediatorName(cycle);
+         String packageName = candidates.getFirst().sourceClass.findCompilationUnit()
+                 .flatMap(CompilationUnit::getPackageDeclaration)
+@@ -99,6 +94,7 @@ public class MethodExtractionStrategy extends AbstractExtractionStrategy {
+         for (ExtractionCandidate cand : candidates) {
+             methodsByClass.computeIfAbsent(cand.sourceClass, k -> new HashSet<>()).addAll(cand.methods);
+             fieldsToRemove.computeIfAbsent(cand.sourceClass, k -> new HashSet<>()).add(cand.dependencyFieldName);
++            fieldsToRemove.get(cand.sourceClass).addAll(cand.fieldsToMove);
+         }
+
+         for (Map.Entry<ClassOrInterfaceDeclaration, Set<MethodDeclaration>> entry : methodsByClass.entrySet()) {
+@@ -137,6 +133,18 @@ public class MethodExtractionStrategy extends AbstractExtractionStrategy {
+                         candidate.methods = methods;
+                         candidate.dependencyBeanName = otherBean;
+                         candidate.dependencyFieldName = fieldName;
++
++                        // Identify other fields used by extracted methods that should be moved
++                        Set<String> usedFields = collectUsedFields(beanClass, methods, fieldName);
++                        for (String usedField : usedFields) {
++                            if (isFieldSafeToMove(beanClass, usedField, methods)) {
++                                candidate.fieldsToMove.add(usedField);
++                            } else {
++                                logger.warn("Field '{}' is used by both extracted and non-extracted methods. " +
++                                        "It cannot be safely moved, which may cause compilation errors.", usedField);
++                            }
++                        }
++
+                         candidates.add(candidate);
+                     }
+                 }
+@@ -146,11 +154,6 @@ public class MethodExtractionStrategy extends AbstractExtractionStrategy {
+     }
+
+     private String generateMediatorName(List<String> cycle) {
+-        // Try to match test expectation: OrderServicePaymentServiceOperations
+-        // Cycle is OrderService, PaymentService.
+-        // Candidates will be (OrderService->PaymentService) and
+-        // (PaymentService->OrderService).
+-        // If we concat non-duplicate simple names from cycle in order:
+         StringBuilder sb = new StringBuilder();
+         for (String bean : cycle) {
+             sb.append(getSimpleClassName(bean));
+@@ -217,8 +220,43 @@ public class MethodExtractionStrategy extends AbstractExtractionStrategy {
+                 return true;
+             }
+         }
+-        return method.findAll(NameExpr.class).stream()
++
++        // Check simple name usage
++        boolean nameUsed = method.findAll(NameExpr.class).stream()
+                 .anyMatch(n -> n.getNameAsString().equals(fieldName));
++
++        if (nameUsed) return true;
++
++        // Check field access (this.fieldName)
++        return method.findAll(FieldAccessExpr.class).stream()
++                .anyMatch(fa -> fa.getScope().isThisExpr() && fa.getNameAsString().equals(fieldName));
++    }
++
++    private Set<String> collectUsedFields(ClassOrInterfaceDeclaration clazz, Set<MethodDeclaration> methods, String dependencyFieldName) {
++        Set<String> usedFields = new HashSet<>();
++        for (MethodDeclaration method : methods) {
++            method.findAll(NameExpr.class).forEach(n -> {
++                String name = n.getNameAsString();
++                if (!name.equals(dependencyFieldName) && clazz.getFieldByName(name).isPresent()) {
++                    usedFields.add(name);
++                }
++            });
++            method.findAll(FieldAccessExpr.class).forEach(fa -> {
++                 if (fa.getScope().isThisExpr() && !fa.getNameAsString().equals(dependencyFieldName)) {
++                     if (clazz.getFieldByName(fa.getNameAsString()).isPresent()) {
++                         usedFields.add(fa.getNameAsString());
++                     }
++                 }
++            });
++        }
++        return usedFields;
++    }
++
++    private boolean isFieldSafeToMove(ClassOrInterfaceDeclaration clazz, String fieldName, Set<MethodDeclaration> extractedMethods) {
++        // Check if any non-extracted method uses this field
++        return clazz.getMethods().stream()
++                .filter(m -> !extractedMethods.contains(m))
++                .noneMatch(m -> methodUsesField(m, fieldName));
+     }
+
+     private void createMediatorClass(String packageName, String mediatorName, List<ExtractionCandidate> candidates) {
+@@ -247,11 +285,6 @@ public class MethodExtractionStrategy extends AbstractExtractionStrategy {
+             // Add dependency field if not exists
+             String depStruct = getSimpleClassName(cand.dependencyBeanName); // Type
+
+-            // We need to add fields for dependencies needed by extracted methods.
+-            // But also, we need to add fields for the source classes themselves?
+-            // If Method M from A uses B. M is moved to Mediator. Mediator needs B.
+-            // We add field B to Mediator.
+-
+             if (!addedFields.contains(cand.dependencyFieldName)) {
+                 FieldDeclaration fd = mediator.addField(depStruct, cand.dependencyFieldName, Modifier.Keyword.PRIVATE);
+                 fd.addAnnotation("Autowired");
+@@ -259,12 +292,32 @@ public class MethodExtractionStrategy extends AbstractExtractionStrategy {
+                 addedFields.add(cand.dependencyFieldName);
+             }
+
++            // Move other used fields
++            for (String fieldToMove : cand.fieldsToMove) {
++                if (!addedFields.contains(fieldToMove)) {
++                     cand.sourceClass.getFieldByName(fieldToMove).ifPresent(f -> {
++                         FieldDeclaration newField = f.clone();
++                         mediator.addMember(newField);
++                         addedFields.add(fieldToMove);
++                     });
++                }
++            }
++
+             // Move methods
+             for (MethodDeclaration method : cand.methods) {
+-                // Avoid duplicates (if two classes have same method name? Unlikely or
+-                // overloading)
+-                // Just add them.
++                // Avoid duplicates using signature check
++                boolean exists = mediator.getMethods().stream().anyMatch(m ->
++                    m.getNameAsString().equals(method.getNameAsString()) &&
++                    m.getParameters().toString().equals(method.getParameters().toString())
++                );
++
++                if (exists) continue;
++
+                 MethodDeclaration newMethod = method.clone();
++
++                // Qualify inner class types
++                qualifyInnerTypes(newMethod, cand.sourceClass);
++
+                 mediator.addMember(newMethod);
+
+                 if (newMethod.isPrivate()) {
+@@ -274,12 +327,41 @@ public class MethodExtractionStrategy extends AbstractExtractionStrategy {
+             }
+         }
+
++        // Post-process mediator methods to fix calls to other moved methods
++        Set<String> allMovedMethods = new HashSet<>();
++        for (ExtractionCandidate cand : candidates) {
++            cand.methods.forEach(m -> allMovedMethods.add(m.getNameAsString()));
++        }
++
++        for (MethodDeclaration method : mediator.getMethods()) {
++            method.findAll(MethodCallExpr.class).forEach(mce -> {
++                if (allMovedMethods.contains(mce.getNameAsString())) {
++                    if (mce.getScope().isPresent()) {
++                         mce.removeScope();
++                    }
++                }
++            });
++        }
++
+         String fqn = packageName.isEmpty() ? mediatorName : packageName + "." + mediatorName;
+         generatedMediators.put(fqn, cu);
+         modifiedCUs.add(cu);
+         Graph.getDependencies().put(fqn, cu);
+     }
+
++    private void qualifyInnerTypes(MethodDeclaration method, ClassOrInterfaceDeclaration targetClass) {
++        Set<String> innerClassNames = targetClass.getMembers().stream()
++                .filter(BodyDeclaration::isTypeDeclaration)
++                .map(bd -> bd.asTypeDeclaration().getNameAsString())
++                .collect(Collectors.toSet());
++
++        method.findAll(ClassOrInterfaceType.class).forEach(t -> {
++            if (t.getScope().isEmpty() && innerClassNames.contains(t.getNameAsString())) {
++                t.setScope(new ClassOrInterfaceType(null, targetClass.getNameAsString()));
++            }
++        });
++    }
++
+     private void refactorOriginalClass(ClassOrInterfaceDeclaration clazz, Set<MethodDeclaration> extractedMethods,
+                                        String mediatorName, Set<String> fieldsToRemove) {
