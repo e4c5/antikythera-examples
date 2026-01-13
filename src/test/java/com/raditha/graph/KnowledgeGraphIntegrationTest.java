@@ -23,6 +23,10 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.testcontainers.containers.Neo4jContainer;
+import org.codehaus.plexus.util.xml.pull.XmlPullParserException;
+import sa.com.cloudsolutions.antikythera.parser.MavenHelper;
+
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.Mockito.atLeastOnce;
@@ -40,6 +44,8 @@ class KnowledgeGraphIntegrationTest {
     @Mock
     private Neo4jGraphStore graphStore;
     
+    private Neo4jContainer<?> neo4jContainer;
+    
     private KnowledgeGraphBuilder builder;
 
     @BeforeEach
@@ -52,7 +58,21 @@ class KnowledgeGraphIntegrationTest {
         // Initialize AbstractCompiler (required by DependencyAnalyzer)
         AbstractCompiler.reset();
         
-        // We use the @Mock graphStore injected by MockitoExtension
+        if (Boolean.getBoolean("test.live.neo4j")) {
+            System.out.println("🚀 Running against LIVE Neo4j Container");
+            neo4jContainer = new Neo4jContainer<>("neo4j:5.18.0")
+                .withAdminPassword("password");
+            neo4jContainer.start();
+            
+            graphStore = Neo4jGraphStore.builder()
+                .uri(neo4jContainer.getBoltUrl())
+                .password("password")
+                .build();
+        } else {
+            System.out.println("🛡️ Running against MOCK GraphStore");
+            // graphStore is already injected by Mockito
+        }
+        
         builder = new KnowledgeGraphBuilder(graphStore);
         Graph.getNodes().clear(); // Clear Antikythera in-memory headers
     }
@@ -62,12 +82,21 @@ class KnowledgeGraphIntegrationTest {
         if (builder != null) {
             builder.close();
         }
+        if (neo4jContainer != null) {
+            neo4jContainer.stop();
+        }
     }
 
 
 
     @Test
-    void testSpringPetClinicAnalysis() throws IOException {
+    void testSpringPetClinicAnalysis() throws IOException, XmlPullParserException {
+        // Pre-load dependencies using MavenHelper
+        // This ensures external jars (Spring Boot etc) are available to the parser
+        MavenHelper mavenHelper = new MavenHelper();
+        mavenHelper.readPomFile();
+        mavenHelper.buildJarPaths();
+
         // Use Antikythera framework to pre-process (parse & resolve) the testbed
         AbstractCompiler.preProcess();
         
@@ -84,23 +113,26 @@ class KnowledgeGraphIntegrationTest {
         // Build Graph
         builder.build(allMethods);
 
-        // Verification using ArgumentCaptor to inspect generated edges
-        ArgumentCaptor<KnowledgeGraphEdge> edgeCaptor = ArgumentCaptor.forClass(KnowledgeGraphEdge.class);
-        verify(graphStore, atLeastOnce()).persistEdge(edgeCaptor.capture());
-        
-        List<KnowledgeGraphEdge> capturedEdges = edgeCaptor.getAllValues();
+        if (neo4jContainer != null) {
+            // Live verification against Real DB
+            assertTrue(graphStore.getEdgeCount() > 100, "Should generate a significant number of edges for PetClinic");
+            System.out.println("✅ Verified " + graphStore.getEdgeCount() + " edges in Live Neo4j");
+        } else {
+             // Mock verification using ArgumentCaptor to inspect generated edges
+            ArgumentCaptor<KnowledgeGraphEdge> edgeCaptor = ArgumentCaptor.forClass(KnowledgeGraphEdge.class);
+            verify(graphStore, atLeastOnce()).persistEdge(edgeCaptor.capture());
+            
+            List<KnowledgeGraphEdge> capturedEdges = edgeCaptor.getAllValues();
+            
+            assertTrue(capturedEdges.size() > 100, "Should generate a significant number of edges for PetClinic");
 
-        
-        assertTrue(capturedEdges.size() > 100, "Should generate a significant number of edges for PetClinic");
-
-        // Check for specific expected patterns (OwnerController calling something)
-        // Signature formats are complex to predict exactly without full resolution, 
-        // but we can check for partial matches that indicate correct logic.
-        boolean foundControllerInteraction = capturedEdges.stream()
-            .anyMatch(e -> e.sourceId().contains("OwnerController") && 
-                          (e.targetId().contains("Repository") || e.targetId().contains("save")));
-                          
-        assertTrue(foundControllerInteraction, "Should find OwnerController interaction with Repository/save");
+            // Check for specific expected patterns (OwnerController calling something)
+            boolean foundControllerInteraction = capturedEdges.stream()
+                .anyMatch(e -> e.sourceId().contains("OwnerController") && 
+                              (e.targetId().contains("Repository") || e.targetId().contains("save")));
+                              
+            assertTrue(foundControllerInteraction, "Should find OwnerController interaction with Repository/save");
+        }
         
 
     }
