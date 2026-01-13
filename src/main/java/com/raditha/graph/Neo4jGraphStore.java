@@ -8,6 +8,8 @@ import org.neo4j.driver.Values;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -26,6 +28,33 @@ public class Neo4jGraphStore implements AutoCloseable {
     private Session session;
     private final List<KnowledgeGraphEdge> pendingEdges = new ArrayList<>();
     private int edgeCount = 0;
+
+    /**
+     * Create a Neo4jGraphStore from graph.yml configuration.
+     *
+     * @param configFile path to graph.yml
+     * @return configured Neo4jGraphStore instance
+     * @throws IOException if config file cannot be read
+     */
+    public static Neo4jGraphStore fromSettings(File configFile) throws IOException {
+        Neo4jConfig.load(configFile);
+        return fromSettings();
+    }
+
+    /**
+     * Create a Neo4jGraphStore from already-loaded Settings.
+     *
+     * @return configured Neo4jGraphStore instance
+     */
+    public static Neo4jGraphStore fromSettings() {
+        return new Neo4jGraphStore(
+                Neo4jConfig.getUri(),
+                Neo4jConfig.getUsername(),
+                Neo4jConfig.getPassword(),
+                Neo4jConfig.getDatabase(),
+                Neo4jConfig.getBatchSize()
+        );
+    }
 
     public Neo4jGraphStore(String uri, String username, String password, String database, int batchSize) {
         this.driver = GraphDatabase.driver(uri, AuthTokens.basic(username, password));
