@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
+import sa.com.cloudsolutions.antikythera.parser.MavenHelper;
 
 import java.io.File;
 import java.io.IOException;
@@ -44,7 +45,7 @@ public class KnowledgeGraphCLI {
         }
     }
 
-    public void run(String projectPath, String configPath) throws IOException {
+    public void run(String projectPath, String configPath) throws Exception {
         logger.info("Initializing Knowledge Graph Builder...");
         logger.info("Target Project: {}", projectPath);
         logger.info("Configuration: {}", configPath);
@@ -60,8 +61,16 @@ public class KnowledgeGraphCLI {
         // This ensures AbstractCompiler looks at the correct source root
         updateBasePath(projectPath);
 
-        // 3. Initialize Parser
+        // 3. Initialize Parser via MavenHelper to resolve dependencies
         AbstractCompiler.reset();
+        try {
+            MavenHelper mavenHelper = new MavenHelper();
+            mavenHelper.readPomFile();
+            mavenHelper.buildJarPaths();
+        } catch (Exception e) {
+            logger.warn("Could not load Maven dependencies (pom.xml not found or invalid). Proceeding with limited resolution.", e);
+        }
+
         logger.info("Pre-processing project sources via Antikythera...");
         AbstractCompiler.preProcess();
 

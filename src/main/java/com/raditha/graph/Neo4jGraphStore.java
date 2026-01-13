@@ -100,25 +100,37 @@ public class Neo4jGraphStore implements AutoCloseable {
         }
         ensureSession();
         logger.debug("Flushing {} pending edges to Neo4j", pendingEdges.size());
+
+        // Group by Edge Type for batched execution
+        java.util.Map<String, List<KnowledgeGraphEdge>> byType = new java.util.HashMap<>();
         for (KnowledgeGraphEdge edge : pendingEdges) {
-            persistEdgeInternal(edge);
+            byType.computeIfAbsent(edge.type().name(), k -> new ArrayList<>()).add(edge);
+        }
+
+        for (java.util.Map.Entry<String, List<KnowledgeGraphEdge>> entry : byType.entrySet()) {
+            String type = entry.getKey();
+            List<KnowledgeGraphEdge> group = entry.getValue();
+
+            List<java.util.Map<String, Object>> batch = new ArrayList<>();
+            for (KnowledgeGraphEdge edge : group) {
+                 java.util.Map<String, Object> row = new java.util.HashMap<>();
+                 row.put("sourceId", edge.sourceId());
+                 row.put("targetId", edge.targetId());
+                 row.put("attributes", edge.attributes());
+                 batch.add(row);
+            }
+
+            String cypher = """
+                UNWIND $batch AS row
+                MERGE (source {signature: row.sourceId})
+                MERGE (target {signature: row.targetId})
+                MERGE (source)-[r:%s]->(target)
+                SET r += row.attributes
+                """.formatted(type);
+
+            session.run(cypher, Values.parameters("batch", batch));
         }
         pendingEdges.clear();
-    }
-
-    private void persistEdgeInternal(KnowledgeGraphEdge edge) {
-        String cypher = """
-            MERGE (source {signature: $sourceId})
-            MERGE (target {signature: $targetId})
-            MERGE (source)-[r:%s]->(target)
-            SET r.attributes = $attributes
-            """.formatted(edge.type().name());
-
-        session.run(cypher, Values.parameters(
-                "sourceId", edge.sourceId(),
-                "targetId", edge.targetId(),
-                "attributes", edge.attributes()
-        ));
     }
 
     private void ensureSession() {
