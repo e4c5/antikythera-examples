@@ -15,9 +15,11 @@ import sa.com.cloudsolutions.antikythera.depsolver.DependencyAnalyzer;
 import sa.com.cloudsolutions.antikythera.depsolver.Graph;
 import sa.com.cloudsolutions.antikythera.depsolver.GraphNode;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.File;
 import java.io.IOException;
 import java.util.Collection;
+import java.util.List;
 import java.util.stream.Collectors;
 
 /**
@@ -31,6 +33,7 @@ import java.util.stream.Collectors;
 public class KnowledgeGraphBuilder extends DependencyAnalyzer {
 
     private static final Logger logger = LoggerFactory.getLogger(KnowledgeGraphBuilder.class);
+    private static final ObjectMapper objectMapper = new ObjectMapper();
 
     private final Neo4jGraphStore graphStore;
     private boolean autoClose = true;
@@ -223,16 +226,25 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
                     .orElse(node.getEnclosingType().getNameAsString()) + "#" + mce.getNameAsString() + "()";
         }
 
-        String params = mce.getArguments().stream()
-                .map(Object::toString)
-                .collect(Collectors.joining(","));
+        List<String> args = mce.getArguments().stream()
+                .map(com.github.javaparser.ast.expr.Expression::toString)
+                .collect(Collectors.toList());
 
-        KnowledgeGraphEdge edge = KnowledgeGraphEdge.builder()
+        KnowledgeGraphEdge.Builder edgeBuilder = KnowledgeGraphEdge.builder()
                 .source(sourceId)
                 .target(targetId)
-                .type(EdgeType.CALLS)
-                .attribute("parameterValues", params)
-                .build();
+                .type(EdgeType.CALLS);
+
+        if (!args.isEmpty()) {
+            try {
+                String paramsJson = objectMapper.writeValueAsString(args);
+                edgeBuilder.attribute("parameterValues", paramsJson);
+            } catch (Exception e) {
+                logger.warn("Failed to serialize arguments for call: {}", targetId, e);
+            }
+        }
+
+        KnowledgeGraphEdge edge = edgeBuilder.build();
 
         graphStore.persistEdge(edge);
         logger.trace("Edge: {} --CALLS--> {}", sourceId, targetId);
