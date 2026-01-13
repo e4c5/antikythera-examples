@@ -386,7 +386,7 @@ public class MethodExtractionStrategy extends AbstractExtractionStrategy {
 
         String fieldName = Character.toLowerCase(mediatorName.charAt(0)) + mediatorName.substring(1);
         FieldDeclaration fd = clazz.addField(mediatorName, fieldName, Modifier.Keyword.PRIVATE);
-        fd.addAnnotation("Autowired");
+        fd.addAnnotation(AUTOWIRED);
 
         for (MethodDeclaration method : clazz.getMethods()) {
             method.findAll(MethodCallExpr.class).forEach(mce -> {
