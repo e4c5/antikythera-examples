@@ -1,0 +1,9 @@
+# Configuration for Knowledge Graph Integration Tests
+# Points to the spring-petclinic testbed
+
+base_path: testbeds/spring-boot-2.3/src/main/java
+base_package: org.springframework.samples.petclinic
+
+# Required by Settings/AbstractCompiler but not strictly used for parsing in this test
+output_path: /tmp/graph-test-output
+log_level: INFO

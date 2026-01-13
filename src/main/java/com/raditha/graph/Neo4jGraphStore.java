@@ -56,10 +56,19 @@ public class Neo4jGraphStore implements AutoCloseable {
         );
     }
 
-    public Neo4jGraphStore(String uri, String username, String password, String database, int batchSize) {
-        this.driver = GraphDatabase.driver(uri, AuthTokens.basic(username, password));
+    /**
+     * Create a Neo4jGraphStore with an existing driver.
+     * Useful for testing with mock drivers.
+     */
+    public Neo4jGraphStore(Driver driver, String database, int batchSize) {
+        this.driver = driver;
         this.database = database;
         this.batchSize = batchSize;
+        // Don't log connection info for existing driver as it might be a mock
+    }
+
+    public Neo4jGraphStore(String uri, String username, String password, String database, int batchSize) {
+        this(GraphDatabase.driver(uri, AuthTokens.basic(username, password)), database, batchSize);
         logger.info("Connected to Neo4j at {} with batch size {}", uri, batchSize);
     }
 
@@ -126,6 +135,46 @@ public class Neo4jGraphStore implements AutoCloseable {
         ensureSession();
         session.run("MATCH (n) DETACH DELETE n");
         logger.info("Graph cleared");
+    }
+
+    // ========================
+    // Query API
+    // ========================
+
+    /**
+     * Find nodes that call the given target node.
+     * @param signature signature of the target node
+     * @return list of caller signatures
+     */
+    public List<String> findCallers(String signature) {
+        ensureSession();
+        String cypher = "MATCH (n)-[:CALLS]->(m {signature: $sig}) RETURN n.signature";
+        return session.run(cypher, Values.parameters("sig", signature))
+                .list(r -> r.get("n.signature").asString());
+    }
+
+    /**
+     * Find nodes called by the given source node.
+     * @param signature signature of the source node
+     * @return list of callee signatures
+     */
+    public List<String> findCallees(String signature) {
+        ensureSession();
+        String cypher = "MATCH (n {signature: $sig})-[:CALLS]->(m) RETURN m.signature";
+        return session.run(cypher, Values.parameters("sig", signature))
+                .list(r -> r.get("m.signature").asString());
+    }
+
+    /**
+     * Find nodes that use the given target type/node.
+     * @param signature signature of the usage target
+     * @return list of user signatures
+     */
+    public List<String> findUsages(String signature) {
+        ensureSession();
+        String cypher = "MATCH (n)-[:USES]->(m {signature: $sig}) RETURN n.signature";
+        return session.run(cypher, Values.parameters("sig", signature))
+                .list(r -> r.get("n.signature").asString());
     }
 
     @Override
