@@ -222,8 +222,9 @@ public class MethodExtractionStrategy extends AbstractExtractionStrategy {
                 .anyMatch(n -> n.getNameAsString().equals(fieldName));
     }
 
-    private void createMediatorClass(String packageName, String mediatorName, List<ExtractionCandidate> candidates) {
+    private static final String AUTOWIRED = "Autowired";
 
+    private void createMediatorClass(String packageName, String mediatorName, List<ExtractionCandidate> candidates) {
         CompilationUnit cu = new CompilationUnit();
         if (!packageName.isEmpty()) {
             cu.setPackageDeclaration(packageName);
@@ -234,13 +235,10 @@ public class MethodExtractionStrategy extends AbstractExtractionStrategy {
         mediator.addAnnotation(new MarkerAnnotationExpr(new Name("Service")));
         cu.addImport("org.springframework.stereotype.Service");
         cu.addImport("org.springframework.beans.factory.annotation.Autowired");
-
         cu.addImport("org.springframework.context.annotation.Lazy");
 
         Set<String> addedFields = new HashSet<>();
         Set<String> processedMethods = new HashSet<>();
-
-        // Map Source Class Name -> Source Field Name in Mediator
         Map<String, String> sourceFieldNames = new HashMap<>();
 
         for (ExtractionCandidate cand : candidates) {
@@ -249,139 +247,122 @@ public class MethodExtractionStrategy extends AbstractExtractionStrategy {
                 sourceCu.getImports().forEach(cu::addImport)
             );
 
-            // Add dependency field if not exists
-            String depStruct = getSimpleClassName(cand.dependencyBeanName); // Type
-
-            if (!addedFields.contains(cand.dependencyFieldName)) {
-                FieldDeclaration fd = mediator.addField(depStruct, cand.dependencyFieldName, Modifier.Keyword.PRIVATE);
-                fd.addAnnotation("Autowired");
-                fd.addAnnotation("Lazy");
-                addedFields.add(cand.dependencyFieldName);
-            }
-
-            // Move fields used by extracted methods (if not already handled)
-            // Identify fields used in extracted methods
-            Set<String> usedFields = new HashSet<>();
-            for (MethodDeclaration m : cand.methods) {
-                m.findAll(NameExpr.class).forEach(n -> {
-                     cand.sourceClass.getFieldByName(n.getNameAsString()).ifPresent(f -> usedFields.add(n.getNameAsString()));
-                });
-            }
-
-            // Check if these fields should be moved or accessed via Source
-            // Simple heuristic: If field is used by ANY method remaining in Source, keep it in Source.
-            // Else move it.
-            // For now, simpler: Keep in Source, access via Source field.
-
-            // Add field for Source Class (to call back or access state)
-            String sourceTypeName = cand.sourceClass.getNameAsString();
-            String sourceFieldName = Character.toLowerCase(sourceTypeName.charAt(0)) + sourceTypeName.substring(1);
-            if (!addedFields.contains(sourceFieldName)) {
-                FieldDeclaration fd = mediator.addField(sourceTypeName, sourceFieldName, Modifier.Keyword.PRIVATE);
-                fd.addAnnotation("Autowired");
-                fd.addAnnotation("Lazy"); // Break cycle back to source
-                addedFields.add(sourceFieldName);
-            }
-            sourceFieldNames.put(sourceTypeName, sourceFieldName);
-
-            // Move methods
-            for (MethodDeclaration method : cand.methods) {
-                // Skip duplicates (same method AST node)
-                // Use signature + source class as key to identify unique logic
-                String methodKey = cand.sourceClass.getNameAsString() + "#" + method.getSignature();
-                if (processedMethods.contains(methodKey)) {
-                    continue;
-                }
-                processedMethods.add(methodKey);
-
-                // Check for duplicates in Mediator (name clash from DIFFERENT source methods)
-                boolean exists = mediator.getMethodsByName(method.getNameAsString()).stream()
-                    .anyMatch(m -> m.getParameters().equals(method.getParameters()));
-
-                String targetMethodName = method.getNameAsString();
-                if (exists) {
-                    // Rename to avoid conflict
-                    targetMethodName = Character.toLowerCase(cand.sourceClass.getNameAsString().charAt(0)) +
-                                 cand.sourceClass.getNameAsString().substring(1) +
-                                 Character.toUpperCase(targetMethodName.charAt(0)) + targetMethodName.substring(1);
-                }
-
-                MethodDeclaration newMethod = method.clone();
-                newMethod.setName(targetMethodName);
-                mediator.addMember(newMethod);
-
-                if (newMethod.isPrivate()) {
-                    newMethod.setPrivate(false);
-                    newMethod.setPublic(true);
-                }
-
-                // Fix types for Inner Classes (e.g. Order -> ChainedService.Order)
-                // Iterate all types in method (return type, parameters, variable declarations)
-                newMethod.findAll(com.github.javaparser.ast.type.ClassOrInterfaceType.class).forEach(t -> {
-                    String typeName = t.getNameAsString();
-                    // If type is an inner class of Source, and not qualified
-                    if (cand.sourceClass.getMembers().stream()
-                            .filter(m -> m.isClassOrInterfaceDeclaration())
-                            .map(m -> m.asClassOrInterfaceDeclaration().getNameAsString())
-                            .anyMatch(name -> name.equals(typeName))
-                        && t.getScope().isEmpty()) {
-
-                        t.setName(cand.sourceClass.getNameAsString() + "." + typeName);
-                    }
-                });
-
-                // Rewrite method body to access source fields/methods via source field
-                newMethod.findAll(NameExpr.class).forEach(n -> {
-                    String name = n.getNameAsString();
-                    // If name matches a field in Source (that wasn't moved, i.e. dependencyFieldName)
-                    // (Note: dependencyFieldName IS moved/removed from Source, so it's fine to use local field in Mediator)
-                    // But other fields (like 'initialized') are still in Source.
-                    boolean isSourceField = cand.sourceClass.getFieldByName(name).isPresent() && !name.equals(cand.dependencyFieldName);
-                    if (isSourceField) {
-                         // Check if it's a field access (not variable)
-                         // TODO: Robust check. For now assume yes if not declared locally.
-                         // Rewrite to sourceFieldName.name
-                         n.replace(new FieldAccessExpr(new NameExpr(sourceFieldNames.get(sourceTypeName)), name));
-
-                         // Ensure field is visible (package-private at least)
-                         cand.sourceClass.getFieldByName(name).ifPresent(f -> {
-                             if (f.isPrivate()) {
-                                 f.setPrivate(false); // Make package-private
-                             }
-                         });
-                    }
-                });
-
-                // Rewrite method calls to non-extracted methods
-                newMethod.findAll(MethodCallExpr.class).forEach(mce -> {
-                    if (isLocalMethodCall(mce)) {
-                         String methodName = mce.getNameAsString();
-                         // Check if method exists in Source and NOT in extracted list
-                         boolean inSource = cand.sourceClass.getMethodsByName(methodName).stream().anyMatch(m ->
-                             m.getParameters().size() == mce.getArguments().size() // Rough signature match
-                         );
-                         boolean isExtracted = cand.methods.stream().anyMatch(m -> m.getNameAsString().equals(methodName));
-
-                         if (inSource && !isExtracted) {
-                             // Rewrite scope to source field
-                             mce.setScope(new NameExpr(sourceFieldNames.get(sourceTypeName)));
-                         } else if (isExtracted) {
-                             // It is local in Mediator, ensure implicit scope or 'this'
-                             // (Already 'this' or empty by isLocalMethodCall check)
-                             // But if the method was calling 'this.doWork()' and 'doWork' is moved, 'this' works.
-                             // BUT if the method was calling 'source.doWork()' (unlikely inside source), we are fine.
-                         } else {
-                             // Method might be in superclass or imported static?
-                             // Leave as is.
-                         }
-                    }
-                });
-            }
+            addDependencyField(mediator, cand, addedFields);
+            addSourceField(mediator, cand, addedFields, sourceFieldNames);
+            processMethods(mediator, cand, processedMethods, sourceFieldNames);
         }
 
         String fqn = packageName.isEmpty() ? mediatorName : packageName + "." + mediatorName;
         generatedMediators.put(fqn, cu);
         modifiedCUs.add(cu);
+    }
+
+    private void addDependencyField(ClassOrInterfaceDeclaration mediator, ExtractionCandidate cand, Set<String> addedFields) {
+        String depStruct = getSimpleClassName(cand.dependencyBeanName);
+        if (!addedFields.contains(cand.dependencyFieldName)) {
+            FieldDeclaration fd = mediator.addField(depStruct, cand.dependencyFieldName, Modifier.Keyword.PRIVATE);
+            fd.addAnnotation(AUTOWIRED);
+            fd.addAnnotation("Lazy");
+            addedFields.add(cand.dependencyFieldName);
+        }
+    }
+
+    private void addSourceField(ClassOrInterfaceDeclaration mediator, ExtractionCandidate cand,
+                                Set<String> addedFields, Map<String, String> sourceFieldNames) {
+        String sourceTypeName = cand.sourceClass.getNameAsString();
+        String sourceFieldName = Character.toLowerCase(sourceTypeName.charAt(0)) + sourceTypeName.substring(1);
+        if (!addedFields.contains(sourceFieldName)) {
+            FieldDeclaration fd = mediator.addField(sourceTypeName, sourceFieldName, Modifier.Keyword.PRIVATE);
+            fd.addAnnotation(AUTOWIRED);
+            fd.addAnnotation("Lazy");
+            addedFields.add(sourceFieldName);
+        }
+        sourceFieldNames.put(sourceTypeName, sourceFieldName);
+    }
+
+    private void processMethods(ClassOrInterfaceDeclaration mediator, ExtractionCandidate cand,
+                                Set<String> processedMethods, Map<String, String> sourceFieldNames) {
+        for (MethodDeclaration method : cand.methods) {
+            String methodKey = cand.sourceClass.getNameAsString() + "#" + method.getSignature();
+            if (processedMethods.contains(methodKey)) {
+                continue;
+            }
+            processedMethods.add(methodKey);
+
+            String targetMethodName = resolveMethodName(mediator, cand, method);
+            MethodDeclaration newMethod = method.clone();
+            newMethod.setName(targetMethodName);
+            mediator.addMember(newMethod);
+
+            if (newMethod.isPrivate()) {
+                newMethod.setPrivate(false);
+                newMethod.setPublic(true);
+            }
+
+            fixInnerClassTypes(newMethod, cand);
+            rewriteFieldAccess(newMethod, cand, sourceFieldNames);
+            rewriteMethodCalls(newMethod, cand, sourceFieldNames);
+        }
+    }
+
+    private String resolveMethodName(ClassOrInterfaceDeclaration mediator, ExtractionCandidate cand, MethodDeclaration method) {
+        boolean exists = mediator.getMethodsByName(method.getNameAsString()).stream()
+            .anyMatch(m -> m.getParameters().equals(method.getParameters()));
+
+        String targetMethodName = method.getNameAsString();
+        if (exists) {
+            targetMethodName = Character.toLowerCase(cand.sourceClass.getNameAsString().charAt(0)) +
+                         cand.sourceClass.getNameAsString().substring(1) +
+                         Character.toUpperCase(targetMethodName.charAt(0)) + targetMethodName.substring(1);
+        }
+        return targetMethodName;
+    }
+
+    private void fixInnerClassTypes(MethodDeclaration newMethod, ExtractionCandidate cand) {
+        newMethod.findAll(com.github.javaparser.ast.type.ClassOrInterfaceType.class).forEach(t -> {
+            String typeName = t.getNameAsString();
+            if (cand.sourceClass.getMembers().stream()
+                    .filter(m -> m.isClassOrInterfaceDeclaration())
+                    .map(m -> m.asClassOrInterfaceDeclaration().getNameAsString())
+                    .anyMatch(name -> name.equals(typeName))
+                && t.getScope().isEmpty()) {
+
+                t.setName(cand.sourceClass.getNameAsString() + "." + typeName);
+            }
+        });
+    }
+
+    private void rewriteFieldAccess(MethodDeclaration newMethod, ExtractionCandidate cand, Map<String, String> sourceFieldNames) {
+        String sourceTypeName = cand.sourceClass.getNameAsString();
+        newMethod.findAll(NameExpr.class).forEach(n -> {
+            String name = n.getNameAsString();
+            boolean isSourceField = cand.sourceClass.getFieldByName(name).isPresent() && !name.equals(cand.dependencyFieldName);
+            if (isSourceField) {
+                 n.replace(new FieldAccessExpr(new NameExpr(sourceFieldNames.get(sourceTypeName)), name));
+                 cand.sourceClass.getFieldByName(name).ifPresent(f -> {
+                     if (f.isPrivate()) {
+                         f.setPrivate(false);
+                     }
+                 });
+            }
+        });
+    }
+
+    private void rewriteMethodCalls(MethodDeclaration newMethod, ExtractionCandidate cand, Map<String, String> sourceFieldNames) {
+        String sourceTypeName = cand.sourceClass.getNameAsString();
+        newMethod.findAll(MethodCallExpr.class).forEach(mce -> {
+            if (isLocalMethodCall(mce)) {
+                 String methodName = mce.getNameAsString();
+                 boolean inSource = cand.sourceClass.getMethodsByName(methodName).stream().anyMatch(m ->
+                     m.getParameters().size() == mce.getArguments().size()
+                 );
+                 boolean isExtracted = cand.methods.stream().anyMatch(m -> m.getNameAsString().equals(methodName));
+
+                 if (inSource && !isExtracted) {
+                     mce.setScope(new NameExpr(sourceFieldNames.get(sourceTypeName)));
+                 }
+            }
+        });
     }
 
     private void refactorOriginalClass(ClassOrInterfaceDeclaration clazz, Set<MethodDeclaration> extractedMethods,
