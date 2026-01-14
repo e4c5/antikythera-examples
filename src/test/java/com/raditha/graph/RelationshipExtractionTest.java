@@ -220,4 +220,118 @@ class RelationshipExtractionTest {
         assertEquals(EdgeType.USES, edge.type());
         assertTrue(edge.targetId().contains("String"));
     }
+
+    @Test
+    @DisplayName("CALLS: method call captures local variable arguments in JSON format")
+    void testCallsEdge_CapturesArguments() {
+        String code = """
+            package com.example;
+            class Service {
+                void process() {
+                    String localVar = "value";
+                    int num = 10;
+                    helper(localVar, num);
+                }
+                void helper(String s, int i) {}
+            }
+            """;
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        MethodDeclaration caller = cu.findAll(MethodDeclaration.class).stream()
+                .filter(m -> m.getNameAsString().equals("process"))
+                .findFirst().orElseThrow();
+        MethodCallExpr mce = cu.findFirst(MethodCallExpr.class).orElseThrow();
+
+        GraphNode node = Graph.createGraphNode(caller);
+
+        // Act
+        builder.onMethodCalled(node, mce);
+
+        // Assert
+        ArgumentCaptor<KnowledgeGraphEdge> captor = ArgumentCaptor.forClass(KnowledgeGraphEdge.class);
+        verify(mockStore).persistEdge(captor.capture());
+
+        KnowledgeGraphEdge edge = captor.getValue();
+        assertEquals(EdgeType.CALLS, edge.type());
+
+        // Verify attributes
+        assertNotNull(edge.attributes(), "Attributes should not be null");
+        assertTrue(edge.attributes().containsKey("parameterValues"), "Should contain parameterValues attribute");
+
+        String paramValues = edge.attributes().get("parameterValues");
+        // Check for JSON array structure
+        assertTrue(paramValues.startsWith("[") && paramValues.endsWith("]"), "Should be a JSON array");
+        assertTrue(paramValues.contains("\"localVar\""), "Should contain 'localVar'");
+        assertTrue(paramValues.contains("\"num\""), "Should contain 'num'");
+    }
+
+    @Test
+    @DisplayName("CALLS: no arguments results in no parameterValues attribute")
+    void testCallsEdge_NoArguments() {
+        String code = """
+            package com.example;
+            class Service {
+                void process() {
+                    noArgs();
+                }
+                void noArgs() {}
+            }
+            """;
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        MethodDeclaration caller = cu.findAll(MethodDeclaration.class).stream()
+                .filter(m -> m.getNameAsString().equals("process"))
+                .findFirst().orElseThrow();
+        MethodCallExpr mce = cu.findFirst(MethodCallExpr.class).orElseThrow();
+
+        GraphNode node = Graph.createGraphNode(caller);
+
+        // Act
+        builder.onMethodCalled(node, mce);
+
+        // Assert
+        ArgumentCaptor<KnowledgeGraphEdge> captor = ArgumentCaptor.forClass(KnowledgeGraphEdge.class);
+        verify(mockStore).persistEdge(captor.capture());
+
+        KnowledgeGraphEdge edge = captor.getValue();
+        assertEquals(EdgeType.CALLS, edge.type());
+
+        // Verify attributes
+        assertFalse(edge.attributes().containsKey("parameterValues"), "Should NOT contain parameterValues attribute for no-arg call");
+    }
+
+    @Test
+    @DisplayName("CALLS: handles complex arguments correctly")
+    void testCallsEdge_ComplexArguments() {
+        String code = """
+            package com.example;
+            class Service {
+                void process(int x, int y) {
+                    helper("a,b", x + y);
+                }
+                void helper(String s, int i) {}
+            }
+            """;
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        MethodDeclaration caller = cu.findAll(MethodDeclaration.class).stream()
+                .filter(m -> m.getNameAsString().equals("process"))
+                .findFirst().orElseThrow();
+        MethodCallExpr mce = cu.findFirst(MethodCallExpr.class).orElseThrow();
+
+        GraphNode node = Graph.createGraphNode(caller);
+
+        // Act
+        builder.onMethodCalled(node, mce);
+
+        // Assert
+        ArgumentCaptor<KnowledgeGraphEdge> captor = ArgumentCaptor.forClass(KnowledgeGraphEdge.class);
+        verify(mockStore).persistEdge(captor.capture());
+
+        KnowledgeGraphEdge edge = captor.getValue();
+        assertEquals(EdgeType.CALLS, edge.type());
+
+        String paramValues = edge.attributes().get("parameterValues");
+        // Verify proper JSON escaping and separation
+        // Note: JavaParser might include quotes in the string representation of a StringLiteral
+        assertTrue(paramValues.contains("a,b"), "Should contain string literal with comma");
+        assertTrue(paramValues.contains("x + y"), "Should contain binary expression");
+    }
 }
