@@ -48,13 +48,10 @@ class QueryOptimizationCheckerFixTest {
 
         // Setup minimal valid Liquibase file
         File liquibaseFile = tmpDir.resolve("db.changelog-master.xml").toFile();
-        if (!liquibaseFile.exists()) {
-             liquibaseFile.createNewFile();
-             try (FileWriter fw = new FileWriter(liquibaseFile)) {
-                 fw.write("<databaseChangeLog xmlns=\"http://www.liquibase.org/xml/ns/dbchangelog\"></databaseChangeLog>");
-             }
+        liquibaseFile.createNewFile();
+        try (FileWriter fw = new FileWriter(liquibaseFile)) {
+            fw.write("<databaseChangeLog xmlns=\"http://www.liquibase.org/xml/ns/dbchangelog\"></databaseChangeLog>");
         }
-
         // Setup dummy generator.yml
         File configFile = tmpDir.resolve("generator.yml").toFile();
         try (FileWriter fw = new FileWriter(configFile)) {
