@@ -263,7 +263,7 @@ public class QueryOptimizationChecker {
         // Use QueryAnalysisEngine to extract WHERE conditions from the query
         // If the LLM provided an optimized query, analyze that instead of the raw query
         // to ensure index suggestions match the recommended code changes.
-        RepositoryQuery queryToAnalyze = (llmRecommendation != null && llmRecommendation.optimizedQuery() != null)
+        RepositoryQuery queryToAnalyze = llmRecommendation.optimizedQuery() != null
                 ? llmRecommendation.optimizedQuery()
                 : rawQuery;
 
