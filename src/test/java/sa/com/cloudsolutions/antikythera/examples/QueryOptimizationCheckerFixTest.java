@@ -11,7 +11,11 @@ import java.io.FileWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.Mockito.*;
 
 class QueryOptimizationCheckerFixTest {
@@ -31,7 +35,10 @@ class QueryOptimizationCheckerFixTest {
     private RepositoryQuery mockOptimizedQuery;
 
     @Mock
-    private QueryAnalysisResult mockAnalysisResult;
+    private QueryAnalysisResult mockOptimizedResult;
+
+    @Mock
+    private QueryAnalysisResult mockRawResult;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -62,23 +69,31 @@ class QueryOptimizationCheckerFixTest {
         checker.setAnalysisEngine(mockAnalysisEngine);
 
         // Mock common behavior
-        when(mockAnalysisResult.getWhereConditions()).thenReturn(new ArrayList<>());
-        when(mockAnalysisResult.getJoinConditions()).thenReturn(new ArrayList<>());
+        when(mockOptimizedResult.getJoinConditions()).thenReturn(new ArrayList<>());
+        when(mockRawResult.getJoinConditions()).thenReturn(new ArrayList<>());
     }
 
     @Test
     void testCreateResultWithIndexAnalysis_UsesOptimizedQuery_WhenAvailable() {
         // Arrange
+        WhereCondition optimizedCondition = new WhereCondition("table", "optimizedCol", "=", 0);
+        List<WhereCondition> optimizedConditions = Collections.singletonList(optimizedCondition);
+
+        when(mockOptimizedResult.getWhereConditions()).thenReturn(optimizedConditions);
         when(mockOptimizationIssue.optimizedQuery()).thenReturn(mockOptimizedQuery);
-        when(mockAnalysisEngine.analyzeQuery(mockOptimizedQuery)).thenReturn(mockAnalysisResult);
-        // Mock other necessary methods of OptimizationIssue to avoid NPE later in the method
         when(mockOptimizationIssue.query()).thenReturn(mockRawQuery);
+        when(mockAnalysisEngine.analyzeQuery(mockOptimizedQuery)).thenReturn(mockOptimizedResult);
 
         // Act
-        checker.createResultWithIndexAnalysis(mockOptimizationIssue, mockRawQuery);
+        QueryAnalysisResult result = checker.createResultWithIndexAnalysis(mockOptimizationIssue, mockRawQuery);
 
         // Assert
-        // Verify that analyzeQuery was called with the OPTIMIZED query, not the RAW query
+        // Verify that the result contains conditions from the OPTIMIZED analysis
+        assertNotNull(result);
+        assertEquals(1, result.getWhereConditions().size());
+        assertEquals("optimizedCol", result.getWhereConditions().get(0).getColumnName());
+
+        // Verify interaction
         verify(mockAnalysisEngine).analyzeQuery(mockOptimizedQuery);
         verify(mockAnalysisEngine, never()).analyzeQuery(mockRawQuery);
     }
@@ -86,24 +101,24 @@ class QueryOptimizationCheckerFixTest {
     @Test
     void testCreateResultWithIndexAnalysis_UsesRawQuery_WhenOptimizedQueryNotAvailable() {
         // Arrange
+        WhereCondition rawCondition = new WhereCondition("table", "rawCol", "=", 0);
+        List<WhereCondition> rawConditions = Collections.singletonList(rawCondition);
+
+        when(mockRawResult.getWhereConditions()).thenReturn(rawConditions);
         when(mockOptimizationIssue.optimizedQuery()).thenReturn(null);
-        when(mockAnalysisEngine.analyzeQuery(mockRawQuery)).thenReturn(mockAnalysisResult);
         when(mockOptimizationIssue.query()).thenReturn(mockRawQuery);
+        when(mockAnalysisEngine.analyzeQuery(mockRawQuery)).thenReturn(mockRawResult);
 
         // Act
-        checker.createResultWithIndexAnalysis(mockOptimizationIssue, mockRawQuery);
+        QueryAnalysisResult result = checker.createResultWithIndexAnalysis(mockOptimizationIssue, mockRawQuery);
 
         // Assert
-        // Verify that analyzeQuery was called with the RAW query
-        verify(mockAnalysisEngine).analyzeQuery(mockRawQuery);
-    }
+        // Verify that the result contains conditions from the RAW analysis
+        assertNotNull(result);
+        assertEquals(1, result.getWhereConditions().size());
+        assertEquals("rawCol", result.getWhereConditions().get(0).getColumnName());
 
-    @Test
-    void testCreateResultWithIndexAnalysis_UsesRawQuery_WhenOptimizationIssueIsNull() {
-        // This test case would throw NPE in the current implementation because the method expects
-        // OptimizationIssue to be present for constructing the result.
-        // If we want to support null, we would need to modify the code.
-        // For now, I'll remove this test or adapt it if null is never passed in practice.
-        // Assuming it is not supported as per the loop structure.
+        // Verify interaction
+        verify(mockAnalysisEngine).analyzeQuery(mockRawQuery);
     }
 }
