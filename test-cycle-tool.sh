@@ -2,6 +2,8 @@
 # Test script for all CircularDependencyTool strategies
 # Enhanced with timeout handling and verbose output
 
+set -e
+
 STRATEGIES=("auto" "lazy" "setter" "interface" "extract")
 TIMEOUT=300  # 5 minutes per strategy
 
@@ -22,7 +24,11 @@ echo ""
 
 # Define paths
 CYCLES_DIR="./testbeds/spring-boot-cycles"
-CONFIG_FILE="$(pwd)/cycle-config.yml"
+CONFIG_FILE="$(pwd)/cycle-test-config.yml"
+
+# Create config file with absolute paths
+echo "base_path: $(readlink -f $CYCLES_DIR)/src/main/java" > "$CONFIG_FILE"
+echo "output_path: $(readlink -f $CYCLES_DIR)/src/main/java" >> "$CONFIG_FILE"
 
 for strategy in "${STRATEGIES[@]}"; do
     echo "Testing: $strategy"
@@ -51,12 +57,12 @@ for strategy in "${STRATEGIES[@]}"; do
         echo "❌ $strategy: TIMEOUT after ${TIMEOUT}s"
         echo "Last output:"
         echo "$TOOL_OUTPUT" | tail -50
-        # continue
+        exit 1
     elif [ "${TOOL_EXIT:-0}" -ne 0 ]; then
         echo "❌ $strategy: Tool failed with exit code ${TOOL_EXIT}"
         echo "Output:"
         echo "$TOOL_OUTPUT" | tail -100
-        # continue
+        exit 1
     fi
     
     # Show last few lines of tool output
@@ -75,7 +81,7 @@ for strategy in "${STRATEGIES[@]}"; do
     if [ "${COMPILE_EXIT:-0}" -eq 124 ]; then
         echo "❌ $strategy: Compilation TIMEOUT"
         cd - >/dev/null
-        # continue
+        exit 1
     elif echo "$COMPILE_OUTPUT" | grep -q "BUILD SUCCESS"; then
         echo "✅ $strategy: Compilation successful"
     else
@@ -84,7 +90,7 @@ for strategy in "${STRATEGIES[@]}"; do
         echo "Build output:"
         echo "$COMPILE_OUTPUT" | grep -A 10 "\[ERROR\]" || echo "$COMPILE_OUTPUT" | tail -30
         cd - >/dev/null
-        # continue
+        exit 1
     fi
     
     # Return to root
@@ -93,5 +99,8 @@ for strategy in "${STRATEGIES[@]}"; do
     echo ""
 done
 
+# Cleanup config
+rm -f "$CONFIG_FILE"
+
 echo "=============================================="
-echo "✅ All strategies tested (check results above)!"
+echo "✅ All strategies tested successfully!"
