@@ -45,10 +45,14 @@ class QueryOptimizationCheckerFixTest {
         MockitoAnnotations.openMocks(this);
 
         Path tmpDir = Files.createTempDirectory("qoc-fix-test");
+        // Ensure the temp directory and created files are removed when the JVM exits (avoids accumulating temp files on CI)
+        tmpDir.toFile().deleteOnExit();
 
         // Setup minimal valid Liquibase file
         File liquibaseFile = tmpDir.resolve("db.changelog-master.xml").toFile();
         liquibaseFile.createNewFile();
+        // schedule files for deletion on JVM exit
+        liquibaseFile.deleteOnExit();
         try (FileWriter fw = new FileWriter(liquibaseFile)) {
             fw.write("<databaseChangeLog xmlns=\"http://www.liquibase.org/xml/ns/dbchangelog\"></databaseChangeLog>");
         }
@@ -59,6 +63,7 @@ class QueryOptimizationCheckerFixTest {
             fw.write("ai_service:\n");
             fw.write("  api_key: test\n");
         }
+        configFile.deleteOnExit();
 
         sa.com.cloudsolutions.antikythera.configuration.Settings.loadConfigMap(configFile);
 
