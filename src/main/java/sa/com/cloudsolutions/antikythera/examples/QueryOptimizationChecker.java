@@ -260,12 +260,17 @@ public class QueryOptimizationChecker {
      */
     QueryAnalysisResult createResultWithIndexAnalysis(OptimizationIssue llmRecommendation,
             RepositoryQuery rawQuery) {
-        // Use QueryAnalysisEngine to extract WHERE conditions from the actual query
-        // This is independent of LLM recommendations
-        QueryAnalysisResult engineResult = analysisEngine.analyzeQuery(rawQuery);
+        // Use QueryAnalysisEngine to extract WHERE conditions from the query
+        // If the LLM provided an optimized query, analyze that instead of the raw query
+        // to ensure index suggestions match the recommended code changes.
+        RepositoryQuery queryToAnalyze = (llmRecommendation != null && llmRecommendation.optimizedQuery() != null)
+                ? llmRecommendation.optimizedQuery()
+                : rawQuery;
+
+        QueryAnalysisResult engineResult = analysisEngine.analyzeQuery(queryToAnalyze);
         List<WhereCondition> whereConditions = engineResult.getWhereConditions();
 
-        // Analyze indexes based on actual WHERE conditions, not LLM recommendations
+        // Analyze indexes based on actual WHERE conditions
         // Each condition now includes its own table name, which is critical for JOIN
         // queries
         List<String> requiredIndexes = new ArrayList<>();

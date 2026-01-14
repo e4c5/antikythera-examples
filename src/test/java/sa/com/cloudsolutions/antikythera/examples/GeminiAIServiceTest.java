@@ -322,7 +322,7 @@ class GeminiAIServiceTest {
     }
 
     @Test
-    void testBuildGeminiApiRequest() {
+    void testBuildGeminiApiRequest() throws IOException {
         String userQueryData = "[{\"method\": \"findByName\", \"queryType\": \"DERIVED\"}]";
 
         String result = geminiAIService.buildGeminiApiRequest(userQueryData);
