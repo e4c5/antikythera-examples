@@ -1,17 +1,17 @@
 package sa.com.cloudsolutions.liquibase;
 
-import org.w3c.dom.*;
+import net.sf.jsqlparser.parser.CCJSqlParserUtil;
+import net.sf.jsqlparser.statement.Statement;
+import org.xml.sax.Attributes;
+import org.xml.sax.SAXException;
+import org.xml.sax.helpers.DefaultHandler;
 
-import javax.xml.parsers.DocumentBuilder;
-import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.SAXParser;
+import javax.xml.parsers.SAXParserFactory;
 import java.io.File;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-
-// JSQLParser (already used in the project)
-import net.sf.jsqlparser.parser.CCJSqlParserUtil;
-import net.sf.jsqlparser.statement.Statement;
 
 @SuppressWarnings("java:S106")
 public class Indexes {
@@ -22,24 +22,18 @@ public class Indexes {
     public static final String INDEX = "INDEX";
     public static final String TABLE = "table";
 
-    /**
-     * Simple DTO to expose index information to callers.
-     *
-     * @param type PRIMARY_KEY, UNIQUE_CONSTRAINT, UNIQUE_INDEX, INDEX
-     */
     public record IndexInfo(String type, String name, List<String> columns) {
         @Override
         public String toString() {
             return type + ";" + name + ";" + String.join(",", columns);
         }
-        // Explicit equals to honor ordered column list
         @Override
         public boolean equals(Object o) {
             if (this == o) return true;
             if (!(o instanceof IndexInfo other)) return false;
             return Objects.equals(this.type, other.type)
                     && Objects.equals(this.name, other.name)
-                    && Objects.equals(this.columns, other.columns); // order-sensitive
+                    && Objects.equals(this.columns, other.columns);
         }
         @Override
         public int hashCode() {
@@ -47,10 +41,6 @@ public class Indexes {
         }
     }
 
-    /**
-     * Load Liquibase indexes from the given XML and return a table->indexes map.
-     * The map value is a list of IndexInfo entries in declaration order (after includes and drops applied).
-     */
     public static Map<String, Set<IndexInfo>> load(File liquibaseXml) throws Exception {
         return parseLiquibaseFile(liquibaseXml);
     }
@@ -67,17 +57,13 @@ public class Indexes {
         }
 
         Map<String, Set<IndexInfo>> byTable = parseLiquibaseFile(file);
-        // Display table-based with indentation: PK, UNIQUE, and other indexes
         byTable.keySet().stream().sorted().forEach(table -> {
             System.out.println(table);
             Set<IndexInfo> indexes = byTable.get(table);
-            // PK
             indexes.stream().filter(i -> PRIMARY_KEY.equals(i.type))
                 .forEach(i -> System.out.println("  PK: " + i));
-            // UNIQUE (constraints or unique indexes)
             indexes.stream().filter(i -> UNIQUE_CONSTRAINT.equals(i.type) || UNIQUE_INDEX.equals(i.type))
                 .forEach(i -> System.out.println("  UNIQUE: " + i));
-            // Other indexes
             indexes.stream().filter(i -> INDEX.equals(i.type))
                 .forEach(i -> System.out.println("  INDEX: " + i));
         });
@@ -94,295 +80,300 @@ public class Indexes {
     private static void parseLiquibaseFileInto(File file, Set<String> visited, Map<String, Set<IndexInfo>> result) throws Exception {
         String canonical = file.getCanonicalPath();
         if (visited.contains(canonical)) {
-            return; // already processed (prevent circular includes)
+            return;
         }
         visited.add(canonical);
-        DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
-        dbf.setNamespaceAware(true);
-        DocumentBuilder db = dbf.newDocumentBuilder();
-        Document doc = db.parse(file);
-        doc.getDocumentElement().normalize();
 
-        Element root = doc.getDocumentElement();
-        NodeList children = root.getChildNodes();
-        for (int i = 0; i < children.getLength(); i++) {
-            Node n = children.item(i);
-            if (n instanceof Element el) {
-                processTopLevelElement(el, file, visited, result);
+        SAXParserFactory factory = SAXParserFactory.newInstance();
+        factory.setNamespaceAware(true);
+        SAXParser saxParser = factory.newSAXParser();
+
+        LiquibaseIndexHandler handler = new LiquibaseIndexHandler(file, visited, result);
+        saxParser.parse(file, handler);
+    }
+
+    private static class LiquibaseIndexHandler extends DefaultHandler {
+        private final File currentFile;
+        private final Set<String> visited;
+        private final Map<String, Set<IndexInfo>> result;
+
+        private boolean inRollback = false;
+        private boolean inSql = false;
+        private StringBuilder sqlBuffer = new StringBuilder();
+
+        // Context
+        private String currentTable = null;
+        private String currentColumn = null;
+        private boolean isCreateTable = false;
+        private boolean isAddColumn = false;
+
+        // For column-inline constraints
+        private boolean insideConstraints = false;
+
+        // Additional state for createIndex parsing
+        private boolean inCreateIndex = false;
+        private String createIndexName = null;
+        private String createIndexTable = null;
+        private boolean createIndexUnique = false;
+        private List<String> createIndexColumns = new ArrayList<>();
+
+        public LiquibaseIndexHandler(File currentFile, Set<String> visited, Map<String, Set<IndexInfo>> result) {
+            this.currentFile = currentFile;
+            this.visited = visited;
+            this.result = result;
+        }
+
+        @Override
+        public void startElement(String uri, String localName, String qName, Attributes atts) throws SAXException {
+            String ln = localName != null && !localName.isEmpty() ? localName : qName;
+
+            if (inRollback) return;
+            if ("rollback".equalsIgnoreCase(ln)) {
+                inRollback = true;
+                return;
             }
-        }
-    }
 
-    private static void processTopLevelElement(Element el, File currentFile, Set<String> visited, Map<String, Set<IndexInfo>> result) throws Exception {
-        String ln = localName(el);
-        if ("include".equalsIgnoreCase(ln)) {
-            handleIncludeElement(el, currentFile, visited, result);
-            return;
-        }
-        if ("includeAll".equalsIgnoreCase(ln)) {
-            handleIncludeAllElement(el, currentFile, visited, result);
-            return;
-        }
-        if ("changeSet".equalsIgnoreCase(ln)) {
-            processChangeSet(el, currentFile, visited, result);
-            return;
-        }
-        // Allow index-related tags at root level (rare but possible)
-        processIndexRelatedElement(el, result);
-    }
+            if ("include".equalsIgnoreCase(ln)) {
+                 try { handleIncludeElement(atts); } catch(Exception e) { throw new SAXException(e); }
+                 return;
+            }
+            if ("includeAll".equalsIgnoreCase(ln)) {
+                 try { handleIncludeAllElement(atts); } catch(Exception e) { throw new SAXException(e); }
+                 return;
+            }
+            if ("sql".equalsIgnoreCase(ln)) {
+                inSql = true;
+                sqlBuffer.setLength(0);
+                return;
+            }
 
-    private static void processChangeSet(Element changeSetEl, File currentFile, Set<String> visited, Map<String, Set<IndexInfo>> result) throws Exception {
-        NodeList nodes = changeSetEl.getChildNodes();
-        for (int i = 0; i < nodes.getLength(); i++) {
-            Node n = nodes.item(i);
-            if (n instanceof Element el) {
-                if (isInRollback(el)) continue; // skip anything in rollback
-                String ln = localName(el);
-                if ("include".equalsIgnoreCase(ln)) {
-                    handleIncludeElement(el, currentFile, visited, result);
-                } else if ("includeAll".equalsIgnoreCase(ln)) {
-                    handleIncludeAllElement(el, currentFile, visited, result);
-                } else {
-                    processIndexRelatedElement(el, result);
+            if ("createIndex".equalsIgnoreCase(ln)) {
+                inCreateIndex = true;
+                createIndexName = firstNonEmpty(atts.getValue("indexName"), atts.getValue("name"));
+                createIndexTable = firstNonEmpty(atts.getValue("tableName"), atts.getValue(TABLE));
+                createIndexUnique = "true".equalsIgnoreCase(atts.getValue("unique"));
+                createIndexColumns = new ArrayList<>();
+                String attrCols = atts.getValue("columns");
+                if (!isBlank(attrCols)) {
+                    createIndexColumns.addAll(splitColumnsPreserveOrder(attrCols));
                 }
+            } else if ("column".equalsIgnoreCase(ln)) {
+                if (inCreateIndex) {
+                    String name = atts.getValue("name");
+                    if (!isBlank(name)) createIndexColumns.add(name);
+                } else if (isCreateTable || isAddColumn) {
+                    currentColumn = atts.getValue("name");
+                }
+            } else if ("createTable".equalsIgnoreCase(ln)) {
+                isCreateTable = true;
+                currentTable = firstNonEmpty(atts.getValue("tableName"), atts.getValue(TABLE));
+            } else if ("addColumn".equalsIgnoreCase(ln)) {
+                isAddColumn = true;
+                currentTable = firstNonEmpty(atts.getValue("tableName"), atts.getValue(TABLE));
+            } else if ("constraints".equalsIgnoreCase(ln)) {
+                insideConstraints = true;
+                if ((isCreateTable || isAddColumn) && !isBlank(currentTable) && !isBlank(currentColumn)) {
+                    if ("true".equalsIgnoreCase(atts.getValue("primaryKey"))) {
+                        String pkName = atts.getValue("primaryKeyName");
+                        add(result, currentTable, new IndexInfo(PRIMARY_KEY, orUnknown(pkName), List.of(currentColumn)));
+                    }
+                    if ("true".equalsIgnoreCase(atts.getValue("unique"))) {
+                        String uniqueName = atts.getValue("uniqueConstraintName");
+                        add(result, currentTable, new IndexInfo(UNIQUE_CONSTRAINT, orUnknown(uniqueName), List.of(currentColumn)));
+                    }
+                }
+            } else if ("addUniqueConstraint".equalsIgnoreCase(ln)) {
+                handleAddUniqueConstraintElement(atts);
+            } else if ("addPrimaryKey".equalsIgnoreCase(ln)) {
+                handleAddPrimaryKeyElement(atts);
+            } else if ("dropIndex".equalsIgnoreCase(ln)) {
+                handleDropIndexElement(atts);
+            } else if ("dropUniqueConstraint".equalsIgnoreCase(ln)) {
+                handleDropUniqueConstraintElement(atts);
+            } else if ("dropPrimaryKey".equalsIgnoreCase(ln)) {
+                handleDropPrimaryKeyElement(atts);
             }
         }
-    }
 
-    private static void processIndexRelatedElement(Element el, Map<String, Set<IndexInfo>> result) {
-        String ln = localName(el);
-        switch (ln.toLowerCase()) {
-            case "createindex" -> handleCreateIndexElement(el, result);
-            case "adduniqueconstraint" -> handleAddUniqueConstraintElement(el, result);
-            case "addprimarykey" -> handleAddPrimaryKeyElement(el, result);
-            case "createtable" -> handleCreateTableElement(el, result);
-            case "addcolumn" -> handleAddColumnElement(el, result);
-            case "dropindex" -> handleDropIndexElement(el, result);
-            case "dropuniqueconstraint" -> handleDropUniqueConstraintElement(el, result);
-            case "dropprimarykey" -> handleDropPrimaryKeyElement(el, result);
-            case "sql" -> handleSqlElement(el, result);
-            default -> {
-                // ignore others
+        @Override
+        public void endElement(String uri, String localName, String qName) throws SAXException {
+            String ln = localName != null && !localName.isEmpty() ? localName : qName;
+
+            if ("rollback".equalsIgnoreCase(ln)) {
+                inRollback = false;
+                return;
+            }
+            if (inRollback) return;
+
+            if ("sql".equalsIgnoreCase(ln)) {
+                inSql = false;
+                handleSqlElement(sqlBuffer.toString());
+            } else if ("createIndex".equalsIgnoreCase(ln)) {
+                if (inCreateIndex) {
+                    if (!isBlank(createIndexTable) && !createIndexColumns.isEmpty()) {
+                         add(result, createIndexTable, new IndexInfo(createIndexUnique ? UNIQUE_INDEX : INDEX, orUnknown(createIndexName), new ArrayList<>(createIndexColumns)));
+                    }
+                    inCreateIndex = false;
+                    createIndexName = null;
+                    createIndexTable = null;
+                    createIndexColumns = null;
+                }
+            } else if ("createTable".equalsIgnoreCase(ln)) {
+                isCreateTable = false;
+                currentTable = null;
+            } else if ("addColumn".equalsIgnoreCase(ln)) {
+                isAddColumn = false;
+                currentTable = null;
+            } else if ("column".equalsIgnoreCase(ln)) {
+                if (!inCreateIndex) {
+                    currentColumn = null;
+                }
+            } else if ("constraints".equalsIgnoreCase(ln)) {
+                insideConstraints = false;
             }
         }
-    }
 
-    // --- Include handling (inline to preserve ordering) ---
-    private static void handleIncludeElement(Element el, File currentFile, Set<String> visited, Map<String, Set<IndexInfo>> result) throws Exception {
-        String ref = firstNonEmpty(el.getAttribute("file"), el.getAttribute("path"));
-        if (isBlank(ref)) return;
-        File child = resolveRelative(currentFile, ref);
-        if (!child.exists()) {
-            String stripped = ref;
-            if (ref.contains("db/changelog/")) {
-                stripped = ref.replace("db/changelog/", "");
-            } else if (ref.contains("db\\changelog\\")) {
-                stripped = ref.replace("db\\changelog\\", "");
+        @Override
+        public void characters(char[] ch, int start, int length) throws SAXException {
+            if (inRollback) return;
+            if (inSql) {
+                sqlBuffer.append(ch, start, length);
             }
-            if (!Objects.equals(stripped, ref)) {
-                File retry = resolveRelative(currentFile, stripped);
-                if (retry.exists()) {
-                    child = retry;
+        }
+
+        // --- Include Handlers ---
+        private void handleIncludeElement(Attributes atts) throws Exception {
+            String ref = firstNonEmpty(atts.getValue("file"), atts.getValue("path"));
+            if (isBlank(ref)) return;
+            File child = resolveRelative(currentFile, ref);
+            if (!child.exists()) {
+                String stripped = ref;
+                if (ref.contains("db/changelog/")) {
+                    stripped = ref.replace("db/changelog/", "");
+                } else if (ref.contains("db\\changelog\\")) {
+                    stripped = ref.replace("db\\changelog\\", "");
+                }
+                if (!Objects.equals(stripped, ref)) {
+                    File retry = resolveRelative(currentFile, stripped);
+                    if (retry.exists()) {
+                        child = retry;
+                    } else {
+                        System.err.println("Warning: included file not found (after fallback): " + child.getPath());
+                        return;
+                    }
                 } else {
-                    System.err.println("Warning: included file not found (after fallback): " + child.getPath());
+                    System.err.println("Warning: included file not found: " + child.getPath());
                     return;
                 }
-            } else {
-                System.err.println("Warning: included file not found: " + child.getPath());
-                return;
             }
+            parseLiquibaseFileInto(child, visited, result);
         }
-        // Stream parse into current result so drops inside child can affect prior indexes
-        parseLiquibaseFileInto(child, visited, result);
-    }
 
-    private static void handleIncludeAllElement(Element el, File currentFile, Set<String> visited, Map<String, Set<IndexInfo>> result) throws Exception {
-        String dir = firstNonEmpty(el.getAttribute("path"), el.getAttribute("relativePath"));
-        if (isBlank(dir)) return;
-        File baseDir = resolveRelative(currentFile, dir);
-        if (!baseDir.exists() || !baseDir.isDirectory()) {
-            String stripped = dir;
-            if (dir.contains("db/changelog/")) {
-                stripped = dir.replace("db/changelog/", "");
-            } else if (dir.contains("db\\changelog\\")) {
-                stripped = dir.replace("db\\changelog\\", "");
-            }
-            if (!Objects.equals(stripped, dir)) {
-                File retryDir = resolveRelative(currentFile, stripped);
-                if (retryDir.exists() && retryDir.isDirectory()) {
-                    baseDir = retryDir;
+        private void handleIncludeAllElement(Attributes atts) throws Exception {
+            String dir = firstNonEmpty(atts.getValue("path"), atts.getValue("relativePath"));
+            if (isBlank(dir)) return;
+            File baseDir = resolveRelative(currentFile, dir);
+            if (!baseDir.exists() || !baseDir.isDirectory()) {
+                String stripped = dir;
+                if (dir.contains("db/changelog/")) {
+                    stripped = dir.replace("db/changelog/", "");
+                } else if (dir.contains("db\\changelog\\")) {
+                    stripped = dir.replace("db\\changelog\\", "");
+                }
+                if (!Objects.equals(stripped, dir)) {
+                    File retryDir = resolveRelative(currentFile, stripped);
+                    if (retryDir.exists() && retryDir.isDirectory()) {
+                        baseDir = retryDir;
+                    } else {
+                        System.err.println("Warning: includeAll path not found or not a directory (after fallback): " + baseDir.getPath());
+                        return;
+                    }
                 } else {
-                    System.err.println("Warning: includeAll path not found or not a directory (after fallback): " + baseDir.getPath());
+                    System.err.println("Warning: includeAll path not found or not a directory: " + baseDir.getPath());
                     return;
                 }
-            } else {
-                System.err.println("Warning: includeAll path not found or not a directory: " + baseDir.getPath());
-                return;
+            }
+            File[] files = baseDir.listFiles((d, name) -> name.toLowerCase().endsWith(".xml"));
+            if (files == null) return;
+            Arrays.sort(files, Comparator.comparing(File::getName));
+            for (File f : files) {
+                parseLiquibaseFileInto(f, visited, result);
             }
         }
-        File[] files = baseDir.listFiles((d, name) -> name.toLowerCase().endsWith(".xml"));
-        if (files == null) return;
-        Arrays.sort(files, Comparator.comparing(File::getName));
-        for (File f : files) {
-            parseLiquibaseFileInto(f, visited, result);
-        }
-    }
 
-    // --- Element handlers ---
-    private static void handleCreateIndexElement(Element el, Map<String, Set<IndexInfo>> result) {
-        String name = firstNonEmpty(el.getAttribute("indexName"), el.getAttribute("name"));
-        String table = firstNonEmpty(el.getAttribute("tableName"), el.getAttribute(TABLE));
-        boolean unique = "true".equalsIgnoreCase(el.getAttribute("unique"));
-        List<String> cols = extractColumnsExactOrder(el);
-        if (!isBlank(table) && !cols.isEmpty()) {
-            add(result, table, new IndexInfo(unique ? UNIQUE_INDEX : INDEX, orUnknown(name), cols));
+        // --- Handlers ---
+        private void handleAddUniqueConstraintElement(Attributes atts) {
+            String constraintName = firstNonEmpty(atts.getValue("constraintName"), atts.getValue("name"));
+            String table = firstNonEmpty(atts.getValue("tableName"), atts.getValue(TABLE));
+            List<String> cols = splitColumnsPreserveOrder(atts.getValue("columnNames"));
+            if (!isBlank(table) && !cols.isEmpty()) {
+                add(result, table, new IndexInfo(UNIQUE_CONSTRAINT, orUnknown(constraintName), cols));
+            }
         }
-    }
 
-    private static void handleAddUniqueConstraintElement(Element el, Map<String, Set<IndexInfo>> result) {
-        String constraintName = firstNonEmpty(el.getAttribute("constraintName"), el.getAttribute("name"));
-        String table = firstNonEmpty(el.getAttribute("tableName"), el.getAttribute(TABLE));
-        List<String> cols = splitColumnsPreserveOrder(el.getAttribute("columnNames"));
-        if (!isBlank(table) && !cols.isEmpty()) {
-            add(result, table, new IndexInfo(UNIQUE_CONSTRAINT, orUnknown(constraintName), cols));
+        private void handleAddPrimaryKeyElement(Attributes atts) {
+            String pkName = firstNonEmpty(atts.getValue("constraintName"), atts.getValue("pkName"));
+            String table = firstNonEmpty(atts.getValue("tableName"), atts.getValue(TABLE));
+            List<String> cols = splitColumnsPreserveOrder(atts.getValue("columnNames"));
+            if (!isBlank(table) && !cols.isEmpty()) {
+                add(result, table, new IndexInfo(PRIMARY_KEY, orUnknown(pkName), cols));
+            }
         }
-    }
 
-    private static void handleAddPrimaryKeyElement(Element el, Map<String, Set<IndexInfo>> result) {
-        String pkName = firstNonEmpty(el.getAttribute("constraintName"), el.getAttribute("pkName"));
-        String table = firstNonEmpty(el.getAttribute("tableName"), el.getAttribute(TABLE));
-        List<String> cols = splitColumnsPreserveOrder(el.getAttribute("columnNames"));
-        if (!isBlank(table) && !cols.isEmpty()) {
-            add(result, table, new IndexInfo(PRIMARY_KEY, orUnknown(pkName), cols));
+        private void handleDropIndexElement(Attributes atts) {
+            String name = firstNonEmpty(atts.getValue("indexName"), atts.getValue("name"));
+            String table = firstNonEmpty(atts.getValue("tableName"), atts.getValue(TABLE));
+            List<String> cols = splitColumnsPreserveOrder(atts.getValue("columnNames"));
+            if (!isBlank(name)) {
+                removeIndexByName(result, table, name);
+            } else if (!isBlank(table) && !cols.isEmpty()) {
+                removeIndexByColumnsOrdered(result, table, cols);
+            }
         }
-    }
 
-    private static void handleCreateTableElement(Element el, Map<String, Set<IndexInfo>> result) {
-        String table = firstNonEmpty(el.getAttribute("tableName"), el.getAttribute(TABLE));
-        if (isBlank(table)) return;
-        NodeList columns = el.getElementsByTagName("column");
-        List<String> pkCols = new ArrayList<>();
-        String pkName = null;
-        Set<IndexInfo> uniquesInline = new HashSet<>();
-        for (int i = 0; i < columns.getLength(); i++) {
-            Node n = columns.item(i);
-            if (n instanceof Element colEl) {
-                String colName = firstNonEmpty(colEl.getAttribute("name"), textOfFirstChild(colEl, "name"));
-                NodeList constraintsList = colEl.getElementsByTagName("constraints");
-                if (constraintsList.getLength() > 0) {
-                    Element c = (Element) constraintsList.item(0);
-                    if ("true".equalsIgnoreCase(c.getAttribute("primaryKey"))) {
-                        pkCols.add(colName);
-                        String n1 = c.getAttribute("primaryKeyName");
-                        if (!isBlank(n1)) pkName = n1;
+        private void handleDropUniqueConstraintElement(Attributes atts) {
+            String name = firstNonEmpty(atts.getValue("constraintName"), atts.getValue("name"));
+            String table = firstNonEmpty(atts.getValue("tableName"), atts.getValue(TABLE));
+            List<String> cols = splitColumnsPreserveOrder(atts.getValue("columnNames"));
+            if (!isBlank(table)) {
+                removeUniqueConstraint(result, table, name, cols);
+            }
+        }
+
+        private void handleDropPrimaryKeyElement(Attributes atts) {
+            String name = firstNonEmpty(atts.getValue("constraintName"), atts.getValue("pkName"));
+            String table = firstNonEmpty(atts.getValue("tableName"), atts.getValue(TABLE));
+            if (!isBlank(table)) {
+                removePrimaryKey(result, table, name);
+            }
+        }
+
+        private void handleSqlElement(String sqlText) {
+            if (isBlank(sqlText)) return;
+            try {
+                net.sf.jsqlparser.statement.Statements stmts = CCJSqlParserUtil.parseStatements(sqlText);
+                if (stmts != null && stmts.getStatements() != null && !stmts.getStatements().isEmpty()) {
+                    for (Statement st : stmts.getStatements()) {
+                        if (st == null) continue;
+                        String s = st.toString();
+                        processCreateIndexSql(result, s);
+                        processDropSql(result, s);
                     }
-                    if ("true".equalsIgnoreCase(c.getAttribute("unique"))) {
-                        String uniqueName = c.getAttribute("uniqueConstraintName");
-                        uniquesInline.add(new IndexInfo(UNIQUE_CONSTRAINT, orUnknown(uniqueName), List.of(colName)));
-                    }
+                    return;
                 }
+            } catch (Exception ignore) {
             }
-        }
-        if (!pkCols.isEmpty()) add(result, table, new IndexInfo(PRIMARY_KEY, orUnknown(pkName), pkCols));
-        for (IndexInfo idx : uniquesInline) add(result, table, idx);
-    }
-
-    private static void handleAddColumnElement(Element el, Map<String, Set<IndexInfo>> result) {
-        String table = firstNonEmpty(el.getAttribute("tableName"), el.getAttribute(TABLE));
-        if (isBlank(table)) return;
-        NodeList columns = el.getElementsByTagName("column");
-        for (int i = 0; i < columns.getLength(); i++) {
-            Node n = columns.item(i);
-            if (n instanceof Element colEl) {
-                String colName = firstNonEmpty(colEl.getAttribute("name"), textOfFirstChild(colEl, "name"));
-                NodeList constraintsList = colEl.getElementsByTagName("constraints");
-                if (constraintsList.getLength() > 0) {
-                    Element c = (Element) constraintsList.item(0);
-                    if ("true".equalsIgnoreCase(c.getAttribute("unique"))) {
-                        String uniqueName = c.getAttribute("uniqueConstraintName");
-                        add(result, table, new IndexInfo(UNIQUE_CONSTRAINT, orUnknown(uniqueName), List.of(colName)));
-                    }
-                }
+            for (String part : sqlText.split(";")) {
+                String s = part.trim();
+                if (s.isEmpty()) continue;
+                processCreateIndexSql(result, s);
+                processDropSql(result, s);
             }
         }
     }
 
-    private static void handleDropIndexElement(Element el, Map<String, Set<IndexInfo>> result) {
-        String name = firstNonEmpty(el.getAttribute("indexName"), el.getAttribute("name"));
-        String table = firstNonEmpty(el.getAttribute("tableName"), el.getAttribute(TABLE));
-        List<String> cols = splitColumnsPreserveOrder(el.getAttribute("columnNames"));
-        if (!isBlank(name)) {
-            removeIndexByName(result, table, name);
-        } else if (!isBlank(table) && !cols.isEmpty()) {
-            removeIndexByColumnsOrdered(result, table, cols);
-        }
-    }
+    // --- Static Logic (copied/adapted from DOM version) ---
 
-    private static void handleDropUniqueConstraintElement(Element el, Map<String, Set<IndexInfo>> result) {
-        String name = firstNonEmpty(el.getAttribute("constraintName"), el.getAttribute("name"));
-        String table = firstNonEmpty(el.getAttribute("tableName"), el.getAttribute(TABLE));
-        List<String> cols = splitColumnsPreserveOrder(el.getAttribute("columnNames"));
-        if (!isBlank(table)) {
-            removeUniqueConstraint(result, table, name, cols);
-        }
-    }
-
-    private static void handleDropPrimaryKeyElement(Element el, Map<String, Set<IndexInfo>> result) {
-        String name = firstNonEmpty(el.getAttribute("constraintName"), el.getAttribute("pkName"));
-        String table = firstNonEmpty(el.getAttribute("tableName"), el.getAttribute(TABLE));
-        if (!isBlank(table)) {
-            removePrimaryKey(result, table, name);
-        }
-    }
-
-    private static void handleSqlElement(Element el, Map<String, Set<IndexInfo>> result) {
-        if (isInRollback(el)) return;
-        String sqlText = el.getTextContent();
-        if (isBlank(sqlText)) return;
-        try {
-            net.sf.jsqlparser.statement.Statements stmts = CCJSqlParserUtil.parseStatements(sqlText);
-            if (stmts != null && stmts.getStatements() != null && !stmts.getStatements().isEmpty()) {
-                for (Statement st : stmts.getStatements()) {
-                    if (st == null) continue;
-                    String s = st.toString();
-                    processCreateIndexSql(result, s);
-                    processDropSql(result, s);
-                }
-                return;
-            }
-        } catch (Exception ignore) {
-            // fallback manual splitting
-        }
-        for (String part : sqlText.split(";")) {
-            String s = part.trim();
-            if (s.isEmpty()) continue;
-            processCreateIndexSql(result, s);
-            processDropSql(result, s);
-        }
-    }
-
-    /**
-     * Return true if the provided node is under a <rollback> element.
-     */
-    private static boolean isInRollback(Node node) {
-        Node p = node;
-        while (p != null) {
-            if (p instanceof Element pe) {
-                String ln = pe.getLocalName();
-                String nn = pe.getNodeName();
-                if ("rollback".equalsIgnoreCase(nn) || "rollback".equalsIgnoreCase(ln)) {
-                    return true;
-                }
-            }
-            p = p.getParentNode();
-        }
-        return false;
-    }
-
-    /**
-     * Parse a single SQL statement text and add index info if it is a CREATE INDEX.
-     * Supports vendor-specific options like CONCURRENTLY (PostgreSQL), ONLINE (Oracle), and IF NOT EXISTS.
-     */
     private static void processCreateIndexSql(Map<String, Set<IndexInfo>> result, String sql) {
         if (isBlank(sql)) return;
         String normalized = sql.trim();
@@ -420,8 +411,7 @@ public class Indexes {
             .filter(s -> !s.isEmpty())
             .map(c -> {
                 String base = c.replaceAll("(?i)\\bASC\\b|\\bDESC\\b", "").trim();
-                // ignore functional/expression columns (contains '(' or ')' not just parentheses around identifier)
-                if (base.contains("(") || base.contains(")")) return ""; // ignore for now
+                if (base.contains("(") || base.contains(")")) return "";
                 int sp = base.indexOf(' ');
                 if (sp > 0) base = base.substring(0, sp).trim();
                 base = unquote(base);
@@ -432,15 +422,12 @@ public class Indexes {
             .filter(s -> !s.isEmpty())
             .toList();
 
-        if (cols.isEmpty()) return; // ignore if all columns were expressions/functions
+        if (cols.isEmpty()) return;
         int dot = tableName.lastIndexOf('.');
         if (dot >= 0) tableName = tableName.substring(dot + 1);
         add(result, tableName, new IndexInfo(isUnique ? UNIQUE_INDEX : INDEX, orUnknown(indexName), cols));
     }
 
-    /**
-     * Parse and apply raw SQL DROP statements affecting indexes/constraints.
-     */
     private static void processDropSql(Map<String, Set<IndexInfo>> result, String sql) {
         if (isBlank(sql)) return;
         String normalized = sql.trim();
@@ -489,7 +476,6 @@ public class Indexes {
         }
     }
 
-    // --- Removal helpers (order-sensitive column handling) ---
     private static void removeIndexByNameAnyTable(Map<String, Set<IndexInfo>> map, String name) {
         if (isBlank(name) || map.isEmpty()) return;
         List<String> emptyTables = new ArrayList<>();
@@ -565,24 +551,6 @@ public class Indexes {
         return new File(parent, ref);
     }
 
-    // Column extraction preserving order exactly as defined
-    private static List<String> extractColumnsExactOrder(Element createIndexEl) {
-        List<String> cols = new ArrayList<>();
-        NodeList columnNodes = createIndexEl.getElementsByTagName("column");
-        for (int i = 0; i < columnNodes.getLength(); i++) {
-            Node n = columnNodes.item(i);
-            if (n instanceof Element colEl) {
-                String name = firstNonEmpty(colEl.getAttribute("name"), textOfFirstChild(colEl, "name"));
-                if (!isBlank(name)) cols.add(name.trim());
-            }
-        }
-        String attrCols = createIndexEl.getAttribute("columns");
-        if (!isBlank(attrCols)) {
-            cols.addAll(splitColumnsPreserveOrder(attrCols));
-        }
-        return cols;
-    }
-
     private static List<String> splitColumnsPreserveOrder(String csv) {
         if (isBlank(csv)) return List.of();
         String[] parts = csv.split(",");
@@ -592,13 +560,6 @@ public class Indexes {
             if (!trimmed.isEmpty()) out.add(trimmed);
         }
         return out;
-    }
-
-    private static String textOfFirstChild(Element parent, String childName) {
-        NodeList list = parent.getElementsByTagName(childName);
-        if (list.getLength() == 0) return null;
-        Node n = list.item(0);
-        return n.getTextContent();
     }
 
     private static boolean isBlank(String s) {
@@ -622,11 +583,5 @@ public class Indexes {
             return s.substring(1, s.length() - 1);
         }
         return s;
-    }
-
-    private static String localName(Element el) {
-        String ln = el.getLocalName();
-        if (ln != null) return ln;
-        return el.getNodeName();
     }
 }
