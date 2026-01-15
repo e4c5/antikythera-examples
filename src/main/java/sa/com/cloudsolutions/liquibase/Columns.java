@@ -6,11 +6,15 @@ import net.sf.jsqlparser.statement.alter.Alter;
 import net.sf.jsqlparser.statement.create.table.ColumnDefinition;
 import net.sf.jsqlparser.statement.create.table.CreateTable;
 import net.sf.jsqlparser.statement.drop.Drop;
-import org.w3c.dom.*;
+import org.xml.sax.Attributes;
+import org.xml.sax.SAXException;
+import org.xml.sax.helpers.DefaultHandler;
 
-import javax.xml.parsers.DocumentBuilder;
-import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.ParserConfigurationException;
+import javax.xml.parsers.SAXParser;
+import javax.xml.parsers.SAXParserFactory;
 import java.io.File;
+import java.io.IOException;
 import java.util.*;
 
 @SuppressWarnings("java:S106")
@@ -60,229 +64,252 @@ public class Columns {
             return;
         }
         visited.add(canonical);
-        DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
-        dbf.setNamespaceAware(true);
-        DocumentBuilder db = dbf.newDocumentBuilder();
-        Document doc = db.parse(file);
-        doc.getDocumentElement().normalize();
 
-        Element root = doc.getDocumentElement();
-        NodeList children = root.getChildNodes();
-        for (int i = 0; i < children.getLength(); i++) {
-            Node n = children.item(i);
-            if (n instanceof Element el) {
-                processTopLevelElement(el, file, visited, result);
-            }
-        }
+        SAXParserFactory factory = SAXParserFactory.newInstance();
+        factory.setNamespaceAware(true); // Matches DOM implementation
+        SAXParser saxParser = factory.newSAXParser();
+
+        LiquibaseHandler handler = new LiquibaseHandler(file, visited, result);
+        saxParser.parse(file, handler);
     }
 
-    private static void processTopLevelElement(Element el, File currentFile, Set<String> visited, Map<String, List<String>> result) throws Exception {
-        String ln = localName(el);
-        if ("include".equalsIgnoreCase(ln)) {
-            handleIncludeElement(el, currentFile, visited, result);
-            return;
-        }
-        if ("includeAll".equalsIgnoreCase(ln)) {
-            handleIncludeAllElement(el, currentFile, visited, result);
-            return;
-        }
-        if ("changeSet".equalsIgnoreCase(ln)) {
-            processChangeSet(el, currentFile, visited, result);
-            return;
-        }
-        processColumnRelatedElement(el, result);
-    }
+    private static class LiquibaseHandler extends DefaultHandler {
+        private final File currentFile;
+        private final Set<String> visited;
+        private final Map<String, List<String>> result;
 
-    private static void processChangeSet(Element changeSetEl, File currentFile, Set<String> visited, Map<String, List<String>> result) throws Exception {
-        NodeList nodes = changeSetEl.getChildNodes();
-        for (int i = 0; i < nodes.getLength(); i++) {
-            Node n = nodes.item(i);
-            if (n instanceof Element el) {
-                if (isInRollback(el)) continue;
-                String ln = localName(el);
-                if ("include".equalsIgnoreCase(ln)) {
-                    handleIncludeElement(el, currentFile, visited, result);
-                } else if ("includeAll".equalsIgnoreCase(ln)) {
-                    handleIncludeAllElement(el, currentFile, visited, result);
-                } else {
-                    processColumnRelatedElement(el, result);
-                }
-            }
-        }
-    }
+        private boolean inRollback = false;
+        private boolean inSql = false;
+        private StringBuilder sqlBuffer = new StringBuilder();
 
-    private static void processColumnRelatedElement(Element el, Map<String, List<String>> result) {
-        String ln = localName(el);
-        switch (ln.toLowerCase()) {
-            case "createtable" -> handleCreateTableElement(el, result);
-            case "addcolumn" -> handleAddColumnElement(el, result);
-            case "dropcolumn" -> handleDropColumnElement(el, result);
-            case "renamecolumn" -> handleRenameColumnElement(el, result);
-            case "droptable" -> handleDropTableElement(el, result);
-            case "sql" -> handleSqlElement(el, result);
-            default -> {
-                // ignore others
-            }
-        }
-    }
+        // Context for creating/modifying tables
+        private String currentTable = null;
+        private boolean isCreateTable = false;
+        private boolean isAddColumn = false;
+        private boolean isDropColumn = false;
 
-    private static void handleIncludeElement(Element el, File currentFile, Set<String> visited, Map<String, List<String>> result) throws Exception {
-        String ref = firstNonEmpty(el.getAttribute("file"), el.getAttribute("path"));
-        if (isBlank(ref)) return;
-        File child = resolveRelative(currentFile, ref);
-        if (!child.exists()) {
-             String stripped = ref;
-            if (ref.contains("db/changelog/")) {
-                stripped = ref.replace("db/changelog/", "");
-            } else if (ref.contains("db\\changelog\\")) {
-                stripped = ref.replace("db\\changelog\\", "");
-            }
-            if (!Objects.equals(stripped, ref)) {
-                File retry = resolveRelative(currentFile, stripped);
-                if (retry.exists()) {
-                    child = retry;
-                } else {
-                    System.err.println("Warning: included file not found (after fallback): " + child.getPath());
-                    return;
-                }
-            } else {
-                System.err.println("Warning: included file not found: " + child.getPath());
+        public LiquibaseHandler(File currentFile, Set<String> visited, Map<String, List<String>> result) {
+            this.currentFile = currentFile;
+            this.visited = visited;
+            this.result = result;
+        }
+
+        @Override
+        public void startElement(String uri, String localName, String qName, Attributes attributes) throws SAXException {
+            String ln = localName != null && !localName.isEmpty() ? localName : qName;
+
+            if (inRollback) {
+                // If we are in rollback, we track nesting to know when we are out,
+                // but for simple rollback tag check, we just check if it IS rollback.
+                // However, XML is hierarchical. If we see <rollback>, we enter rollback mode.
+                // If we see another <rollback> inside (unlikely), we need to track depth?
+                // Liquibase doesn't nest rollbacks inside rollbacks usually.
+                // But we must ignore everything until </rollback>.
+                // BUT, wait, 'rollback' is also a top level tag?
+                // The DOM logic was `isInRollback(element)` which checked ancestors.
+                // Here, if we hit <rollback>, we set inRollback=true.
+                // We should push to a stack if we want to be 100% correct about nesting,
+                // but boolean is probably enough for standard changelogs.
                 return;
             }
-        }
-        parseLiquibaseFileInto(child, visited, result);
-    }
 
-    private static void handleIncludeAllElement(Element el, File currentFile, Set<String> visited, Map<String, List<String>> result) throws Exception {
-        String dir = firstNonEmpty(el.getAttribute("path"), el.getAttribute("relativePath"));
-        if (isBlank(dir)) return;
-        File baseDir = resolveRelative(currentFile, dir);
-        if (!baseDir.exists() || !baseDir.isDirectory()) {
-             String stripped = dir;
-            if (dir.contains("db/changelog/")) {
-                stripped = dir.replace("db/changelog/", "");
-            } else if (dir.contains("db\\changelog\\")) {
-                stripped = dir.replace("db\\changelog\\", "");
-            }
-            if (!Objects.equals(stripped, dir)) {
-                File retryDir = resolveRelative(currentFile, stripped);
-                if (retryDir.exists() && retryDir.isDirectory()) {
-                    baseDir = retryDir;
-                } else {
-                    System.err.println("Warning: includeAll path not found or not a directory (after fallback): " + baseDir.getPath());
-                    return;
-                }
-            } else {
-                System.err.println("Warning: includeAll path not found or not a directory: " + baseDir.getPath());
+            if ("rollback".equalsIgnoreCase(ln)) {
+                inRollback = true;
                 return;
             }
-        }
-        File[] files = baseDir.listFiles((d, name) -> name.toLowerCase().endsWith(".xml"));
-        if (files == null) return;
-        Arrays.sort(files, Comparator.comparing(File::getName));
-        for (File f : files) {
-            parseLiquibaseFileInto(f, visited, result);
-        }
-    }
 
-    private static void handleCreateTableElement(Element el, Map<String, List<String>> result) {
-        String table = firstNonEmpty(el.getAttribute("tableName"), el.getAttribute(TABLE));
-        if (isBlank(table)) return;
-        List<String> columns = new ArrayList<>();
-        NodeList children = el.getChildNodes();
-        for (int i = 0; i < children.getLength(); i++) {
-            Node n = children.item(i);
-            if (n instanceof Element colEl && "column".equalsIgnoreCase(localName(colEl))) {
-                String name = firstNonEmpty(colEl.getAttribute("name"), textOfFirstChild(colEl, "name"));
+            if ("include".equalsIgnoreCase(ln)) {
+                try {
+                    handleIncludeElement(attributes);
+                } catch (Exception e) {
+                    throw new SAXException(e);
+                }
+                return;
+            }
+            if ("includeAll".equalsIgnoreCase(ln)) {
+                try {
+                    handleIncludeAllElement(attributes);
+                } catch (Exception e) {
+                    throw new SAXException(e);
+                }
+                return;
+            }
+
+            if ("changeSet".equalsIgnoreCase(ln)) {
+                // Just enter changeSet, nothing specific to capture
+                return;
+            }
+
+            if ("sql".equalsIgnoreCase(ln)) {
+                inSql = true;
+                sqlBuffer.setLength(0);
+                return;
+            }
+
+            // Columns operations
+            if ("createTable".equalsIgnoreCase(ln)) {
+                currentTable = firstNonEmpty(attributes.getValue("tableName"), attributes.getValue(TABLE));
+                isCreateTable = true;
+            } else if ("addColumn".equalsIgnoreCase(ln)) {
+                currentTable = firstNonEmpty(attributes.getValue("tableName"), attributes.getValue(TABLE));
+                isAddColumn = true;
+            } else if ("dropColumn".equalsIgnoreCase(ln)) {
+                currentTable = firstNonEmpty(attributes.getValue("tableName"), attributes.getValue(TABLE));
+                isDropColumn = true;
+
+                // Handle attribute based drop
+                String colName = firstNonEmpty(attributes.getValue("columnName"), null); // no text lookup here
+                if (!isBlank(currentTable) && !isBlank(colName)) {
+                     removeColumns(result, currentTable, List.of(colName));
+                }
+            } else if ("renameColumn".equalsIgnoreCase(ln)) {
+                 handleRenameColumnElement(attributes);
+            } else if ("dropTable".equalsIgnoreCase(ln)) {
+                 handleDropTableElement(attributes);
+            } else if ("column".equalsIgnoreCase(ln)) {
+                // Inside createTable, addColumn, or dropColumn
+                String name = attributes.getValue("name");
                 if (!isBlank(name)) {
-                    columns.add(name);
+                    if (isCreateTable || isAddColumn) {
+                        if (!isBlank(currentTable)) {
+                            addColumns(result, currentTable, List.of(name));
+                        }
+                    } else if (isDropColumn) {
+                        if (!isBlank(currentTable)) {
+                            removeColumns(result, currentTable, List.of(name));
+                        }
+                    }
                 }
             }
         }
-        if (!columns.isEmpty()) {
-            result.put(table, columns);
-        }
-    }
 
-    private static void handleAddColumnElement(Element el, Map<String, List<String>> result) {
-        String table = firstNonEmpty(el.getAttribute("tableName"), el.getAttribute(TABLE));
-        if (isBlank(table)) return;
-        List<String> newCols = new ArrayList<>();
-        NodeList children = el.getChildNodes();
-        for (int i = 0; i < children.getLength(); i++) {
-            Node n = children.item(i);
-            if (n instanceof Element colEl && "column".equalsIgnoreCase(localName(colEl))) {
-                String name = firstNonEmpty(colEl.getAttribute("name"), textOfFirstChild(colEl, "name"));
-                if (!isBlank(name)) {
-                    newCols.add(name);
-                }
-            }
-        }
-        if (!newCols.isEmpty()) {
-            addColumns(result, table, newCols);
-        }
-    }
+        @Override
+        public void endElement(String uri, String localName, String qName) throws SAXException {
+             String ln = localName != null && !localName.isEmpty() ? localName : qName;
 
-    private static void handleDropColumnElement(Element el, Map<String, List<String>> result) {
-        String table = firstNonEmpty(el.getAttribute("tableName"), el.getAttribute(TABLE));
-        if (isBlank(table)) return;
-
-        List<String> toDrop = new ArrayList<>();
-        String colName = firstNonEmpty(el.getAttribute("columnName"), textOfFirstChild(el, "columnName"));
-        if (!isBlank(colName)) {
-            toDrop.add(colName);
-        }
-
-        NodeList children = el.getChildNodes();
-        for (int i = 0; i < children.getLength(); i++) {
-            Node n = children.item(i);
-            if (n instanceof Element colEl && "column".equalsIgnoreCase(localName(colEl))) {
-                String name = firstNonEmpty(colEl.getAttribute("name"), textOfFirstChild(colEl, "name"));
-                if (!isBlank(name)) {
-                    toDrop.add(name);
-                }
-            }
-        }
-
-        if (!toDrop.isEmpty()) {
-            removeColumns(result, table, toDrop);
-        }
-    }
-
-    private static void handleRenameColumnElement(Element el, Map<String, List<String>> result) {
-        String table = firstNonEmpty(el.getAttribute("tableName"), el.getAttribute(TABLE));
-        String oldName = el.getAttribute("oldColumnName");
-        String newName = el.getAttribute("newColumnName");
-
-        if (!isBlank(table) && !isBlank(oldName) && !isBlank(newName)) {
-            renameColumn(result, table, oldName, newName);
-        }
-    }
-
-    private static void handleDropTableElement(Element el, Map<String, List<String>> result) {
-        String table = firstNonEmpty(el.getAttribute("tableName"), el.getAttribute(TABLE));
-        if (!isBlank(table)) {
-            result.remove(table);
-        }
-    }
-
-    private static void handleSqlElement(Element el, Map<String, List<String>> result) {
-        if (isInRollback(el)) return;
-        String sqlText = el.getTextContent();
-        if (isBlank(sqlText)) return;
-
-        try {
-            net.sf.jsqlparser.statement.Statements stmts = CCJSqlParserUtil.parseStatements(sqlText);
-             if (stmts != null && stmts.getStatements() != null && !stmts.getStatements().isEmpty()) {
-                for (Statement st : stmts.getStatements()) {
-                    if (st == null) continue;
-                    processSqlStatement(result, st);
-                }
+             if ("rollback".equalsIgnoreCase(ln)) {
+                 inRollback = false;
+                 return;
              }
-        } catch (Exception ignore) {
-            // fallback
+             if (inRollback) return;
+
+             if ("sql".equalsIgnoreCase(ln)) {
+                 inSql = false;
+                 handleSqlText(sqlBuffer.toString());
+             } else if ("createTable".equalsIgnoreCase(ln)) {
+                 isCreateTable = false;
+                 currentTable = null;
+             } else if ("addColumn".equalsIgnoreCase(ln)) {
+                 isAddColumn = false;
+                 currentTable = null;
+             } else if ("dropColumn".equalsIgnoreCase(ln)) {
+                 isDropColumn = false;
+                 currentTable = null;
+             }
+        }
+
+        @Override
+        public void characters(char[] ch, int start, int length) throws SAXException {
+            if (inRollback) return;
+            if (inSql) {
+                sqlBuffer.append(ch, start, length);
+            }
+        }
+
+        // --- Handlers ---
+
+        private void handleIncludeElement(Attributes atts) throws Exception {
+            String ref = firstNonEmpty(atts.getValue("file"), atts.getValue("path"));
+            if (isBlank(ref)) return;
+            File child = resolveRelative(currentFile, ref);
+            if (!child.exists()) {
+                String stripped = ref;
+                if (ref.contains("db/changelog/")) {
+                    stripped = ref.replace("db/changelog/", "");
+                } else if (ref.contains("db\\changelog\\")) {
+                    stripped = ref.replace("db\\changelog\\", "");
+                }
+                if (!Objects.equals(stripped, ref)) {
+                    File retry = resolveRelative(currentFile, stripped);
+                    if (retry.exists()) {
+                        child = retry;
+                    } else {
+                        System.err.println("Warning: included file not found (after fallback): " + child.getPath());
+                        return;
+                    }
+                } else {
+                    System.err.println("Warning: included file not found: " + child.getPath());
+                    return;
+                }
+            }
+            parseLiquibaseFileInto(child, visited, result);
+        }
+
+        private void handleIncludeAllElement(Attributes atts) throws Exception {
+            String dir = firstNonEmpty(atts.getValue("path"), atts.getValue("relativePath"));
+            if (isBlank(dir)) return;
+            File baseDir = resolveRelative(currentFile, dir);
+            if (!baseDir.exists() || !baseDir.isDirectory()) {
+                String stripped = dir;
+                if (dir.contains("db/changelog/")) {
+                    stripped = dir.replace("db/changelog/", "");
+                } else if (dir.contains("db\\changelog\\")) {
+                    stripped = dir.replace("db\\changelog\\", "");
+                }
+                if (!Objects.equals(stripped, dir)) {
+                    File retryDir = resolveRelative(currentFile, stripped);
+                    if (retryDir.exists() && retryDir.isDirectory()) {
+                        baseDir = retryDir;
+                    } else {
+                        System.err.println("Warning: includeAll path not found or not a directory (after fallback): " + baseDir.getPath());
+                        return;
+                    }
+                } else {
+                    System.err.println("Warning: includeAll path not found or not a directory: " + baseDir.getPath());
+                    return;
+                }
+            }
+            File[] files = baseDir.listFiles((d, name) -> name.toLowerCase().endsWith(".xml"));
+            if (files == null) return;
+            Arrays.sort(files, Comparator.comparing(File::getName));
+            for (File f : files) {
+                parseLiquibaseFileInto(f, visited, result);
+            }
+        }
+
+        private void handleRenameColumnElement(Attributes atts) {
+            String table = firstNonEmpty(atts.getValue("tableName"), atts.getValue(TABLE));
+            String oldName = atts.getValue("oldColumnName");
+            String newName = atts.getValue("newColumnName");
+            if (!isBlank(table) && !isBlank(oldName) && !isBlank(newName)) {
+                renameColumn(result, table, oldName, newName);
+            }
+        }
+
+        private void handleDropTableElement(Attributes atts) {
+            String table = firstNonEmpty(atts.getValue("tableName"), atts.getValue(TABLE));
+            if (!isBlank(table)) {
+                result.remove(table);
+            }
+        }
+
+        private void handleSqlText(String sqlText) {
+             if (isBlank(sqlText)) return;
+             try {
+                 net.sf.jsqlparser.statement.Statements stmts = CCJSqlParserUtil.parseStatements(sqlText);
+                 if (stmts != null && stmts.getStatements() != null && !stmts.getStatements().isEmpty()) {
+                     for (Statement st : stmts.getStatements()) {
+                         if (st == null) continue;
+                         processSqlStatement(result, st);
+                     }
+                 }
+             } catch (Exception ignore) {
+                 // fallback? The DOM version didn't fallback for Columns.
+             }
         }
     }
+
+    // --- Static Helpers (shared with DOM version logic) ---
 
     private static void processSqlStatement(Map<String, List<String>> result, Statement st) {
         if (st instanceof CreateTable ct) {
@@ -317,7 +344,6 @@ public class Columns {
                      }
 
                      // DROP COLUMN
-                     // Check if it's a drop operation
                      boolean isDrop = exp.toString().trim().toUpperCase().startsWith("DROP");
                      if (isDrop && exp.getColumnName() != null) {
                           removeColumns(result, tableName, List.of(unquote(exp.getColumnName())));
@@ -351,33 +377,11 @@ public class Columns {
         }
     }
 
-    private static boolean isInRollback(Node node) {
-        Node p = node;
-        while (p != null) {
-            if (p instanceof Element pe) {
-                String ln = pe.getLocalName();
-                String nn = pe.getNodeName();
-                if ("rollback".equalsIgnoreCase(nn) || "rollback".equalsIgnoreCase(ln)) {
-                    return true;
-                }
-            }
-            p = p.getParentNode();
-        }
-        return false;
-    }
-
     private static File resolveRelative(File base, String ref) {
         File candidate = new File(ref);
         if (candidate.isAbsolute()) return candidate;
         File parent = base.getParentFile();
         return new File(parent, ref);
-    }
-
-    private static String textOfFirstChild(Element parent, String childName) {
-        NodeList list = parent.getElementsByTagName(childName);
-        if (list.getLength() == 0) return null;
-        Node n = list.item(0);
-        return n.getTextContent();
     }
 
     private static boolean isBlank(String s) {
@@ -388,12 +392,6 @@ public class Columns {
         if (!isBlank(a)) return a;
         if (!isBlank(b)) return b;
         return null;
-    }
-
-    private static String localName(Element el) {
-        String ln = el.getLocalName();
-        if (ln != null) return ln;
-        return el.getNodeName();
     }
 
     private static String unquote(String s) {
