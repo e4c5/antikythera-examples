@@ -72,36 +72,48 @@ public class Columns {
         @Override
         protected void handleElement(String localName, Attributes atts) {
             if ("createTable".equalsIgnoreCase(localName)) {
-                currentTable = firstNonEmpty(atts.getValue("tableName"), atts.getValue(TABLE));
-                isCreateTable = true;
+                handleCreateTable(atts);
             } else if ("addColumn".equalsIgnoreCase(localName)) {
-                currentTable = firstNonEmpty(atts.getValue("tableName"), atts.getValue(TABLE));
-                isAddColumn = true;
+                handleAddColumn(atts);
             } else if ("dropColumn".equalsIgnoreCase(localName)) {
-                currentTable = firstNonEmpty(atts.getValue("tableName"), atts.getValue(TABLE));
-                isDropColumn = true;
-
-                String colName = firstNonEmpty(atts.getValue("columnName"), null);
-                if (!isBlank(currentTable) && !isBlank(colName)) {
-                     removeColumns(result, currentTable, List.of(colName));
-                }
+                handleDropColumn(atts);
             } else if ("renameColumn".equalsIgnoreCase(localName)) {
                  handleRenameColumnElement(atts);
             } else if ("dropTable".equalsIgnoreCase(localName)) {
                  handleDropTableElement(atts);
             } else if ("column".equalsIgnoreCase(localName)) {
-                String name = atts.getValue("name");
-                if (!isBlank(name)) {
-                    if (isCreateTable || isAddColumn) {
-                        if (!isBlank(currentTable)) {
-                            addColumns(result, currentTable, List.of(name));
-                        }
-                    } else if (isDropColumn) {
-                        if (!isBlank(currentTable)) {
-                            removeColumns(result, currentTable, List.of(name));
-                        }
-                    }
-                }
+                handleColumnElement(atts);
+            }
+        }
+
+        private void handleCreateTable(Attributes atts) {
+            currentTable = firstNonEmpty(atts.getValue(TABLE_NAME_ATTR), atts.getValue(TABLE));
+            isCreateTable = true;
+        }
+
+        private void handleAddColumn(Attributes atts) {
+            currentTable = firstNonEmpty(atts.getValue(TABLE_NAME_ATTR), atts.getValue(TABLE));
+            isAddColumn = true;
+        }
+
+        private void handleDropColumn(Attributes atts) {
+            currentTable = firstNonEmpty(atts.getValue(TABLE_NAME_ATTR), atts.getValue(TABLE));
+            isDropColumn = true;
+
+            String colName = firstNonEmpty(atts.getValue("columnName"), null);
+            if (!isBlank(currentTable) && !isBlank(colName)) {
+                 removeColumns(currentTable, List.of(colName));
+            }
+        }
+
+        private void handleColumnElement(Attributes atts) {
+            String name = atts.getValue("name");
+            if (isBlank(name)) return;
+
+            if ((isCreateTable || isAddColumn) && !isBlank(currentTable)) {
+                addColumns(currentTable, List.of(name));
+            } else if (isDropColumn && !isBlank(currentTable)) {
+                removeColumns(currentTable, List.of(name));
             }
         }
 
@@ -127,7 +139,7 @@ public class Columns {
                  if (stmts != null && stmts.getStatements() != null && !stmts.getStatements().isEmpty()) {
                      for (Statement st : stmts.getStatements()) {
                          if (st == null) continue;
-                         processSqlStatement(result, st);
+                         processSqlStatement(st);
                      }
                  }
              } catch (Exception ignore) {
@@ -136,26 +148,32 @@ public class Columns {
         }
 
         private void handleRenameColumnElement(Attributes atts) {
-            String table = firstNonEmpty(atts.getValue("tableName"), atts.getValue(TABLE));
+            String table = firstNonEmpty(atts.getValue(TABLE_NAME_ATTR), atts.getValue(TABLE));
             String oldName = atts.getValue("oldColumnName");
             String newName = atts.getValue("newColumnName");
             if (!isBlank(table) && !isBlank(oldName) && !isBlank(newName)) {
-                renameColumn(result, table, oldName, newName);
+                renameColumn(table, oldName, newName);
             }
         }
 
         private void handleDropTableElement(Attributes atts) {
-            String table = firstNonEmpty(atts.getValue("tableName"), atts.getValue(TABLE));
+            String table = firstNonEmpty(atts.getValue(TABLE_NAME_ATTR), atts.getValue(TABLE));
             if (!isBlank(table)) {
                 result.remove(table);
             }
         }
-    }
 
-    // --- Static Helpers ---
+        private void processSqlStatement(Statement st) {
+            if (st instanceof CreateTable ct) {
+                processSqlCreateTable(ct);
+            } else if (st instanceof Drop drop) {
+                 processSqlDrop(drop);
+            } else if (st instanceof Alter alter) {
+                processSqlAlter(alter);
+            }
+        }
 
-    private static void processSqlStatement(Map<String, List<String>> result, Statement st) {
-        if (st instanceof CreateTable ct) {
+        private void processSqlCreateTable(CreateTable ct) {
             String tableName = ct.getTable().getName();
             List<String> cols = new ArrayList<>();
             if (ct.getColumnDefinitions() != null) {
@@ -166,62 +184,61 @@ public class Columns {
             tableName = LiquibaseParser.unquote(tableName);
             cols.replaceAll(LiquibaseParser::unquote);
             result.put(tableName, cols);
-        } else if (st instanceof Drop drop) {
-             if ("TABLE".equalsIgnoreCase(drop.getType())) {
+        }
+
+        private void processSqlDrop(Drop drop) {
+            if ("TABLE".equalsIgnoreCase(drop.getType())) {
                 String tableName = drop.getName().getName();
                 result.remove(LiquibaseParser.unquote(tableName));
-             }
-        } else if (st instanceof Alter alter) {
+            }
+        }
+
+        private void processSqlAlter(Alter alter) {
             String tableName = alter.getTable().getName();
             tableName = LiquibaseParser.unquote(tableName);
 
-             if (alter.getAlterExpressions() != null) {
-                 for (var exp : alter.getAlterExpressions()) {
-                     // ADD COLUMN
-                     if (exp.getColDataTypeList() != null && !exp.getColDataTypeList().isEmpty()) {
-                         List<String> toAdd = new ArrayList<>();
-                         for (var cdt : exp.getColDataTypeList()) {
-                             toAdd.add(LiquibaseParser.unquote(cdt.getColumnName()));
-                         }
-                         addColumns(result, tableName, toAdd);
-                     }
+            if (alter.getAlterExpressions() != null) {
+                for (var exp : alter.getAlterExpressions()) {
+                    // ADD COLUMN
+                    if (exp.getColDataTypeList() != null && !exp.getColDataTypeList().isEmpty()) {
+                        List<String> toAdd = new ArrayList<>();
+                        for (var cdt : exp.getColDataTypeList()) {
+                            toAdd.add(LiquibaseParser.unquote(cdt.getColumnName()));
+                        }
+                        addColumns(tableName, toAdd);
+                    }
 
-                     // DROP COLUMN
-                     boolean isDrop = exp.toString().trim().toUpperCase().startsWith("DROP");
-                     if (isDrop && exp.getColumnName() != null) {
-                          removeColumns(result, tableName, List.of(LiquibaseParser.unquote(exp.getColumnName())));
-                     }
-                 }
-             }
-        }
-    }
-
-    private static void addColumns(Map<String, List<String>> map, String table, List<String> newCols) {
-        map.computeIfAbsent(table, k -> new ArrayList<>()).addAll(newCols);
-    }
-
-    private static void removeColumns(Map<String, List<String>> map, String table, List<String> toDrop) {
-        List<String> current = map.get(table);
-        if (current != null) {
-            for (String d : toDrop) {
-                current.removeIf(c -> c.equalsIgnoreCase(d));
+                    // DROP COLUMN
+                    boolean isDrop = exp.toString().trim().toUpperCase().startsWith("DROP");
+                    if (isDrop && exp.getColumnName() != null) {
+                        removeColumns(tableName, List.of(LiquibaseParser.unquote(exp.getColumnName())));
+                    }
+                }
             }
         }
-    }
 
-    private static void renameColumn(Map<String, List<String>> map, String table, String oldName, String newName) {
-        List<String> current = map.get(table);
-        if (current != null) {
-            for (int i=0; i<current.size(); i++) {
-                if (current.get(i).equalsIgnoreCase(oldName)) {
-                    current.set(i, newName);
+        private void addColumns(String table, List<String> newCols) {
+            result.computeIfAbsent(table, k -> new ArrayList<>()).addAll(newCols);
+        }
+
+        private void removeColumns(String table, List<String> toDrop) {
+            List<String> current = result.get(table);
+            if (current != null) {
+                for (String d : toDrop) {
+                    current.removeIf(c -> c.equalsIgnoreCase(d));
+                }
+            }
+        }
+
+        private void renameColumn(String table, String oldName, String newName) {
+            List<String> current = result.get(table);
+            if (current != null) {
+                for (int i=0; i<current.size(); i++) {
+                    if (current.get(i).equalsIgnoreCase(oldName)) {
+                        current.set(i, newName);
+                    }
                 }
             }
         }
     }
-
-    // Helper to access inherited static method if needed, though they are accessible if protected.
-    // However, they are in LiquibaseParser, so accessible.
-    private static boolean isBlank(String s) { return LiquibaseParser.isBlank(s); }
-    private static String firstNonEmpty(String a, String b) { return LiquibaseParser.firstNonEmpty(a, b); }
 }
