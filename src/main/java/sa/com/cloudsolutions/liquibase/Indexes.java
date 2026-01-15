@@ -73,6 +73,9 @@ public class Indexes {
     }
 
     private static class LiquibaseIndexHandler extends LiquibaseParser {
+        private static final String CONSTRAINT_NAME_ATTR = "constraintName";
+        private static final String COLUMN_NAMES_ATTR = "columnNames";
+
         private final Map<String, Set<IndexInfo>> result;
 
         // Context
@@ -100,26 +103,40 @@ public class Indexes {
 
         @Override
         protected void handleElement(String ln, Attributes atts) {
-            if ("createIndex".equalsIgnoreCase(ln)) {
-                handleCreateIndex(atts);
-            } else if ("column".equalsIgnoreCase(ln)) {
-                handleColumn(atts);
-            } else if ("createTable".equalsIgnoreCase(ln)) {
-                handleCreateTable(atts);
-            } else if ("addColumn".equalsIgnoreCase(ln)) {
-                handleAddColumn(atts);
-            } else if ("constraints".equalsIgnoreCase(ln)) {
-                handleConstraints(atts);
-            } else if ("addUniqueConstraint".equalsIgnoreCase(ln)) {
-                handleAddUniqueConstraintElement(atts);
-            } else if ("addPrimaryKey".equalsIgnoreCase(ln)) {
-                handleAddPrimaryKeyElement(atts);
-            } else if ("dropIndex".equalsIgnoreCase(ln)) {
-                handleDropIndexElement(atts);
-            } else if ("dropUniqueConstraint".equalsIgnoreCase(ln)) {
-                handleDropUniqueConstraintElement(atts);
-            } else if ("dropPrimaryKey".equalsIgnoreCase(ln)) {
-                handleDropPrimaryKeyElement(atts);
+            switch (ln.toLowerCase()) {
+                case "createindex":
+                    handleCreateIndex(atts);
+                    break;
+                case "column":
+                    handleColumn(atts);
+                    break;
+                case "createtable":
+                    handleCreateTable(atts);
+                    break;
+                case "addcolumn":
+                    handleAddColumn(atts);
+                    break;
+                case "constraints":
+                    handleConstraints(atts);
+                    break;
+                case "adduniqueconstraint":
+                    handleAddUniqueConstraintElement(atts);
+                    break;
+                case "addprimarykey":
+                    handleAddPrimaryKeyElement(atts);
+                    break;
+                case "dropindex":
+                    handleDropIndexElement(atts);
+                    break;
+                case "dropuniqueconstraint":
+                    handleDropUniqueConstraintElement(atts);
+                    break;
+                case "dropprimarykey":
+                    handleDropPrimaryKeyElement(atts);
+                    break;
+                default:
+                    // Ignore other elements
+                    break;
             }
         }
 
@@ -169,26 +186,22 @@ public class Indexes {
 
         @Override
         protected void handleEndElement(String ln) {
-            if ("createIndex".equalsIgnoreCase(ln)) {
-                if (inCreateIndex) {
-                    if (!isBlank(createIndexTable) && !createIndexColumns.isEmpty()) {
-                         add(result, createIndexTable, new IndexInfo(createIndexUnique ? UNIQUE_INDEX : INDEX, orUnknown(createIndexName), new ArrayList<>(createIndexColumns)));
-                    }
-                    inCreateIndex = false;
-                    createIndexName = null;
-                    createIndexTable = null;
-                    createIndexColumns = null;
+            if ("createIndex".equalsIgnoreCase(ln) && inCreateIndex) {
+                if (!isBlank(createIndexTable) && !createIndexColumns.isEmpty()) {
+                     add(result, createIndexTable, new IndexInfo(createIndexUnique ? UNIQUE_INDEX : INDEX, orUnknown(createIndexName), new ArrayList<>(createIndexColumns)));
                 }
+                inCreateIndex = false;
+                createIndexName = null;
+                createIndexTable = null;
+                createIndexColumns = null;
             } else if ("createTable".equalsIgnoreCase(ln)) {
                 isCreateTable = false;
                 currentTable = null;
             } else if ("addColumn".equalsIgnoreCase(ln)) {
                 isAddColumn = false;
                 currentTable = null;
-            } else if ("column".equalsIgnoreCase(ln)) {
-                if (!inCreateIndex) {
-                    currentColumn = null;
-                }
+            } else if ("column".equalsIgnoreCase(ln) && !inCreateIndex) {
+                currentColumn = null;
             }
         }
 
@@ -207,6 +220,7 @@ public class Indexes {
                     return;
                 }
             } catch (Exception ignore) {
+                // Ignore parsing errors, fall back to simple string splitting
             }
             for (String part : sqlText.split(";")) {
                 String s = part.trim();
@@ -218,18 +232,18 @@ public class Indexes {
 
         // --- Handlers ---
         private void handleAddUniqueConstraintElement(Attributes atts) {
-            String constraintName = firstNonEmpty(atts.getValue("constraintName"), atts.getValue("name"));
+            String constraintName = firstNonEmpty(atts.getValue(CONSTRAINT_NAME_ATTR), atts.getValue("name"));
             String table = firstNonEmpty(atts.getValue(TABLE_NAME_ATTR), atts.getValue(TABLE));
-            List<String> cols = splitColumnsPreserveOrder(atts.getValue("columnNames"));
+            List<String> cols = splitColumnsPreserveOrder(atts.getValue(COLUMN_NAMES_ATTR));
             if (!isBlank(table) && !cols.isEmpty()) {
                 add(result, table, new IndexInfo(UNIQUE_CONSTRAINT, orUnknown(constraintName), cols));
             }
         }
 
         private void handleAddPrimaryKeyElement(Attributes atts) {
-            String pkName = firstNonEmpty(atts.getValue("constraintName"), atts.getValue("pkName"));
+            String pkName = firstNonEmpty(atts.getValue(CONSTRAINT_NAME_ATTR), atts.getValue("pkName"));
             String table = firstNonEmpty(atts.getValue(TABLE_NAME_ATTR), atts.getValue(TABLE));
-            List<String> cols = splitColumnsPreserveOrder(atts.getValue("columnNames"));
+            List<String> cols = splitColumnsPreserveOrder(atts.getValue(COLUMN_NAMES_ATTR));
             if (!isBlank(table) && !cols.isEmpty()) {
                 add(result, table, new IndexInfo(PRIMARY_KEY, orUnknown(pkName), cols));
             }
@@ -238,7 +252,7 @@ public class Indexes {
         private void handleDropIndexElement(Attributes atts) {
             String name = firstNonEmpty(atts.getValue("indexName"), atts.getValue("name"));
             String table = firstNonEmpty(atts.getValue(TABLE_NAME_ATTR), atts.getValue(TABLE));
-            List<String> cols = splitColumnsPreserveOrder(atts.getValue("columnNames"));
+            List<String> cols = splitColumnsPreserveOrder(atts.getValue(COLUMN_NAMES_ATTR));
             if (!isBlank(name)) {
                 removeIndexByName(result, table, name);
             } else if (!isBlank(table) && !cols.isEmpty()) {
@@ -247,23 +261,22 @@ public class Indexes {
         }
 
         private void handleDropUniqueConstraintElement(Attributes atts) {
-            String name = firstNonEmpty(atts.getValue("constraintName"), atts.getValue("name"));
+            String name = firstNonEmpty(atts.getValue(CONSTRAINT_NAME_ATTR), atts.getValue("name"));
             String table = firstNonEmpty(atts.getValue(TABLE_NAME_ATTR), atts.getValue(TABLE));
-            List<String> cols = splitColumnsPreserveOrder(atts.getValue("columnNames"));
+            List<String> cols = splitColumnsPreserveOrder(atts.getValue(COLUMN_NAMES_ATTR));
             if (!isBlank(table)) {
                 removeUniqueConstraint(result, table, name, cols);
             }
         }
 
         private void handleDropPrimaryKeyElement(Attributes atts) {
-            String name = firstNonEmpty(atts.getValue("constraintName"), atts.getValue("pkName"));
+            String name = firstNonEmpty(atts.getValue(CONSTRAINT_NAME_ATTR), atts.getValue("pkName"));
             String table = firstNonEmpty(atts.getValue(TABLE_NAME_ATTR), atts.getValue(TABLE));
             if (!isBlank(table)) {
                 removePrimaryKey(result, table, name);
             }
         }
 
-        // Moved and simplified static logic to instance methods
         private void processCreateIndexSql(String sql) {
             if (isBlank(sql)) return;
             String normalized = normalizeSql(sql);
@@ -280,6 +293,7 @@ public class Indexes {
                     m = createIndexPattern().matcher(s2);
                     if (!m.find()) return;
                 } catch (Exception ignore) {
+                    // Ignore parsing errors, regex failed previously
                     return;
                 }
             }
