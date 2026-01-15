@@ -19,6 +19,7 @@ import java.util.Set;
 public abstract class LiquibaseParser extends DefaultHandler {
 
     protected static final String TABLE = "table";
+    protected static final String TABLE_NAME_ATTR = "tableName";
 
     protected final File currentFile;
     protected final Set<String> visited;
