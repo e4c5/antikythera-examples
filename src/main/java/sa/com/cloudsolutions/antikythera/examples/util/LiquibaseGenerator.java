@@ -353,36 +353,33 @@ public class LiquibaseGenerator {
 
     /**
      * PostgreSQL query to check for existing index on columns.
-     * Uses pg_index and pg_attribute to find indexes with matching column sets.
-     * Returns 0 if no index exists, or a positive number if an index on the exact columns exists.
+     * Uses pg_index and pg_attribute to find indexes with matching column sets in the exact order.
+     * Returns 0 if no index exists, or a positive number if an index on the exact columns in order exists.
      */
     private String buildPostgresIndexExistsQuery(String tableName, List<String> columns) {
-        String columnCount = String.valueOf(columns.size());
-        String columnListForIn = columns.stream()
+        // Build comma-separated list of column names for array comparison
+        String columnArray = columns.stream()
                 .map(c -> "'" + c.toLowerCase() + "'")
                 .collect(Collectors.joining(", "));
 
         // Query finds indexes where:
         // 1. The index is on the specified table
-        // 2. The index has exactly the specified number of columns
-        // 3. All specified columns are in the index
+        // 2. The index columns in order match the specified columns
+        // Uses array_agg to build ordered array of column names from index and compares to expected array
         return """
             SELECT COALESCE((
                 SELECT COUNT(*) FROM (
                     SELECT i.indexrelid
                     FROM pg_index i
                     JOIN pg_class t ON t.oid = i.indrelid
-                    JOIN pg_class ix ON ix.oid = i.indexrelid
                     WHERE t.relname = '%s'
-                    AND array_length(i.indkey, 1) = %s
-                    AND NOT EXISTS (
-                        SELECT 1 FROM generate_series(0, %s - 1) AS gs(n)
-                        WHERE (SELECT a.attname FROM pg_attribute a
-                               WHERE a.attrelid = i.indrelid AND a.attnum = i.indkey[n + 1])
-                              NOT IN (%s)
-                    )
+                    AND (
+                        SELECT array_agg(a.attname ORDER BY ord)
+                        FROM unnest(i.indkey) WITH ORDINALITY AS u(attnum, ord)
+                        JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = u.attnum
+                    ) = ARRAY[%s]::name[]
                 ) sub
-            ), 0)""".formatted(tableName, columnCount, columnCount, columnListForIn);
+            ), 0)""".formatted(tableName, columnArray);
     }
 
     /**
