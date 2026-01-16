@@ -1,7 +1,5 @@
 package sa.com.cloudsolutions.antikythera.examples.util;
 
-import sa.com.cloudsolutions.antikythera.configuration.Settings;
-
 import java.io.File;
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -197,10 +195,10 @@ public class LiquibaseGenerator {
         writer.println(content);
         writer.close();
 
-        // Update master file to include the new changeset file
-        updateMasterFile(masterPath,
-                outputFile.toAbsolutePath().toString().replace(Settings.getBasePath() + "src/main/resources/",""));
-        
+        // Update master file to include the new changeset file using relative path
+        String relativePath = dir.relativize(outputFile).toString();
+        updateMasterFile(masterPath, relativePath);
+
         return new WriteResult(outputFile.toFile(), true);
     }
     
@@ -275,9 +273,14 @@ public class LiquibaseGenerator {
         
         if (config.includePreconditions()) {
             sb.append("    <preConditions onFail=\"MARK_RAN\">\n");
-            sb.append("        <not>\n");
-            sb.append("            <indexExists tableName=\"").append(tableName).append("\" indexName=\"").append(indexName).append("\"/>\n");
-            sb.append("        </not>\n");
+            // Use OR to combine checks for each dialect - skip if ANY returns count > 0
+            sb.append("        <or>\n");
+            for (DatabaseDialect dialect : config.supportedDialects()) {
+                sb.append("            <sqlCheck expectedResult=\"0\" dbms=\"").append(dialect.getLiquibaseDbms()).append("\">\n");
+                sb.append("                ").append(getIndexExistsByColumnsSql(dialect, tableName, columns)).append("\n");
+                sb.append("            </sqlCheck>\n");
+            }
+            sb.append("        </or>\n");
             sb.append("    </preConditions>\n");
         }
         
@@ -321,6 +324,148 @@ public class LiquibaseGenerator {
         };
     }
     
+    /**
+     * Generates a SQL query that returns the count of existing indexes on the specified columns.
+     * Returns 0 if no such index exists, or a positive number if an index covering those exact columns exists.
+     * This allows detection of indexes regardless of their name.
+     *
+     * @param dialect the database dialect
+     * @param tableName the table name
+     * @param columns the columns to check (in order)
+     * @return SQL query that returns index count
+     */
+    private String getIndexExistsByColumnsSql(DatabaseDialect dialect, String tableName, List<String> columns) {
+        String upperTableName = tableName.toUpperCase();
+        String columnCount = String.valueOf(columns.size());
+
+        // Build a comma-separated list of uppercase column names for comparison
+        String columnListForIn = columns.stream()
+                .map(c -> "'" + c.toUpperCase() + "'")
+                .collect(Collectors.joining(", "));
+
+        return switch (dialect) {
+            case POSTGRESQL -> buildPostgresIndexExistsQuery(tableName.toLowerCase(), columns);
+            case ORACLE -> buildOracleIndexExistsQuery(upperTableName, columnCount, columnListForIn);
+            case MYSQL -> buildMySqlIndexExistsQuery(tableName, columns);
+            case H2 -> buildH2IndexExistsQuery(upperTableName, columnCount, columnListForIn);
+        };
+    }
+
+    /**
+     * PostgreSQL query to check for existing index on columns.
+     * Uses pg_index and pg_attribute to find indexes with matching column sets.
+     * Returns 0 if no index exists, or a positive number if an index on the exact columns exists.
+     */
+    private String buildPostgresIndexExistsQuery(String tableName, List<String> columns) {
+        String columnCount = String.valueOf(columns.size());
+        String columnListForIn = columns.stream()
+                .map(c -> "'" + c.toLowerCase() + "'")
+                .collect(Collectors.joining(", "));
+
+        // Query finds indexes where:
+        // 1. The index is on the specified table
+        // 2. The index has exactly the specified number of columns
+        // 3. All specified columns are in the index
+        return String.format(
+            "SELECT COALESCE((" +
+            "SELECT COUNT(*) FROM (" +
+            "    SELECT i.indexrelid " +
+            "    FROM pg_index i " +
+            "    JOIN pg_class t ON t.oid = i.indrelid " +
+            "    JOIN pg_class ix ON ix.oid = i.indexrelid " +
+            "    WHERE t.relname = '%s' " +
+            "    AND array_length(i.indkey, 1) = %s " +
+            "    AND NOT EXISTS (" +
+            "        SELECT 1 FROM generate_series(0, %s - 1) AS gs(n) " +
+            "        WHERE (SELECT a.attname FROM pg_attribute a " +
+            "               WHERE a.attrelid = i.indrelid AND a.attnum = i.indkey[n + 1]) " +
+            "              NOT IN (%s)" +
+            "    )" +
+            ") sub" +
+            "), 0)",
+            tableName, columnCount, columnCount, columnListForIn);
+    }
+
+    /**
+     * Oracle query to check for existing index on columns.
+     * Uses ALL_IND_COLUMNS to find indexes with matching column sets.
+     * Returns 0 if no index exists, or a positive number if an index on the exact columns exists.
+     */
+    private String buildOracleIndexExistsQuery(String tableName, String columnCount, String columnListForIn) {
+        // Query finds indexes where:
+        // 1. The index is on the specified table
+        // 2. The index has exactly the specified number of columns
+        // 3. All specified columns are in the index
+        // NVL ensures we return 0 when no matching index exists (rather than no rows)
+        return String.format(
+            "SELECT NVL((" +
+            "SELECT COUNT(*) FROM (" +
+            "    SELECT ic.INDEX_NAME " +
+            "    FROM ALL_IND_COLUMNS ic " +
+            "    WHERE ic.TABLE_NAME = '%s' " +
+            "    GROUP BY ic.INDEX_NAME " +
+            "    HAVING COUNT(*) = %s " +
+            "    AND COUNT(CASE WHEN ic.COLUMN_NAME IN (%s) THEN 1 END) = %s" +
+            ")" +
+            "), 0) FROM DUAL",
+            tableName, columnCount, columnListForIn, columnCount);
+    }
+
+    /**
+     * MySQL query to check for existing index on columns.
+     * Uses INFORMATION_SCHEMA.STATISTICS to find indexes with matching column sets.
+     * Returns 0 if no index exists, or a positive number if an index on the exact columns exists.
+     */
+    private String buildMySqlIndexExistsQuery(String tableName, List<String> columns) {
+        String columnCount = String.valueOf(columns.size());
+        String columnListForIn = columns.stream()
+                .map(c -> "'" + c + "'")
+                .collect(Collectors.joining(", "));
+
+        // Query finds indexes where:
+        // 1. The index is on the specified table
+        // 2. The index has exactly the specified number of columns
+        // 3. All specified columns are in the index
+        // COALESCE ensures we return 0 when no matching index exists
+        return String.format(
+            "SELECT COALESCE((" +
+            "SELECT COUNT(*) FROM (" +
+            "    SELECT INDEX_NAME " +
+            "    FROM INFORMATION_SCHEMA.STATISTICS " +
+            "    WHERE TABLE_NAME = '%s' " +
+            "    GROUP BY INDEX_NAME " +
+            "    HAVING COUNT(*) = %s " +
+            "    AND SUM(CASE WHEN COLUMN_NAME IN (%s) THEN 1 ELSE 0 END) = %s" +
+            ") sub" +
+            "), 0)",
+            tableName, columnCount, columnListForIn, columnCount);
+    }
+
+    /**
+     * H2 query to check for existing index on columns.
+     * Uses INFORMATION_SCHEMA.INDEX_COLUMNS to find indexes with matching column sets.
+     * Returns 0 if no index exists, or a positive number if an index on the exact columns exists.
+     */
+    private String buildH2IndexExistsQuery(String tableName, String columnCount, String columnListForIn) {
+        // Query finds indexes where:
+        // 1. The index is on the specified table
+        // 2. The index has exactly the specified number of columns
+        // 3. All specified columns are in the index
+        // COALESCE ensures we return 0 when no matching index exists
+        return String.format(
+            "SELECT COALESCE((" +
+            "SELECT COUNT(*) FROM (" +
+            "    SELECT INDEX_NAME " +
+            "    FROM INFORMATION_SCHEMA.INDEX_COLUMNS " +
+            "    WHERE TABLE_NAME = '%s' " +
+            "    GROUP BY INDEX_NAME " +
+            "    HAVING COUNT(*) = %s " +
+            "    AND SUM(CASE WHEN COLUMN_NAME IN (%s) THEN 1 ELSE 0 END) = %s" +
+            ") sub" +
+            "), 0)",
+            tableName, columnCount, columnListForIn, columnCount);
+    }
+
     private String generateChangesetId(String baseName) {
         String baseId = baseName + "_" + System.currentTimeMillis();
         
