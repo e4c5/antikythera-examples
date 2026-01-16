@@ -10,6 +10,8 @@ import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import sa.com.cloudsolutions.antikythera.configuration.Settings;
+
 /**
  * Enhanced Liquibase changeset generator with consolidated functionality for index creation,
  * drop operations, multi-column indexes, and multi-database dialect support.
@@ -38,18 +40,68 @@ public class LiquibaseGenerator {
         public String getLiquibaseDbms() {
             return liquibaseDbms;
         }
+
+        /**
+         * Parses a dialect name from string (case-insensitive).
+         *
+         * @param name the dialect name (e.g., "postgresql", "ORACLE", "mysql", "h2")
+         * @return Optional containing the matching DatabaseDialect, or empty if not found
+         */
+        public static Optional<DatabaseDialect> fromString(String name) {
+            if (name == null || name.isBlank()) {
+                return Optional.empty();
+            }
+            String normalized = name.trim().toLowerCase();
+            for (DatabaseDialect dialect : values()) {
+                if (dialect.liquibaseDbms.equals(normalized)) {
+                    return Optional.of(dialect);
+                }
+            }
+            return Optional.empty();
+        }
     }
 
     /**
          * Configuration for changeset generation.
          */
         public record ChangesetConfig(String author, Set<DatabaseDialect> supportedDialects, boolean includePreconditions,
-                                      boolean includeRollback) {
+                                      boolean includeRollback, String liquibaseMasterFile) {
 
         public static ChangesetConfig defaultConfig() {
                 return new ChangesetConfig("antikythera",
                         Set.of(DatabaseDialect.POSTGRESQL, DatabaseDialect.ORACLE),
-                        true, true);
+                        true, true, null);
+            }
+
+            /**
+             * Creates a ChangesetConfig by reading supported dialects from the generator.yml configuration.
+             * Looks for the property: query_optimizer.supported_dialects
+             * Falls back to defaultConfig() if not configured.
+             *
+             * @return ChangesetConfig with dialects from configuration
+             */
+            @SuppressWarnings("unchecked")
+            public static ChangesetConfig fromConfiguration() {
+                Map<String, Object> queryOptimizer = (Map<String, Object>) Settings.getProperty("query_optimizer");
+                if (queryOptimizer != null) {
+                    List<String> dialectNames = (List<String>) queryOptimizer.get("supported_dialects");
+                    String masterFile = (String) queryOptimizer.get("liquibase_master_file");
+
+                    Set<DatabaseDialect> dialects = Set.of(DatabaseDialect.POSTGRESQL, DatabaseDialect.ORACLE);
+                    if (dialectNames != null && !dialectNames.isEmpty()) {
+                        Set<DatabaseDialect> parsedDialects = dialectNames.stream()
+                                .map(DatabaseDialect::fromString)
+                                .filter(Optional::isPresent)
+                                .map(Optional::get)
+                                .collect(Collectors.toSet());
+                        if (!parsedDialects.isEmpty()) {
+                            dialects = parsedDialects;
+                        }
+                    }
+
+                    return new ChangesetConfig("antikythera", dialects, true, true, masterFile);
+                }
+                return defaultConfig();
             }
         }
     
@@ -80,7 +132,38 @@ public class LiquibaseGenerator {
         this.config = config;
         this.generatedChangesetIds = new HashSet<>();
     }
-    
+
+    /**
+     * Gets the configured Liquibase master file path from configuration.
+     *
+     * @return Optional containing the master file path, or empty if not configured
+     */
+    public Optional<Path> getConfiguredMasterFile() {
+        String masterFilePath = config.liquibaseMasterFile();
+        if (masterFilePath != null && !masterFilePath.isBlank()) {
+            return Optional.of(Path.of(masterFilePath));
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Writes changesets to the configured Liquibase master file location.
+     * Uses the liquibase_master_file path from query_optimizer configuration.
+     *
+     * @param changesets the changeset XML content to write
+     * @return result of the write operation
+     * @throws IOException if an I/O error occurs
+     * @throws IllegalStateException if liquibase_master_file is not configured
+     */
+    public WriteResult writeChangesetToConfiguredFile(String changesets) throws IOException {
+        Optional<Path> masterFile = getConfiguredMasterFile();
+        if (masterFile.isEmpty()) {
+            throw new IllegalStateException(
+                "liquibase_master_file not configured in query_optimizer section of generator.yml");
+        }
+        return writeChangesetToFile(masterFile.get(), changesets);
+    }
+
     /**
      * Creates a Liquibase changeset for a single-column index.
      * 
