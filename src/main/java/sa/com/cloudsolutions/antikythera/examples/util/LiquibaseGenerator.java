@@ -382,7 +382,7 @@ public class LiquibaseGenerator {
                         SELECT array_agg(a.attname ORDER BY ord)
                         FROM unnest(i.indkey) WITH ORDINALITY AS u(attnum, ord)
                         JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = u.attnum
-                        WHERE u.attnum > 0
+                        WHERE u.attnum > 0  -- Exclude expression indexes (attnum=0 for expressions)
                     ) = ARRAY[%s]::name[]
                 ) sub
             ), 0)""".formatted(tableName, columnArray);
