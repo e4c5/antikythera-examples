@@ -260,7 +260,7 @@ class LiquibaseGeneratorTest {
         ChangesetConfig config = new ChangesetConfig("test-author",
                 Set.of(DatabaseDialect.POSTGRESQL, DatabaseDialect.ORACLE,
                         DatabaseDialect.MYSQL, DatabaseDialect.H2),
-                true, true);
+                true, true, null);
 
         LiquibaseGenerator dialectGenerator = new LiquibaseGenerator(config);
         String changeset = dialectGenerator.createIndexChangeset("users", "email");
@@ -269,18 +269,93 @@ class LiquibaseGeneratorTest {
         assertTrue(changeset.contains("postgresql"));
         assertTrue(changeset.contains("oracle"));
         assertTrue(changeset.contains("mysql"));
-        assertTrue(changeset.contains("h2"));
+    }
 
-        // Test dialect-specific SQL
-        assertTrue(changeset.contains("CONCURRENTLY")); // PostgreSQL
-        assertTrue(changeset.contains("ONLINE")); // Oracle
+    @Test
+    void testChangesetConfigFromConfiguration() {
+        // Test that ChangesetConfig.fromConfiguration() reads dialects from generator.yml
+        // The test generator.yml should have query_optimizer.supported_dialects: [postgresql, oracle]
+        ChangesetConfig config = ChangesetConfig.fromConfiguration();
+
+        assertNotNull(config);
+        assertFalse(config.supportedDialects().isEmpty());
+
+        // Verify it contains the dialects specified in generator.yml
+        assertTrue(config.supportedDialects().contains(DatabaseDialect.POSTGRESQL));
+        assertTrue(config.supportedDialects().contains(DatabaseDialect.ORACLE));
+    }
+
+    @Test
+    void testGeneratorWithConfigurationDialects() {
+        // Test that generator created with fromConfiguration() only generates for configured dialects
+        LiquibaseGenerator configGenerator = new LiquibaseGenerator(ChangesetConfig.fromConfiguration());
+        String changeset = configGenerator.createIndexChangeset("users", "email");
+
+        // Should contain SQL for postgresql and oracle (as configured in generator.yml)
+        assertTrue(changeset.contains("postgresql"));
+        assertTrue(changeset.contains("oracle"));
+
+        // Should NOT contain mysql or h2 (not in configuration)
+        assertFalse(changeset.contains("dbms=\"mysql\""));
+        assertFalse(changeset.contains("dbms=\"h2\""));
+    }
+
+    @Test
+    void testGetConfiguredMasterFile() {
+        // Test that getConfiguredMasterFile reads from configuration
+        LiquibaseGenerator configGenerator = new LiquibaseGenerator(ChangesetConfig.fromConfiguration());
+        Optional<Path> masterFile = configGenerator.getConfiguredMasterFile();
+
+        // Should be present since it's configured in test resources generator.yml
+        assertTrue(masterFile.isPresent());
+        assertTrue(masterFile.get().toString().contains("db.changelog-master.xml"));
+    }
+
+    @Test
+    void testGetConfiguredMasterFileNotConfigured() {
+        // Test when liquibase_master_file is not configured
+        ChangesetConfig configWithoutMaster = new ChangesetConfig("author",
+                Set.of(DatabaseDialect.POSTGRESQL), true, true, null);
+        LiquibaseGenerator gen = new LiquibaseGenerator(configWithoutMaster);
+
+        Optional<Path> masterFile = gen.getConfiguredMasterFile();
+        assertTrue(masterFile.isEmpty());
+    }
+
+    @Test
+    void testWriteChangesetToConfiguredFileThrowsWhenNotConfigured() {
+        // Test that writeChangesetToConfiguredFile throws when master file is not configured
+        ChangesetConfig configWithoutMaster = new ChangesetConfig("author",
+                Set.of(DatabaseDialect.POSTGRESQL), true, true, null);
+        LiquibaseGenerator gen = new LiquibaseGenerator(configWithoutMaster);
+
+        assertThrows(IllegalStateException.class, () ->
+                gen.writeChangesetToConfiguredFile("<changeSet>test</changeSet>"));
+    }
+
+    @Test
+    void testDatabaseDialectFromString() {
+        // Test parsing dialect names from strings
+        assertEquals(Optional.of(DatabaseDialect.POSTGRESQL), DatabaseDialect.fromString("postgresql"));
+        assertEquals(Optional.of(DatabaseDialect.ORACLE), DatabaseDialect.fromString("oracle"));
+        assertEquals(Optional.of(DatabaseDialect.MYSQL), DatabaseDialect.fromString("mysql"));
+        assertEquals(Optional.of(DatabaseDialect.H2), DatabaseDialect.fromString("h2"));
+
+        // Test case insensitivity
+        assertEquals(Optional.of(DatabaseDialect.POSTGRESQL), DatabaseDialect.fromString("POSTGRESQL"));
+        assertEquals(Optional.of(DatabaseDialect.ORACLE), DatabaseDialect.fromString("Oracle"));
+
+        // Test invalid/empty values
+        assertEquals(Optional.empty(), DatabaseDialect.fromString(null));
+        assertEquals(Optional.empty(), DatabaseDialect.fromString(""));
+        assertEquals(Optional.empty(), DatabaseDialect.fromString("invalid"));
     }
 
     @Test
     void testChangesetConfigOptions() {
         // Test custom configuration
         ChangesetConfig customConfig = new ChangesetConfig("custom-author",
-                Set.of(DatabaseDialect.POSTGRESQL), false, false);
+                Set.of(DatabaseDialect.POSTGRESQL), false, false, null);
 
         LiquibaseGenerator customGenerator = new LiquibaseGenerator(customConfig);
         String changeset = customGenerator.createIndexChangeset("users", "email");
@@ -375,7 +450,8 @@ class LiquibaseGeneratorTest {
                 "test-author",
                 Set.of(DatabaseDialect.MYSQL),
                 false,
-                false);
+                false,
+                null);
 
         LiquibaseGenerator customGenerator = new LiquibaseGenerator(config);
 

@@ -76,8 +76,7 @@ public class QueryOptimizationChecker {
             aiConfig = new HashMap<>();
         }
         this.aiService.configure(aiConfig);
-        // Initialize Liquibase generator with default configuration
-        this.liquibaseGenerator = new LiquibaseGenerator();
+        this.liquibaseGenerator = new LiquibaseGenerator(LiquibaseGenerator.ChangesetConfig.fromConfiguration());
     }
 
     /**
