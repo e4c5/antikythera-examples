@@ -366,24 +366,23 @@ public class LiquibaseGenerator {
         // 1. The index is on the specified table
         // 2. The index has exactly the specified number of columns
         // 3. All specified columns are in the index
-        return String.format(
-            "SELECT COALESCE((" +
-            "SELECT COUNT(*) FROM (" +
-            "    SELECT i.indexrelid " +
-            "    FROM pg_index i " +
-            "    JOIN pg_class t ON t.oid = i.indrelid " +
-            "    JOIN pg_class ix ON ix.oid = i.indexrelid " +
-            "    WHERE t.relname = '%s' " +
-            "    AND array_length(i.indkey, 1) = %s " +
-            "    AND NOT EXISTS (" +
-            "        SELECT 1 FROM generate_series(0, %s - 1) AS gs(n) " +
-            "        WHERE (SELECT a.attname FROM pg_attribute a " +
-            "               WHERE a.attrelid = i.indrelid AND a.attnum = i.indkey[n + 1]) " +
-            "              NOT IN (%s)" +
-            "    )" +
-            ") sub" +
-            "), 0)",
-            tableName, columnCount, columnCount, columnListForIn);
+        return """
+            SELECT COALESCE((
+                SELECT COUNT(*) FROM (
+                    SELECT i.indexrelid
+                    FROM pg_index i
+                    JOIN pg_class t ON t.oid = i.indrelid
+                    JOIN pg_class ix ON ix.oid = i.indexrelid
+                    WHERE t.relname = '%s'
+                    AND array_length(i.indkey, 1) = %s
+                    AND NOT EXISTS (
+                        SELECT 1 FROM generate_series(0, %s - 1) AS gs(n)
+                        WHERE (SELECT a.attname FROM pg_attribute a
+                               WHERE a.attrelid = i.indrelid AND a.attnum = i.indkey[n + 1])
+                              NOT IN (%s)
+                    )
+                ) sub
+            ), 0)""".formatted(tableName, columnCount, columnCount, columnListForIn);
     }
 
     /**
@@ -397,18 +396,17 @@ public class LiquibaseGenerator {
         // 2. The index has exactly the specified number of columns
         // 3. All specified columns are in the index
         // NVL ensures we return 0 when no matching index exists (rather than no rows)
-        return String.format(
-            "SELECT NVL((" +
-            "SELECT COUNT(*) FROM (" +
-            "    SELECT ic.INDEX_NAME " +
-            "    FROM ALL_IND_COLUMNS ic " +
-            "    WHERE ic.TABLE_NAME = '%s' " +
-            "    GROUP BY ic.INDEX_NAME " +
-            "    HAVING COUNT(*) = %s " +
-            "    AND COUNT(CASE WHEN ic.COLUMN_NAME IN (%s) THEN 1 END) = %s" +
-            ")" +
-            "), 0) FROM DUAL",
-            tableName, columnCount, columnListForIn, columnCount);
+        return """
+            SELECT NVL((
+                SELECT COUNT(*) FROM (
+                    SELECT ic.INDEX_NAME
+                    FROM ALL_IND_COLUMNS ic
+                    WHERE ic.TABLE_NAME = '%s'
+                    GROUP BY ic.INDEX_NAME
+                    HAVING COUNT(*) = %s
+                    AND COUNT(CASE WHEN ic.COLUMN_NAME IN (%s) THEN 1 END) = %s
+                )
+            ), 0) FROM DUAL""".formatted(tableName, columnCount, columnListForIn, columnCount);
     }
 
     /**
@@ -427,18 +425,17 @@ public class LiquibaseGenerator {
         // 2. The index has exactly the specified number of columns
         // 3. All specified columns are in the index
         // COALESCE ensures we return 0 when no matching index exists
-        return String.format(
-            "SELECT COALESCE((" +
-            "SELECT COUNT(*) FROM (" +
-            "    SELECT INDEX_NAME " +
-            "    FROM INFORMATION_SCHEMA.STATISTICS " +
-            "    WHERE TABLE_NAME = '%s' " +
-            "    GROUP BY INDEX_NAME " +
-            "    HAVING COUNT(*) = %s " +
-            "    AND SUM(CASE WHEN COLUMN_NAME IN (%s) THEN 1 ELSE 0 END) = %s" +
-            ") sub" +
-            "), 0)",
-            tableName, columnCount, columnListForIn, columnCount);
+        return """
+            SELECT COALESCE((
+                SELECT COUNT(*) FROM (
+                    SELECT INDEX_NAME
+                    FROM INFORMATION_SCHEMA.STATISTICS
+                    WHERE TABLE_NAME = '%s'
+                    GROUP BY INDEX_NAME
+                    HAVING COUNT(*) = %s
+                    AND SUM(CASE WHEN COLUMN_NAME IN (%s) THEN 1 ELSE 0 END) = %s
+                ) sub
+            ), 0)""".formatted(tableName, columnCount, columnListForIn, columnCount);
     }
 
     /**
@@ -452,18 +449,17 @@ public class LiquibaseGenerator {
         // 2. The index has exactly the specified number of columns
         // 3. All specified columns are in the index
         // COALESCE ensures we return 0 when no matching index exists
-        return String.format(
-            "SELECT COALESCE((" +
-            "SELECT COUNT(*) FROM (" +
-            "    SELECT INDEX_NAME " +
-            "    FROM INFORMATION_SCHEMA.INDEX_COLUMNS " +
-            "    WHERE TABLE_NAME = '%s' " +
-            "    GROUP BY INDEX_NAME " +
-            "    HAVING COUNT(*) = %s " +
-            "    AND SUM(CASE WHEN COLUMN_NAME IN (%s) THEN 1 ELSE 0 END) = %s" +
-            ") sub" +
-            "), 0)",
-            tableName, columnCount, columnListForIn, columnCount);
+        return """
+            SELECT COALESCE((
+                SELECT COUNT(*) FROM (
+                    SELECT INDEX_NAME
+                    FROM INFORMATION_SCHEMA.INDEX_COLUMNS
+                    WHERE TABLE_NAME = '%s'
+                    GROUP BY INDEX_NAME
+                    HAVING COUNT(*) = %s
+                    AND SUM(CASE WHEN COLUMN_NAME IN (%s) THEN 1 ELSE 0 END) = %s
+                ) sub
+            ), 0)""".formatted(tableName, columnCount, columnListForIn, columnCount);
     }
 
     private String generateChangesetId(String baseName) {
