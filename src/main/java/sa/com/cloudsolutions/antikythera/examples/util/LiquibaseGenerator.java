@@ -336,18 +336,12 @@ public class LiquibaseGenerator {
      */
     private String getIndexExistsByColumnsSql(DatabaseDialect dialect, String tableName, List<String> columns) {
         String upperTableName = tableName.toUpperCase();
-        String columnCount = String.valueOf(columns.size());
-
-        // Build a comma-separated list of uppercase column names for comparison
-        String columnListForIn = columns.stream()
-                .map(c -> "'" + c.toUpperCase() + "'")
-                .collect(Collectors.joining(", "));
 
         return switch (dialect) {
             case POSTGRESQL -> buildPostgresIndexExistsQuery(tableName.toLowerCase(), columns);
-            case ORACLE -> buildOracleIndexExistsQuery(upperTableName, columnCount, columnListForIn);
+            case ORACLE -> buildOracleIndexExistsQuery(upperTableName, columns);
             case MYSQL -> buildMySqlIndexExistsQuery(tableName, columns);
-            case H2 -> buildH2IndexExistsQuery(upperTableName, columnCount, columnListForIn);
+            case H2 -> buildH2IndexExistsQuery(upperTableName, columns);
         };
     }
 
@@ -389,15 +383,23 @@ public class LiquibaseGenerator {
     }
 
     /**
-     * Oracle query to check for existing index on columns.
-     * Uses ALL_IND_COLUMNS to find indexes with matching column sets.
-     * Returns 0 if no index exists, or a positive number if an index on the exact columns exists.
+     * Oracle query to check for existing index on columns in the exact order.
+     * Uses ALL_IND_COLUMNS with COLUMN_POSITION to verify column order.
+     * Returns 0 if no index exists, or a positive number if an index on the exact columns in order exists.
+     * 
+     * Note: Column names are assumed to be safe identifiers from JPA repository analysis.
+     * This generates Liquibase changesets (build-time), not runtime queries.
      */
-    private String buildOracleIndexExistsQuery(String tableName, String columnCount, String columnListForIn) {
+    private String buildOracleIndexExistsQuery(String tableName, List<String> columns) {
+        // Build comma-separated list of uppercase column names for comparison
+        String expectedColumns = columns.stream()
+                .map(c -> c.toUpperCase())
+                .collect(Collectors.joining(","));
+        
         // Query finds indexes where:
         // 1. The index is on the specified table
-        // 2. The index has exactly the specified number of columns
-        // 3. All specified columns are in the index
+        // 2. The index columns in order match the specified columns
+        // Uses LISTAGG to build ordered comma-separated list of column names from index
         // NVL ensures we return 0 when no matching index exists (rather than no rows)
         return """
             SELECT NVL((
@@ -406,27 +408,28 @@ public class LiquibaseGenerator {
                     FROM ALL_IND_COLUMNS ic
                     WHERE ic.TABLE_NAME = '%s'
                     GROUP BY ic.INDEX_NAME
-                    HAVING COUNT(*) = %s
-                    AND COUNT(CASE WHEN ic.COLUMN_NAME IN (%s) THEN 1 END) = %s
+                    HAVING LISTAGG(ic.COLUMN_NAME, ',') WITHIN GROUP (ORDER BY ic.COLUMN_POSITION) = '%s'
                 )
-            ), 0) FROM DUAL""".formatted(tableName, columnCount, columnListForIn, columnCount);
+            ), 0) FROM DUAL""".formatted(tableName, expectedColumns);
     }
 
     /**
-     * MySQL query to check for existing index on columns.
-     * Uses INFORMATION_SCHEMA.STATISTICS to find indexes with matching column sets.
-     * Returns 0 if no index exists, or a positive number if an index on the exact columns exists.
+     * MySQL query to check for existing index on columns in the exact order.
+     * Uses INFORMATION_SCHEMA.STATISTICS with SEQ_IN_INDEX to verify column order.
+     * Returns 0 if no index exists, or a positive number if an index on the exact columns in order exists.
+     * 
+     * Note: Column names are assumed to be safe identifiers from JPA repository analysis.
+     * This generates Liquibase changesets (build-time), not runtime queries.
      */
     private String buildMySqlIndexExistsQuery(String tableName, List<String> columns) {
-        String columnCount = String.valueOf(columns.size());
-        String columnListForIn = columns.stream()
-                .map(c -> "'" + c + "'")
-                .collect(Collectors.joining(", "));
+        // Build comma-separated list of column names for comparison
+        String expectedColumns = columns.stream()
+                .collect(Collectors.joining(","));
 
         // Query finds indexes where:
         // 1. The index is on the specified table
-        // 2. The index has exactly the specified number of columns
-        // 3. All specified columns are in the index
+        // 2. The index columns in order match the specified columns
+        // Uses GROUP_CONCAT with ORDER BY SEQ_IN_INDEX to build ordered list
         // COALESCE ensures we return 0 when no matching index exists
         return """
             SELECT COALESCE((
@@ -435,22 +438,29 @@ public class LiquibaseGenerator {
                     FROM INFORMATION_SCHEMA.STATISTICS
                     WHERE TABLE_NAME = '%s'
                     GROUP BY INDEX_NAME
-                    HAVING COUNT(*) = %s
-                    AND SUM(CASE WHEN COLUMN_NAME IN (%s) THEN 1 ELSE 0 END) = %s
+                    HAVING GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX SEPARATOR ',') = '%s'
                 ) sub
-            ), 0)""".formatted(tableName, columnCount, columnListForIn, columnCount);
+            ), 0)""".formatted(tableName, expectedColumns);
     }
 
     /**
-     * H2 query to check for existing index on columns.
-     * Uses INFORMATION_SCHEMA.INDEX_COLUMNS to find indexes with matching column sets.
-     * Returns 0 if no index exists, or a positive number if an index on the exact columns exists.
+     * H2 query to check for existing index on columns in the exact order.
+     * Uses INFORMATION_SCHEMA.INDEX_COLUMNS with ORDINAL_POSITION to verify column order.
+     * Returns 0 if no index exists, or a positive number if an index on the exact columns in order exists.
+     * 
+     * Note: Column names are assumed to be safe identifiers from JPA repository analysis.
+     * This generates Liquibase changesets (build-time), not runtime queries.
      */
-    private String buildH2IndexExistsQuery(String tableName, String columnCount, String columnListForIn) {
+    private String buildH2IndexExistsQuery(String tableName, List<String> columns) {
+        // Build comma-separated list of uppercase column names for comparison
+        String expectedColumns = columns.stream()
+                .map(c -> c.toUpperCase())
+                .collect(Collectors.joining(","));
+        
         // Query finds indexes where:
         // 1. The index is on the specified table
-        // 2. The index has exactly the specified number of columns
-        // 3. All specified columns are in the index
+        // 2. The index columns in order match the specified columns
+        // Uses GROUP_CONCAT with ORDER BY ORDINAL_POSITION to build ordered list
         // COALESCE ensures we return 0 when no matching index exists
         return """
             SELECT COALESCE((
@@ -459,10 +469,9 @@ public class LiquibaseGenerator {
                     FROM INFORMATION_SCHEMA.INDEX_COLUMNS
                     WHERE TABLE_NAME = '%s'
                     GROUP BY INDEX_NAME
-                    HAVING COUNT(*) = %s
-                    AND SUM(CASE WHEN COLUMN_NAME IN (%s) THEN 1 ELSE 0 END) = %s
+                    HAVING GROUP_CONCAT(COLUMN_NAME ORDER BY ORDINAL_POSITION SEPARATOR ',') = '%s'
                 ) sub
-            ), 0)""".formatted(tableName, columnCount, columnListForIn, columnCount);
+            ), 0)""".formatted(tableName, expectedColumns);
     }
 
     private String generateChangesetId(String baseName) {
