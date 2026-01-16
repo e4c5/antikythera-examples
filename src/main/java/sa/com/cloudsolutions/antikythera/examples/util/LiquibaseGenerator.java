@@ -355,9 +355,13 @@ public class LiquibaseGenerator {
      * PostgreSQL query to check for existing index on columns.
      * Uses pg_index and pg_attribute to find indexes with matching column sets in the exact order.
      * Returns 0 if no index exists, or a positive number if an index on the exact columns in order exists.
+     * 
+     * Note: Column names are assumed to be safe identifiers from JPA repository analysis.
+     * This generates Liquibase changesets (build-time), not runtime queries.
      */
     private String buildPostgresIndexExistsQuery(String tableName, List<String> columns) {
         // Build comma-separated list of column names for array comparison
+        // Column names are from JPA entity analysis and are safe SQL identifiers
         String columnArray = columns.stream()
                 .map(c -> "'" + c.toLowerCase() + "'")
                 .collect(Collectors.joining(", "));
