@@ -417,7 +417,7 @@ public class LiquibaseGenerator {
      * MySQL query to check for existing index on columns in the exact order.
      * Uses INFORMATION_SCHEMA.STATISTICS with SEQ_IN_INDEX to verify column order.
      * Returns 0 if no index exists, or a positive number if an index on the exact columns in order exists.
-     * 
+                ) sub
      * Note: Column names are assumed to be safe identifiers from JPA repository analysis.
      * This generates Liquibase changesets (build-time), not runtime queries.
      */
