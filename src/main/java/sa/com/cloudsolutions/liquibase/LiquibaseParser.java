@@ -18,21 +18,34 @@ import java.util.*;
 
 public class LiquibaseParser {
 
-    public static class IndexMetadata {
-        public String name;
-        public List<String> columns;
-        public boolean isPrimaryKey;
+    public static final String PRIMARY_KEY = "PRIMARY_KEY";
+    public static final String INDEX = "INDEX";
 
-        public IndexMetadata(String name, List<String> columns, boolean isPrimaryKey) {
-            this.name = name;
-            this.columns = columns;
-            this.isPrimaryKey = isPrimaryKey;
+    /**
+     * Simple DTO to expose index metadata to callers.
+     *
+     * @param type PRIMARY_KEY, INDEX
+     * @param name the name of the index or constraint
+     * @param columns the columns included in the index
+     */
+    public record IndexMetadata(String type, String name, List<String> columns) {
+        @Override
+        public String toString() {
+            return type + ";" + name + ";" + String.join(",", columns);
         }
 
         @Override
-        public String toString() {
-            return String.format("[%s] %s (PK: %b)",
-                    (name != null ? name : "Auto-Generated"), columns, isPrimaryKey);
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof IndexMetadata other)) return false;
+            return Objects.equals(this.type, other.type)
+                    && Objects.equals(this.name, other.name)
+                    && Objects.equals(this.columns, other.columns);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(type, name, columns);
         }
     }
 
@@ -81,13 +94,13 @@ public class LiquibaseParser {
             List<String> cols = cic.getColumns().stream()
                     .map(ColumnConfig::getName)
                     .toList();
-            meta = new IndexMetadata(cic.getIndexName(), cols, false);
+            meta = new IndexMetadata(INDEX, cic.getIndexName(), cols);
             addToMap(masterMap, dbs, tableName, meta);
 
         } else if (change instanceof AddPrimaryKeyChange apk) {
             tableName = apk.getTableName();
             List<String> cols = Arrays.asList(apk.getColumnNames().split("\\s*,\\s*"));
-            meta = new IndexMetadata(apk.getConstraintName(), cols, true);
+            meta = new IndexMetadata(PRIMARY_KEY, apk.getConstraintName(), cols);
             addToMap(masterMap, dbs, tableName, meta);
 
         } else if (change instanceof CreateTableChange ctc) {
@@ -104,7 +117,7 @@ public class LiquibaseParser {
                 }
             }
             if (!pkCols.isEmpty()) {
-                addToMap(masterMap, dbs, tableName, new IndexMetadata(pkName, pkCols, true));
+                addToMap(masterMap, dbs, tableName, new IndexMetadata(PRIMARY_KEY, pkName, pkCols));
             }
 
         } else if (change instanceof AddColumnChange acc) {
@@ -112,7 +125,7 @@ public class LiquibaseParser {
             for (ColumnConfig col : acc.getColumns()) {
                 if (col.getConstraints() != null && Boolean.TRUE.equals(col.getConstraints().isPrimaryKey())) {
                     List<String> cols = Collections.singletonList(col.getName());
-                    addToMap(masterMap, dbs, tableName, new IndexMetadata(col.getConstraints().getPrimaryKeyName(), cols, true));
+                    addToMap(masterMap, dbs, tableName, new IndexMetadata(PRIMARY_KEY, col.getConstraints().getPrimaryKeyName(), cols));
                 }
             }
         }
