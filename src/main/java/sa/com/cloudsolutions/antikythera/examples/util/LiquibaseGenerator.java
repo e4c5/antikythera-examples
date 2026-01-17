@@ -364,7 +364,7 @@ public class LiquibaseGenerator {
         // 1. The index is on the specified table
         // 2. The index columns in order match the specified columns
         // Uses array_agg to build ordered array of column names from index and compares to expected array
-        // Filters out expression indexes (attnum = 0) to only match simple column-based indexes
+        // Excludes indexes that contain expressions (attnum = 0) to avoid partial matches
         return """
             SELECT COALESCE((
                 SELECT COUNT(*) FROM (
@@ -372,11 +372,15 @@ public class LiquibaseGenerator {
                     FROM pg_index i
                     JOIN pg_class t ON t.oid = i.indrelid
                     WHERE t.relname = '%s'
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM unnest(i.indkey) AS expr(attnum)
+                        WHERE expr.attnum = 0
+                    )
                     AND (
                         SELECT array_agg(a.attname ORDER BY ord)
                         FROM unnest(i.indkey) WITH ORDINALITY AS u(attnum, ord)
                         JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = u.attnum
-                        WHERE u.attnum > 0  -- Exclude expression indexes (attnum=0 for expressions)
                     ) = ARRAY[%s]::name[]
                 ) sub
             ), 0)""".formatted(tableName, columnArray);
