@@ -359,9 +359,12 @@ public class LiquibaseGenerator {
             // Use OR to combine checks for each dialect - skip if ANY returns count > 0
             sb.append("        <or>\n");
             for (DatabaseDialect dialect : config.supportedDialects()) {
-                sb.append("            <sqlCheck expectedResult=\"0\" dbms=\"").append(dialect.getLiquibaseDbms()).append("\">\n");
-                sb.append("                ").append(getIndexExistsByColumnsSql(dialect, tableName, columns)).append("\n");
-                sb.append("            </sqlCheck>\n");
+                sb.append("            <and>\n");
+                sb.append("                <dbms type=\"").append(dialect.getLiquibaseDbms()).append("\"/>\n");
+                sb.append("                <sqlCheck expectedResult=\"0\">\n");
+                sb.append("                    ").append(getIndexExistsByColumnsSql(dialect, tableName, columns)).append("\n");
+                sb.append("                </sqlCheck>\n");
+                sb.append("            </and>\n");
             }
             sb.append("        </or>\n");
             sb.append("    </preConditions>\n");
