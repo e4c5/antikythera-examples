@@ -14,9 +14,7 @@ import liquibase.parser.ChangeLogParserFactory;
 import liquibase.resource.DirectoryResourceAccessor;
 
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.*;
-import java.util.stream.Collectors;
 
 public class LiquibaseParser {
 
@@ -39,19 +37,24 @@ public class LiquibaseParser {
     }
 
     public static void main(String[] args) throws Exception {
-        // Path to your changelog file
-        String changelogFile = "src/main/resources/db/changelog.xml";
+        if (args == null || args.length != 1) {
+            System.err.println("Usage: java sa.com.cloudsolutions.liquibase.LiquibaseParser <path-to-liquibase-xml>");
+            System.exit(1);
+        }
+        java.io.File file = new java.io.File(args[0]);
+        if (!file.exists() || !file.isFile()) {
+            System.err.println("Error: File not found: " + file.getAbsolutePath());
+            System.exit(2);
+        }
 
-        // 1. Fix Deprecation: Use java.nio.file.Path
-        Path rootPath = Paths.get(".").toAbsolutePath().normalize();
+        // Use the parent directory of the changelog file as the resource accessor root
+        Path rootPath = file.getParentFile().toPath().toAbsolutePath().normalize();
         DirectoryResourceAccessor accessor = new DirectoryResourceAccessor(rootPath);
 
-        // 2. Fix Compiler Error: Use the Factory correctly
+        // Use the Factory to get the correct parser
+        String changelogFile = file.getName();
         ChangeLogParser parser = ChangeLogParserFactory.getInstance().getParser(changelogFile, accessor);
 
-        // The interface parse method: parse(String physicalChangeLogLocation, ChangeLogParameters changeLogParameters, ResourceAccessor resourceAccessor)
-        // Note: Some versions of the factory-returned parser might need a cast or specific signature.
-        // We use the standard Liquibase parsing flow here:
         DatabaseChangeLog changeLog = parser.parse(changelogFile, new ChangeLogParameters(), accessor);
 
         Map<String, Map<String, List<IndexMetadata>>> masterMap = new HashMap<>();
@@ -70,27 +73,24 @@ public class LiquibaseParser {
     }
 
     private static void processChange(Change change, Collection<String> dbs, Map<String, Map<String, List<IndexMetadata>>> masterMap) {
-        String tableName = null;
-        IndexMetadata meta = null;
+        String tableName;
+        IndexMetadata meta;
 
-        if (change instanceof CreateIndexChange) {
-            CreateIndexChange cic = (CreateIndexChange) change;
+        if (change instanceof CreateIndexChange cic) {
             tableName = cic.getTableName();
             List<String> cols = cic.getColumns().stream()
                     .map(ColumnConfig::getName)
-                    .collect(Collectors.toList());
+                    .toList();
             meta = new IndexMetadata(cic.getIndexName(), cols, false);
             addToMap(masterMap, dbs, tableName, meta);
 
-        } else if (change instanceof AddPrimaryKeyChange) {
-            AddPrimaryKeyChange apk = (AddPrimaryKeyChange) change;
+        } else if (change instanceof AddPrimaryKeyChange apk) {
             tableName = apk.getTableName();
             List<String> cols = Arrays.asList(apk.getColumnNames().split("\\s*,\\s*"));
             meta = new IndexMetadata(apk.getConstraintName(), cols, true);
             addToMap(masterMap, dbs, tableName, meta);
 
-        } else if (change instanceof CreateTableChange) {
-            CreateTableChange ctc = (CreateTableChange) change;
+        } else if (change instanceof CreateTableChange ctc) {
             tableName = ctc.getTableName();
             List<String> pkCols = new ArrayList<>();
             String pkName = null;
@@ -107,8 +107,7 @@ public class LiquibaseParser {
                 addToMap(masterMap, dbs, tableName, new IndexMetadata(pkName, pkCols, true));
             }
 
-        } else if (change instanceof AddColumnChange) {
-            AddColumnChange acc = (AddColumnChange) change;
+        } else if (change instanceof AddColumnChange acc) {
             tableName = acc.getTableName();
             for (ColumnConfig col : acc.getColumns()) {
                 if (col.getConstraints() != null && Boolean.TRUE.equals(col.getConstraints().isPrimaryKey())) {
