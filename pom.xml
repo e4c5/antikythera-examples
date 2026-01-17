@@ -90,6 +90,11 @@
             <version>2.7.0</version>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>org.liquibase</groupId>
+            <artifactId>liquibase-core</artifactId>
+            <version>4.29.1</version>
+        </dependency>
 
         <!-- Maven Model for POM parsing - Latest stable version -->
         <dependency>
