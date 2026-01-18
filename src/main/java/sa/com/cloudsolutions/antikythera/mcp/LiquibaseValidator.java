@@ -20,6 +20,7 @@ import liquibase.resource.DirectoryResourceAccessor;
 import liquibase.resource.ResourceAccessor;
 
 import java.io.File;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -128,7 +129,8 @@ public class LiquibaseValidator {
                     return new ValidationResult(false, errors, warnings);
                 }
 
-                File tempHistoryFile = File.createTempFile("liquibase-history", ".csv");
+                Path tempHistoryPath = Files.createTempFile("liquibase-history", ".csv");
+                File tempHistoryFile = tempHistoryPath.toFile();
                 tempHistoryFile.deleteOnExit();
                 String offlineUri = "offline:postgresql?changeLogFile=" + tempHistoryFile.getAbsolutePath();
 

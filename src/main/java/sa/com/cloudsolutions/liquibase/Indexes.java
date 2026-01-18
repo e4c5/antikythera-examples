@@ -3,6 +3,7 @@ package sa.com.cloudsolutions.liquibase;
 import liquibase.change.Change;
 import liquibase.change.ColumnConfig;
 import liquibase.change.core.*;
+import liquibase.exception.LiquibaseException;
 import liquibase.changelog.ChangeLogParameters;
 import liquibase.changelog.ChangeSet;
 import liquibase.changelog.DatabaseChangeLog;
@@ -32,15 +33,19 @@ public class Indexes {
         public String toString() {
             return type + ";" + name + ";" + String.join(",", columns);
         }
+
         // Explicit equals to honor ordered column list
         @Override
         public boolean equals(Object o) {
-            if (this == o) return true;
-            if (!(o instanceof IndexInfo other)) return false;
+            if (this == o)
+                return true;
+            if (!(o instanceof IndexInfo other))
+                return false;
             return Objects.equals(this.type, other.type)
                     && Objects.equals(this.name, other.name)
                     && Objects.equals(this.columns, other.columns); // order-sensitive
         }
+
         @Override
         public int hashCode() {
             return Objects.hash(type, name, columns);
@@ -49,9 +54,10 @@ public class Indexes {
 
     /**
      * Load Liquibase indexes from the given XML and return a table->indexes map.
-     * The map value is a set of IndexInfo entries in declaration order (after includes and drops applied).
+     * The map value is a set of IndexInfo entries in declaration order (after
+     * includes and drops applied).
      */
-    public static Map<String, Set<IndexInfo>> load(File liquibaseXml) throws Exception {
+    public static Map<String, Set<IndexInfo>> load(File liquibaseXml) throws LiquibaseException, java.io.IOException {
         return parseLiquibaseFile(liquibaseXml);
     }
 
@@ -73,17 +79,18 @@ public class Indexes {
             Set<IndexInfo> indexes = byTable.get(table);
             // PK
             indexes.stream().filter(i -> PRIMARY_KEY.equals(i.type))
-                .forEach(i -> System.out.println("  PK: " + i));
+                    .forEach(i -> System.out.println("  PK: " + i));
             // UNIQUE (constraints or unique indexes)
             indexes.stream().filter(i -> UNIQUE_CONSTRAINT.equals(i.type) || UNIQUE_INDEX.equals(i.type))
-                .forEach(i -> System.out.println("  UNIQUE: " + i));
+                    .forEach(i -> System.out.println("  UNIQUE: " + i));
             // Other indexes
             indexes.stream().filter(i -> INDEX.equals(i.type))
-                .forEach(i -> System.out.println("  INDEX: " + i));
+                    .forEach(i -> System.out.println("  INDEX: " + i));
         });
     }
 
-    private static Map<String, Set<IndexInfo>> parseLiquibaseFile(File file) throws Exception {
+    private static Map<String, Set<IndexInfo>> parseLiquibaseFile(File file)
+            throws LiquibaseException, java.io.IOException {
         Path rootPath = file.getParentFile().toPath().toAbsolutePath().normalize();
         DirectoryResourceAccessor accessor = new DirectoryResourceAccessor(rootPath);
 
@@ -124,13 +131,15 @@ public class Indexes {
 
     private static void handleCreateIndex(CreateIndexChange cic, Map<String, Set<IndexInfo>> result) {
         String tableName = cic.getTableName();
-        if (isBlank(tableName)) return;
+        if (isBlank(tableName))
+            return;
 
         List<String> cols = cic.getColumns().stream()
                 .map(ColumnConfig::getName)
                 .filter(n -> !isBlank(n))
                 .toList();
-        if (cols.isEmpty()) return;
+        if (cols.isEmpty())
+            return;
 
         boolean unique = Boolean.TRUE.equals(cic.isUnique());
         String type = unique ? UNIQUE_INDEX : INDEX;
@@ -139,27 +148,32 @@ public class Indexes {
 
     private static void handleAddPrimaryKey(AddPrimaryKeyChange apk, Map<String, Set<IndexInfo>> result) {
         String tableName = apk.getTableName();
-        if (isBlank(tableName) || isBlank(apk.getColumnNames())) return;
+        if (isBlank(tableName) || isBlank(apk.getColumnNames()))
+            return;
 
         List<String> cols = splitColumns(apk.getColumnNames());
-        if (cols.isEmpty()) return;
+        if (cols.isEmpty())
+            return;
 
         add(result, tableName, new IndexInfo(PRIMARY_KEY, orUnknown(apk.getConstraintName()), cols));
     }
 
     private static void handleAddUniqueConstraint(AddUniqueConstraintChange auc, Map<String, Set<IndexInfo>> result) {
         String tableName = auc.getTableName();
-        if (isBlank(tableName) || isBlank(auc.getColumnNames())) return;
+        if (isBlank(tableName) || isBlank(auc.getColumnNames()))
+            return;
 
         List<String> cols = splitColumns(auc.getColumnNames());
-        if (cols.isEmpty()) return;
+        if (cols.isEmpty())
+            return;
 
         add(result, tableName, new IndexInfo(UNIQUE_CONSTRAINT, orUnknown(auc.getConstraintName()), cols));
     }
 
     private static void handleCreateTable(CreateTableChange ctc, Map<String, Set<IndexInfo>> result) {
         String tableName = ctc.getTableName();
-        if (isBlank(tableName)) return;
+        if (isBlank(tableName))
+            return;
 
         List<String> pkCols = new ArrayList<>();
         String pkName = null;
@@ -174,7 +188,8 @@ public class Indexes {
                 }
                 if (Boolean.TRUE.equals(col.getConstraints().isUnique())) {
                     String uniqueName = col.getConstraints().getUniqueConstraintName();
-                    add(result, tableName, new IndexInfo(UNIQUE_CONSTRAINT, orUnknown(uniqueName), List.of(col.getName())));
+                    add(result, tableName,
+                            new IndexInfo(UNIQUE_CONSTRAINT, orUnknown(uniqueName), List.of(col.getName())));
                 }
             }
         }
@@ -186,7 +201,8 @@ public class Indexes {
 
     private static void handleAddColumn(AddColumnChange acc, Map<String, Set<IndexInfo>> result) {
         String tableName = acc.getTableName();
-        if (isBlank(tableName)) return;
+        if (isBlank(tableName))
+            return;
 
         for (ColumnConfig col : acc.getColumns()) {
             if (col.getConstraints() != null) {
@@ -242,50 +258,61 @@ public class Indexes {
     }
 
     private static void removeIndexByName(Map<String, Set<IndexInfo>> map, String table, String name) {
-        if (isBlank(table) || isBlank(name)) return;
+        if (isBlank(table) || isBlank(name))
+            return;
         Set<IndexInfo> set = map.get(table);
-        if (set == null) return;
+        if (set == null)
+            return;
         set.removeIf(i -> (INDEX.equals(i.type) || UNIQUE_INDEX.equals(i.type))
                 && i.name != null && i.name.equalsIgnoreCase(name));
-        if (set.isEmpty()) map.remove(table);
+        if (set.isEmpty())
+            map.remove(table);
     }
 
     private static void removeIndexByNameAnyTable(Map<String, Set<IndexInfo>> map, String name) {
-        if (isBlank(name) || map.isEmpty()) return;
+        if (isBlank(name) || map.isEmpty())
+            return;
         List<String> emptyTables = new ArrayList<>();
         for (Map.Entry<String, Set<IndexInfo>> e : map.entrySet()) {
             Set<IndexInfo> set = e.getValue();
-            if (set == null) continue;
+            if (set == null)
+                continue;
             set.removeIf(i -> (INDEX.equals(i.type) || UNIQUE_INDEX.equals(i.type))
                     && i.name != null && i.name.equalsIgnoreCase(name));
-            if (set.isEmpty()) emptyTables.add(e.getKey());
+            if (set.isEmpty())
+                emptyTables.add(e.getKey());
         }
         emptyTables.forEach(map::remove);
     }
 
     private static void removePrimaryKey(Map<String, Set<IndexInfo>> map, String table, String name) {
         Set<IndexInfo> set = map.get(table);
-        if (set == null) return;
+        if (set == null)
+            return;
         if (!isBlank(name)) {
             set.removeIf(i -> PRIMARY_KEY.equals(i.type) && i.name != null && i.name.equalsIgnoreCase(name));
         } else {
             set.removeIf(i -> PRIMARY_KEY.equals(i.type));
         }
-        if (set.isEmpty()) map.remove(table);
+        if (set.isEmpty())
+            map.remove(table);
     }
 
     private static void removeUniqueConstraint(Map<String, Set<IndexInfo>> map, String table, String name) {
         Set<IndexInfo> set = map.get(table);
-        if (set == null) return;
+        if (set == null)
+            return;
         if (!isBlank(name)) {
             set.removeIf(i -> UNIQUE_CONSTRAINT.equals(i.type) && i.name != null && i.name.equalsIgnoreCase(name));
         }
-        if (set.isEmpty()) map.remove(table);
+        if (set.isEmpty())
+            map.remove(table);
     }
 
     private static List<String> splitColumns(String csv) {
-        if (isBlank(csv)) return List.of();
-        return Arrays.stream(csv.split("\\s*,\\s*"))
+        if (isBlank(csv))
+            return List.of();
+        return Arrays.stream(csv.split(","))
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
                 .toList();

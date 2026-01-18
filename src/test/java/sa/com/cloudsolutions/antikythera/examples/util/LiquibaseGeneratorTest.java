@@ -273,8 +273,10 @@ class LiquibaseGeneratorTest {
 
     @Test
     void testChangesetConfigFromConfiguration() {
-        // Test that ChangesetConfig.fromConfiguration() reads dialects from generator.yml
-        // The test generator.yml should have query_optimizer.supported_dialects: [postgresql, oracle]
+        // Test that ChangesetConfig.fromConfiguration() reads dialects from
+        // generator.yml
+        // The test generator.yml should have query_optimizer.supported_dialects:
+        // [postgresql, oracle]
         ChangesetConfig config = ChangesetConfig.fromConfiguration();
 
         assertNotNull(config);
@@ -287,7 +289,8 @@ class LiquibaseGeneratorTest {
 
     @Test
     void testGeneratorWithConfigurationDialects() {
-        // Test that generator created with fromConfiguration() only generates for configured dialects
+        // Test that generator created with fromConfiguration() only generates for
+        // configured dialects
         LiquibaseGenerator configGenerator = new LiquibaseGenerator(ChangesetConfig.fromConfiguration());
         String changeset = configGenerator.createIndexChangeset("users", "email");
 
@@ -304,11 +307,11 @@ class LiquibaseGeneratorTest {
     void testGetConfiguredMasterFile() {
         // Test that getConfiguredMasterFile reads from configuration
         LiquibaseGenerator configGenerator = new LiquibaseGenerator(ChangesetConfig.fromConfiguration());
-        Optional<Path> masterFile = configGenerator.getConfiguredMasterFile();
+        Optional<Path> configuredMasterFile = configGenerator.getConfiguredMasterFile();
 
         // Should be present since it's configured in test resources generator.yml
-        assertTrue(masterFile.isPresent());
-        assertTrue(masterFile.get().toString().contains("db.changelog-master.xml"));
+        assertTrue(configuredMasterFile.isPresent());
+        assertTrue(configuredMasterFile.get().toString().contains("db.changelog-master.xml"));
     }
 
     @Test
@@ -318,19 +321,20 @@ class LiquibaseGeneratorTest {
                 Set.of(DatabaseDialect.POSTGRESQL), true, true, null);
         LiquibaseGenerator gen = new LiquibaseGenerator(configWithoutMaster);
 
-        Optional<Path> masterFile = gen.getConfiguredMasterFile();
-        assertTrue(masterFile.isEmpty());
+        Optional<Path> configuredMasterFile = gen.getConfiguredMasterFile();
+        assertTrue(configuredMasterFile.isPresent() == false || configuredMasterFile.isEmpty());
     }
 
     @Test
     void testWriteChangesetToConfiguredFileThrowsWhenNotConfigured() {
-        // Test that writeChangesetToConfiguredFile throws when master file is not configured
+        // Test that writeChangesetToConfiguredFile throws when master file is not
+        // configured
         ChangesetConfig configWithoutMaster = new ChangesetConfig("author",
                 Set.of(DatabaseDialect.POSTGRESQL), true, true, null);
         LiquibaseGenerator gen = new LiquibaseGenerator(configWithoutMaster);
 
-        assertThrows(IllegalStateException.class, () ->
-                gen.writeChangesetToConfiguredFile("<changeSet>test</changeSet>"));
+        assertThrows(IllegalStateException.class,
+                () -> gen.writeChangesetToConfiguredFile("<changeSet>test</changeSet>"));
     }
 
     @Test

@@ -30,6 +30,8 @@ public class LiquibaseValidationMcpServer {
         this.validator = new LiquibaseValidator();
     }
 
+    private static final String FILEPATH_PARAM = "filepath";
+
     /**
      * Define the tools exposed by this server and start it.
      */
@@ -49,18 +51,18 @@ public class LiquibaseValidationMcpServer {
                                 .inputSchema(new JsonSchema(
                                         "object",
                                         Map.of(
-                                                "filepath", Map.of(
+                                                FILEPATH_PARAM, Map.of(
                                                         "type", "string",
                                                         "description",
                                                         "Absolute path to the Liquibase changelog XML file")),
-                                        List.of("filepath"),
+                                        List.of(FILEPATH_PARAM),
                                         false,
                                         null,
                                         null))
                                 .build())
                         .callHandler((exchange, request) -> {
                             Map<String, Object> arguments = request.arguments();
-                            String filepath = (String) arguments.get("filepath");
+                            String filepath = (String) arguments.get(FILEPATH_PARAM);
                             return Mono.fromCallable(() -> handleValidateLiquibase(filepath));
                         })
                         .build())
