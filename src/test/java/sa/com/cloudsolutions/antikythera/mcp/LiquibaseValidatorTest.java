@@ -89,4 +89,29 @@ class LiquibaseValidatorTest {
         assertTrue(result.getWarnings().stream()
                 .anyMatch(w -> w.contains("no change sets")), "Expected warning about no change sets");
     }
+
+    @Test
+    void testValidateInvalidSql(@TempDir Path tempDir) throws IOException {
+        File invalidSqlFile = tempDir.resolve("invalid-sql.xml").toFile();
+        try (FileWriter fw = new FileWriter(invalidSqlFile)) {
+            fw.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+            fw.write("<databaseChangeLog\n");
+            fw.write("    xmlns=\"http://www.liquibase.org/xml/ns/dbchangelog\"\n");
+            fw.write("    xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n");
+            fw.write("    xsi:schemaLocation=\"http://www.liquibase.org/xml/ns/dbchangelog\n");
+            fw.write("    http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.0.xsd\">\n");
+            fw.write("  <changeSet id=\"1\" author=\"test\">\n");
+            fw.write("    <sql>INSERT INTO users (username, email) VALUES ('test' --- MISSING STUFF\n");
+            fw.write("    </sql>\n");
+            fw.write("  </changeSet>\n");
+            fw.write("</databaseChangeLog>\n");
+        }
+
+        LiquibaseValidator validator = new LiquibaseValidator();
+        LiquibaseValidator.ValidationResult result = validator.validate(invalidSqlFile.getAbsolutePath());
+
+        assertFalse(result.isValid(), "Should be invalid due to SQL syntax error");
+        assertTrue(result.getErrors().stream()
+                .anyMatch(e -> e.contains("SQL Syntax error")), "Expected SQL syntax error message");
+    }
 }
