@@ -8,6 +8,8 @@ import liquibase.database.OfflineConnection;
 import liquibase.exception.LiquibaseException;
 import liquibase.parser.ChangeLogParser;
 import liquibase.parser.ChangeLogParserFactory;
+import liquibase.resource.ClassLoaderResourceAccessor;
+import liquibase.resource.CompositeResourceAccessor;
 import liquibase.resource.DirectoryResourceAccessor;
 import liquibase.resource.ResourceAccessor;
 
@@ -17,7 +19,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Validates Liquibase XML changelog files for syntax and structural correctness.
+ * Validates Liquibase XML changelog files for syntax and structural
+ * correctness.
  */
 public class LiquibaseValidator {
 
@@ -53,13 +56,15 @@ public class LiquibaseValidator {
             sb.append("\"valid\":").append(valid).append(",");
             sb.append("\"errors\":[");
             for (int i = 0; i < errors.size(); i++) {
-                if (i > 0) sb.append(",");
+                if (i > 0)
+                    sb.append(",");
                 sb.append("\"").append(escapeJson(errors.get(i))).append("\"");
             }
             sb.append("],");
             sb.append("\"warnings\":[");
             for (int i = 0; i < warnings.size(); i++) {
-                if (i > 0) sb.append(",");
+                if (i > 0)
+                    sb.append(",");
                 sb.append("\"").append(escapeJson(warnings.get(i))).append("\"");
             }
             sb.append("]");
@@ -68,12 +73,13 @@ public class LiquibaseValidator {
         }
 
         private String escapeJson(String str) {
-            if (str == null) return "";
+            if (str == null)
+                return "";
             return str.replace("\\", "\\\\")
-                     .replace("\"", "\\\"")
-                     .replace("\n", "\\n")
-                     .replace("\r", "\\r")
-                     .replace("\t", "\\t");
+                    .replace("\"", "\\\"")
+                    .replace("\n", "\\n")
+                    .replace("\r", "\\r")
+                    .replace("\t", "\\t");
         }
     }
 
@@ -103,7 +109,10 @@ public class LiquibaseValidator {
             // Set up resource accessor
             Path parentDir = changelogFile.getParentFile().toPath();
 
-            try (ResourceAccessor resourceAccessor = new DirectoryResourceAccessor(parentDir)) {
+            try (DirectoryResourceAccessor directoryAccessor = new DirectoryResourceAccessor(parentDir)) {
+                ResourceAccessor resourceAccessor = new CompositeResourceAccessor(directoryAccessor,
+                        new ClassLoaderResourceAccessor());
+
                 // Parse the changelog
                 ChangeLogParserFactory parserFactory = ChangeLogParserFactory.getInstance();
                 ChangeLogParser parser = parserFactory.getParser(changelogFile.getName(), resourceAccessor);
@@ -113,33 +122,36 @@ public class LiquibaseValidator {
                     return new ValidationResult(false, errors, warnings);
                 }
 
-                // Create an offline database for validation
-                Database database = DatabaseFactory.getInstance()
-                    .findCorrectDatabaseImplementation(new OfflineConnection("offline:postgresql", resourceAccessor));
+                File tempHistoryFile = File.createTempFile("liquibase-history", ".csv");
+                tempHistoryFile.deleteOnExit();
+                String offlineUri = "offline:postgresql?changeLogFile=" + tempHistoryFile.getAbsolutePath();
 
-                // Parse the changelog
-                DatabaseChangeLog changeLog = parser.parse(
-                    changelogFile.getName(),
-                    new ChangeLogParameters(database),
-                    resourceAccessor
-                );
+                try (Database database = DatabaseFactory.getInstance()
+                        .findCorrectDatabaseImplementation(new OfflineConnection(offlineUri, resourceAccessor))) {
 
-                if (changeLog == null) {
-                    errors.add("Failed to parse changelog file");
-                    return new ValidationResult(false, errors, warnings);
+                    // Parse the changelog
+                    DatabaseChangeLog changeLog = parser.parse(
+                            changelogFile.getName(),
+                            new ChangeLogParameters(database),
+                            resourceAccessor);
+
+                    if (changeLog == null) {
+                        errors.add("Failed to parse changelog file");
+                        return new ValidationResult(false, errors, warnings);
+                    }
+
+                    // Validate the changelog
+                    validateChangeLog(changeLog, database, errors);
+
+                    // Additional checks
+                    if (changeLog.getChangeSets().isEmpty()) {
+                        warnings.add("Changelog contains no change sets");
+                    }
+
+                    // Count change sets
+                    int changeSetCount = changeLog.getChangeSets().size();
+                    warnings.add("Changelog contains " + changeSetCount + " change set(s)");
                 }
-
-                // Validate the changelog
-                validateChangeLog(changeLog, database, errors);
-
-                // Additional checks
-                if (changeLog.getChangeSets().isEmpty()) {
-                    warnings.add("Changelog contains no change sets");
-                }
-
-                // Count change sets
-                int changeSetCount = changeLog.getChangeSets().size();
-                warnings.add("Changelog contains " + changeSetCount + " change set(s)");
             }
 
         } catch (LiquibaseException e) {
@@ -168,4 +180,3 @@ public class LiquibaseValidator {
         }
     }
 }
-
