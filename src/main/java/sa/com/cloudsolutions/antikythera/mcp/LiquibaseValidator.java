@@ -14,10 +14,7 @@ import liquibase.database.OfflineConnection;
 import liquibase.exception.LiquibaseException;
 import liquibase.parser.ChangeLogParser;
 import liquibase.parser.ChangeLogParserFactory;
-import liquibase.resource.ClassLoaderResourceAccessor;
-import liquibase.resource.CompositeResourceAccessor;
 import liquibase.resource.DirectoryResourceAccessor;
-import liquibase.resource.ResourceAccessor;
 
 import java.io.File;
 import java.nio.file.Files;
@@ -113,19 +110,19 @@ public class LiquibaseValidator {
                 return new ValidationResult(false, errors, warnings);
             }
 
-            // Set up resource accessor
-            Path parentDir = changelogFile.getParentFile().toPath();
+            // Set up resource accessor - use intelligent path resolution for Spring Boot
+            // projects
+            Path resourceRoot = determineResourceRoot(changelogFile);
+            String relativeChangelogPath = getRelativeChangelogPath(changelogFile, resourceRoot);
 
-            try (DirectoryResourceAccessor directoryAccessor = new DirectoryResourceAccessor(parentDir)) {
-                ResourceAccessor resourceAccessor = new CompositeResourceAccessor(directoryAccessor,
-                        new ClassLoaderResourceAccessor());
+            try (DirectoryResourceAccessor resourceAccessor = new DirectoryResourceAccessor(resourceRoot)) {
 
                 // Parse the changelog
                 ChangeLogParserFactory parserFactory = ChangeLogParserFactory.getInstance();
-                ChangeLogParser parser = parserFactory.getParser(changelogFile.getName(), resourceAccessor);
+                ChangeLogParser parser = parserFactory.getParser(relativeChangelogPath, resourceAccessor);
 
                 if (parser == null) {
-                    errors.add("No parser found for file: " + changelogFile.getName());
+                    errors.add("No parser found for file: " + relativeChangelogPath);
                     return new ValidationResult(false, errors, warnings);
                 }
 
@@ -139,7 +136,7 @@ public class LiquibaseValidator {
 
                     // Parse the changelog
                     DatabaseChangeLog changeLog = parser.parse(
-                            changelogFile.getName(),
+                            relativeChangelogPath,
                             new ChangeLogParameters(database),
                             resourceAccessor);
 
@@ -214,5 +211,46 @@ public class LiquibaseValidator {
                 }
             }
         }
+    }
+
+    /**
+     * Determines the resource root directory for Liquibase file resolution.
+     * For Spring Boot projects, this should be src/main/resources or
+     * src/test/resources.
+     * Otherwise, falls back to the file's parent directory.
+     *
+     * @param file the changelog file
+     * @return the root path for resource resolution
+     */
+    private Path determineResourceRoot(File file) {
+        String absolutePath = file.getAbsolutePath();
+
+        // Check if this is in a Spring Boot resources directory
+        if (absolutePath.contains("/src/main/resources/")) {
+            int idx = absolutePath.indexOf("/src/main/resources/");
+            String rootDir = absolutePath.substring(0, idx + "/src/main/resources".length());
+            return new File(rootDir).toPath().toAbsolutePath().normalize();
+        } else if (absolutePath.contains("/src/test/resources/")) {
+            int idx = absolutePath.indexOf("/src/test/resources/");
+            String rootDir = absolutePath.substring(0, idx + "/src/test/resources".length());
+            return new File(rootDir).toPath().toAbsolutePath().normalize();
+        }
+
+        // Fallback: use parent directory
+        return file.getParentFile().toPath().toAbsolutePath().normalize();
+    }
+
+    /**
+     * Gets the changelog file path relative to the resource root.
+     * This is necessary for Liquibase to properly resolve include directives.
+     *
+     * @param file     the changelog file
+     * @param rootPath the resource root path
+     * @return the relative path from root to the changelog file
+     */
+    private String getRelativeChangelogPath(File file, Path rootPath) {
+        Path filePath = file.toPath().toAbsolutePath().normalize();
+        Path relativePath = rootPath.relativize(filePath);
+        return relativePath.toString().replace(File.separatorChar, '/');
     }
 }
