@@ -96,6 +96,15 @@
             <version>4.29.1</version>
         </dependency>
 
+        <!-- MCP SDK -->
+        <!-- Source: https://mvnrepository.com/artifact/io.modelcontextprotocol.sdk/mcp -->
+        <dependency>
+            <groupId>io.modelcontextprotocol.sdk</groupId>
+            <artifactId>mcp</artifactId>
+            <version>0.17.1</version>
+            <scope>compile</scope>
+        </dependency>
+
         <!-- Maven Model for POM parsing - Latest stable version -->
         <dependency>
             <groupId>org.apache.maven</groupId>
