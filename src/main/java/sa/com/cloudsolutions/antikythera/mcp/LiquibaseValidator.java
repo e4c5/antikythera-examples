@@ -1,7 +1,13 @@
 package sa.com.cloudsolutions.antikythera.mcp;
 
+import liquibase.change.AbstractSQLChange;
+import liquibase.change.Change;
+import liquibase.change.core.CreateViewChange;
 import liquibase.changelog.ChangeLogParameters;
+import liquibase.changelog.ChangeSet;
 import liquibase.changelog.DatabaseChangeLog;
+import net.sf.jsqlparser.JSQLParserException;
+import net.sf.jsqlparser.parser.CCJSqlParserUtil;
 import liquibase.database.Database;
 import liquibase.database.DatabaseFactory;
 import liquibase.database.OfflineConnection;
@@ -143,6 +149,9 @@ public class LiquibaseValidator {
                     // Validate the changelog
                     validateChangeLog(changeLog, database, errors);
 
+                    // Validate Raw SQL if any
+                    validateRawSql(changeLog, errors);
+
                     // Additional checks
                     if (changeLog.getChangeSets().isEmpty()) {
                         warnings.add("Changelog contains no change sets");
@@ -177,6 +186,31 @@ public class LiquibaseValidator {
             changeLog.validate(database);
         } catch (LiquibaseException e) {
             errors.add("Validation error: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Validates raw SQL changes using JSQLParser.
+     */
+    private void validateRawSql(DatabaseChangeLog changeLog, List<String> errors) {
+        for (ChangeSet changeSet : changeLog.getChangeSets()) {
+            for (Change change : changeSet.getChanges()) {
+                String sql = null;
+                if (change instanceof AbstractSQLChange sqlChange) {
+                    sql = sqlChange.getSql();
+                } else if (change instanceof CreateViewChange viewChange) {
+                    sql = viewChange.getSelectQuery();
+                }
+
+                if (sql != null && !sql.trim().isEmpty()) {
+                    try {
+                        CCJSqlParserUtil.parseStatements(sql);
+                    } catch (JSQLParserException e) {
+                        errors.add("SQL Syntax error in ChangeSet '" + changeSet.getId() +
+                                "' by " + changeSet.getAuthor() + ": " + e.getMessage());
+                    }
+                }
+            }
         }
     }
 }
