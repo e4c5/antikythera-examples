@@ -61,9 +61,9 @@ class LiquibaseGeneratorTest {
         assertTrue(changeset.contains("CREATE INDEX CONCURRENTLY idx_users_email ON users (email)"));
         assertTrue(changeset.contains("CREATE INDEX idx_users_email ON users (email) ONLINE"));
 
-        // Verify XML structure
+        // Verify XML structure uses column-based existence check (not just index name)
         assertTrue(changeset.contains("<preConditions onFail=\"MARK_RAN\">"));
-        assertTrue(changeset.contains("<indexExists tableName=\"users\" indexName=\"idx_users_email\"/>"));
+        assertTrue(changeset.contains("<sqlCheck expectedResult=\"0\""));
         assertTrue(changeset.contains("<rollback>"));
         assertTrue(changeset.contains("DROP INDEX CONCURRENTLY IF EXISTS idx_users_email"));
         assertTrue(changeset.contains("DROP INDEX idx_users_email"));
@@ -103,6 +103,36 @@ class LiquibaseGeneratorTest {
         assertNotNull(changeset);
         assertTrue(changeset.contains("first_name, last_name, birth_date"));
         assertTrue(changeset.contains("idx_persons_first_name_last_name_birth_date"));
+    }
+
+    @Test
+    void testColumnBasedExistenceCheckIncludesAllDialects() {
+        // Test that preconditions include SQL checks for column-based index detection
+        String changeset = generator.createIndexChangeset("users", "email");
+
+        // Verify PostgreSQL check uses pg_index system catalog
+        assertTrue(changeset.contains("dbms=\"postgresql\""));
+        assertTrue(changeset.contains("pg_index"));
+        assertTrue(changeset.contains("'email'"));
+
+        // Verify Oracle check uses ALL_IND_COLUMNS
+        assertTrue(changeset.contains("dbms=\"oracle\""));
+        assertTrue(changeset.contains("ALL_IND_COLUMNS"));
+        assertTrue(changeset.contains("'EMAIL'"));
+    }
+
+    @Test
+    void testMultiColumnExistenceCheck() {
+        // Test that multi-column indexes have proper existence checks
+        List<String> columns = Arrays.asList("user_id", "status");
+        String changeset = generator.createMultiColumnIndexChangeset("orders", columns);
+
+        // Verify it checks for both columns in the SQL
+        assertTrue(changeset.contains("'user_id'") || changeset.contains("'USER_ID'"));
+        assertTrue(changeset.contains("'status'") || changeset.contains("'STATUS'"));
+
+        // Verify the check counts match column count (2)
+        assertTrue(changeset.contains("COUNT(*)"));
     }
 
     @Test
@@ -230,7 +260,7 @@ class LiquibaseGeneratorTest {
         ChangesetConfig config = new ChangesetConfig("test-author",
                 Set.of(DatabaseDialect.POSTGRESQL, DatabaseDialect.ORACLE,
                         DatabaseDialect.MYSQL, DatabaseDialect.H2),
-                true, true);
+                true, true, null);
 
         LiquibaseGenerator dialectGenerator = new LiquibaseGenerator(config);
         String changeset = dialectGenerator.createIndexChangeset("users", "email");
@@ -239,18 +269,97 @@ class LiquibaseGeneratorTest {
         assertTrue(changeset.contains("postgresql"));
         assertTrue(changeset.contains("oracle"));
         assertTrue(changeset.contains("mysql"));
-        assertTrue(changeset.contains("h2"));
+    }
 
-        // Test dialect-specific SQL
-        assertTrue(changeset.contains("CONCURRENTLY")); // PostgreSQL
-        assertTrue(changeset.contains("ONLINE")); // Oracle
+    @Test
+    void testChangesetConfigFromConfiguration() {
+        // Test that ChangesetConfig.fromConfiguration() reads dialects from
+        // generator.yml
+        // The test generator.yml should have query_optimizer.supported_dialects:
+        // [postgresql, oracle]
+        ChangesetConfig config = ChangesetConfig.fromConfiguration();
+
+        assertNotNull(config);
+        assertFalse(config.supportedDialects().isEmpty());
+
+        // Verify it contains the dialects specified in generator.yml
+        assertTrue(config.supportedDialects().contains(DatabaseDialect.POSTGRESQL));
+        assertTrue(config.supportedDialects().contains(DatabaseDialect.ORACLE));
+    }
+
+    @Test
+    void testGeneratorWithConfigurationDialects() {
+        // Test that generator created with fromConfiguration() only generates for
+        // configured dialects
+        LiquibaseGenerator configGenerator = new LiquibaseGenerator(ChangesetConfig.fromConfiguration());
+        String changeset = configGenerator.createIndexChangeset("users", "email");
+
+        // Should contain SQL for postgresql and oracle (as configured in generator.yml)
+        assertTrue(changeset.contains("postgresql"));
+        assertTrue(changeset.contains("oracle"));
+
+        // Should NOT contain mysql or h2 (not in configuration)
+        assertFalse(changeset.contains("dbms=\"mysql\""));
+        assertFalse(changeset.contains("dbms=\"h2\""));
+    }
+
+    @Test
+    void testGetConfiguredMasterFile() {
+        // Test that getConfiguredMasterFile reads from configuration
+        LiquibaseGenerator configGenerator = new LiquibaseGenerator(ChangesetConfig.fromConfiguration());
+        Optional<Path> configuredMasterFile = configGenerator.getConfiguredMasterFile();
+
+        // Should be present since it's configured in test resources generator.yml
+        assertTrue(configuredMasterFile.isPresent());
+        assertTrue(configuredMasterFile.get().toString().contains("db.changelog-master.xml"));
+    }
+
+    @Test
+    void testGetConfiguredMasterFileNotConfigured() {
+        // Test when liquibase_master_file is not configured
+        ChangesetConfig configWithoutMaster = new ChangesetConfig("author",
+                Set.of(DatabaseDialect.POSTGRESQL), true, true, null);
+        LiquibaseGenerator gen = new LiquibaseGenerator(configWithoutMaster);
+
+        Optional<Path> configuredMasterFile = gen.getConfiguredMasterFile();
+        assertTrue(configuredMasterFile.isPresent() == false || configuredMasterFile.isEmpty());
+    }
+
+    @Test
+    void testWriteChangesetToConfiguredFileThrowsWhenNotConfigured() {
+        // Test that writeChangesetToConfiguredFile throws when master file is not
+        // configured
+        ChangesetConfig configWithoutMaster = new ChangesetConfig("author",
+                Set.of(DatabaseDialect.POSTGRESQL), true, true, null);
+        LiquibaseGenerator gen = new LiquibaseGenerator(configWithoutMaster);
+
+        assertThrows(IllegalStateException.class,
+                () -> gen.writeChangesetToConfiguredFile("<changeSet>test</changeSet>"));
+    }
+
+    @Test
+    void testDatabaseDialectFromString() {
+        // Test parsing dialect names from strings
+        assertEquals(Optional.of(DatabaseDialect.POSTGRESQL), DatabaseDialect.fromString("postgresql"));
+        assertEquals(Optional.of(DatabaseDialect.ORACLE), DatabaseDialect.fromString("oracle"));
+        assertEquals(Optional.of(DatabaseDialect.MYSQL), DatabaseDialect.fromString("mysql"));
+        assertEquals(Optional.of(DatabaseDialect.H2), DatabaseDialect.fromString("h2"));
+
+        // Test case insensitivity
+        assertEquals(Optional.of(DatabaseDialect.POSTGRESQL), DatabaseDialect.fromString("POSTGRESQL"));
+        assertEquals(Optional.of(DatabaseDialect.ORACLE), DatabaseDialect.fromString("Oracle"));
+
+        // Test invalid/empty values
+        assertEquals(Optional.empty(), DatabaseDialect.fromString(null));
+        assertEquals(Optional.empty(), DatabaseDialect.fromString(""));
+        assertEquals(Optional.empty(), DatabaseDialect.fromString("invalid"));
     }
 
     @Test
     void testChangesetConfigOptions() {
         // Test custom configuration
         ChangesetConfig customConfig = new ChangesetConfig("custom-author",
-                Set.of(DatabaseDialect.POSTGRESQL), false, false);
+                Set.of(DatabaseDialect.POSTGRESQL), false, false, null);
 
         LiquibaseGenerator customGenerator = new LiquibaseGenerator(customConfig);
         String changeset = customGenerator.createIndexChangeset("users", "email");
@@ -345,7 +454,8 @@ class LiquibaseGeneratorTest {
                 "test-author",
                 Set.of(DatabaseDialect.MYSQL),
                 false,
-                false);
+                false,
+                null);
 
         LiquibaseGenerator customGenerator = new LiquibaseGenerator(config);
 

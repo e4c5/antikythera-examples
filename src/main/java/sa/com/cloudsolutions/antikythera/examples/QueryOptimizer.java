@@ -250,7 +250,9 @@ public class QueryOptimizer extends QueryOptimizationChecker {
 
                 // Write file once if any field was modified
                 if (classModified) {
-                    modifiedFiles.add(className);
+                    if (modifiedFiles.add(className)) {
+                        OptimizationStatsLogger.updateDependentClassesChanged(1);
+                    }
                     OptimizationStatsLogger.updateMethodCallsChanged(totalMethodCallsUpdated);
                 }
             }
@@ -453,7 +455,6 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         // Generate Liquibase file with suggested changes and include in master
         checker.generateLiquibaseChangesFile();
 
-        OptimizationStatsLogger.updateDependentClassesChanged(modifiedFiles.size());
         OptimizationStatsLogger.printSummary(System.out);
         updateFiles();
 

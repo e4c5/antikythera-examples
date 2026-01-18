@@ -1,7 +1,5 @@
 package sa.com.cloudsolutions.antikythera.examples.util;
 
-import sa.com.cloudsolutions.antikythera.configuration.Settings;
-
 import java.io.File;
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -11,6 +9,8 @@ import java.nio.file.Path;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.stream.Collectors;
+
+import sa.com.cloudsolutions.antikythera.configuration.Settings;
 
 /**
  * Enhanced Liquibase changeset generator with consolidated functionality for index creation,
@@ -40,18 +40,68 @@ public class LiquibaseGenerator {
         public String getLiquibaseDbms() {
             return liquibaseDbms;
         }
+
+        /**
+         * Parses a dialect name from string (case-insensitive).
+         *
+         * @param name the dialect name (e.g., "postgresql", "ORACLE", "mysql", "h2")
+         * @return Optional containing the matching DatabaseDialect, or empty if not found
+         */
+        public static Optional<DatabaseDialect> fromString(String name) {
+            if (name == null || name.isBlank()) {
+                return Optional.empty();
+            }
+            String normalized = name.trim().toLowerCase();
+            for (DatabaseDialect dialect : values()) {
+                if (dialect.liquibaseDbms.equals(normalized)) {
+                    return Optional.of(dialect);
+                }
+            }
+            return Optional.empty();
+        }
     }
 
     /**
          * Configuration for changeset generation.
          */
         public record ChangesetConfig(String author, Set<DatabaseDialect> supportedDialects, boolean includePreconditions,
-                                      boolean includeRollback) {
+                                      boolean includeRollback, String liquibaseMasterFile) {
 
         public static ChangesetConfig defaultConfig() {
                 return new ChangesetConfig("antikythera",
                         Set.of(DatabaseDialect.POSTGRESQL, DatabaseDialect.ORACLE),
-                        true, true);
+                        true, true, null);
+            }
+
+            /**
+             * Creates a ChangesetConfig by reading supported dialects from the generator.yml configuration.
+             * Looks for the property: query_optimizer.supported_dialects
+             * Falls back to defaultConfig() if not configured.
+             *
+             * @return ChangesetConfig with dialects from configuration
+             */
+            @SuppressWarnings("unchecked")
+            public static ChangesetConfig fromConfiguration() {
+                Map<String, Object> queryOptimizer = (Map<String, Object>) Settings.getProperty("query_optimizer");
+                if (queryOptimizer != null) {
+                    List<String> dialectNames = (List<String>) queryOptimizer.get("supported_dialects");
+                    String masterFile = (String) queryOptimizer.get("liquibase_master_file");
+
+                    Set<DatabaseDialect> dialects = Set.of(DatabaseDialect.POSTGRESQL, DatabaseDialect.ORACLE);
+                    if (dialectNames != null && !dialectNames.isEmpty()) {
+                        Set<DatabaseDialect> parsedDialects = dialectNames.stream()
+                                .map(DatabaseDialect::fromString)
+                                .filter(Optional::isPresent)
+                                .map(Optional::get)
+                                .collect(Collectors.toSet());
+                        if (!parsedDialects.isEmpty()) {
+                            dialects = parsedDialects;
+                        }
+                    }
+
+                    return new ChangesetConfig("antikythera", dialects, true, true, masterFile);
+                }
+                return defaultConfig();
             }
         }
     
@@ -82,7 +132,38 @@ public class LiquibaseGenerator {
         this.config = config;
         this.generatedChangesetIds = new HashSet<>();
     }
-    
+
+    /**
+     * Gets the configured Liquibase master file path from configuration.
+     *
+     * @return Optional containing the master file path, or empty if not configured
+     */
+    public Optional<Path> getConfiguredMasterFile() {
+        String masterFilePath = config.liquibaseMasterFile();
+        if (masterFilePath != null && !masterFilePath.isBlank()) {
+            return Optional.of(Path.of(masterFilePath));
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Writes changesets to the configured Liquibase master file location.
+     * Uses the liquibase_master_file path from query_optimizer configuration.
+     *
+     * @param changesets the changeset XML content to write
+     * @return result of the write operation
+     * @throws IOException if an I/O error occurs
+     * @throws IllegalStateException if liquibase_master_file is not configured
+     */
+    public WriteResult writeChangesetToConfiguredFile(String changesets) throws IOException {
+        Optional<Path> masterFile = getConfiguredMasterFile();
+        if (masterFile.isEmpty()) {
+            throw new IllegalStateException(
+                "liquibase_master_file not configured in query_optimizer section of generator.yml");
+        }
+        return writeChangesetToFile(masterFile.get(), changesets);
+    }
+
     /**
      * Creates a Liquibase changeset for a single-column index.
      * 
@@ -197,10 +278,10 @@ public class LiquibaseGenerator {
         writer.println(content);
         writer.close();
 
-        // Update master file to include the new changeset file
-        updateMasterFile(masterPath,
-                outputFile.toAbsolutePath().toString().replace(Settings.getBasePath() + "src/main/resources/",""));
-        
+        // Update master file to include the new changeset file using relative path
+        String relativePath = dir.relativize(outputFile).toString();
+        updateMasterFile(masterPath, relativePath);
+
         return new WriteResult(outputFile.toFile(), true);
     }
     
@@ -275,9 +356,17 @@ public class LiquibaseGenerator {
         
         if (config.includePreconditions()) {
             sb.append("    <preConditions onFail=\"MARK_RAN\">\n");
-            sb.append("        <not>\n");
-            sb.append("            <indexExists tableName=\"").append(tableName).append("\" indexName=\"").append(indexName).append("\"/>\n");
-            sb.append("        </not>\n");
+            // Use OR with expectedResult="0": the changeset runs only when all dialect checks return 0; otherwise it is marked ran and skipped
+            sb.append("        <or>\n");
+            for (DatabaseDialect dialect : config.supportedDialects()) {
+                sb.append("            <and>\n");
+                sb.append("                <dbms type=\"").append(dialect.getLiquibaseDbms()).append("\"/>\n");
+                sb.append("                <sqlCheck expectedResult=\"0\">\n");
+                sb.append("                    ").append(getIndexExistsByColumnsSql(dialect, tableName, columns)).append("\n");
+                sb.append("                </sqlCheck>\n");
+                sb.append("            </and>\n");
+            }
+            sb.append("        </or>\n");
             sb.append("    </preConditions>\n");
         }
         
@@ -321,6 +410,156 @@ public class LiquibaseGenerator {
         };
     }
     
+    /**
+     * Generates a SQL query that returns the count of existing indexes on the specified columns.
+     * Returns 0 if no such index exists, or a positive number if an index covering those exact columns exists.
+     * This allows detection of indexes regardless of their name.
+     *
+     * @param dialect the database dialect
+     * @param tableName the table name
+     * @param columns the columns to check (in order)
+     * @return SQL query that returns index count
+     */
+    private String getIndexExistsByColumnsSql(DatabaseDialect dialect, String tableName, List<String> columns) {
+        String upperTableName = tableName.toUpperCase();
+
+        return switch (dialect) {
+            case POSTGRESQL -> buildPostgresIndexExistsQuery(tableName.toLowerCase(), columns);
+            case ORACLE -> buildOracleIndexExistsQuery(upperTableName, columns);
+            case MYSQL -> buildMySqlIndexExistsQuery(tableName, columns);
+            case H2 -> buildH2IndexExistsQuery(upperTableName, columns);
+        };
+    }
+
+    /**
+     * PostgreSQL query to check for existing index on columns.
+     * Uses pg_index and pg_attribute to find indexes with matching column sets in the exact order.
+     * Returns 0 if no index exists, or a positive number if an index on the exact columns in order exists.
+     * 
+     * Note: Column names are assumed to be safe identifiers from JPA repository analysis.
+     * This generates Liquibase changesets (build-time), not runtime queries.
+     */
+    private String buildPostgresIndexExistsQuery(String tableName, List<String> columns) {
+        // Build comma-separated list of column names for array comparison
+        // Column names are from JPA entity analysis and are safe SQL identifiers
+        String columnArray = columns.stream()
+                .map(c -> "'" + c.toLowerCase() + "'")
+                .collect(Collectors.joining(", "));
+
+        // Query finds indexes where:
+        // 1. The index is on the specified table
+        // 2. The index columns in order match the specified columns
+        // Uses array_agg to build ordered array of column names from index and compares to expected array
+        // Filters out expression indexes (attnum = 0) to only match simple column-based indexes
+        return """
+            SELECT COALESCE((
+                SELECT COUNT(*) FROM (
+                    SELECT i.indexrelid
+                    FROM pg_index i
+                    JOIN pg_class t ON t.oid = i.indrelid
+                    WHERE t.relname = '%s'
+                    AND (
+                        SELECT array_agg(a.attname ORDER BY ord)
+                        FROM unnest(i.indkey) WITH ORDINALITY AS u(attnum, ord)
+                        JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = u.attnum
+                        WHERE u.attnum > 0  -- Exclude expression indexes (attnum=0 for expressions)
+                    ) = ARRAY[%s]::name[]
+                ) sub
+            ), 0)""".formatted(tableName, columnArray);
+    }
+
+    /**
+     * Oracle query to check for existing index on columns in the exact order.
+     * Uses ALL_IND_COLUMNS with COLUMN_POSITION to verify column order.
+     * Returns 0 if no index exists, or a positive number if an index on the exact columns in order exists.
+     * 
+     * Note: Column names are assumed to be safe identifiers from JPA repository analysis.
+     * This generates Liquibase changesets (build-time), not runtime queries.
+     */
+    private String buildOracleIndexExistsQuery(String tableName, List<String> columns) {
+        // Build comma-separated list of uppercase column names for comparison
+        String expectedColumns = columns.stream()
+                .map(c -> c.toUpperCase())
+                .collect(Collectors.joining(","));
+        
+        // Query finds indexes where:
+        // 1. The index is on the specified table
+        // 2. The index columns in order match the specified columns
+        // Uses LISTAGG to build ordered comma-separated list of column names from index
+        // NVL ensures we return 0 when no matching index exists (rather than no rows)
+        return """
+            SELECT NVL((
+                SELECT COUNT(*) FROM (
+                    SELECT ic.INDEX_NAME
+                    FROM ALL_IND_COLUMNS ic
+                    WHERE ic.TABLE_NAME = '%s'
+                    GROUP BY ic.INDEX_NAME
+                    HAVING LISTAGG(ic.COLUMN_NAME, ',') WITHIN GROUP (ORDER BY ic.COLUMN_POSITION) = '%s'
+                )
+            ), 0) FROM DUAL""".formatted(tableName, expectedColumns);
+    }
+
+    /**
+     * MySQL query to check for existing index on columns in the exact order.
+     * Uses INFORMATION_SCHEMA.STATISTICS with SEQ_IN_INDEX to verify column order.
+     * Returns 0 if no index exists, or a positive number if an index on the exact columns in order exists.
+                ) sub
+     * Note: Column names are assumed to be safe identifiers from JPA repository analysis.
+     * This generates Liquibase changesets (build-time), not runtime queries.
+     */
+    private String buildMySqlIndexExistsQuery(String tableName, List<String> columns) {
+        // Build comma-separated list of column names for comparison
+        String expectedColumns = columns.stream()
+                .collect(Collectors.joining(","));
+
+        // Query finds indexes where:
+        // 1. The index is on the specified table
+        // 2. The index columns in order match the specified columns
+        // Uses GROUP_CONCAT with ORDER BY SEQ_IN_INDEX to build ordered list
+        // COALESCE ensures we return 0 when no matching index exists
+        return """
+            SELECT COALESCE((
+                SELECT COUNT(*) FROM (
+                    SELECT INDEX_NAME
+                    FROM INFORMATION_SCHEMA.STATISTICS
+                    WHERE TABLE_NAME = '%s'
+                    GROUP BY INDEX_NAME
+                    HAVING GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX SEPARATOR ',') = '%s'
+                ) sub
+            ), 0)""".formatted(tableName, expectedColumns);
+    }
+
+    /**
+     * H2 query to check for existing index on columns in the exact order.
+     * Uses INFORMATION_SCHEMA.INDEX_COLUMNS with ORDINAL_POSITION to verify column order.
+     * Returns 0 if no index exists, or a positive number if an index on the exact columns in order exists.
+     * 
+     * Note: Column names are assumed to be safe identifiers from JPA repository analysis.
+     * This generates Liquibase changesets (build-time), not runtime queries.
+     */
+    private String buildH2IndexExistsQuery(String tableName, List<String> columns) {
+        // Build comma-separated list of uppercase column names for comparison
+        String expectedColumns = columns.stream()
+                .map(c -> c.toUpperCase())
+                .collect(Collectors.joining(","));
+        
+        // Query finds indexes where:
+        // 1. The index is on the specified table
+        // 2. The index columns in order match the specified columns
+        // Uses GROUP_CONCAT with ORDER BY ORDINAL_POSITION to build ordered list
+        // COALESCE ensures we return 0 when no matching index exists
+        return """
+            SELECT COALESCE((
+                SELECT COUNT(*) FROM (
+                    SELECT INDEX_NAME
+                    FROM INFORMATION_SCHEMA.INDEX_COLUMNS
+                    WHERE TABLE_NAME = '%s'
+                    GROUP BY INDEX_NAME
+                    HAVING GROUP_CONCAT(COLUMN_NAME ORDER BY ORDINAL_POSITION SEPARATOR ',') = '%s'
+                ) sub
+            ), 0)""".formatted(tableName, expectedColumns);
+    }
+
     private String generateChangesetId(String baseName) {
         String baseId = baseName + "_" + System.currentTimeMillis();
         

@@ -76,8 +76,7 @@ public class QueryOptimizationChecker {
             aiConfig = new HashMap<>();
         }
         this.aiService.configure(aiConfig);
-        // Initialize Liquibase generator with default configuration
-        this.liquibaseGenerator = new LiquibaseGenerator();
+        this.liquibaseGenerator = new LiquibaseGenerator(LiquibaseGenerator.ChangesetConfig.fromConfiguration());
     }
 
     /**
@@ -93,6 +92,7 @@ public class QueryOptimizationChecker {
             String fullyQualifiedName = entry.getKey();
             TypeWrapper typeWrapper = entry.getValue();
 
+            i++;
             if (BaseRepositoryParser.isJpaRepository(typeWrapper)) {
                 results.clear(); // Clear results for each repository
 
@@ -305,7 +305,8 @@ public class QueryOptimizationChecker {
     }
 
     private void analyzeJoinRightSide(QueryAnalysisResult engineResult, List<String> requiredIndexes) {
-        // Analyze right-side JOIN columns for missing indexes (critical for JOIN performance)
+        // Analyze right-side JOIN columns for missing indexes (critical for JOIN
+        // performance)
         for (JoinCondition joinCondition : engineResult.getJoinConditions()) {
             String rightTable = joinCondition.getRightTable();
             String rightColumn = joinCondition.getRightColumn();
@@ -739,7 +740,7 @@ public class QueryOptimizationChecker {
 
                 // Only add non-low cardinality columns that don't already have indexes
                 if (cardinality != CardinalityLevel.LOW &&
-                    !CardinalityAnalyzer.hasIndexWithLeadingColumn(rightTable, rightColumn)) {
+                        !CardinalityAnalyzer.hasIndexWithLeadingColumn(rightTable, rightColumn)) {
 
                     // Add to columnsByTable for index generation, avoiding duplicates
                     List<String> tableColumns = columnsByTable.computeIfAbsent(rightTable, k -> new ArrayList<>());
