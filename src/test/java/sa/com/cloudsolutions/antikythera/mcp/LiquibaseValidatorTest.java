@@ -16,9 +16,9 @@ class LiquibaseValidatorTest {
     void testValidateSampleChangelog() {
         LiquibaseValidator validator = new LiquibaseValidator();
         String changelogPath = "src/test/resources/liquibase/sample-changelog.xml";
-        
+
         LiquibaseValidator.ValidationResult result = validator.validate(changelogPath);
-        
+
         assertTrue(result.isValid(), "Expected valid changelog");
         assertEquals(0, result.getErrors().size(), "Expected no errors");
         assertFalse(result.getWarnings().isEmpty(), "Expected some warnings");
@@ -28,9 +28,9 @@ class LiquibaseValidatorTest {
     void testValidateNonExistentFile() {
         LiquibaseValidator validator = new LiquibaseValidator();
         String changelogPath = "/non/existent/file.xml";
-        
+
         LiquibaseValidator.ValidationResult result = validator.validate(changelogPath);
-        
+
         assertFalse(result.isValid(), "Expected invalid result for non-existent file");
         assertFalse(result.getErrors().isEmpty(), "Expected errors");
         assertTrue(result.getErrors().get(0).contains("not found"), "Expected 'not found' error");
@@ -45,10 +45,10 @@ class LiquibaseValidatorTest {
             fw.write("  <changeSet id=\"1\" author=\"test\">\n");
             fw.write("    <!-- Missing closing tags -->\n");
         }
-        
+
         LiquibaseValidator validator = new LiquibaseValidator();
         LiquibaseValidator.ValidationResult result = validator.validate(invalidFile.getAbsolutePath());
-        
+
         assertFalse(result.isValid(), "Expected invalid result for malformed XML");
         assertFalse(result.getErrors().isEmpty(), "Expected errors");
     }
@@ -56,13 +56,12 @@ class LiquibaseValidatorTest {
     @Test
     void testValidationResultJson() {
         LiquibaseValidator.ValidationResult result = new LiquibaseValidator.ValidationResult(
-            true,
-            java.util.List.of("Error 1", "Error 2"),
-            java.util.List.of("Warning 1")
-        );
-        
+                true,
+                java.util.List.of("Error 1", "Error 2"),
+                java.util.List.of("Warning 1"));
+
         String json = result.toJson();
-        
+
         assertNotNull(json);
         assertTrue(json.contains("\"valid\":true"));
         assertTrue(json.contains("Error 1"));
@@ -82,13 +81,12 @@ class LiquibaseValidatorTest {
             fw.write("    http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.0.xsd\">\n");
             fw.write("</databaseChangeLog>\n");
         }
-        
+
         LiquibaseValidator validator = new LiquibaseValidator();
         LiquibaseValidator.ValidationResult result = validator.validate(emptyChangelog.getAbsolutePath());
-        
+
         assertTrue(result.isValid(), "Empty changelog should be valid");
         assertTrue(result.getWarnings().stream()
-            .anyMatch(w -> w.contains("no change sets")), "Expected warning about no change sets");
+                .anyMatch(w -> w.contains("no change sets")), "Expected warning about no change sets");
     }
 }
-
