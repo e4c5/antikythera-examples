@@ -356,7 +356,7 @@ public class LiquibaseGenerator {
         
         if (config.includePreconditions()) {
             sb.append("    <preConditions onFail=\"MARK_RAN\">\n");
-            // Use OR to combine checks for each dialect - skip if ANY returns count > 0
+            // Use OR with expectedResult="0": the changeset runs only when all dialect checks return 0; otherwise it is marked ran and skipped
             sb.append("        <or>\n");
             for (DatabaseDialect dialect : config.supportedDialects()) {
                 sb.append("            <and>\n");
