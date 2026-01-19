@@ -357,8 +357,51 @@ for (Map.Entry<String, Set<IndexInfo>> entry : indexes.entrySet()) {
 }
 ```
 
+## Recent Improvements
+
+### Index Name Length Validation (v0.1.2.9+)
+All generated index names are now automatically limited to **60 characters** for maximum database portability:
+- Prevents issues with databases that have shorter identifier limits
+- Uses deterministic hashing for truncated names to ensure uniqueness
+- No manual intervention required - works transparently
+
+**Example**:
+```java
+// Long table and column names
+String indexName = generator.generateIndexName(
+    "customer_transaction_history", 
+    List.of("user_id", "transaction_date", "payment_method", "status")
+);
+// Result: idx_customer_transaction_history_user_id_trans_1234567 (60 chars)
+```
+
+### Configurable Multi-Column Index Limits (v0.1.2.9+)
+You can now configure the maximum number of columns in multi-column indexes:
+- **Default**: 4 columns (recommended for OLTP)
+- **Range**: 1-16 columns
+- **Configuration**: `query_optimizer.max_index_columns` in `generator.yml`
+
+This prevents overly complex indexes that can hurt write performance.
+
+### Liquibase Built-in Preconditions (v0.1.2.9+)
+Index changesets now use Liquibase's native `<indexExists>` precondition:
+```xml
+<preConditions onFail="MARK_RAN">
+    <not>
+        <indexExists tableName="users" columnNames="email"/>
+    </not>
+</preConditions>
+```
+
+**Benefits**:
+- Simpler, more maintainable code (~150 lines removed)
+- Database-agnostic (Liquibase handles dialect differences)
+- Standard approach following Liquibase best practices
+
 ## See Also
 
 - [QueryOptimizationChecker](../README.md#query-analysis-read-only) - Uses Indexes for analysis
 - [QueryOptimizer](../README.md#query-optimization-modifies-code) - Generates new index suggestions
 - [LiquibaseGenerator](../README.md#supporting-components) - Creates Liquibase changesets
+- [Maximum Index Columns Configuration](max_index_columns_configuration.md) - Configure multi-column index limits
+- [Index Name Length Validation](index_name_length_validation.md) - Details on 60-character limit
