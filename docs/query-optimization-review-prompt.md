@@ -30,3 +30,4 @@ Conduct a technical review of the current Git diff. Focus on code integrity and 
 
 **Output:**
 Provide a summary of "Verified Optimizations" and a list of "Regressions/Corrections" if any mismatched signatures or syntax errors are detected.
+Place this out in a markdown file that is named as `review-<date>.md`, where `<date>` is the current date in `YYYYMMDD` format.
