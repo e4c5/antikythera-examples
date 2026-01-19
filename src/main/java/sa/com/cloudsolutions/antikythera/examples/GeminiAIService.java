@@ -80,7 +80,7 @@ public class GeminiAIService {
         this.config = config;
         validateConfig();
 
-        int timeoutSeconds = getConfigInt("timeout_seconds", 60);
+        int timeoutSeconds = getConfigInt("timeout_seconds", 90);
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(timeoutSeconds))
                 .build();
@@ -253,7 +253,7 @@ public class GeminiAIService {
                 "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent");
         String model = getConfigString("model", GEMINI_3_FLASH);
         String apiKey = getConfigString("api_key", null);
-        int timeoutSeconds = getConfigInt("timeout_seconds", 60);
+        int timeoutSeconds = getConfigInt("timeout_seconds", 90);
 
         if (apiKey == null || apiKey.trim().isEmpty()) {
             throw new IllegalStateException(
