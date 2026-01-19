@@ -231,31 +231,35 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             TypeWrapper typeWrapper = AntikytheraRunTime.getResolvedTypes().get(className);
 
             if (typeWrapper != null) {
-                boolean classModified = false;
-                int totalMethodCallsUpdated = 0;
-
-                // Process all field names for this class
-                for (String fieldName : fieldNames) {
-                    NameChangeVisitor visitor = new NameChangeVisitor(fieldName, fullyQualifiedName);
-                    // Visit the entire CompilationUnit to ensure modifications apply to the CU
-                    // instance
-                    CompilationUnit cu = AntikytheraRunTime.getCompilationUnit(className);
-                    cu.accept(visitor, update);
-
-                    if (visitor.modified) {
-                        classModified = true;
-                        totalMethodCallsUpdated += visitor.methodCallsUpdated;
-                    }
-                }
-
-                // Write file once if any field was modified
-                if (classModified) {
-                    if (modifiedFiles.add(className)) {
-                        OptimizationStatsLogger.updateDependentClassesChanged(1);
-                    }
-                    OptimizationStatsLogger.updateMethodCallsChanged(totalMethodCallsUpdated);
-                }
+                updateMethodCallSignature(update, fullyQualifiedName, fieldNames, className);
             }
+        }
+    }
+
+    private static void updateMethodCallSignature(QueryAnalysisResult update, String fullyQualifiedName, Set<String> fieldNames, String className) {
+        boolean classModified = false;
+        int totalMethodCallsUpdated = 0;
+
+        // Process all field names for this class
+        for (String fieldName : fieldNames) {
+            NameChangeVisitor visitor = new NameChangeVisitor(fieldName, fullyQualifiedName);
+            // Visit the entire CompilationUnit to ensure modifications apply to the CU
+            // instance
+            CompilationUnit cu = AntikytheraRunTime.getCompilationUnit(className);
+            cu.accept(visitor, update);
+
+            if (visitor.modified) {
+                classModified = true;
+                totalMethodCallsUpdated += visitor.methodCallsUpdated;
+            }
+        }
+
+        // Write file once if any field was modified
+        if (classModified) {
+            if (modifiedFiles.add(className)) {
+                OptimizationStatsLogger.updateDependentClassesChanged(1);
+            }
+            OptimizationStatsLogger.updateMethodCallsChanged(totalMethodCallsUpdated);
         }
     }
 
@@ -346,13 +350,12 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             }
 
             // Case 2: Mockito verify call - verify(fieldName).methodName(...)
-            if (scope.isPresent() && scope.get() instanceof MethodCallExpr verifyCall) {
-                if ("verify".equals(verifyCall.getNameAsString()) && !verifyCall.getArguments().isEmpty()) {
+            if (scope.isPresent() && scope.get() instanceof MethodCallExpr verifyCall &&
+                 ("verify".equals(verifyCall.getNameAsString()) && !verifyCall.getArguments().isEmpty())) {
                     Expression firstArg = verifyCall.getArgument(0);
                     if (firstArg instanceof NameExpr nameExpr && nameExpr.getNameAsString().equals(fieldName)) {
                         isMatchingCall = true;
                     }
-                }
             }
 
             if (isMatchingCall && update.getMethodName().equals(mce.getNameAsString())) {

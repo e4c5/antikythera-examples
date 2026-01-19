@@ -1027,8 +1027,8 @@ public class QueryOptimizationChecker {
         Map<String, Object> queryOptimizer = (Map<String, Object>) Settings.getProperty("query_optimizer");
         if (queryOptimizer != null) {
             Object maxColumns = queryOptimizer.get("max_index_columns");
-            if (maxColumns instanceof Number) {
-                int value = ((Number) maxColumns).intValue();
+            if (maxColumns instanceof Number n) {
+                int value = n.intValue();
                 // Validate the value is reasonable (at least 1, at most 16)
                 if (value >= 1 && value <= 16) {
                     return value;
