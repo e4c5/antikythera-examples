@@ -114,4 +114,5 @@ class LiquibaseValidatorTest {
         assertTrue(result.getErrors().stream()
                 .anyMatch(e -> e.contains("SQL Syntax error")), "Expected SQL syntax error message");
     }
+
 }

@@ -213,8 +213,8 @@ public class LiquibaseGenerator {
         String changesetId = generateChangesetId("drop_" + sanitize(indexName));
         StringBuilder sb = new StringBuilder();
         
-        sb.append("<changeSet id=\"").append(changesetId).append("\" author=\"").append(config.author()).append("\">\n");
-        
+        sb.append("<changeSet id=\"").append(changesetId).append("\" author=\"").append(config.author()).append("\" runInTransaction=\"false\">\n");
+
         if (config.includePreconditions()) {
             sb.append("    <preConditions onFail=\"MARK_RAN\">\n");
             sb.append("        <indexExists indexName=\"").append(indexName).append("\"/>\n");
@@ -371,8 +371,8 @@ public class LiquibaseGenerator {
         
         StringBuilder sb = new StringBuilder();
         
-        sb.append("<changeSet id=\"").append(changesetId).append("\" author=\"").append(config.author()).append("\">\n");
-        
+        sb.append("<changeSet id=\"").append(changesetId).append("\" author=\"").append(config.author()).append("\" runInTransaction=\"false\">\n");
+
         if (config.includePreconditions()) {
             sb.append("    <preConditions onFail=\"MARK_RAN\">\n");
             sb.append("        <not>\n");
