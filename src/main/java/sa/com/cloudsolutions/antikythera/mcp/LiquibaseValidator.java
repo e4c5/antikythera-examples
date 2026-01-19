@@ -207,6 +207,13 @@ public class LiquibaseValidator {
                     try {
                         CCJSqlParserUtil.parseStatements(sql);
                     } catch (JSQLParserException e) {
+                        // JSQLParser might not support database-specific keywords like CONCURRENTLY or ONLINE
+                        // If it fails, we check if it's likely a false positive due to these keywords
+                        String upperSql = sql.toUpperCase();
+                        if (upperSql.contains("CONCURRENTLY") || upperSql.contains("ONLINE")) {
+                            // Suppress error for these known database-specific extensions that JSQLParser often fails on
+                            continue;
+                        }
                         errors.add("SQL Syntax error in ChangeSet '" + changeSet.getId() +
                                 "' by " + changeSet.getAuthor() + ": " + e.getMessage());
                     }
