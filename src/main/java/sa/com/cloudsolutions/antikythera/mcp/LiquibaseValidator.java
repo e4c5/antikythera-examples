@@ -31,63 +31,47 @@ import java.util.List;
 public class LiquibaseValidator {
 
     /**
-     * Result of a validation operation.
-     */
-    public static class ValidationResult {
-        private final boolean valid;
-        private final List<String> errors;
-        private final List<String> warnings;
-
-        public ValidationResult(boolean valid, List<String> errors, List<String> warnings) {
-            this.valid = valid;
-            this.errors = errors != null ? errors : new ArrayList<>();
-            this.warnings = warnings != null ? warnings : new ArrayList<>();
-        }
-
-        public boolean isValid() {
-            return valid;
-        }
-
-        public List<String> getErrors() {
-            return errors;
-        }
-
-        public List<String> getWarnings() {
-            return warnings;
-        }
-
-        public String toJson() {
-            StringBuilder sb = new StringBuilder();
-            sb.append("{");
-            sb.append("\"valid\":").append(valid).append(",");
-            sb.append("\"errors\":[");
-            for (int i = 0; i < errors.size(); i++) {
-                if (i > 0)
-                    sb.append(",");
-                sb.append("\"").append(escapeJson(errors.get(i))).append("\"");
+         * Result of a validation operation.
+         */
+        public record ValidationResult(boolean valid, List<String> errors, List<String> warnings) {
+            public ValidationResult(boolean valid, List<String> errors, List<String> warnings) {
+                this.valid = valid;
+                this.errors = errors != null ? errors : new ArrayList<>();
+                this.warnings = warnings != null ? warnings : new ArrayList<>();
             }
-            sb.append("],");
-            sb.append("\"warnings\":[");
-            for (int i = 0; i < warnings.size(); i++) {
-                if (i > 0)
-                    sb.append(",");
-                sb.append("\"").append(escapeJson(warnings.get(i))).append("\"");
-            }
-            sb.append("]");
-            sb.append("}");
-            return sb.toString();
-        }
 
-        private String escapeJson(String str) {
-            if (str == null)
-                return "";
-            return str.replace("\\", "\\\\")
-                    .replace("\"", "\\\"")
-                    .replace("\n", "\\n")
-                    .replace("\r", "\\r")
-                    .replace("\t", "\\t");
+            public String toJson() {
+                StringBuilder sb = new StringBuilder();
+                sb.append("{");
+                sb.append("\"valid\":").append(valid).append(",");
+                sb.append("\"errors\":[");
+                for (int i = 0; i < errors.size(); i++) {
+                    if (i > 0)
+                        sb.append(",");
+                    sb.append("\"").append(escapeJson(errors.get(i))).append("\"");
+                }
+                sb.append("],");
+                sb.append("\"warnings\":[");
+                for (int i = 0; i < warnings.size(); i++) {
+                    if (i > 0)
+                        sb.append(",");
+                    sb.append("\"").append(escapeJson(warnings.get(i))).append("\"");
+                }
+                sb.append("]");
+                sb.append("}");
+                return sb.toString();
+            }
+
+            private String escapeJson(String str) {
+                if (str == null)
+                    return "";
+                return str.replace("\\", "\\\\")
+                        .replace("\"", "\\\"")
+                        .replace("\n", "\\n")
+                        .replace("\r", "\\r")
+                        .replace("\t", "\\t");
+            }
         }
-    }
 
     /**
      * Validates a Liquibase changelog file.
@@ -95,6 +79,7 @@ public class LiquibaseValidator {
      * @param changelogPath Path to the changelog XML file
      * @return ValidationResult containing validation status and any errors/warnings
      */
+    @SuppressWarnings("java:S5443")
     public ValidationResult validate(String changelogPath) {
         List<String> errors = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
@@ -196,28 +181,32 @@ public class LiquibaseValidator {
     private void validateRawSql(DatabaseChangeLog changeLog, List<String> errors) {
         for (ChangeSet changeSet : changeLog.getChangeSets()) {
             for (Change change : changeSet.getChanges()) {
-                String sql = null;
-                if (change instanceof AbstractSQLChange sqlChange) {
-                    sql = sqlChange.getSql();
-                } else if (change instanceof CreateViewChange viewChange) {
-                    sql = viewChange.getSelectQuery();
-                }
+                validateRawSql(errors, changeSet, change);
+            }
+        }
+    }
 
-                if (sql != null && !sql.trim().isEmpty()) {
-                    try {
-                        CCJSqlParserUtil.parseStatements(sql);
-                    } catch (JSQLParserException e) {
-                        // JSQLParser might not support database-specific keywords like CONCURRENTLY or ONLINE
-                        // If it fails, we check if it's likely a false positive due to these keywords
-                        String upperSql = sql.toUpperCase();
-                        if (upperSql.contains("CONCURRENTLY") || upperSql.contains("ONLINE")) {
-                            // Suppress error for these known database-specific extensions that JSQLParser often fails on
-                            continue;
-                        }
-                        errors.add("SQL Syntax error in ChangeSet '" + changeSet.getId() +
-                                "' by " + changeSet.getAuthor() + ": " + e.getMessage());
-                    }
+    private static void validateRawSql(List<String> errors, ChangeSet changeSet, Change change) {
+        String sql = null;
+        if (change instanceof AbstractSQLChange sqlChange) {
+            sql = sqlChange.getSql();
+        } else if (change instanceof CreateViewChange viewChange) {
+            sql = viewChange.getSelectQuery();
+        }
+
+        if (sql != null && !sql.trim().isEmpty()) {
+            try {
+                CCJSqlParserUtil.parseStatements(sql);
+            } catch (JSQLParserException e) {
+                // JSQLParser might not support database-specific keywords like CONCURRENTLY or ONLINE
+                // If it fails, we check if it's likely a false positive due to these keywords
+                String upperSql = sql.toUpperCase();
+                if (upperSql.contains("CONCURRENTLY") || upperSql.contains("ONLINE")) {
+                    // Suppress error for these known database-specific extensions that JSQLParser often fails on
+                    return;
                 }
+                errors.add("SQL Syntax error in ChangeSet '" + changeSet.getId() +
+                        "' by " + changeSet.getAuthor() + ": " + e.getMessage());
             }
         }
     }
@@ -245,6 +234,6 @@ public class LiquibaseValidator {
         System.out.println(result.toJson());
 
         // Exit with appropriate code
-        System.exit(result.isValid() ? 0 : 1);
+        System.exit(result.valid() ? 0 : 1);
     }
 }

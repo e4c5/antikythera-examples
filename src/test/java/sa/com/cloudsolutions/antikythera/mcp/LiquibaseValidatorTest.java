@@ -19,9 +19,9 @@ class LiquibaseValidatorTest {
 
         LiquibaseValidator.ValidationResult result = validator.validate(changelogPath);
 
-        assertTrue(result.isValid(), "Expected valid changelog");
-        assertEquals(0, result.getErrors().size(), "Expected no errors");
-        assertFalse(result.getWarnings().isEmpty(), "Expected some warnings");
+        assertTrue(result.valid(), "Expected valid changelog");
+        assertEquals(0, result.errors().size(), "Expected no errors");
+        assertFalse(result.warnings().isEmpty(), "Expected some warnings");
     }
 
     @Test
@@ -31,9 +31,9 @@ class LiquibaseValidatorTest {
 
         LiquibaseValidator.ValidationResult result = validator.validate(changelogPath);
 
-        assertFalse(result.isValid(), "Expected invalid result for non-existent file");
-        assertFalse(result.getErrors().isEmpty(), "Expected errors");
-        assertTrue(result.getErrors().get(0).contains("not found"), "Expected 'not found' error");
+        assertFalse(result.valid(), "Expected invalid result for non-existent file");
+        assertFalse(result.errors().isEmpty(), "Expected errors");
+        assertTrue(result.errors().get(0).contains("not found"), "Expected 'not found' error");
     }
 
     @Test
@@ -49,8 +49,8 @@ class LiquibaseValidatorTest {
         LiquibaseValidator validator = new LiquibaseValidator();
         LiquibaseValidator.ValidationResult result = validator.validate(invalidFile.getAbsolutePath());
 
-        assertFalse(result.isValid(), "Expected invalid result for malformed XML");
-        assertFalse(result.getErrors().isEmpty(), "Expected errors");
+        assertFalse(result.valid(), "Expected invalid result for malformed XML");
+        assertFalse(result.errors().isEmpty(), "Expected errors");
     }
 
     @Test
@@ -85,8 +85,8 @@ class LiquibaseValidatorTest {
         LiquibaseValidator validator = new LiquibaseValidator();
         LiquibaseValidator.ValidationResult result = validator.validate(emptyChangelog.getAbsolutePath());
 
-        assertTrue(result.isValid(), "Empty changelog should be valid");
-        assertTrue(result.getWarnings().stream()
+        assertTrue(result.valid(), "Empty changelog should be valid");
+        assertTrue(result.warnings().stream()
                 .anyMatch(w -> w.contains("no change sets")), "Expected warning about no change sets");
     }
 
@@ -110,8 +110,8 @@ class LiquibaseValidatorTest {
         LiquibaseValidator validator = new LiquibaseValidator();
         LiquibaseValidator.ValidationResult result = validator.validate(invalidSqlFile.getAbsolutePath());
 
-        assertFalse(result.isValid(), "Should be invalid due to SQL syntax error");
-        assertTrue(result.getErrors().stream()
+        assertFalse(result.valid(), "Should be invalid due to SQL syntax error");
+        assertTrue(result.errors().stream()
                 .anyMatch(e -> e.contains("SQL Syntax error")), "Expected SQL syntax error message");
     }
 

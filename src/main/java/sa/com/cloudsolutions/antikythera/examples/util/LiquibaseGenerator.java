@@ -22,6 +22,9 @@ import sa.com.cloudsolutions.antikythera.configuration.Settings;
  * - QueryOptimizationChecker.buildLiquibaseDropIndexChangeSet()
  */
 public class LiquibaseGenerator {
+
+    public static final String CREATE_INDEX = "CREATE INDEX ";
+
     /**
      * Supported database dialects for Liquibase generation.
      */
@@ -305,6 +308,7 @@ public class LiquibaseGenerator {
      * @param columns the column names
      * @return generated index name (max 60 characters)
      */
+    @SuppressWarnings("java:S2676")
     public String generateIndexName(String tableName, List<String> columns) {
         if (columns.isEmpty()) {
             throw new IllegalArgumentException("Columns cannot be empty");
@@ -406,17 +410,16 @@ public class LiquibaseGenerator {
     private String getCreateIndexSql(DatabaseDialect dialect, String indexName, String tableName, String columnList) {
         return switch (dialect) {
             case POSTGRESQL -> "CREATE INDEX CONCURRENTLY " + indexName + " ON " + tableName + " (" + columnList + ");";
-            case ORACLE -> "CREATE INDEX " + indexName + " ON " + tableName + " (" + columnList + ") ONLINE;";
-            case MYSQL -> "CREATE INDEX " + indexName + " ON " + tableName + " (" + columnList + ");";
-            case H2 -> "CREATE INDEX " + indexName + " ON " + tableName + " (" + columnList + ");";
+            case ORACLE -> CREATE_INDEX + indexName + " ON " + tableName + " (" + columnList + ") ONLINE;";
+            case MYSQL -> CREATE_INDEX + indexName + " ON " + tableName + " (" + columnList + ");";
+            case H2 -> CREATE_INDEX + indexName + " ON " + tableName + " (" + columnList + ");";
         };
     }
     
     private String getDropIndexSql(DatabaseDialect dialect, String indexName) {
         return switch (dialect) {
             case POSTGRESQL -> "DROP INDEX CONCURRENTLY IF EXISTS " + indexName + ";";
-            case ORACLE -> "DROP INDEX " + indexName + ";";
-            case MYSQL -> "DROP INDEX " + indexName + ";";
+            case ORACLE, MYSQL -> "DROP INDEX " + indexName + ";";
             case H2 -> "DROP INDEX IF EXISTS " + indexName + ";";
         };
     }

@@ -103,26 +103,26 @@ public class LiquibaseValidationMcpServer {
             response.append("Liquibase Validation Result\n");
             response.append("==========================\n\n");
             response.append("File: ").append(filepath).append("\n");
-            response.append("Status: ").append(result.isValid() ? "✓ VALID" : "✗ INVALID").append("\n\n");
+            response.append("Status: ").append(result.valid() ? "✓ VALID" : "✗ INVALID").append("\n\n");
 
-            if (!result.getErrors().isEmpty()) {
+            if (!result.errors().isEmpty()) {
                 response.append("Errors:\n");
-                for (String error : result.getErrors()) {
+                for (String error : result.errors()) {
                     response.append("  - ").append(error).append("\n");
                 }
                 response.append("\n");
             }
 
-            if (!result.getWarnings().isEmpty()) {
+            if (!result.warnings().isEmpty()) {
                 response.append("Warnings:\n");
-                for (String warning : result.getWarnings()) {
+                for (String warning : result.warnings()) {
                     response.append("  - ").append(warning).append("\n");
                 }
             }
 
             return CallToolResult.builder()
                     .content(List.of(new TextContent(response.toString())))
-                    .isError(!result.isValid())
+                    .isError(!result.valid())
                     .build();
 
         } catch (Exception e) {
