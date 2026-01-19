@@ -406,7 +406,7 @@ public class LiquibaseGenerator {
     private String getCreateIndexSql(DatabaseDialect dialect, String indexName, String tableName, String columnList) {
         return switch (dialect) {
             case POSTGRESQL -> "CREATE INDEX CONCURRENTLY " + indexName + " ON " + tableName + " (" + columnList + ");";
-            case ORACLE -> "CREATE INDEX " + indexName + " ON " + tableName + " (" + columnList + ") ONLINE";
+            case ORACLE -> "CREATE INDEX " + indexName + " ON " + tableName + " (" + columnList + ") ONLINE;";
             case MYSQL -> "CREATE INDEX " + indexName + " ON " + tableName + " (" + columnList + ");";
             case H2 -> "CREATE INDEX " + indexName + " ON " + tableName + " (" + columnList + ");";
         };
@@ -415,7 +415,7 @@ public class LiquibaseGenerator {
     private String getDropIndexSql(DatabaseDialect dialect, String indexName) {
         return switch (dialect) {
             case POSTGRESQL -> "DROP INDEX CONCURRENTLY IF EXISTS " + indexName + ";";
-            case ORACLE -> "DROP INDEX " + indexName;
+            case ORACLE -> "DROP INDEX " + indexName + ";";
             case MYSQL -> "DROP INDEX " + indexName + ";";
             case H2 -> "DROP INDEX IF EXISTS " + indexName + ";";
         };
