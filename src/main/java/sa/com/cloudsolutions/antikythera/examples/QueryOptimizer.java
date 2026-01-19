@@ -441,6 +441,9 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         boolean quietMode = hasFlag(args, "--quiet") || hasFlag(args, "-q");
         QueryOptimizationChecker.setQuietMode(quietMode);
 
+        boolean skipProcessed = hasFlag(args, "--skip-processed") || hasFlag(args, "-s");
+        QueryOptimizationChecker.setSkipProcessed(skipProcessed);
+
         AbstractCompiler.loadDependencies();
         AbstractCompiler.preProcess();
 

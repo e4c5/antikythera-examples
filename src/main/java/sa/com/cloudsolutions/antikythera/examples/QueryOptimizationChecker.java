@@ -52,6 +52,9 @@ public class QueryOptimizationChecker {
     // Quiet mode flag - suppresses detailed output, shows only changes
     protected static boolean quietMode = false;
 
+    // Skip already processed repositories
+    protected static boolean skipProcessed = false;
+
     // Maximum number of columns allowed in a multi-column index (configurable)
     protected final int maxIndexColumns;
 
@@ -92,6 +95,7 @@ public class QueryOptimizationChecker {
      */
     public void analyze() throws IOException, ReflectiveOperationException, InterruptedException {
         Map<String, TypeWrapper> resolvedTypes = AntikytheraRunTime.getResolvedTypes();
+        Set<String> processedRepositories = skipProcessed ? OptimizationStatsLogger.getProcessedRepositories() : Set.of();
         int i = 0;
         int repositoriesProcessed = 0;
         for (Map.Entry<String, TypeWrapper> entry : resolvedTypes.entrySet()) {
@@ -100,6 +104,12 @@ public class QueryOptimizationChecker {
 
             i++;
             if (BaseRepositoryParser.isJpaRepository(typeWrapper)) {
+                if (skipProcessed && processedRepositories.contains(fullyQualifiedName)) {
+                    if (!quietMode) {
+                        System.out.printf("⏭️ Skipping already processed repository: %s%n", fullyQualifiedName);
+                    }
+                    continue;
+                }
                 results.clear(); // Clear results for each repository
 
                 System.out.println("\n" + "=".repeat(80));
@@ -574,6 +584,15 @@ public class QueryOptimizationChecker {
      */
     public static void setQuietMode(boolean enabled) {
         quietMode = enabled;
+    }
+
+    /**
+     * Set whether to skip already processed repositories.
+     * 
+     * @param enabled true to skip, false to re-analyze
+     */
+    public static void setSkipProcessed(boolean enabled) {
+        skipProcessed = enabled;
     }
 
     /**

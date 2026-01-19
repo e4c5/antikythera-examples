@@ -7,8 +7,12 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.io.PrintWriter;
+import java.io.BufferedReader;
+import java.io.FileReader;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * Logs optimization statistics to a CSV file for tracking QueryOptimizer
@@ -193,6 +197,30 @@ public class OptimizationStatsLogger {
 
     public static int getTotalIndexesDropped() {
         return total.liquibaseIndexesDropped;
+    }
+
+    public static Set<String> getProcessedRepositories() {
+        Set<String> processed = new HashSet<>();
+        Path csvPath = Paths.get(CSV_FILENAME);
+        if (csvPath.toFile().exists()) {
+            try (BufferedReader reader = new BufferedReader(new FileReader(CSV_FILENAME))) {
+                String line;
+                boolean firstLine = true;
+                while ((line = reader.readLine()) != null) {
+                    if (firstLine) {
+                        firstLine = false;
+                        continue;
+                    }
+                    String[] parts = line.split(",");
+                    if (parts.length > 1) {
+                        processed.add(parts[1]);
+                    }
+                }
+            } catch (IOException e) {
+                logger.error("Failed to read processed repositories from CSV: {}", e.getMessage());
+            }
+        }
+        return processed;
     }
 
     public static void printSummary(PrintStream out) {
