@@ -7,7 +7,7 @@ This prompt is designed to be used with AI coding agents (like Antigravity, GitH
 ## 🚀 AI Review Prompt
 
 **Context:**
-I have executed an automated `QueryOptimizer` on my Spring Boot / JPA project. The tool has performed binary optimizations:
+I have executed an automated `QueryOptimizer` on my Spring Boot / JPA project. The tool has performed two optimizations:
 1. **Query Restructuring:** Reordering `WHERE` clause columns in `@Query` annotations based on column cardinality (moving high-cardinality filters to the front).
 2. **Schema Enhancement:** Appending new Liquibase `<createIndex>` changesets to the changelog file.
 

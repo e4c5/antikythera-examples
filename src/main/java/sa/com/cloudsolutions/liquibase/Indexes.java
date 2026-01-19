@@ -15,6 +15,9 @@ import java.io.File;
 import java.nio.file.Path;
 import java.util.*;
 
+import static sa.com.cloudsolutions.liquibase.LiquibaseResourceUtil.determineResourceRoot;
+import static sa.com.cloudsolutions.liquibase.LiquibaseResourceUtil.getRelativeChangelogPath;
+
 @SuppressWarnings("java:S106")
 public class Indexes {
 
@@ -113,46 +116,6 @@ public class Indexes {
         return result;
     }
 
-    /**
-     * Determines the resource root directory for Liquibase file resolution.
-     * For Spring Boot projects, this should be src/main/resources or
-     * src/test/resources.
-     * Otherwise, falls back to the file's parent directory.
-     *
-     * @param file the changelog file
-     * @return the root path for resource resolution
-     */
-    private static Path determineResourceRoot(File file) {
-        String absolutePath = file.getAbsolutePath();
-
-        // Check if this is in a Spring Boot resources directory
-        if (absolutePath.contains("/src/main/resources/")) {
-            int idx = absolutePath.indexOf("/src/main/resources/");
-            String rootDir = absolutePath.substring(0, idx + "/src/main/resources".length());
-            return new File(rootDir).toPath().toAbsolutePath().normalize();
-        } else if (absolutePath.contains("/src/test/resources/")) {
-            int idx = absolutePath.indexOf("/src/test/resources/");
-            String rootDir = absolutePath.substring(0, idx + "/src/test/resources".length());
-            return new File(rootDir).toPath().toAbsolutePath().normalize();
-        }
-
-        // Fallback: use parent directory
-        return file.getParentFile().toPath().toAbsolutePath().normalize();
-    }
-
-    /**
-     * Gets the changelog file path relative to the resource root.
-     * This is necessary for Liquibase to properly resolve include directives.
-     *
-     * @param file     the changelog file
-     * @param rootPath the resource root path
-     * @return the relative path from root to the changelog file
-     */
-    private static String getRelativeChangelogPath(File file, Path rootPath) {
-        Path filePath = file.toPath().toAbsolutePath().normalize();
-        Path relativePath = rootPath.relativize(filePath);
-        return relativePath.toString().replace(File.separatorChar, '/');
-    }
 
     private static void processChange(Change change, Map<String, Set<IndexInfo>> result) {
         if (change instanceof CreateIndexChange cic) {
@@ -192,27 +155,25 @@ public class Indexes {
     }
 
     private static void handleAddPrimaryKey(AddPrimaryKeyChange apk, Map<String, Set<IndexInfo>> result) {
-        String tableName = apk.getTableName();
-        if (isBlank(tableName) || isBlank(apk.getColumnNames()))
-            return;
-
-        List<String> cols = splitColumns(apk.getColumnNames());
-        if (cols.isEmpty())
-            return;
-
-        add(result, tableName, new IndexInfo(PRIMARY_KEY, orUnknown(apk.getConstraintName()), cols));
+        addConstraint(result, apk.getTableName(), apk.getColumnNames(),
+                      PRIMARY_KEY, apk.getConstraintName());
     }
 
     private static void handleAddUniqueConstraint(AddUniqueConstraintChange auc, Map<String, Set<IndexInfo>> result) {
-        String tableName = auc.getTableName();
-        if (isBlank(tableName) || isBlank(auc.getColumnNames()))
+        addConstraint(result, auc.getTableName(), auc.getColumnNames(),
+                      UNIQUE_CONSTRAINT, auc.getConstraintName());
+    }
+
+    private static void addConstraint(Map<String, Set<IndexInfo>> result, String tableName,
+                                       String columnNames, String type, String constraintName) {
+        if (isBlank(tableName) || isBlank(columnNames))
             return;
 
-        List<String> cols = splitColumns(auc.getColumnNames());
+        List<String> cols = splitColumns(columnNames);
         if (cols.isEmpty())
             return;
 
-        add(result, tableName, new IndexInfo(UNIQUE_CONSTRAINT, orUnknown(auc.getConstraintName()), cols));
+        add(result, tableName, new IndexInfo(type, orUnknown(constraintName), cols));
     }
 
     private static void handleCreateTable(CreateTableChange ctc, Map<String, Set<IndexInfo>> result) {
