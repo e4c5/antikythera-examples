@@ -97,58 +97,61 @@ public class LiquibaseValidator {
                 return new ValidationResult(false, errors, warnings);
             }
 
-            // Set up resource accessor - use intelligent path resolution for Spring Boot
-            // projects
-            Path resourceRoot = LiquibaseResourceUtil.determineResourceRoot(changelogFile);
-            String relativeChangelogPath = LiquibaseResourceUtil.getRelativeChangelogPath(changelogFile, resourceRoot);
+            Path tempHistoryPath = Files.createTempFile("liquibase-history", ".csv");
+            try {
+                // Set up resource accessor - use intelligent path resolution for Spring Boot
+                // projects
+                Path resourceRoot = LiquibaseResourceUtil.determineResourceRoot(changelogFile);
+                String relativeChangelogPath = LiquibaseResourceUtil.getRelativeChangelogPath(changelogFile, resourceRoot);
 
-            try (DirectoryResourceAccessor resourceAccessor = new DirectoryResourceAccessor(resourceRoot)) {
-
-                // Parse the changelog
-                ChangeLogParserFactory parserFactory = ChangeLogParserFactory.getInstance();
-                ChangeLogParser parser = parserFactory.getParser(relativeChangelogPath, resourceAccessor);
-
-                if (parser == null) {
-                    errors.add("No parser found for file: " + relativeChangelogPath);
-                    return new ValidationResult(false, errors, warnings);
-                }
-
-                Path tempHistoryPath = Files.createTempFile("liquibase-history", ".csv");
-                File tempHistoryFile = tempHistoryPath.toFile();
-                tempHistoryFile.deleteOnExit();
-                String offlineUri = "offline:postgresql?changeLogFile=" + tempHistoryFile.getAbsolutePath();
-
-                try (Database database = DatabaseFactory.getInstance()
-                        .findCorrectDatabaseImplementation(new OfflineConnection(offlineUri, resourceAccessor))) {
+                try (DirectoryResourceAccessor resourceAccessor = new DirectoryResourceAccessor(resourceRoot)) {
 
                     // Parse the changelog
-                    DatabaseChangeLog changeLog = parser.parse(
-                            relativeChangelogPath,
-                            new ChangeLogParameters(database),
-                            resourceAccessor);
+                    ChangeLogParserFactory parserFactory = ChangeLogParserFactory.getInstance();
+                    ChangeLogParser parser = parserFactory.getParser(relativeChangelogPath, resourceAccessor);
 
-                    if (changeLog == null) {
-                        errors.add("Failed to parse changelog file");
+                    if (parser == null) {
+                        errors.add("No parser found for file: " + relativeChangelogPath);
                         return new ValidationResult(false, errors, warnings);
                     }
 
-                    // Validate the changelog
-                    validateChangeLog(changeLog, database, errors);
+                    String offlineUri = "offline:postgresql?changeLogFile=" + tempHistoryPath.toFile().getAbsolutePath();
 
-                    // Validate Raw SQL if any
-                    validateRawSql(changeLog, errors);
+                    try (Database database = DatabaseFactory.getInstance()
+                            .findCorrectDatabaseImplementation(new OfflineConnection(offlineUri, resourceAccessor))) {
+                        // Parse the changelog
+                        DatabaseChangeLog changeLog = parser.parse(
+                                relativeChangelogPath,
+                                new ChangeLogParameters(database),
+                                resourceAccessor);
 
-                    // Additional checks
-                    if (changeLog.getChangeSets().isEmpty()) {
-                        warnings.add("Changelog contains no change sets");
+                        if (changeLog == null) {
+                            errors.add("Failed to parse changelog file");
+                            return new ValidationResult(false, errors, warnings);
+                        }
+
+                        // Validate the changelog
+                        validateChangeLog(changeLog, database, errors);
+
+                        // Validate Raw SQL if any
+                        validateRawSql(changeLog, errors);
+
+                        // Additional checks
+                        if (changeLog.getChangeSets().isEmpty()) {
+                            warnings.add("Changelog contains no change sets");
+                        }
+
+                        // Count change sets
+                        int changeSetCount = changeLog.getChangeSets().size();
+                        warnings.add("Changelog contains " + changeSetCount + " change set(s)");
                     }
-
-                    // Count change sets
-                    int changeSetCount = changeLog.getChangeSets().size();
-                    warnings.add("Changelog contains " + changeSetCount + " change set(s)");
                 }
+            } finally {
+                // We must use deleteOnExit here because Liquibase's offline connection
+                // implementation may access this file lazily even after the Database
+                // object is closed. Immediate deletion causes NoSuchFileException.
+                tempHistoryPath.toFile().deleteOnExit();
             }
-
         } catch (LiquibaseException e) {
             errors.add("Liquibase error: " + e.getMessage());
             if (e.getCause() != null) {

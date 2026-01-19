@@ -236,7 +236,8 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         }
     }
 
-    private static void updateMethodCallSignature(QueryAnalysisResult update, String fullyQualifiedName, Set<String> fieldNames, String className) {
+    private static void updateMethodCallSignature(QueryAnalysisResult update, String fullyQualifiedName,
+            Set<String> fieldNames, String className) {
         boolean classModified = false;
         int totalMethodCallsUpdated = 0;
 
@@ -351,11 +352,11 @@ public class QueryOptimizer extends QueryOptimizationChecker {
 
             // Case 2: Mockito verify call - verify(fieldName).methodName(...)
             if (scope.isPresent() && scope.get() instanceof MethodCallExpr verifyCall &&
-                 ("verify".equals(verifyCall.getNameAsString()) && !verifyCall.getArguments().isEmpty())) {
-                    Expression firstArg = verifyCall.getArgument(0);
-                    if (firstArg instanceof NameExpr nameExpr && nameExpr.getNameAsString().equals(fieldName)) {
-                        isMatchingCall = true;
-                    }
+                    ("verify".equals(verifyCall.getNameAsString()) && !verifyCall.getArguments().isEmpty())) {
+                Expression firstArg = verifyCall.getArgument(0);
+                if (firstArg instanceof NameExpr nameExpr && nameExpr.getNameAsString().equals(fieldName)) {
+                    isMatchingCall = true;
+                }
             }
 
             if (isMatchingCall && update.getMethodName().equals(mce.getNameAsString())) {
@@ -436,11 +437,12 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         // parsed files
         AbstractCompiler.setEnableLexicalPreservation(true);
 
-        AbstractCompiler.preProcess();
-
         // Parse command-line flags
         boolean quietMode = hasFlag(args, "--quiet") || hasFlag(args, "-q");
         QueryOptimizationChecker.setQuietMode(quietMode);
+
+        AbstractCompiler.loadDependencies();
+        AbstractCompiler.preProcess();
 
         if (!quietMode) {
             System.out.println("Time to preprocess   " + (System.currentTimeMillis() - s) + "ms");
