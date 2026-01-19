@@ -299,10 +299,11 @@ public class LiquibaseGenerator {
     
     /**
      * Generates a unique index name based on table and column names.
-     * 
+     * Ensures the name doesn't exceed 60 characters. If it does, truncates and adds a hash suffix.
+     *
      * @param tableName the table name
      * @param columns the column names
-     * @return generated index name
+     * @return generated index name (max 60 characters)
      */
     public String generateIndexName(String tableName, List<String> columns) {
         if (columns.isEmpty()) {
@@ -315,7 +316,25 @@ public class LiquibaseGenerator {
                 .map(this::sanitize)
                 .collect(Collectors.joining("_"));
         
-        return ("idx_" + sanitize(tableName) + "_" + columnPart).toLowerCase();
+        String fullName = ("idx_" + sanitize(tableName) + "_" + columnPart).toLowerCase();
+
+        // Oracle and other databases have index name limits (typically 30-128 chars)
+        // Using 60 as a safe limit for portability
+        if (fullName.length() <= 60) {
+            return fullName;
+        }
+
+        // If too long, truncate and add hash suffix for uniqueness
+        // Format: idx_<table>_<truncated_cols>_<hash>
+        // Reserve 8 chars for "_" + 7-char hash
+        int maxBaseLength = 60 - 8;
+
+        // Create a deterministic hash from the full name
+        int hash = Math.abs(fullName.hashCode());
+        String hashSuffix = String.format("%07d", hash % 10000000);
+
+        String truncatedBase = fullName.substring(0, Math.min(fullName.length(), maxBaseLength));
+        return truncatedBase + "_" + hashSuffix;
     }
     
     /**

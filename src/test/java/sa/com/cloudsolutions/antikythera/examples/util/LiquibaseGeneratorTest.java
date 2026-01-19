@@ -227,10 +227,87 @@ class LiquibaseGeneratorTest {
         // Test index name generation with special characters
         String indexName = generator.generateIndexName("user-table", Arrays.asList("email@domain"));
         assertEquals("idx_user_table_email_domain", indexName);
+        assertTrue(indexName.length() <= 60, "Index name should not exceed 60 characters");
 
         // Test with numbers and underscores
         String indexName2 = generator.generateIndexName("table_123", Arrays.asList("col_1", "col_2"));
         assertEquals("idx_table_123_col_1_col_2", indexName2);
+        assertTrue(indexName2.length() <= 60, "Index name should not exceed 60 characters");
+    }
+
+    @Test
+    void testGenerateIndexNameLengthLimit() {
+        // Test that index names are limited to 60 characters
+        // Create a very long table name and column names
+        String longTableName = "very_long_table_name_that_exceeds_normal_limits";
+        List<String> longColumns = Arrays.asList(
+            "very_long_column_name_one",
+            "very_long_column_name_two",
+            "very_long_column_name_three",
+            "very_long_column_name_four"
+        );
+
+        String indexName = generator.generateIndexName(longTableName, longColumns);
+
+        // Verify the index name doesn't exceed 60 characters
+        assertTrue(indexName.length() <= 60,
+            "Index name '" + indexName + "' exceeds 60 characters (length: " + indexName.length() + ")");
+
+        // Verify it starts with idx_
+        assertTrue(indexName.startsWith("idx_"), "Index name should start with 'idx_'");
+
+        // Verify it contains a hash suffix when truncated
+        // Format should be: idx_<truncated>_<7-digit-hash>
+        String[] parts = indexName.split("_");
+        assertTrue(parts.length >= 2, "Truncated index should have at least 2 parts");
+
+        // Last part should be a 7-digit hash
+        String lastPart = parts[parts.length - 1];
+        assertTrue(lastPart.matches("\\d{7}"), "Last part should be a 7-digit hash, got: " + lastPart);
+    }
+
+    @Test
+    void testGenerateIndexNameConsistentHashing() {
+        // Test that the same input produces the same truncated index name
+        String longTableName = "extremely_long_table_name_for_testing_purposes";
+        List<String> longColumns = Arrays.asList(
+            "column_one_with_long_name",
+            "column_two_with_long_name",
+            "column_three_with_long_name"
+        );
+
+        String indexName1 = generator.generateIndexName(longTableName, longColumns);
+        String indexName2 = generator.generateIndexName(longTableName, longColumns);
+
+        // Should produce identical results (deterministic hashing)
+        assertEquals(indexName1, indexName2, "Same inputs should produce same index name");
+        assertTrue(indexName1.length() <= 60, "Index name should not exceed 60 characters");
+    }
+
+    @Test
+    void testGenerateIndexNameShortNamesUnchanged() {
+        // Test that short index names are not modified
+        String shortTableName = "users";
+        List<String> shortColumns = Arrays.asList("email");
+
+        String indexName = generator.generateIndexName(shortTableName, shortColumns);
+
+        assertEquals("idx_users_email", indexName);
+        assertTrue(indexName.length() <= 60, "Index name should not exceed 60 characters");
+        assertFalse(indexName.matches(".*_\\d{7}$"), "Short names should not have hash suffix");
+    }
+
+    @Test
+    void testGenerateIndexNameExactly60Characters() {
+        // Test edge case where the name is exactly at the limit
+        // This tests the boundary condition
+        String tableName = "table_with_moderate_length_name";
+        List<String> columns = Arrays.asList("column_a", "column_b", "column_c");
+
+        String indexName = generator.generateIndexName(tableName, columns);
+
+        assertTrue(indexName.length() <= 60,
+            "Index name should not exceed 60 characters (length: " + indexName.length() + ")");
     }
 
     @Test
