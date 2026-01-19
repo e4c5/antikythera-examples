@@ -61,9 +61,10 @@ class LiquibaseGeneratorTest {
         assertTrue(changeset.contains("CREATE INDEX CONCURRENTLY idx_users_email ON users (email)"));
         assertTrue(changeset.contains("CREATE INDEX idx_users_email ON users (email) ONLINE"));
 
-        // Verify XML structure uses column-based existence check (not just index name)
+        // Verify XML structure uses Liquibase built-in indexExists precondition
         assertTrue(changeset.contains("<preConditions onFail=\"MARK_RAN\">"));
-        assertTrue(changeset.contains("<sqlCheck expectedResult=\"0\""));
+        assertTrue(changeset.contains("<not>"));
+        assertTrue(changeset.contains("<indexExists tableName=\"users\" columnNames=\"email\"/>"));
         assertTrue(changeset.contains("<rollback>"));
         assertTrue(changeset.contains("DROP INDEX CONCURRENTLY IF EXISTS idx_users_email"));
         assertTrue(changeset.contains("DROP INDEX idx_users_email"));
@@ -103,36 +104,32 @@ class LiquibaseGeneratorTest {
         assertNotNull(changeset);
         assertTrue(changeset.contains("first_name, last_name, birth_date"));
         assertTrue(changeset.contains("idx_persons_first_name_last_name_birth_date"));
+
+        // Verify it uses Liquibase's built-in indexExists precondition
+        assertTrue(changeset.contains("<indexExists tableName=\"persons\" columnNames=\"first_name, last_name, birth_date\"/>"));
     }
 
     @Test
-    void testColumnBasedExistenceCheckIncludesAllDialects() {
-        // Test that preconditions include SQL checks for column-based index detection
+    void testIndexExistsPreconditionFormat() {
+        // Test that the precondition uses Liquibase's built-in indexExists with tableName and columnNames
         String changeset = generator.createIndexChangeset("users", "email");
 
-        // Verify PostgreSQL check uses pg_index system catalog
-        assertTrue(changeset.contains("dbms=\"postgresql\""));
-        assertTrue(changeset.contains("pg_index"));
-        assertTrue(changeset.contains("'email'"));
-
-        // Verify Oracle check uses ALL_IND_COLUMNS
-        assertTrue(changeset.contains("dbms=\"oracle\""));
-        assertTrue(changeset.contains("ALL_IND_COLUMNS"));
-        assertTrue(changeset.contains("'EMAIL'"));
+        // Verify Liquibase built-in indexExists precondition is used (not custom SQL)
+        assertTrue(changeset.contains("<indexExists tableName=\"users\" columnNames=\"email\"/>"));
+        assertFalse(changeset.contains("sqlCheck"), "Should not use custom SQL checks");
+        assertFalse(changeset.contains("pg_index"), "Should not use database-specific queries");
+        assertFalse(changeset.contains("ALL_IND_COLUMNS"), "Should not use database-specific queries");
     }
 
     @Test
-    void testMultiColumnExistenceCheck() {
-        // Test that multi-column indexes have proper existence checks
+    void testMultiColumnIndexExistsPrecondition() {
+        // Test that multi-column indexes use proper indexExists precondition
         List<String> columns = Arrays.asList("user_id", "status");
         String changeset = generator.createMultiColumnIndexChangeset("orders", columns);
 
-        // Verify it checks for both columns in the SQL
-        assertTrue(changeset.contains("'user_id'") || changeset.contains("'USER_ID'"));
-        assertTrue(changeset.contains("'status'") || changeset.contains("'STATUS'"));
-
-        // Verify the check counts match column count (2)
-        assertTrue(changeset.contains("COUNT(*)"));
+        // Verify it uses Liquibase's indexExists with comma-separated column names
+        assertTrue(changeset.contains("<indexExists tableName=\"orders\" columnNames=\"user_id, status\"/>"));
+        assertFalse(changeset.contains("sqlCheck"), "Should not use custom SQL checks");
     }
 
     @Test
