@@ -15,6 +15,7 @@ import liquibase.exception.LiquibaseException;
 import liquibase.parser.ChangeLogParser;
 import liquibase.parser.ChangeLogParserFactory;
 import liquibase.resource.DirectoryResourceAccessor;
+import sa.com.cloudsolutions.liquibase.LiquibaseResourceUtil;
 
 import java.io.File;
 import java.nio.file.Files;
@@ -26,6 +27,7 @@ import java.util.List;
  * Validates Liquibase XML changelog files for syntax and structural
  * correctness.
  */
+@SuppressWarnings("java:S106")
 public class LiquibaseValidator {
 
     /**
@@ -112,8 +114,8 @@ public class LiquibaseValidator {
 
             // Set up resource accessor - use intelligent path resolution for Spring Boot
             // projects
-            Path resourceRoot = determineResourceRoot(changelogFile);
-            String relativeChangelogPath = getRelativeChangelogPath(changelogFile, resourceRoot);
+            Path resourceRoot = LiquibaseResourceUtil.determineResourceRoot(changelogFile);
+            String relativeChangelogPath = LiquibaseResourceUtil.getRelativeChangelogPath(changelogFile, resourceRoot);
 
             try (DirectoryResourceAccessor resourceAccessor = new DirectoryResourceAccessor(resourceRoot)) {
 
@@ -214,43 +216,28 @@ public class LiquibaseValidator {
     }
 
     /**
-     * Determines the resource root directory for Liquibase file resolution.
-     * For Spring Boot projects, this should be src/main/resources or
-     * src/test/resources.
-     * Otherwise, falls back to the file's parent directory.
-     *
-     * @param file the changelog file
-     * @return the root path for resource resolution
+     * Main method for standalone execution.
+     * Usage: java LiquibaseValidator <path-to-liquibase-xml>
      */
-    private Path determineResourceRoot(File file) {
-        String absolutePath = file.getAbsolutePath();
-
-        // Check if this is in a Spring Boot resources directory
-        if (absolutePath.contains("/src/main/resources/")) {
-            int idx = absolutePath.indexOf("/src/main/resources/");
-            String rootDir = absolutePath.substring(0, idx + "/src/main/resources".length());
-            return new File(rootDir).toPath().toAbsolutePath().normalize();
-        } else if (absolutePath.contains("/src/test/resources/")) {
-            int idx = absolutePath.indexOf("/src/test/resources/");
-            String rootDir = absolutePath.substring(0, idx + "/src/test/resources".length());
-            return new File(rootDir).toPath().toAbsolutePath().normalize();
+    public static void main(String[] args) {
+        if (args == null || args.length != 1) {
+            System.err.println("Usage: java sa.com.cloudsolutions.antikythera.mcp.LiquibaseValidator <path-to-liquibase-xml>");
+            System.exit(1);
         }
 
-        // Fallback: use parent directory
-        return file.getParentFile().toPath().toAbsolutePath().normalize();
-    }
+        File file = new File(args[0]);
+        if (!file.exists() || !file.isFile()) {
+            System.err.println("Error: File not found: " + file.getAbsolutePath());
+            System.exit(2);
+        }
 
-    /**
-     * Gets the changelog file path relative to the resource root.
-     * This is necessary for Liquibase to properly resolve include directives.
-     *
-     * @param file     the changelog file
-     * @param rootPath the resource root path
-     * @return the relative path from root to the changelog file
-     */
-    private String getRelativeChangelogPath(File file, Path rootPath) {
-        Path filePath = file.toPath().toAbsolutePath().normalize();
-        Path relativePath = rootPath.relativize(filePath);
-        return relativePath.toString().replace(File.separatorChar, '/');
+        LiquibaseValidator validator = new LiquibaseValidator();
+        ValidationResult result = validator.validate(args[0]);
+
+        // Print JSON output
+        System.out.println(result.toJson());
+
+        // Exit with appropriate code
+        System.exit(result.isValid() ? 0 : 1);
     }
 }
