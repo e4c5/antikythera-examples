@@ -45,4 +45,6 @@ query_optimizer:
     - oracle
   # Path to the master Liquibase changelog file
   liquibase_master_file: /tmp/test-changelog/db.changelog-master.xml
+  # Maximum number of columns in a multi-column index (default: 4)
+  max_index_columns: 4
 

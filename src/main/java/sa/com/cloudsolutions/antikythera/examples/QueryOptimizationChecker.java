@@ -52,6 +52,9 @@ public class QueryOptimizationChecker {
     // Quiet mode flag - suppresses detailed output, shows only changes
     protected static boolean quietMode = false;
 
+    // Maximum number of columns allowed in a multi-column index (configurable)
+    protected final int maxIndexColumns;
+
     /**
      * Creates a new QueryOptimizationChecker that uses RepositoryParser for
      * comprehensive query analysis.
@@ -77,6 +80,9 @@ public class QueryOptimizationChecker {
         }
         this.aiService.configure(aiConfig);
         this.liquibaseGenerator = new LiquibaseGenerator(LiquibaseGenerator.ChangesetConfig.fromConfiguration());
+
+        // Read max_index_columns from configuration (default: 4)
+        this.maxIndexColumns = getMaxIndexColumnsFromConfig();
     }
 
     /**
@@ -710,6 +716,15 @@ public class QueryOptimizationChecker {
             }
 
             if (filteredColumns.size() > 1) {
+                // Limit to maxIndexColumns (default 4)
+                if (filteredColumns.size() > maxIndexColumns) {
+                    if (!quietMode) {
+                        logger.info("Limiting multi-column index on table {} from {} columns to {} columns (max_index_columns config)",
+                                table, filteredColumns.size(), maxIndexColumns);
+                    }
+                    filteredColumns = filteredColumns.subList(0, maxIndexColumns);
+                }
+
                 // Create multi-column index for this specific table
                 String key = (table + "|" + String.join(",", filteredColumns)).toLowerCase();
                 if (suggestedMultiColumnIndexes.add(key)) {
@@ -995,5 +1010,32 @@ public class QueryOptimizationChecker {
 
     LinkedHashSet<String> getSuggestedMultiColumnIndexes() {
         return suggestedMultiColumnIndexes;
+    }
+
+    int getMaxIndexColumns() {
+        return maxIndexColumns;
+    }
+
+    /**
+     * Reads the max_index_columns configuration from query_optimizer section.
+     * Returns the default value of 4 if not configured.
+     *
+     * @return maximum number of columns allowed in a multi-column index
+     */
+    @SuppressWarnings("unchecked")
+    private static int getMaxIndexColumnsFromConfig() {
+        Map<String, Object> queryOptimizer = (Map<String, Object>) Settings.getProperty("query_optimizer");
+        if (queryOptimizer != null) {
+            Object maxColumns = queryOptimizer.get("max_index_columns");
+            if (maxColumns instanceof Number) {
+                int value = ((Number) maxColumns).intValue();
+                // Validate the value is reasonable (at least 1, at most 16)
+                if (value >= 1 && value <= 16) {
+                    return value;
+                }
+                logger.warn("max_index_columns value {} is out of range (1-16), using default of 4", value);
+            }
+        }
+        return 4; // Default value
     }
 }
