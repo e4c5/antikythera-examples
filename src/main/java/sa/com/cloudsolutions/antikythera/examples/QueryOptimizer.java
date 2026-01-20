@@ -117,26 +117,90 @@ public class QueryOptimizer extends QueryOptimizationChecker {
     }
 
     /**
-     * Updates the annotation value with proper text block support.
-     * If the query contains literal \\n characters or actual newlines, it uses
-     * TextBlockLiteralExpr.
-     * Otherwise, it uses StringLiteralExpr.
+     * Formats a long query string for use in a Java text block by breaking it into
+     * multiple lines at whitespace boundaries near the target column width.
+     * The result contains actual newlines followed by proper indentation.
+     *
+     * @param query       the query string to format
+     * @param targetWidth the target column width (e.g., 80)
+     * @param indent      the indentation string for continuation lines
+     * @return the formatted query with actual newlines at whitespace boundaries
+     */
+    static String formatQueryForTextBlock(String query, int targetWidth, String indent) {
+        if (query == null || query.length() <= targetWidth) {
+            return query;
+        }
+
+        StringBuilder result = new StringBuilder();
+        int currentPos = 0;
+        int queryLength = query.length();
+
+        while (currentPos < queryLength) {
+            // Calculate remaining length
+            int remaining = queryLength - currentPos;
+
+            // If remaining fits in target width, append and finish
+            if (remaining <= targetWidth) {
+                if (result.length() > 0) {
+                    result.append("\n").append(indent);
+                }
+                result.append(query.substring(currentPos));
+                break;
+            }
+
+            // Find the best break point (last whitespace before or at target width)
+            int searchEnd = Math.min(currentPos + targetWidth, queryLength);
+            int breakPoint = -1;
+
+            // Search backwards from target width to find whitespace
+            for (int i = searchEnd; i > currentPos; i--) {
+                if (Character.isWhitespace(query.charAt(i - 1))) {
+                    breakPoint = i;
+                    break;
+                }
+            }
+
+            // If no whitespace found, search forward for the next whitespace
+            if (breakPoint == -1) {
+                for (int i = searchEnd; i < queryLength; i++) {
+                    if (Character.isWhitespace(query.charAt(i))) {
+                        breakPoint = i + 1; // Include the whitespace
+                        break;
+                    }
+                }
+            }
+
+            // If still no break point found, take the rest
+            if (breakPoint == -1) {
+                breakPoint = queryLength;
+            }
+
+            // Append the segment
+            if (result.length() > 0) {
+                result.append("\n").append(indent);
+            }
+            result.append(query.substring(currentPos, breakPoint));
+            currentPos = breakPoint;
+        }
+
+        return result.toString();
+    }
+
+    /**
+     * Formats the query value for the @Query annotation using text blocks.
+     * Long queries are broken into multiple lines for readability.
      *
      * @param method         the method declaration containing the annotation
      * @param newStringValue the new query value
      */
     private void updateAnnotationValueWithTextBlockSupport(MethodDeclaration method, String newStringValue) {
-        // Check if the string contains literal \\n or actual newlines
-        boolean isMultiline = newStringValue != null &&
-                (newStringValue.contains("\\\\n") || newStringValue.contains("\n"));
-
-        if (isMultiline) {
-            // Convert literal \\n to actual newlines
-            String processedValue = "    " + newStringValue.replace("\\\\n", "\n        ");
-            updateAnnotationValue(method, "Query", processedValue, true);
-        } else {
-            updateAnnotationValue(method, "Query", newStringValue, false);
-        }
+        // Format long queries for readability using text blocks (break at ~80 chars at whitespace)
+        // Use 8 spaces for indentation to align with typical method annotation indentation
+        String indent = "        ";
+        String formattedQuery = formatQueryForTextBlock(newStringValue, 80, indent);
+        // Prepend indent to first line and append newline + indent for closing delimiter alignment
+        String textBlockContent = indent + formattedQuery + "\n" + indent;
+        updateAnnotationValue(method, "Query", textBlockContent, true);
     }
 
     /**
@@ -187,7 +251,11 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                         .filter(p -> p.getName().asString().equals("value"))
                         .findFirst();
 
-                valuePair.ifPresent(memberValuePair -> memberValuePair.setValue(newValueExpr));
+                if (valuePair.isPresent()) {
+                    valuePair.get().setValue(newValueExpr);
+                } else {
+                    normal.addPair("value", newValueExpr);
+                }
             }
             OptimizationStatsLogger.updateQueryAnnotationsChanged(1);
         }
