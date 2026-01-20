@@ -725,13 +725,21 @@ public class QueryOptimizationChecker {
             String table = entry.getKey();
             List<String> columnsForTable = entry.getValue();
 
-            // Filter out columns that already have indexes and low-cardinality columns
+            // Filter columns: stop at the first low-cardinality column
+            // Low cardinality columns should not be included in indexes, and any columns
+            // after a low cardinality column should also be excluded
             List<String> filteredColumns = new ArrayList<>();
             for (String column : columnsForTable) {
                 CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(table, column);
-                if (cardinality != CardinalityLevel.LOW) {
-                    filteredColumns.add(column);
+                if (cardinality == CardinalityLevel.LOW) {
+                    // Stop at low cardinality column - don't include it or any columns after it
+                    if (!quietMode && !filteredColumns.isEmpty()) {
+                        logger.info("Stopping index columns at low-cardinality column '{}' on table '{}'. " +
+                                "Columns after this point are excluded.", column, table);
+                    }
+                    break;
                 }
+                filteredColumns.add(column);
             }
 
             if (filteredColumns.size() > 1) {
@@ -742,6 +750,15 @@ public class QueryOptimizationChecker {
                                 table, filteredColumns.size(), maxIndexColumns);
                     }
                     filteredColumns = filteredColumns.subList(0, maxIndexColumns);
+                }
+
+                // Check if an existing index already covers these columns
+                if (CardinalityAnalyzer.hasIndexCoveringColumns(table, filteredColumns)) {
+                    if (!quietMode) {
+                        logger.info("Skipping index on table {} for columns {} - already covered by existing index",
+                                table, filteredColumns);
+                    }
+                    continue;
                 }
 
                 // Create multi-column index for this specific table
@@ -761,6 +778,96 @@ public class QueryOptimizationChecker {
                 }
             }
         }
+        
+        // After collecting all indexes, remove any that are covered by other proposed indexes
+        removeRedundantProposedIndexes();
+    }
+    
+    /**
+     * Removes proposed indexes that are covered by other proposed indexes in the same batch.
+     * For example, if we're proposing both (A,B,C) and (A,B,C,D) for the same table,
+     * we should only keep (A,B,C,D) since it covers (A,B,C).
+     */
+    private void removeRedundantProposedIndexes() {
+        // Create a list of indexes to remove
+        Set<String> toRemove = new HashSet<>();
+        
+        // Check each multi-column index against all others
+        for (String key1 : suggestedMultiColumnIndexes) {
+            String[] parts1 = key1.split("\\|", 2);
+            if (parts1.length != 2) continue;
+            String table1 = parts1[0];
+            List<String> columns1 = List.of(parts1[1].split(","));
+            
+            for (String key2 : suggestedMultiColumnIndexes) {
+                if (key1.equals(key2)) continue;
+                
+                String[] parts2 = key2.split("\\|", 2);
+                if (parts2.length != 2) continue;
+                String table2 = parts2[0];
+                List<String> columns2 = List.of(parts2[1].split(","));
+                
+                // Only compare indexes on the same table
+                if (!table1.equals(table2)) continue;
+                
+                // Check if columns1 is a prefix of columns2 (columns2 covers columns1)
+                if (columns2.size() > columns1.size() && isPrefix(columns1, columns2)) {
+                    toRemove.add(key1);
+                    if (!quietMode) {
+                        logger.info("Removing redundant index {} - covered by {}", key1, key2);
+                    }
+                    break;
+                }
+            }
+        }
+        
+        // Also check single-column indexes against multi-column indexes
+        for (String singleKey : suggestedNewIndexes) {
+            String[] parts = singleKey.split("\\|", 2);
+            if (parts.length != 2) continue;
+            String table = parts[0];
+            String column = parts[1];
+            
+            // Check if any multi-column index on the same table starts with this column
+            for (String mcKey : suggestedMultiColumnIndexes) {
+                String[] mcParts = mcKey.split("\\|", 2);
+                if (mcParts.length != 2) continue;
+                String mcTable = mcParts[0];
+                String[] mcColumns = mcParts[1].split(",");
+                
+                if (table.equals(mcTable) && mcColumns.length > 0 && mcColumns[0].equals(column)) {
+                    toRemove.add(singleKey);
+                    if (!quietMode) {
+                        logger.info("Removing redundant single-column index {} - covered by multi-column index {}",
+                                singleKey, mcKey);
+                    }
+                    break;
+                }
+            }
+        }
+        
+        // Remove the redundant indexes
+        suggestedMultiColumnIndexes.removeAll(toRemove);
+        suggestedNewIndexes.removeAll(toRemove);
+        
+        // Update stats if we removed any
+        if (!toRemove.isEmpty()) {
+            OptimizationStatsLogger.updateIndexesGenerated(-toRemove.size());
+        }
+    }
+    
+    /**
+     * Checks if list1 is a prefix of list2.
+     * For example, [A, B] is a prefix of [A, B, C, D].
+     */
+    private boolean isPrefix(List<String> list1, List<String> list2) {
+        if (list1.size() > list2.size()) return false;
+        for (int i = 0; i < list1.size(); i++) {
+            if (!list1.get(i).equalsIgnoreCase(list2.get(i))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static void groupJoinColumnsByTable(QueryAnalysisResult result, Map<String, List<String>> columnsByTable) {

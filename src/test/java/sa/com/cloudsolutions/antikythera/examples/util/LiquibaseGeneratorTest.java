@@ -637,4 +637,113 @@ class LiquibaseGeneratorTest {
         assertNull(result2.getChangesFile());
         assertFalse(result2.wasWritten());
     }
+
+    @Test
+    void testRelativePathPrefixDetection() throws IOException {
+        // Create a master file with existing include entries that have a path prefix
+        String masterContentWithPrefix = """
+                <?xml version="1.1" encoding="UTF-8" standalone="no"?>
+                <databaseChangeLog
+                        logicalFilePath="db/changelog/changelog-master.xml"
+                        xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+                    <include file="/db/changelog/master.xml"/>
+                    <include file="/db/changelog/functions.xml"/>
+                    <include file="/db/changelog/datamigration.xml"/>
+                </databaseChangeLog>
+                """;
+        Files.writeString(masterFile, masterContentWithPrefix);
+
+        // Write a new changeset
+        String changeset = generator.createIndexChangeset("users", "email");
+        WriteResult result = generator.writeChangesetToFile(masterFile, changeset);
+
+        assertTrue(result.wasWritten());
+
+        // Read the updated master file
+        String updatedMaster = Files.readString(masterFile);
+
+        // The new include should have the same path prefix as existing entries
+        assertTrue(updatedMaster.contains("<include file=\"/db/changelog/antikythera-indexes-"),
+                "New include should have the /db/changelog/ prefix. Actual content:\n" + updatedMaster);
+    }
+
+    @Test
+    void testRelativePathPrefixDetectionWithNoPrefix() throws IOException {
+        // Create a master file with existing include entries that have no path prefix
+        String masterContentNoPrefix = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+                    <include file="master.xml"/>
+                    <include file="functions.xml"/>
+                </databaseChangeLog>
+                """;
+        Files.writeString(masterFile, masterContentNoPrefix);
+
+        // Write a new changeset
+        String changeset = generator.createIndexChangeset("users", "email");
+        WriteResult result = generator.writeChangesetToFile(masterFile, changeset);
+
+        assertTrue(result.wasWritten());
+
+        // Read the updated master file
+        String updatedMaster = Files.readString(masterFile);
+
+        // The new include should have no path prefix (just the filename)
+        assertTrue(updatedMaster.contains("<include file=\"antikythera-indexes-"),
+                "New include should have no prefix when existing entries have none. Actual content:\n" + updatedMaster);
+        assertFalse(updatedMaster.contains("<include file=\"/"),
+                "New include should not have a leading slash when existing entries don't have paths");
+    }
+
+    @Test
+    void testRelativePathPrefixDetectionWithMixedPaths() throws IOException {
+        // Create a master file with mixed path prefixes (most common should win)
+        String masterContentMixed = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+                    <include file="/db/changelog/master.xml"/>
+                    <include file="/db/changelog/functions.xml"/>
+                    <include file="/db/changelog/datamigration.xml"/>
+                    <include file="legacy.xml"/>
+                </databaseChangeLog>
+                """;
+        Files.writeString(masterFile, masterContentMixed);
+
+        // Write a new changeset
+        String changeset = generator.createIndexChangeset("users", "email");
+        WriteResult result = generator.writeChangesetToFile(masterFile, changeset);
+
+        assertTrue(result.wasWritten());
+
+        // Read the updated master file
+        String updatedMaster = Files.readString(masterFile);
+
+        // The new include should use the most common prefix (/db/changelog/)
+        assertTrue(updatedMaster.contains("<include file=\"/db/changelog/antikythera-indexes-"),
+                "New include should use the most common path prefix. Actual content:\n" + updatedMaster);
+    }
+
+    @Test
+    void testRelativePathPrefixDetectionWithEmptyMasterFile() throws IOException {
+        // Create a master file with no existing include entries
+        String masterContentEmpty = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+                </databaseChangeLog>
+                """;
+        Files.writeString(masterFile, masterContentEmpty);
+
+        // Write a new changeset
+        String changeset = generator.createIndexChangeset("users", "email");
+        WriteResult result = generator.writeChangesetToFile(masterFile, changeset);
+
+        assertTrue(result.wasWritten());
+
+        // Read the updated master file
+        String updatedMaster = Files.readString(masterFile);
+
+        // The new include should have no prefix when there are no existing entries
+        assertTrue(updatedMaster.contains("<include file=\"antikythera-indexes-"),
+                "New include should have no prefix when no existing entries. Actual content:\n" + updatedMaster);
+    }
 }
