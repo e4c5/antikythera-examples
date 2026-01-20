@@ -26,6 +26,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -249,11 +250,20 @@ public class GeminiAIService {
      * Sends the API request to Gemini AI service.
      */
     public String sendApiRequest(String payload) throws IOException, InterruptedException {
+        return sendApiRequest(payload, 0);
+    }
+
+    private String sendApiRequest(String payload, int retryCount) throws IOException, InterruptedException {
         String apiEndpoint = getConfigString("api_endpoint",
                 "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent");
         String model = getConfigString("model", GEMINI_3_FLASH);
         String apiKey = getConfigString("api_key", null);
         int timeoutSeconds = getConfigInt("timeout_seconds", 90);
+
+        if (retryCount > 0) {
+            timeoutSeconds += 30;
+            logger.info("Retrying API request with extra 30 seconds timeout (total: {}s)", timeoutSeconds);
+        }
 
         if (apiKey == null || apiKey.trim().isEmpty()) {
             throw new IllegalStateException(
@@ -269,17 +279,24 @@ public class GeminiAIService {
                 .timeout(Duration.ofSeconds(timeoutSeconds))
                 .build();
 
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        try {
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
-        if (response.statusCode() != 200) {
-            throw new IOException(
-                    "API request failed with status: " + response.statusCode() + ", body: " + response.body());
+            if (response.statusCode() != 200) {
+                throw new IOException(
+                        "API request failed with status: " + response.statusCode() + ", body: " + response.body());
+            }
+
+            // Extract token usage if available
+            extractTokenUsage(response.body());
+
+            return response.body();
+        } catch (HttpTimeoutException e) {
+            if (retryCount == 0) {
+                return sendApiRequest(payload, 1);
+            }
+            throw e;
         }
-
-        // Extract token usage if available
-        extractTokenUsage(response.body());
-
-        return response.body();
     }
 
     /**
