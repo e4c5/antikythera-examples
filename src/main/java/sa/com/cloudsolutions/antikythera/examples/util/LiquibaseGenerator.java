@@ -8,6 +8,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
@@ -457,10 +459,15 @@ public class LiquibaseGenerator {
     
     private void updateMasterFile(Path masterFile, String fileName) throws IOException {
         String masterText = Files.readString(masterFile, StandardCharsets.UTF_8);
-        String includeTag = String.format("    <include file=\"%s\"/>", fileName);
+        
+        // Detect the relative path prefix used by existing include entries
+        String pathPrefix = detectRelativePathPrefix(masterText);
+        String fullPath = pathPrefix + fileName;
+        
+        String includeTag = String.format("    <include file=\"%s\"/>", fullPath);
         
         // Check if this specific file is already included
-        if (!masterText.contains("file=\"" + fileName + "\"")) {
+        if (!masterText.contains("file=\"" + fullPath + "\"")) {
             int idx = masterText.lastIndexOf("</databaseChangeLog>");
 
             String updated = masterText.substring(0, idx) + includeTag + "\n" + masterText.substring(idx);
@@ -468,5 +475,59 @@ public class LiquibaseGenerator {
                 writer.println(updated);
             }
         }
+    }
+    
+    /**
+     * Detects the relative path prefix used by existing include entries in the master file.
+     * Analyzes existing &lt;include file="..."/&gt; entries to find a common directory prefix.
+     *
+     * @param masterText the content of the master changelog file
+     * @return the detected path prefix (e.g., "/db/changelog/"), or empty string if none found
+     */
+    private String detectRelativePathPrefix(String masterText) {
+        // Pattern to match <include file="..."/> entries
+        Pattern includePattern = Pattern.compile("<include\\s+file=\"([^\"]+)\"\\s*/>");
+        Matcher matcher = includePattern.matcher(masterText);
+        
+        List<String> existingPaths = new ArrayList<>();
+        while (matcher.find()) {
+            existingPaths.add(matcher.group(1));
+        }
+        
+        if (existingPaths.isEmpty()) {
+            return "";
+        }
+        
+        // Find the common directory prefix from existing entries
+        // Look for entries that have a directory component (contain '/')
+        List<String> pathsWithDirs = existingPaths.stream()
+                .filter(p -> p.contains("/"))
+                .toList();
+        
+        if (pathsWithDirs.isEmpty()) {
+            return "";
+        }
+        
+        // Extract directory prefixes (everything before the last '/')
+        List<String> dirPrefixes = pathsWithDirs.stream()
+                .map(p -> p.substring(0, p.lastIndexOf('/') + 1))
+                .distinct()
+                .toList();
+        
+        // If all entries share the same prefix, use it
+        if (dirPrefixes.size() == 1) {
+            return dirPrefixes.get(0);
+        }
+        
+        // If there are multiple prefixes, find the most common one
+        // (this handles cases where some entries might have different paths)
+        Map<String, Long> prefixCounts = pathsWithDirs.stream()
+                .map(p -> p.substring(0, p.lastIndexOf('/') + 1))
+                .collect(Collectors.groupingBy(p -> p, Collectors.counting()));
+        
+        return prefixCounts.entrySet().stream()
+                .max(Map.Entry.comparingByValue())
+                .map(Map.Entry::getKey)
+                .orElse("");
     }
 }

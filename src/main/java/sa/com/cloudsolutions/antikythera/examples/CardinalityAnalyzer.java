@@ -3,6 +3,7 @@ package sa.com.cloudsolutions.antikythera.examples;
 import sa.com.cloudsolutions.liquibase.Indexes;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Collections;
 import java.util.Set;
@@ -196,6 +197,54 @@ public class CardinalityAnalyzer {
             if (idx.columns() == null || idx.columns().isEmpty()) continue;
             String first = idx.columns().getFirst();
             if (first != null && first.equalsIgnoreCase(c)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Checks if there exists any index on the table that covers the specified columns.
+     * An index covers a set of columns if the index columns start with all the specified columns
+     * in the same order (the index may have additional columns after).
+     *
+     * For example, an index on (A, B, C, D) covers:
+     * - (A)
+     * - (A, B)
+     * - (A, B, C)
+     * - (A, B, C, D)
+     *
+     * But does NOT cover:
+     * - (B) - wrong leading column
+     * - (A, C) - columns not contiguous
+     * - (B, C) - wrong leading column
+     *
+     * @param tableName the table name (any case)
+     * @param columns the list of columns to check coverage for (in order)
+     * @return true if there is an existing index that covers all specified columns
+     */
+    public static boolean hasIndexCoveringColumns(String tableName, List<String> columns) {
+        if (columns == null || columns.isEmpty()) {
+            return false;
+        }
+        
+        String t = tableName.toLowerCase();
+        Set<Indexes.IndexInfo> indexes = indexMap.get(t);
+        if (indexes == null) return false;
+        
+        for (Indexes.IndexInfo idx : indexes) {
+            if (idx.columns() == null || idx.columns().size() < columns.size()) continue;
+            
+            // Check if the index columns start with all the specified columns in order
+            boolean covers = true;
+            for (int i = 0; i < columns.size(); i++) {
+                if (!idx.columns().get(i).equalsIgnoreCase(columns.get(i))) {
+                    covers = false;
+                    break;
+                }
+            }
+            
+            if (covers) {
                 return true;
             }
         }
