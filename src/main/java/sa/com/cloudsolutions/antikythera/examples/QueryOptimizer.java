@@ -5,7 +5,9 @@ import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.expr.AnnotationExpr;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.MemberValuePair;
+import com.github.javaparser.ast.expr.FieldAccessExpr;
 import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.ast.expr.MethodReferenceExpr;
 import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.expr.NormalAnnotationExpr;
 import com.github.javaparser.ast.expr.StringLiteralExpr;
@@ -194,11 +196,14 @@ public class QueryOptimizer extends QueryOptimizationChecker {
      * @param newStringValue the new query value
      */
     private void updateAnnotationValueWithTextBlockSupport(MethodDeclaration method, String newStringValue) {
-        // Format long queries for readability using text blocks (break at ~80 chars at whitespace)
-        // Use 8 spaces for indentation to align with typical method annotation indentation
+        // Format long queries for readability using text blocks (break at ~80 chars at
+        // whitespace)
+        // Use 8 spaces for indentation to align with typical method annotation
+        // indentation
         String indent = "        ";
         String formattedQuery = formatQueryForTextBlock(newStringValue, 80, indent);
-        // Prepend indent to first line and append newline + indent for closing delimiter alignment
+        // Prepend indent to first line and append newline + indent for closing
+        // delimiter alignment
         String textBlockContent = indent + formattedQuery + "\n" + indent;
         updateAnnotationValue(method, "Query", textBlockContent, true);
     }
@@ -413,8 +418,9 @@ public class QueryOptimizer extends QueryOptimizationChecker {
 
             boolean isMatchingCall = false;
 
-            // Case 1: Regular method call - fieldName.methodName(...)
-            if (scope.isPresent() && scope.get() instanceof NameExpr fe && fe.getNameAsString().equals(fieldName)) {
+            // Case 1: Regular method call - fieldName.methodName(...) or
+            // this.fieldName.methodName(...)
+            if (scope.isPresent() && isFieldMatch(scope.get())) {
                 isMatchingCall = true;
             }
 
@@ -422,7 +428,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             if (scope.isPresent() && scope.get() instanceof MethodCallExpr verifyCall &&
                     ("verify".equals(verifyCall.getNameAsString()) && !verifyCall.getArguments().isEmpty())) {
                 Expression firstArg = verifyCall.getArgument(0);
-                if (firstArg instanceof NameExpr nameExpr && nameExpr.getNameAsString().equals(fieldName)) {
+                if (isFieldMatch(firstArg)) {
                     isMatchingCall = true;
                 }
             }
@@ -448,6 +454,39 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             }
 
             return mce;
+        }
+
+        @Override
+        public MethodReferenceExpr visit(MethodReferenceExpr mre, QueryAnalysisResult update) {
+            super.visit(mre, update);
+            Expression scope = mre.getScope();
+            OptimizationIssue issue = update.getOptimizationIssue();
+            if (issue == null || issue.optimizedQuery() == null) {
+                return mre;
+            }
+
+            if (isFieldMatch(scope) && update.getMethodName().equals(mre.getIdentifier())) {
+                String originalMethodName = mre.getIdentifier();
+                String newMethodName = issue.optimizedQuery().getMethodName();
+
+                if (!originalMethodName.equals(newMethodName)) {
+                    mre.setIdentifier(newMethodName);
+                    modified = true;
+                    methodCallsUpdated++;
+                }
+            }
+
+            return mre;
+        }
+
+        private boolean isFieldMatch(Expression expr) {
+            if (expr instanceof NameExpr ne) {
+                return ne.getNameAsString().equals(fieldName);
+            }
+            if (expr instanceof FieldAccessExpr fae) {
+                return fae.getNameAsString().equals(fieldName);
+            }
+            return false;
         }
 
         /**

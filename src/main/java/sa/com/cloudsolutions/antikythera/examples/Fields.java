@@ -7,15 +7,18 @@ import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 public class Fields {
     /**
      * Stores the known field dependencies of any class
-     * Storage is: repository class name → (dependent class name → collection of field
+     * Storage is: repository class name → (dependent class name → collection of
+     * field
      * names)
      * This handles cases where a class has multiple fields of the same repository
      * type.
@@ -43,6 +46,33 @@ public class Fields {
                         }
                     }
                 });
+            }
+        }
+        propagateInheritedFields();
+    }
+
+    private static void propagateInheritedFields() {
+        for (Map<String, Set<String>> dependentClasses : fieldDependencies.values()) {
+            List<String> parentClasses = new ArrayList<>(dependentClasses.keySet());
+            for (String parentClass : parentClasses) {
+                Set<String> fieldNames = dependentClasses.get(parentClass);
+                propagateToSubclasses(dependentClasses, parentClass, fieldNames);
+            }
+        }
+    }
+
+    private static void propagateToSubclasses(Map<String, Set<String>> dependentClasses, String parentClass,
+            Set<String> fieldNames) {
+        for (String subClass : AntikytheraRunTime.findSubClasses(parentClass)) {
+            Set<String> subClassFields = dependentClasses.computeIfAbsent(subClass, k -> new HashSet<>());
+            boolean added = false;
+            for (String fieldName : fieldNames) {
+                if (subClassFields.add(fieldName)) {
+                    added = true;
+                }
+            }
+            if (added) {
+                propagateToSubclasses(dependentClasses, subClass, fieldNames);
             }
         }
     }
