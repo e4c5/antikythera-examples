@@ -5,11 +5,14 @@ This prompt is designed to be used with AI coding agents (like Antigravity, GitH
 ---
 
 ## 🚀 AI Review Prompt
+Carry out a review of the diff between the current branch and the main branch, focusing on the optimizations made by the `QueryOptimizer` tool.
 
 **Context:**
 I have executed an automated `QueryOptimizer` on my Spring Boot / JPA project. The tool has performed two optimizations:
 1. **Query Restructuring:** Reordering `WHERE` clause columns in `@Query` annotations based on column cardinality (moving high-cardinality filters to the front).
 2. **Schema Enhancement:** Appending new Liquibase `<createIndex>` changesets to the changelog file.
+3. **Columns that are identified as low cardinality are as follows: tenant_id,tenant,hospital_id,hospital,is_active,active,is_deleted,deleted,group_id,group
+4. **Additionally any column that is boolean or enum type is considered low cardinality.**
 
 **Your Objective:**
 Conduct a technical review of the current Git diff. Focus on code integrity and call-site synchronization.
@@ -28,6 +31,13 @@ Conduct a technical review of the current Git diff. Focus on code integrity and 
 - **Syntax Check:** Verify that the restructuring did not break HQL or SQL syntax. Pay close attention to `AND` placement and whitespace.
 - **Java Syntax:** Ensure `TextBlock` (`"""`) usage is correct and that the Lexical Preservation didn't introduce unexpected formatting artifacts.
 
+**4. Index additions:**
+- ** If the liquibase file is correctly validated, check each new index that is added to ensure it is valid and will lead to a performance boost. Add comment in the review of each index
+
+**5. Index drpos:**
+- ** If the liquiase file is correctly validated, identify what indexes are dropped in the liquibase file and make a comment on why it might have been dropped
+
 **Output:**
 Provide a summary of "Verified Optimizations" and a list of "Regressions/Corrections" if any mismatched signatures or syntax errors are detected.
-Place this out in a markdown file that is named as `review-<date>.md`, where `<date>` is the current date in `YYYYMMDD` format.
+Place this out in a markdown file that is named as `review-<date>.md`, where `<date>` is the current date in `YYYYMMDD` format. Additionally include
+the list of indexes created or dropped and the reaosons for each.

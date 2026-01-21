@@ -725,19 +725,18 @@ public class QueryOptimizationChecker {
             String table = entry.getKey();
             List<String> columnsForTable = entry.getValue();
 
-            // Filter columns: stop at the first low-cardinality column
-            // Low cardinality columns should not be included in indexes, and any columns
-            // after a low cardinality column should also be excluded
+            // Filter out ALL low-cardinality columns from the index
+            // Low cardinality columns should never be included in indexes as they provide
+            // minimal selectivity benefit and can actually hurt performance
             List<String> filteredColumns = new ArrayList<>();
             for (String column : columnsForTable) {
                 CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(table, column);
                 if (cardinality == CardinalityLevel.LOW) {
-                    // Stop at low cardinality column - don't include it or any columns after it
-                    if (!quietMode && !filteredColumns.isEmpty()) {
-                        logger.info("Stopping index columns at low-cardinality column '{}' on table '{}'. " +
-                                "Columns after this point are excluded.", column, table);
+                    // Skip low cardinality column - don't include it in the index
+                    if (!quietMode) {
+                        logger.info("Excluding low-cardinality column '{}' from index on table '{}'.", column, table);
                     }
-                    break;
+                    continue; // Skip this column but continue processing remaining columns
                 }
                 filteredColumns.add(column);
             }
