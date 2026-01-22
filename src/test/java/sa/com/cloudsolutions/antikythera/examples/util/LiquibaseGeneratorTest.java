@@ -32,7 +32,11 @@ class LiquibaseGeneratorTest {
 
     @BeforeEach
     void setUp() throws IOException {
-        Settings.loadConfigMap();
+        // Load configuration from the test resources file to ensure
+        // liquibase_master_file and other settings are properly configured
+        File configFile = new File("src/test/resources/generator.yml");
+        Settings.loadConfigMap(configFile);
+        
         generator = new LiquibaseGenerator();
         masterFile = tempDir.resolve("master-changelog.xml");
 

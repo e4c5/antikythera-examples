@@ -474,6 +474,18 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                     modified = true;
                     methodCallsUpdated++;
                 }
+            } else if (scope.isTypeExpr() && scope.asTypeExpr().getType().asString().equals(fieldName) 
+                    && update.getMethodName().equals(mre.getIdentifier())) {
+                // Support static method references if fieldName happens to match class name (rare but possible in tests)
+                // or if we want to support class name references.
+                String originalMethodName = mre.getIdentifier();
+                String newMethodName = issue.optimizedQuery().getMethodName();
+
+                if (!originalMethodName.equals(newMethodName)) {
+                    mre.setIdentifier(newMethodName);
+                    modified = true;
+                    methodCallsUpdated++;
+                }
             }
 
             return mre;
@@ -484,7 +496,8 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                 return ne.getNameAsString().equals(fieldName);
             }
             if (expr instanceof FieldAccessExpr fae) {
-                return fae.getNameAsString().equals(fieldName);
+                return fae.getNameAsString().equals(fieldName) && 
+                       fae.getScope().isThisExpr();
             }
             return false;
         }
@@ -510,9 +523,19 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             }
 
             NodeList<Expression> args = mce.getArguments();
+            if (args.size() != newMethod.getParameters().size()) {
+                return;
+            }
+
             NodeList<Expression> newArgs = new NodeList<>();
             for (int i = 0; i < args.size(); i++) {
-                newArgs.add(args.get(map.get(i)));
+                Integer oldIdx = map.get(i);
+                if (oldIdx != null && oldIdx < args.size()) {
+                    newArgs.add(args.get(oldIdx));
+                } else {
+                    // Fallback if mapping is missing or invalid
+                    return;
+                }
             }
 
             mce.getArguments().clear();

@@ -34,6 +34,7 @@ class FieldsTest {
         // Mock a repository
         String repoFqn = "com.example.Repo";
         CompilationUnit repoCu = new CompilationUnit();
+        repoCu.setPackageDeclaration("com.example");
         ClassOrInterfaceDeclaration repoDecl = repoCu.addClass("Repo").setInterface(true);
         TypeWrapper repoTw = new TypeWrapper(repoDecl);
         AntikytheraRunTime.addType(repoFqn, repoTw);
@@ -42,8 +43,9 @@ class FieldsTest {
         // Mock a base service with the repository field
         String baseServiceFqn = "com.example.BaseService";
         CompilationUnit baseCu = new CompilationUnit();
+        baseCu.setPackageDeclaration("com.example");
         ClassOrInterfaceDeclaration baseDecl = baseCu.addClass("BaseService");
-        FieldDeclaration field = baseDecl.addField("Repo", "repo");
+        baseDecl.addField("Repo", "repo");
         TypeWrapper baseTw = new TypeWrapper(baseDecl);
         AntikytheraRunTime.addType(baseServiceFqn, baseTw);
         AntikytheraRunTime.addCompilationUnit(baseServiceFqn, baseCu);
@@ -51,6 +53,7 @@ class FieldsTest {
         // Mock a subclass service
         String subServiceFqn = "com.example.SubService";
         CompilationUnit subCu = new CompilationUnit();
+        subCu.setPackageDeclaration("com.example");
         ClassOrInterfaceDeclaration subDecl = subCu.addClass("SubService");
         subDecl.addExtendedType("BaseService");
         TypeWrapper subTw = new TypeWrapper(subDecl);
@@ -65,11 +68,11 @@ class FieldsTest {
 
         // Verify dependencies
         Map<String, Set<String>> repoDeps = Fields.getFieldDependencies(repoFqn);
-        assertNotNull(repoDeps);
+        assertNotNull(repoDeps, "Dependencies for Repo should not be null");
 
         // BaseService should have the field
-        assertTrue(repoDeps.containsKey(baseServiceFqn));
-        assertTrue(repoDeps.get(baseServiceFqn).contains("repo"));
+        assertTrue(repoDeps.containsKey(baseServiceFqn), "BaseService should be in Repo dependencies");
+        assertTrue(repoDeps.get(baseServiceFqn).contains("repo"), "BaseService should have 'repo' field");
 
         // SubService should INHERIT the field dependency
         assertTrue(repoDeps.containsKey(subServiceFqn), "SubService should have inherited dependencies");
