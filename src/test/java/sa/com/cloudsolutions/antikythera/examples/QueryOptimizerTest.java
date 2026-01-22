@@ -9,6 +9,8 @@ import com.github.javaparser.ast.expr.MethodReferenceExpr;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
 
@@ -81,67 +83,24 @@ class QueryOptimizerTest {
         when(mockOptimizedQuery.getMethodDeclaration()).thenReturn(mockNewCallable);
     }
 
-    @Test
-    void testNameChangeVisitor_WithThisExpression() {
-        String code = "class Service { " +
-                "  void test() { " +
-                "    this.repo.oldMethod(arg1); " +
-                "  } " +
-                "}";
-        CompilationUnit cu = StaticJavaParser.parse(code);
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {
+        "WithThisExpression|class Service { void test() { this.repo.oldMethod(arg1); } }|this.repo.newMethod(arg1)",
+        "WithMockitoVerifyAndThis|class ServiceTest { void test() { verify(this.repo).oldMethod(arg1); } }|verify(this.repo).newMethod(arg1)",
+        "WithMethodReference|class Service { void test() { list.stream().map(repo::oldMethod).collect(Collectors.toList()); } }|repo::newMethod",
+        "WithMethodReferenceAndThis|class Service { void test() { list.stream().map(this.repo::oldMethod).collect(Collectors.toList()); } }|this.repo::newMethod"
+    })
+    void testNameChangeVisitor(String testCase) {
+        String[] parts = testCase.split("\\|");
+        String code = parts[1];
+        String expectedOutput = parts[2];
 
+        CompilationUnit cu = StaticJavaParser.parse(code);
         QueryOptimizer.NameChangeVisitor visitor = new QueryOptimizer.NameChangeVisitor("repo", "com.example.Repo");
         cu.accept(visitor, mockResult);
 
         String updatedCode = cu.toString();
-        assertTrue(updatedCode.contains("this.repo.newMethod(arg1)"));
-    }
-
-    @Test
-    void testNameChangeVisitor_WithMockitoVerifyAndThis() {
-        String code = "class ServiceTest { " +
-                "  void test() { " +
-                "    verify(this.repo).oldMethod(arg1); " +
-                "  } " +
-                "}";
-        CompilationUnit cu = StaticJavaParser.parse(code);
-
-        QueryOptimizer.NameChangeVisitor visitor = new QueryOptimizer.NameChangeVisitor("repo", "com.example.Repo");
-        cu.accept(visitor, mockResult);
-
-        String updatedCode = cu.toString();
-        assertTrue(updatedCode.contains("verify(this.repo).newMethod(arg1)"));
-    }
-
-    @Test
-    void testNameChangeVisitor_WithMethodReference() {
-        String code = "class Service { " +
-                "  void test() { " +
-                "    list.stream().map(repo::oldMethod).collect(Collectors.toList()); " +
-                "  } " +
-                "}";
-        CompilationUnit cu = StaticJavaParser.parse(code);
-
-        QueryOptimizer.NameChangeVisitor visitor = new QueryOptimizer.NameChangeVisitor("repo", "com.example.Repo");
-        cu.accept(visitor, mockResult);
-
-        String updatedCode = cu.toString();
-        assertTrue(updatedCode.contains("repo::newMethod"));
-    }
-
-    @Test
-    void testNameChangeVisitor_WithMethodReferenceAndThis() {
-        String code = "class Service { " +
-                "  void test() { " +
-                "    list.stream().map(this.repo::oldMethod).collect(Collectors.toList()); " +
-                "  } " +
-                "}";
-        CompilationUnit cu = StaticJavaParser.parse(code);
-
-        QueryOptimizer.NameChangeVisitor visitor = new QueryOptimizer.NameChangeVisitor("repo", "com.example.Repo");
-        cu.accept(visitor, mockResult);
-
-        String updatedCode = cu.toString();
-        assertTrue(updatedCode.contains("this.repo::newMethod"));
+        assertTrue(updatedCode.contains(expectedOutput), 
+            "Test " + parts[0] + " failed: expected '" + expectedOutput + "' in output");
     }
 }

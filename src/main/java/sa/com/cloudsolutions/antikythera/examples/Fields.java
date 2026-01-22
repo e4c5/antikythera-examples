@@ -80,4 +80,11 @@ public class Fields {
     public static Map<String, Set<String>> getFieldDependencies(String name) {
         return fieldDependencies.get(name);
     }
+
+    /**
+     * Clears all field dependency mappings. Useful for testing to reset state between test runs.
+     */
+    public static void clearFieldDependencies() {
+        fieldDependencies.clear();
+    }
 }

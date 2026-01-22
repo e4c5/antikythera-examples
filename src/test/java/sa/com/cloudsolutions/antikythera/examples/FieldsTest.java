@@ -19,14 +19,7 @@ class FieldsTest {
     @BeforeEach
     void setUp() {
         AntikytheraRunTime.resetAll();
-        // Clear private static map in Fields using reflection since it's not exposed
-        try {
-            java.lang.reflect.Field field = Fields.class.getDeclaredField("fieldDependencies");
-            field.setAccessible(true);
-            ((Map<?, ?>) field.get(null)).clear();
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
+        Fields.clearFieldDependencies();
     }
 
     @Test
