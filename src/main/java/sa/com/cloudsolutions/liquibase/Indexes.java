@@ -1,5 +1,6 @@
 package sa.com.cloudsolutions.liquibase;
 
+import liquibase.change.AbstractSQLChange;
 import liquibase.change.Change;
 import liquibase.change.ColumnConfig;
 import liquibase.change.core.*;
@@ -10,6 +11,12 @@ import liquibase.changelog.DatabaseChangeLog;
 import liquibase.parser.ChangeLogParser;
 import liquibase.parser.ChangeLogParserFactory;
 import liquibase.resource.DirectoryResourceAccessor;
+import net.sf.jsqlparser.JSQLParserException;
+import net.sf.jsqlparser.parser.CCJSqlParserUtil;
+import net.sf.jsqlparser.statement.Statement;
+import net.sf.jsqlparser.statement.Statements;
+import net.sf.jsqlparser.statement.create.index.CreateIndex;
+import net.sf.jsqlparser.statement.drop.Drop;
 
 import java.io.File;
 import java.nio.file.Path;
@@ -134,6 +141,8 @@ public class Indexes {
             handleDropPrimaryKey(dpk, result);
         } else if (change instanceof DropUniqueConstraintChange duc) {
             handleDropUniqueConstraint(duc, result);
+        } else if (change instanceof AbstractSQLChange sqlChange) {
+            handleRawSql(sqlChange, result);
         }
     }
 
@@ -255,6 +264,86 @@ public class Indexes {
         if (!isBlank(tableName)) {
             removeUniqueConstraint(result, tableName, constraintName);
         }
+    }
+
+    private static void handleRawSql(AbstractSQLChange sqlChange, Map<String, Set<IndexInfo>> result) {
+        String sql = sqlChange.getSql();
+        if (isBlank(sql)) {
+            return;
+        }
+
+        // Quick check to avoid parsing SQL that doesn't contain index operations
+        String upperSql = sql.toUpperCase();
+        if (!upperSql.contains("INDEX")) {
+            return;
+        }
+
+        try {
+            Statements statements = CCJSqlParserUtil.parseStatements(sql);
+            for (Statement stmt : statements.getStatements()) {
+                if (stmt instanceof CreateIndex createIndex) {
+                    handleCreateIndexStatement(createIndex, result);
+                } else if (stmt instanceof Drop drop) {
+                    handleDropIndexStatement(drop, result);
+                }
+            }
+        } catch (JSQLParserException e) {
+            // JSqlParser may fail on database-specific syntax (e.g., CONCURRENTLY)
+            // Silently skip unparseable SQL
+        }
+    }
+
+    private static void handleCreateIndexStatement(CreateIndex createIndex, Map<String, Set<IndexInfo>> result) {
+        if (createIndex.getTable() == null || createIndex.getIndex() == null) {
+            return;
+        }
+
+        String tableName = createIndex.getTable().getName();
+        if (isBlank(tableName)) {
+            return;
+        }
+
+        String indexName = createIndex.getIndex().getName();
+        List<String> columns = new ArrayList<>();
+        if (createIndex.getIndex().getColumns() != null) {
+            for (var col : createIndex.getIndex().getColumns()) {
+                String colName = col.getColumnName();
+                if (!isBlank(colName)) {
+                    columns.add(colName);
+                }
+            }
+        }
+
+        if (columns.isEmpty()) {
+            return;
+        }
+
+        // Check if this is a unique index
+        String indexType = createIndex.getIndex().getType();
+        boolean unique = indexType != null && indexType.toUpperCase().contains("UNIQUE");
+        String type = unique ? UNIQUE_INDEX : INDEX;
+
+        add(result, tableName, new IndexInfo(type, orUnknown(indexName), columns));
+    }
+
+    private static void handleDropIndexStatement(Drop drop, Map<String, Set<IndexInfo>> result) {
+        // Only process DROP INDEX statements
+        if (!"INDEX".equalsIgnoreCase(drop.getType())) {
+            return;
+        }
+
+        if (drop.getName() == null) {
+            return;
+        }
+
+        String indexName = drop.getName().getName();
+        if (isBlank(indexName)) {
+            return;
+        }
+
+        // DROP INDEX may optionally specify table via ON clause
+        // JSqlParser doesn't directly expose this, so we search all tables
+        removeIndexByNameAnyTable(result, indexName);
     }
 
     // --- Helper methods ---
