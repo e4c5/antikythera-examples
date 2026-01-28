@@ -48,13 +48,19 @@ class QueryOptimizationCheckerFixTest {
         // Ensure the temp directory and created files are removed when the JVM exits (avoids accumulating temp files on CI)
         tmpDir.toFile().deleteOnExit();
 
-        // Setup minimal valid Liquibase file
+        // Setup minimal valid Liquibase file with proper schema declaration
         File liquibaseFile = tmpDir.resolve("db.changelog-master.xml").toFile();
         liquibaseFile.createNewFile();
         // schedule files for deletion on JVM exit
         liquibaseFile.deleteOnExit();
         try (FileWriter fw = new FileWriter(liquibaseFile)) {
-            fw.write("<databaseChangeLog xmlns=\"http://www.liquibase.org/xml/ns/dbchangelog\"></databaseChangeLog>");
+            fw.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+            fw.write("<databaseChangeLog\n");
+            fw.write("    xmlns=\"http://www.liquibase.org/xml/ns/dbchangelog\"\n");
+            fw.write("    xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n");
+            fw.write("    xsi:schemaLocation=\"http://www.liquibase.org/xml/ns/dbchangelog\n");
+            fw.write("    http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.0.xsd\">\n");
+            fw.write("</databaseChangeLog>");
         }
         // Setup dummy generator.yml
         File configFile = tmpDir.resolve("generator.yml").toFile();

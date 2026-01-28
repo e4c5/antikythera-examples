@@ -60,7 +60,13 @@ class QueryOptimizationCheckerTest {
         Path tmpDir = Files.createTempDirectory("qoc-test");
         liquibaseFile = tmpDir.resolve("db.changelog-master.xml").toFile();
         try (FileWriter fw = new FileWriter(liquibaseFile)) {
-            fw.write("<databaseChangeLog xmlns=\"http://www.liquibase.org/xml/ns/dbchangelog\"></databaseChangeLog>");
+            fw.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+            fw.write("<databaseChangeLog\n");
+            fw.write("    xmlns=\"http://www.liquibase.org/xml/ns/dbchangelog\"\n");
+            fw.write("    xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n");
+            fw.write("    xsi:schemaLocation=\"http://www.liquibase.org/xml/ns/dbchangelog\n");
+            fw.write("    http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.0.xsd\">\n");
+            fw.write("</databaseChangeLog>");
         }
         assertTrue(Indexes.load(liquibaseFile).isEmpty(), "Expected empty index map for minimal Liquibase file");
 

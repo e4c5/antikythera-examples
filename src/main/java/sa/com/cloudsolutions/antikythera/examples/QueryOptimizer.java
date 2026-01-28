@@ -5,7 +5,9 @@ import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.expr.AnnotationExpr;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.MemberValuePair;
+import com.github.javaparser.ast.expr.FieldAccessExpr;
 import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.ast.expr.MethodReferenceExpr;
 import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.expr.NormalAnnotationExpr;
 import com.github.javaparser.ast.expr.StringLiteralExpr;
@@ -117,26 +119,93 @@ public class QueryOptimizer extends QueryOptimizationChecker {
     }
 
     /**
-     * Updates the annotation value with proper text block support.
-     * If the query contains literal \\n characters or actual newlines, it uses
-     * TextBlockLiteralExpr.
-     * Otherwise, it uses StringLiteralExpr.
+     * Formats a long query string for use in a Java text block by breaking it into
+     * multiple lines at whitespace boundaries near the target column width.
+     * The result contains actual newlines followed by proper indentation.
+     *
+     * @param query       the query string to format
+     * @param targetWidth the target column width (e.g., 80)
+     * @param indent      the indentation string for continuation lines
+     * @return the formatted query with actual newlines at whitespace boundaries
+     */
+    static String formatQueryForTextBlock(String query, int targetWidth, String indent) {
+        if (query == null || query.length() <= targetWidth) {
+            return query;
+        }
+
+        StringBuilder result = new StringBuilder();
+        int currentPos = 0;
+        int queryLength = query.length();
+
+        while (currentPos < queryLength) {
+            // Calculate remaining length
+            int remaining = queryLength - currentPos;
+
+            // If remaining fits in target width, append and finish
+            if (remaining <= targetWidth) {
+                if (result.length() > 0) {
+                    result.append("\n").append(indent);
+                }
+                result.append(query.substring(currentPos));
+                break;
+            }
+
+            // Find the best break point (last whitespace before or at target width)
+            int searchEnd = Math.min(currentPos + targetWidth, queryLength);
+            int breakPoint = -1;
+
+            // Search backwards from target width to find whitespace
+            for (int i = searchEnd; i > currentPos; i--) {
+                if (Character.isWhitespace(query.charAt(i - 1))) {
+                    breakPoint = i;
+                    break;
+                }
+            }
+
+            // If no whitespace found, search forward for the next whitespace
+            if (breakPoint == -1) {
+                for (int i = searchEnd; i < queryLength; i++) {
+                    if (Character.isWhitespace(query.charAt(i))) {
+                        breakPoint = i + 1; // Include the whitespace
+                        break;
+                    }
+                }
+            }
+
+            // If still no break point found, take the rest
+            if (breakPoint == -1) {
+                breakPoint = queryLength;
+            }
+
+            // Append the segment
+            if (result.length() > 0) {
+                result.append("\n").append(indent);
+            }
+            result.append(query.substring(currentPos, breakPoint));
+            currentPos = breakPoint;
+        }
+
+        return result.toString();
+    }
+
+    /**
+     * Formats the query value for the @Query annotation using text blocks.
+     * Long queries are broken into multiple lines for readability.
      *
      * @param method         the method declaration containing the annotation
      * @param newStringValue the new query value
      */
     private void updateAnnotationValueWithTextBlockSupport(MethodDeclaration method, String newStringValue) {
-        // Check if the string contains literal \\n or actual newlines
-        boolean isMultiline = newStringValue != null &&
-                (newStringValue.contains("\\\\n") || newStringValue.contains("\n"));
-
-        if (isMultiline) {
-            // Convert literal \\n to actual newlines
-            String processedValue = "    " + newStringValue.replace("\\\\n", "\n        ");
-            updateAnnotationValue(method, "Query", processedValue, true);
-        } else {
-            updateAnnotationValue(method, "Query", newStringValue, false);
-        }
+        // Format long queries for readability using text blocks (break at ~80 chars at
+        // whitespace)
+        // Use 8 spaces for indentation to align with typical method annotation
+        // indentation
+        String indent = "        ";
+        String formattedQuery = formatQueryForTextBlock(newStringValue, 80, indent);
+        // Prepend indent to first line and append newline + indent for closing
+        // delimiter alignment
+        String textBlockContent = indent + formattedQuery + "\n" + indent;
+        updateAnnotationValue(method, "Query", textBlockContent, true);
     }
 
     /**
@@ -187,7 +256,11 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                         .filter(p -> p.getName().asString().equals("value"))
                         .findFirst();
 
-                valuePair.ifPresent(memberValuePair -> memberValuePair.setValue(newValueExpr));
+                if (valuePair.isPresent()) {
+                    valuePair.get().setValue(newValueExpr);
+                } else {
+                    normal.addPair("value", newValueExpr);
+                }
             }
             OptimizationStatsLogger.updateQueryAnnotationsChanged(1);
         }
@@ -231,29 +304,36 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             TypeWrapper typeWrapper = AntikytheraRunTime.getResolvedTypes().get(className);
 
             if (typeWrapper != null) {
-                boolean classModified = false;
-                int totalMethodCallsUpdated = 0;
-
-                // Process all field names for this class
-                for (String fieldName : fieldNames) {
-                    NameChangeVisitor visitor = new NameChangeVisitor(fieldName, fullyQualifiedName);
-                    // Visit the entire CompilationUnit to ensure modifications apply to the CU
-                    // instance
-                    CompilationUnit cu = AntikytheraRunTime.getCompilationUnit(className);
-                    cu.accept(visitor, update);
-
-                    if (visitor.modified) {
-                        classModified = true;
-                        totalMethodCallsUpdated += visitor.methodCallsUpdated;
-                    }
-                }
-
-                // Write file once if any field was modified
-                if (classModified) {
-                    modifiedFiles.add(className);
-                    OptimizationStatsLogger.updateMethodCallsChanged(totalMethodCallsUpdated);
-                }
+                updateMethodCallSignature(update, fullyQualifiedName, fieldNames, className);
             }
+        }
+    }
+
+    private static void updateMethodCallSignature(QueryAnalysisResult update, String fullyQualifiedName,
+            Set<String> fieldNames, String className) {
+        boolean classModified = false;
+        int totalMethodCallsUpdated = 0;
+
+        // Process all field names for this class
+        for (String fieldName : fieldNames) {
+            NameChangeVisitor visitor = new NameChangeVisitor(fieldName, fullyQualifiedName);
+            // Visit the entire CompilationUnit to ensure modifications apply to the CU
+            // instance
+            CompilationUnit cu = AntikytheraRunTime.getCompilationUnit(className);
+            cu.accept(visitor, update);
+
+            if (visitor.modified) {
+                classModified = true;
+                totalMethodCallsUpdated += visitor.methodCallsUpdated;
+            }
+        }
+
+        // Write file once if any field was modified
+        if (classModified) {
+            if (modifiedFiles.add(className)) {
+                OptimizationStatsLogger.updateDependentClassesChanged(1);
+            }
+            OptimizationStatsLogger.updateMethodCallsChanged(totalMethodCallsUpdated);
         }
     }
 
@@ -338,18 +418,18 @@ public class QueryOptimizer extends QueryOptimizationChecker {
 
             boolean isMatchingCall = false;
 
-            // Case 1: Regular method call - fieldName.methodName(...)
-            if (scope.isPresent() && scope.get() instanceof NameExpr fe && fe.getNameAsString().equals(fieldName)) {
+            // Case 1: Regular method call - fieldName.methodName(...) or
+            // this.fieldName.methodName(...)
+            if (scope.isPresent() && isFieldMatch(scope.get())) {
                 isMatchingCall = true;
             }
 
             // Case 2: Mockito verify call - verify(fieldName).methodName(...)
-            if (scope.isPresent() && scope.get() instanceof MethodCallExpr verifyCall) {
-                if ("verify".equals(verifyCall.getNameAsString()) && !verifyCall.getArguments().isEmpty()) {
-                    Expression firstArg = verifyCall.getArgument(0);
-                    if (firstArg instanceof NameExpr nameExpr && nameExpr.getNameAsString().equals(fieldName)) {
-                        isMatchingCall = true;
-                    }
+            if (scope.isPresent() && scope.get() instanceof MethodCallExpr verifyCall &&
+                    ("verify".equals(verifyCall.getNameAsString()) && !verifyCall.getArguments().isEmpty())) {
+                Expression firstArg = verifyCall.getArgument(0);
+                if (isFieldMatch(firstArg)) {
+                    isMatchingCall = true;
                 }
             }
 
@@ -376,6 +456,52 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             return mce;
         }
 
+        @Override
+        public MethodReferenceExpr visit(MethodReferenceExpr mre, QueryAnalysisResult update) {
+            super.visit(mre, update);
+            Expression scope = mre.getScope();
+            OptimizationIssue issue = update.getOptimizationIssue();
+            if (issue == null || issue.optimizedQuery() == null) {
+                return mre;
+            }
+
+            if (isFieldMatch(scope) && update.getMethodName().equals(mre.getIdentifier())) {
+                String originalMethodName = mre.getIdentifier();
+                String newMethodName = issue.optimizedQuery().getMethodName();
+
+                if (!originalMethodName.equals(newMethodName)) {
+                    mre.setIdentifier(newMethodName);
+                    modified = true;
+                    methodCallsUpdated++;
+                }
+            } else if (scope.isTypeExpr() && scope.asTypeExpr().getType().asString().equals(fieldName) 
+                    && update.getMethodName().equals(mre.getIdentifier())) {
+                // Support static method references if fieldName happens to match class name (rare but possible in tests)
+                // or if we want to support class name references.
+                String originalMethodName = mre.getIdentifier();
+                String newMethodName = issue.optimizedQuery().getMethodName();
+
+                if (!originalMethodName.equals(newMethodName)) {
+                    mre.setIdentifier(newMethodName);
+                    modified = true;
+                    methodCallsUpdated++;
+                }
+            }
+
+            return mre;
+        }
+
+        private boolean isFieldMatch(Expression expr) {
+            if (expr instanceof NameExpr ne) {
+                return ne.getNameAsString().equals(fieldName);
+            }
+            if (expr instanceof FieldAccessExpr fae) {
+                return fae.getNameAsString().equals(fieldName) && 
+                       fae.getScope().isThisExpr();
+            }
+            return false;
+        }
+
         /**
          * Reorders method call arguments based on the optimization issue's column order
          * changes.
@@ -397,9 +523,19 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             }
 
             NodeList<Expression> args = mce.getArguments();
+            if (args.size() != newMethod.getParameters().size()) {
+                return;
+            }
+
             NodeList<Expression> newArgs = new NodeList<>();
             for (int i = 0; i < args.size(); i++) {
-                newArgs.add(args.get(map.get(i)));
+                Integer oldIdx = map.get(i);
+                if (oldIdx != null && oldIdx < args.size()) {
+                    newArgs.add(args.get(oldIdx));
+                } else {
+                    // Fallback if mapping is missing or invalid
+                    return;
+                }
             }
 
             mce.getArguments().clear();
@@ -431,11 +567,15 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         // parsed files
         AbstractCompiler.setEnableLexicalPreservation(true);
 
-        AbstractCompiler.preProcess();
-
         // Parse command-line flags
         boolean quietMode = hasFlag(args, "--quiet") || hasFlag(args, "-q");
         QueryOptimizationChecker.setQuietMode(quietMode);
+
+        boolean skipProcessed = hasFlag(args, "--skip-processed") || hasFlag(args, "-s");
+        QueryOptimizationChecker.setSkipProcessed(skipProcessed);
+
+        AbstractCompiler.loadDependencies();
+        AbstractCompiler.preProcess();
 
         if (!quietMode) {
             System.out.println("Time to preprocess   " + (System.currentTimeMillis() - s) + "ms");
@@ -453,7 +593,6 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         // Generate Liquibase file with suggested changes and include in master
         checker.generateLiquibaseChangesFile();
 
-        OptimizationStatsLogger.updateDependentClassesChanged(modifiedFiles.size());
         OptimizationStatsLogger.printSummary(System.out);
         updateFiles();
 

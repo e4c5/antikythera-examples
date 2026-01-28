@@ -7,8 +7,12 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.io.PrintWriter;
+import java.io.BufferedReader;
+import java.io.FileReader;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * Logs optimization statistics to a CSV file for tracking QueryOptimizer
@@ -104,13 +108,12 @@ public class OptimizationStatsLogger {
         current.liquibaseIndexesDropped = 0;
     }
 
-
     private static void logStats(Stats stats) {
         Path csvPath = Paths.get(CSV_FILENAME);
         boolean exists = csvPath.toFile().exists();
 
         try (FileWriter fw = new FileWriter(CSV_FILENAME, true);
-             PrintWriter out = new PrintWriter(fw)) {
+                PrintWriter out = new PrintWriter(fw)) {
 
             if (!exists) {
                 out.println(CSV_HEADER);
@@ -132,39 +135,53 @@ public class OptimizationStatsLogger {
     }
 
     public static void updateQueriesAnalyzed(int queriesAnalyzed) {
-        current.queriesAnalyzed += queriesAnalyzed;
+        if (current != null) {
+            current.queriesAnalyzed += queriesAnalyzed;
+        }
         total.queriesAnalyzed += queriesAnalyzed;
     }
 
     public static void updateQueryAnnotationsChanged(int i) {
-        current.queryAnnotationsChanged += i;
+        if (current != null) {
+            current.queryAnnotationsChanged += i;
+        }
         total.queryAnnotationsChanged += i;
     }
 
     public static void updateMethodSignaturesChanged(int i) {
-        current.methodSignaturesChanged += i;
+        if (current != null) {
+            current.methodSignaturesChanged += i;
+        }
         total.methodSignaturesChanged += i;
     }
 
     public static void updateMethodCallsChanged(int i) {
-        current.methodCallsChanged += i;
+        if (current != null) {
+            current.methodCallsChanged += i;
+        }
         total.methodCallsChanged += i;
     }
 
     public static void updateRepositoriesModified(int i) {
-        current.repositoriesModified += i;
+        if (current != null) {
+            current.repositoriesModified += i;
+        }
         total.repositoriesModified += i;
     }
 
     public static void updateDependentClassesChanged(int i) {
-        current.dependentClassesModified += i;
+        if (current != null) {
+            current.dependentClassesModified += i;
+        }
         total.dependentClassesModified += i;
     }
 
     public static int updateIndexesGenerated(int i) {
-        current.liquibaseIndexesGenerated += i;
+        if (current != null) {
+            current.liquibaseIndexesGenerated += i;
+        }
         total.liquibaseIndexesGenerated += i;
-        return current.liquibaseIndexesGenerated;
+        return current != null ? current.liquibaseIndexesGenerated : total.liquibaseIndexesGenerated;
     }
 
     public static void updateIndexesDropped(int i) {
@@ -175,11 +192,35 @@ public class OptimizationStatsLogger {
     }
 
     public static int getTotalIndexesGenerated() {
-        return total.liquibaseIndexesGenerated + current.liquibaseIndexesGenerated;
+        return total.liquibaseIndexesGenerated;
     }
 
     public static int getTotalIndexesDropped() {
-        return total.liquibaseIndexesDropped + current.liquibaseIndexesDropped;
+        return total.liquibaseIndexesDropped;
+    }
+
+    public static Set<String> getProcessedRepositories() {
+        Set<String> processed = new HashSet<>();
+        Path csvPath = Paths.get(CSV_FILENAME);
+        if (csvPath.toFile().exists()) {
+            try (BufferedReader reader = new BufferedReader(new FileReader(CSV_FILENAME))) {
+                String line;
+                boolean firstLine = true;
+                while ((line = reader.readLine()) != null) {
+                    if (firstLine) {
+                        firstLine = false;
+                        continue;
+                    }
+                    String[] parts = line.split(",");
+                    if (parts.length > 1) {
+                        processed.add(parts[1]);
+                    }
+                }
+            } catch (IOException e) {
+                logger.error("Failed to read processed repositories from CSV: {}", e.getMessage());
+            }
+        }
+        return processed;
     }
 
     public static void printSummary(PrintStream out) {

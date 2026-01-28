@@ -17,6 +17,8 @@ the database index structure by processing the master changelog and all included
 - **SQL Statement Parsing**: Extracts indexes from raw SQL statements
 - **Vendor-Specific Support**: Handles `CONCURRENTLY`, `ONLINE`, `IF NOT EXISTS` clauses
 - **Order Preservation**: Maintains column order in composite indexes
+- **Index Name Length Validation**: Automatically limits index names to 60 characters for database portability
+- **Smart Truncation**: Uses deterministic hashing when truncating long index names for uniqueness
 
 ## Usage
 
@@ -253,12 +255,87 @@ The tool handles common issues gracefully:
 - **Partial Indexes**: `WHERE` clauses in indexes are not captured
 - **Schema Prefixes**: Schema names are stripped from table names
 - **External Indexes**: Only includes indexes defined in Liquibase changelogs
+- **Index Name Length**: Index names are automatically limited to 60 characters for database portability
+  - Long names are truncated and appended with a 7-digit hash for uniqueness
+  - Format: `idx_<truncated_base>_<hash>` (total 60 chars max)
+
+## Index Name Generation
+
+The `LiquibaseGenerator` utility automatically generates index names following these rules:
+
+### Standard Naming Convention
+- **Format**: `idx_<table>_<column1>_<column2>_...`
+- **Case**: All lowercase
+- **Sanitization**: Special characters replaced with underscores
+
+### Length Limit (60 Characters)
+To ensure compatibility across all major databases, index names are limited to 60 characters:
+
+| Database | Technical Limit | Antikythera Limit |
+|----------|----------------|-------------------|
+| PostgreSQL | 63 characters | 60 characters |
+| Oracle (older) | 30 characters | 60 characters* |
+| Oracle (12.2+) | 128 characters | 60 characters |
+| MySQL | 64 characters | 60 characters |
+| SQL Server | 128 characters | 60 characters |
+
+*Note: For Oracle databases with 30-character limits, additional configuration may be required.
+
+### Truncation with Hash Suffix
+When an index name exceeds 60 characters:
+1. The base name is truncated to 52 characters
+2. An underscore separator is added
+3. A 7-digit deterministic hash is appended
+
+**Example**:
+```
+Original:  idx_very_long_table_name_column_one_column_two_column_three_column_four
+Truncated: idx_very_long_table_name_column_one_column_two_c_1234567
+Length:    60 characters
+```
+
+The hash ensures:
+- **Uniqueness**: Different column combinations produce different hashes
+- **Determinism**: Same inputs always produce the same hash
+- **Collision Avoidance**: 10 million possible hash values (0000000-9999999)
 
 ## Integration with QueryOptimizationChecker
 
 The Indexes class is used internally by:
 - **QueryOptimizationChecker**: To identify missing indexes
 - **CardinalityAnalyzer**: To determine column cardinality based on index presence
+- **LiquibaseGenerator**: To generate index changesets with proper naming and preconditions
+
+### Index Generation Features
+
+When `QueryOptimizationChecker` generates index recommendations, it uses `LiquibaseGenerator` which provides:
+
+1. **Index Name Validation**: Ensures all index names are ≤60 characters
+2. **Multi-Column Index Limits**: Configurable maximum columns per index (default: 4)
+3. **Liquibase Preconditions**: Uses built-in `<indexExists>` instead of custom SQL
+4. **Multi-Dialect Support**: Generates SQL for PostgreSQL, Oracle, MySQL, H2
+
+### Configuration
+
+Index generation behavior can be configured in `generator.yml`:
+
+```yaml
+query_optimizer:
+  # Maximum number of columns in a multi-column index (default: 4)
+  max_index_columns: 4
+  
+  # Database dialects to generate Liquibase changesets for
+  supported_dialects:
+    - postgresql
+    - oracle
+  
+  # Path to the master Liquibase changelog file
+  liquibase_master_file: src/main/resources/db/changelog/db.changelog-master.xml
+```
+
+**See Also**:
+- [Maximum Index Columns Configuration](max_index_columns_configuration.md)
+- [Index Name Length Validation](index_name_length_validation.md)
 
 ## API Usage
 
@@ -280,8 +357,51 @@ for (Map.Entry<String, Set<IndexInfo>> entry : indexes.entrySet()) {
 }
 ```
 
+## Recent Improvements
+
+### Index Name Length Validation (v0.1.2.9+)
+All generated index names are now automatically limited to **60 characters** for maximum database portability:
+- Prevents issues with databases that have shorter identifier limits
+- Uses deterministic hashing for truncated names to ensure uniqueness
+- No manual intervention required - works transparently
+
+**Example**:
+```java
+// Long table and column names
+String indexName = generator.generateIndexName(
+    "customer_transaction_history", 
+    List.of("user_id", "transaction_date", "payment_method", "status")
+);
+// Result: idx_customer_transaction_history_user_id_trans_1234567 (60 chars)
+```
+
+### Configurable Multi-Column Index Limits (v0.1.2.9+)
+You can now configure the maximum number of columns in multi-column indexes:
+- **Default**: 4 columns (recommended for OLTP)
+- **Range**: 1-16 columns
+- **Configuration**: `query_optimizer.max_index_columns` in `generator.yml`
+
+This prevents overly complex indexes that can hurt write performance.
+
+### Liquibase Built-in Preconditions (v0.1.2.9+)
+Index changesets now use Liquibase's native `<indexExists>` precondition:
+```xml
+<preConditions onFail="MARK_RAN">
+    <not>
+        <indexExists tableName="users" columnNames="email"/>
+    </not>
+</preConditions>
+```
+
+**Benefits**:
+- Simpler, more maintainable code (~150 lines removed)
+- Database-agnostic (Liquibase handles dialect differences)
+- Standard approach following Liquibase best practices
+
 ## See Also
 
 - [QueryOptimizationChecker](../README.md#query-analysis-read-only) - Uses Indexes for analysis
 - [QueryOptimizer](../README.md#query-optimization-modifies-code) - Generates new index suggestions
 - [LiquibaseGenerator](../README.md#supporting-components) - Creates Liquibase changesets
+- [Maximum Index Columns Configuration](max_index_columns_configuration.md) - Configure multi-column index limits
+- [Index Name Length Validation](index_name_length_validation.md) - Details on 60-character limit

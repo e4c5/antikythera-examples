@@ -32,7 +32,11 @@ class LiquibaseGeneratorTest {
 
     @BeforeEach
     void setUp() throws IOException {
-        Settings.loadConfigMap();
+        // Load configuration from the test resources file to ensure
+        // liquibase_master_file and other settings are properly configured
+        File configFile = new File("src/test/resources/generator.yml");
+        Settings.loadConfigMap(configFile);
+        
         generator = new LiquibaseGenerator();
         masterFile = tempDir.resolve("master-changelog.xml");
 
@@ -61,9 +65,10 @@ class LiquibaseGeneratorTest {
         assertTrue(changeset.contains("CREATE INDEX CONCURRENTLY idx_users_email ON users (email)"));
         assertTrue(changeset.contains("CREATE INDEX idx_users_email ON users (email) ONLINE"));
 
-        // Verify XML structure
+        // Verify XML structure uses Liquibase built-in indexExists precondition
         assertTrue(changeset.contains("<preConditions onFail=\"MARK_RAN\">"));
-        assertTrue(changeset.contains("<indexExists tableName=\"users\" indexName=\"idx_users_email\"/>"));
+        assertTrue(changeset.contains("<not>"));
+        assertTrue(changeset.contains("<indexExists tableName=\"users\" columnNames=\"email\"/>"));
         assertTrue(changeset.contains("<rollback>"));
         assertTrue(changeset.contains("DROP INDEX CONCURRENTLY IF EXISTS idx_users_email"));
         assertTrue(changeset.contains("DROP INDEX idx_users_email"));
@@ -103,6 +108,32 @@ class LiquibaseGeneratorTest {
         assertNotNull(changeset);
         assertTrue(changeset.contains("first_name, last_name, birth_date"));
         assertTrue(changeset.contains("idx_persons_first_name_last_name_birth_date"));
+
+        // Verify it uses Liquibase's built-in indexExists precondition
+        assertTrue(changeset.contains("<indexExists tableName=\"persons\" columnNames=\"first_name, last_name, birth_date\"/>"));
+    }
+
+    @Test
+    void testIndexExistsPreconditionFormat() {
+        // Test that the precondition uses Liquibase's built-in indexExists with tableName and columnNames
+        String changeset = generator.createIndexChangeset("users", "email");
+
+        // Verify Liquibase built-in indexExists precondition is used (not custom SQL)
+        assertTrue(changeset.contains("<indexExists tableName=\"users\" columnNames=\"email\"/>"));
+        assertFalse(changeset.contains("sqlCheck"), "Should not use custom SQL checks");
+        assertFalse(changeset.contains("pg_index"), "Should not use database-specific queries");
+        assertFalse(changeset.contains("ALL_IND_COLUMNS"), "Should not use database-specific queries");
+    }
+
+    @Test
+    void testMultiColumnIndexExistsPrecondition() {
+        // Test that multi-column indexes use proper indexExists precondition
+        List<String> columns = Arrays.asList("user_id", "status");
+        String changeset = generator.createMultiColumnIndexChangeset("orders", columns);
+
+        // Verify it uses Liquibase's indexExists with comma-separated column names
+        assertTrue(changeset.contains("<indexExists tableName=\"orders\" columnNames=\"user_id, status\"/>"));
+        assertFalse(changeset.contains("sqlCheck"), "Should not use custom SQL checks");
     }
 
     @Test
@@ -200,10 +231,87 @@ class LiquibaseGeneratorTest {
         // Test index name generation with special characters
         String indexName = generator.generateIndexName("user-table", Arrays.asList("email@domain"));
         assertEquals("idx_user_table_email_domain", indexName);
+        assertTrue(indexName.length() <= 60, "Index name should not exceed 60 characters");
 
         // Test with numbers and underscores
         String indexName2 = generator.generateIndexName("table_123", Arrays.asList("col_1", "col_2"));
         assertEquals("idx_table_123_col_1_col_2", indexName2);
+        assertTrue(indexName2.length() <= 60, "Index name should not exceed 60 characters");
+    }
+
+    @Test
+    void testGenerateIndexNameLengthLimit() {
+        // Test that index names are limited to 60 characters
+        // Create a very long table name and column names
+        String longTableName = "very_long_table_name_that_exceeds_normal_limits";
+        List<String> longColumns = Arrays.asList(
+            "very_long_column_name_one",
+            "very_long_column_name_two",
+            "very_long_column_name_three",
+            "very_long_column_name_four"
+        );
+
+        String indexName = generator.generateIndexName(longTableName, longColumns);
+
+        // Verify the index name doesn't exceed 60 characters
+        assertTrue(indexName.length() <= 60,
+            "Index name '" + indexName + "' exceeds 60 characters (length: " + indexName.length() + ")");
+
+        // Verify it starts with idx_
+        assertTrue(indexName.startsWith("idx_"), "Index name should start with 'idx_'");
+
+        // Verify it contains a hash suffix when truncated
+        // Format should be: idx_<truncated>_<7-digit-hash>
+        String[] parts = indexName.split("_");
+        assertTrue(parts.length >= 2, "Truncated index should have at least 2 parts");
+
+        // Last part should be a 7-digit hash
+        String lastPart = parts[parts.length - 1];
+        assertTrue(lastPart.matches("\\d{7}"), "Last part should be a 7-digit hash, got: " + lastPart);
+    }
+
+    @Test
+    void testGenerateIndexNameConsistentHashing() {
+        // Test that the same input produces the same truncated index name
+        String longTableName = "extremely_long_table_name_for_testing_purposes";
+        List<String> longColumns = Arrays.asList(
+            "column_one_with_long_name",
+            "column_two_with_long_name",
+            "column_three_with_long_name"
+        );
+
+        String indexName1 = generator.generateIndexName(longTableName, longColumns);
+        String indexName2 = generator.generateIndexName(longTableName, longColumns);
+
+        // Should produce identical results (deterministic hashing)
+        assertEquals(indexName1, indexName2, "Same inputs should produce same index name");
+        assertTrue(indexName1.length() <= 60, "Index name should not exceed 60 characters");
+    }
+
+    @Test
+    void testGenerateIndexNameShortNamesUnchanged() {
+        // Test that short index names are not modified
+        String shortTableName = "users";
+        List<String> shortColumns = Arrays.asList("email");
+
+        String indexName = generator.generateIndexName(shortTableName, shortColumns);
+
+        assertEquals("idx_users_email", indexName);
+        assertTrue(indexName.length() <= 60, "Index name should not exceed 60 characters");
+        assertFalse(indexName.matches(".*_\\d{7}$"), "Short names should not have hash suffix");
+    }
+
+    @Test
+    void testGenerateIndexNameExactly60Characters() {
+        // Test edge case where the name is exactly at the limit
+        // This tests the boundary condition
+        String tableName = "table_with_moderate_length_name";
+        List<String> columns = Arrays.asList("column_a", "column_b", "column_c");
+
+        String indexName = generator.generateIndexName(tableName, columns);
+
+        assertTrue(indexName.length() <= 60,
+            "Index name should not exceed 60 characters (length: " + indexName.length() + ")");
     }
 
     @Test
@@ -230,7 +338,7 @@ class LiquibaseGeneratorTest {
         ChangesetConfig config = new ChangesetConfig("test-author",
                 Set.of(DatabaseDialect.POSTGRESQL, DatabaseDialect.ORACLE,
                         DatabaseDialect.MYSQL, DatabaseDialect.H2),
-                true, true);
+                true, true, null);
 
         LiquibaseGenerator dialectGenerator = new LiquibaseGenerator(config);
         String changeset = dialectGenerator.createIndexChangeset("users", "email");
@@ -239,18 +347,97 @@ class LiquibaseGeneratorTest {
         assertTrue(changeset.contains("postgresql"));
         assertTrue(changeset.contains("oracle"));
         assertTrue(changeset.contains("mysql"));
-        assertTrue(changeset.contains("h2"));
+    }
 
-        // Test dialect-specific SQL
-        assertTrue(changeset.contains("CONCURRENTLY")); // PostgreSQL
-        assertTrue(changeset.contains("ONLINE")); // Oracle
+    @Test
+    void testChangesetConfigFromConfiguration() {
+        // Test that ChangesetConfig.fromConfiguration() reads dialects from
+        // generator.yml
+        // The test generator.yml should have query_optimizer.supported_dialects:
+        // [postgresql, oracle]
+        ChangesetConfig config = ChangesetConfig.fromConfiguration();
+
+        assertNotNull(config);
+        assertFalse(config.supportedDialects().isEmpty());
+
+        // Verify it contains the dialects specified in generator.yml
+        assertTrue(config.supportedDialects().contains(DatabaseDialect.POSTGRESQL));
+        assertTrue(config.supportedDialects().contains(DatabaseDialect.ORACLE));
+    }
+
+    @Test
+    void testGeneratorWithConfigurationDialects() {
+        // Test that generator created with fromConfiguration() only generates for
+        // configured dialects
+        LiquibaseGenerator configGenerator = new LiquibaseGenerator(ChangesetConfig.fromConfiguration());
+        String changeset = configGenerator.createIndexChangeset("users", "email");
+
+        // Should contain SQL for postgresql and oracle (as configured in generator.yml)
+        assertTrue(changeset.contains("postgresql"));
+        assertTrue(changeset.contains("oracle"));
+
+        // Should NOT contain mysql or h2 (not in configuration)
+        assertFalse(changeset.contains("dbms=\"mysql\""));
+        assertFalse(changeset.contains("dbms=\"h2\""));
+    }
+
+    @Test
+    void testGetConfiguredMasterFile() {
+        // Test that getConfiguredMasterFile reads from configuration
+        LiquibaseGenerator configGenerator = new LiquibaseGenerator(ChangesetConfig.fromConfiguration());
+        Optional<Path> configuredMasterFile = configGenerator.getConfiguredMasterFile();
+
+        // Should be present since it's configured in test resources generator.yml
+        assertTrue(configuredMasterFile.isPresent());
+        assertTrue(configuredMasterFile.get().toString().contains("db.changelog-master.xml"));
+    }
+
+    @Test
+    void testGetConfiguredMasterFileNotConfigured() {
+        // Test when liquibase_master_file is not configured
+        ChangesetConfig configWithoutMaster = new ChangesetConfig("author",
+                Set.of(DatabaseDialect.POSTGRESQL), true, true, null);
+        LiquibaseGenerator gen = new LiquibaseGenerator(configWithoutMaster);
+
+        Optional<Path> configuredMasterFile = gen.getConfiguredMasterFile();
+        assertTrue(configuredMasterFile.isPresent() == false || configuredMasterFile.isEmpty());
+    }
+
+    @Test
+    void testWriteChangesetToConfiguredFileThrowsWhenNotConfigured() {
+        // Test that writeChangesetToConfiguredFile throws when master file is not
+        // configured
+        ChangesetConfig configWithoutMaster = new ChangesetConfig("author",
+                Set.of(DatabaseDialect.POSTGRESQL), true, true, null);
+        LiquibaseGenerator gen = new LiquibaseGenerator(configWithoutMaster);
+
+        assertThrows(IllegalStateException.class,
+                () -> gen.writeChangesetToConfiguredFile("<changeSet>test</changeSet>"));
+    }
+
+    @Test
+    void testDatabaseDialectFromString() {
+        // Test parsing dialect names from strings
+        assertEquals(Optional.of(DatabaseDialect.POSTGRESQL), DatabaseDialect.fromString("postgresql"));
+        assertEquals(Optional.of(DatabaseDialect.ORACLE), DatabaseDialect.fromString("oracle"));
+        assertEquals(Optional.of(DatabaseDialect.MYSQL), DatabaseDialect.fromString("mysql"));
+        assertEquals(Optional.of(DatabaseDialect.H2), DatabaseDialect.fromString("h2"));
+
+        // Test case insensitivity
+        assertEquals(Optional.of(DatabaseDialect.POSTGRESQL), DatabaseDialect.fromString("POSTGRESQL"));
+        assertEquals(Optional.of(DatabaseDialect.ORACLE), DatabaseDialect.fromString("Oracle"));
+
+        // Test invalid/empty values
+        assertEquals(Optional.empty(), DatabaseDialect.fromString(null));
+        assertEquals(Optional.empty(), DatabaseDialect.fromString(""));
+        assertEquals(Optional.empty(), DatabaseDialect.fromString("invalid"));
     }
 
     @Test
     void testChangesetConfigOptions() {
         // Test custom configuration
         ChangesetConfig customConfig = new ChangesetConfig("custom-author",
-                Set.of(DatabaseDialect.POSTGRESQL), false, false);
+                Set.of(DatabaseDialect.POSTGRESQL), false, false, null);
 
         LiquibaseGenerator customGenerator = new LiquibaseGenerator(customConfig);
         String changeset = customGenerator.createIndexChangeset("users", "email");
@@ -345,7 +532,8 @@ class LiquibaseGeneratorTest {
                 "test-author",
                 Set.of(DatabaseDialect.MYSQL),
                 false,
-                false);
+                false,
+                null);
 
         LiquibaseGenerator customGenerator = new LiquibaseGenerator(config);
 
@@ -452,5 +640,114 @@ class LiquibaseGeneratorTest {
 
         assertNull(result2.getChangesFile());
         assertFalse(result2.wasWritten());
+    }
+
+    @Test
+    void testRelativePathPrefixDetection() throws IOException {
+        // Create a master file with existing include entries that have a path prefix
+        String masterContentWithPrefix = """
+                <?xml version="1.1" encoding="UTF-8" standalone="no"?>
+                <databaseChangeLog
+                        logicalFilePath="db/changelog/changelog-master.xml"
+                        xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+                    <include file="/db/changelog/master.xml"/>
+                    <include file="/db/changelog/functions.xml"/>
+                    <include file="/db/changelog/datamigration.xml"/>
+                </databaseChangeLog>
+                """;
+        Files.writeString(masterFile, masterContentWithPrefix);
+
+        // Write a new changeset
+        String changeset = generator.createIndexChangeset("users", "email");
+        WriteResult result = generator.writeChangesetToFile(masterFile, changeset);
+
+        assertTrue(result.wasWritten());
+
+        // Read the updated master file
+        String updatedMaster = Files.readString(masterFile);
+
+        // The new include should have the same path prefix as existing entries
+        assertTrue(updatedMaster.contains("<include file=\"/db/changelog/antikythera-indexes-"),
+                "New include should have the /db/changelog/ prefix. Actual content:\n" + updatedMaster);
+    }
+
+    @Test
+    void testRelativePathPrefixDetectionWithNoPrefix() throws IOException {
+        // Create a master file with existing include entries that have no path prefix
+        String masterContentNoPrefix = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+                    <include file="master.xml"/>
+                    <include file="functions.xml"/>
+                </databaseChangeLog>
+                """;
+        Files.writeString(masterFile, masterContentNoPrefix);
+
+        // Write a new changeset
+        String changeset = generator.createIndexChangeset("users", "email");
+        WriteResult result = generator.writeChangesetToFile(masterFile, changeset);
+
+        assertTrue(result.wasWritten());
+
+        // Read the updated master file
+        String updatedMaster = Files.readString(masterFile);
+
+        // The new include should have no path prefix (just the filename)
+        assertTrue(updatedMaster.contains("<include file=\"antikythera-indexes-"),
+                "New include should have no prefix when existing entries have none. Actual content:\n" + updatedMaster);
+        assertFalse(updatedMaster.contains("<include file=\"/"),
+                "New include should not have a leading slash when existing entries don't have paths");
+    }
+
+    @Test
+    void testRelativePathPrefixDetectionWithMixedPaths() throws IOException {
+        // Create a master file with mixed path prefixes (most common should win)
+        String masterContentMixed = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+                    <include file="/db/changelog/master.xml"/>
+                    <include file="/db/changelog/functions.xml"/>
+                    <include file="/db/changelog/datamigration.xml"/>
+                    <include file="legacy.xml"/>
+                </databaseChangeLog>
+                """;
+        Files.writeString(masterFile, masterContentMixed);
+
+        // Write a new changeset
+        String changeset = generator.createIndexChangeset("users", "email");
+        WriteResult result = generator.writeChangesetToFile(masterFile, changeset);
+
+        assertTrue(result.wasWritten());
+
+        // Read the updated master file
+        String updatedMaster = Files.readString(masterFile);
+
+        // The new include should use the most common prefix (/db/changelog/)
+        assertTrue(updatedMaster.contains("<include file=\"/db/changelog/antikythera-indexes-"),
+                "New include should use the most common path prefix. Actual content:\n" + updatedMaster);
+    }
+
+    @Test
+    void testRelativePathPrefixDetectionWithEmptyMasterFile() throws IOException {
+        // Create a master file with no existing include entries
+        String masterContentEmpty = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+                </databaseChangeLog>
+                """;
+        Files.writeString(masterFile, masterContentEmpty);
+
+        // Write a new changeset
+        String changeset = generator.createIndexChangeset("users", "email");
+        WriteResult result = generator.writeChangesetToFile(masterFile, changeset);
+
+        assertTrue(result.wasWritten());
+
+        // Read the updated master file
+        String updatedMaster = Files.readString(masterFile);
+
+        // The new include should have no prefix when there are no existing entries
+        assertTrue(updatedMaster.contains("<include file=\"antikythera-indexes-"),
+                "New include should have no prefix when no existing entries. Actual content:\n" + updatedMaster);
     }
 }

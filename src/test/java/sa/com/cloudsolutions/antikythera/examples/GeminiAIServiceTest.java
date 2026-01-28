@@ -22,6 +22,8 @@ import java.io.IOException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
+import java.time.Duration;
 import java.util.*;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -261,9 +263,65 @@ class GeminiAIServiceTest {
         assertTrue(issue.aiExplanation().contains("Reordered for better performance"));
     }
 
-    /**
-     * Helper method to create a test QueryBatch with properly mocked RepositoryQuery.
-     */
+    @Test
+    void testAnalyzeQueryBatch_TimeoutRetrySuccess() throws Exception {
+        try (MockedStatic<HttpClient> httpClientMock = mockStatic(HttpClient.class)) {
+            HttpClient.Builder mockBuilder = mock(HttpClient.Builder.class);
+            when(mockBuilder.connectTimeout(any())).thenReturn(mockBuilder);
+            when(mockBuilder.build()).thenReturn(mockHttpClient);
+            httpClientMock.when(HttpClient::newBuilder).thenReturn(mockBuilder);
+
+            GeminiAIService testService = new GeminiAIService();
+            testService.configure(config);
+
+            // Mock timeout on first call, success on second
+            when(mockHttpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+                    .thenThrow(new HttpTimeoutException("Timeout"))
+                    .thenReturn(mockHttpResponse);
+
+            when(mockHttpResponse.statusCode()).thenReturn(200);
+            when(mockHttpResponse.body()).thenReturn("{\"candidates\": []}");
+
+            QueryBatch batch = createTestQueryBatch();
+            
+            List<OptimizationIssue> result = testService.analyzeQueryBatch(batch);
+            
+            assertNotNull(result);
+            // Verify send was called twice
+            verify(mockHttpClient, times(2)).send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+            
+            // Verify the second request had increased timeout
+            verify(mockHttpClient).send(argThat(request -> 
+                request.timeout().isPresent() && request.timeout().get().equals(Duration.ofSeconds(60))), 
+                any(HttpResponse.BodyHandler.class));
+        }
+    }
+
+    @Test
+    void testAnalyzeQueryBatch_DoubleTimeoutFails() throws Exception {
+        try (MockedStatic<HttpClient> httpClientMock = mockStatic(HttpClient.class)) {
+            HttpClient.Builder mockBuilder = mock(HttpClient.Builder.class);
+            when(mockBuilder.connectTimeout(any())).thenReturn(mockBuilder);
+            when(mockBuilder.build()).thenReturn(mockHttpClient);
+            httpClientMock.when(HttpClient::newBuilder).thenReturn(mockBuilder);
+
+            GeminiAIService testService = new GeminiAIService();
+            testService.configure(config);
+
+            // Mock timeout on both calls
+            when(mockHttpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+                    .thenThrow(new HttpTimeoutException("Timeout 1"))
+                    .thenThrow(new HttpTimeoutException("Timeout 2"));
+
+            QueryBatch batch = createTestQueryBatch();
+            
+            assertThrows(HttpTimeoutException.class, () -> testService.analyzeQueryBatch(batch));
+            
+            // Verify send was called exactly twice
+            verify(mockHttpClient, times(2)).send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+        }
+    }
+
     private QueryBatch createTestQueryBatch() {
         QueryBatch batch = new QueryBatch("UserRepository");
         MethodDeclaration md = bp.getCompilationUnit().findAll(MethodDeclaration.class).stream()

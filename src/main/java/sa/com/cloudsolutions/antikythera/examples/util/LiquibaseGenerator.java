@@ -1,7 +1,5 @@
 package sa.com.cloudsolutions.antikythera.examples.util;
 
-import sa.com.cloudsolutions.antikythera.configuration.Settings;
-
 import java.io.File;
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -10,7 +8,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+
+import sa.com.cloudsolutions.antikythera.configuration.Settings;
 
 /**
  * Enhanced Liquibase changeset generator with consolidated functionality for index creation,
@@ -22,6 +24,9 @@ import java.util.stream.Collectors;
  * - QueryOptimizationChecker.buildLiquibaseDropIndexChangeSet()
  */
 public class LiquibaseGenerator {
+
+    public static final String CREATE_INDEX = "CREATE INDEX ";
+
     /**
      * Supported database dialects for Liquibase generation.
      */
@@ -40,18 +45,68 @@ public class LiquibaseGenerator {
         public String getLiquibaseDbms() {
             return liquibaseDbms;
         }
+
+        /**
+         * Parses a dialect name from string (case-insensitive).
+         *
+         * @param name the dialect name (e.g., "postgresql", "ORACLE", "mysql", "h2")
+         * @return Optional containing the matching DatabaseDialect, or empty if not found
+         */
+        public static Optional<DatabaseDialect> fromString(String name) {
+            if (name == null || name.isBlank()) {
+                return Optional.empty();
+            }
+            String normalized = name.trim().toLowerCase();
+            for (DatabaseDialect dialect : values()) {
+                if (dialect.liquibaseDbms.equals(normalized)) {
+                    return Optional.of(dialect);
+                }
+            }
+            return Optional.empty();
+        }
     }
 
     /**
          * Configuration for changeset generation.
          */
         public record ChangesetConfig(String author, Set<DatabaseDialect> supportedDialects, boolean includePreconditions,
-                                      boolean includeRollback) {
+                                      boolean includeRollback, String liquibaseMasterFile) {
 
         public static ChangesetConfig defaultConfig() {
                 return new ChangesetConfig("antikythera",
                         Set.of(DatabaseDialect.POSTGRESQL, DatabaseDialect.ORACLE),
-                        true, true);
+                        true, true, null);
+            }
+
+            /**
+             * Creates a ChangesetConfig by reading supported dialects from the generator.yml configuration.
+             * Looks for the property: query_optimizer.supported_dialects
+             * Falls back to defaultConfig() if not configured.
+             *
+             * @return ChangesetConfig with dialects from configuration
+             */
+            @SuppressWarnings("unchecked")
+            public static ChangesetConfig fromConfiguration() {
+                Map<String, Object> queryOptimizer = (Map<String, Object>) Settings.getProperty("query_optimizer");
+                if (queryOptimizer != null) {
+                    List<String> dialectNames = (List<String>) queryOptimizer.get("supported_dialects");
+                    String masterFile = (String) queryOptimizer.get("liquibase_master_file");
+
+                    Set<DatabaseDialect> dialects = Set.of(DatabaseDialect.POSTGRESQL, DatabaseDialect.ORACLE);
+                    if (dialectNames != null && !dialectNames.isEmpty()) {
+                        Set<DatabaseDialect> parsedDialects = dialectNames.stream()
+                                .map(DatabaseDialect::fromString)
+                                .filter(Optional::isPresent)
+                                .map(Optional::get)
+                                .collect(Collectors.toSet());
+                        if (!parsedDialects.isEmpty()) {
+                            dialects = parsedDialects;
+                        }
+                    }
+
+                    return new ChangesetConfig("antikythera", dialects, true, true, masterFile);
+                }
+                return defaultConfig();
             }
         }
     
@@ -82,7 +137,38 @@ public class LiquibaseGenerator {
         this.config = config;
         this.generatedChangesetIds = new HashSet<>();
     }
-    
+
+    /**
+     * Gets the configured Liquibase master file path from configuration.
+     *
+     * @return Optional containing the master file path, or empty if not configured
+     */
+    public Optional<Path> getConfiguredMasterFile() {
+        String masterFilePath = config.liquibaseMasterFile();
+        if (masterFilePath != null && !masterFilePath.isBlank()) {
+            return Optional.of(Path.of(masterFilePath));
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Writes changesets to the configured Liquibase master file location.
+     * Uses the liquibase_master_file path from query_optimizer configuration.
+     *
+     * @param changesets the changeset XML content to write
+     * @return result of the write operation
+     * @throws IOException if an I/O error occurs
+     * @throws IllegalStateException if liquibase_master_file is not configured
+     */
+    public WriteResult writeChangesetToConfiguredFile(String changesets) throws IOException {
+        Optional<Path> masterFile = getConfiguredMasterFile();
+        if (masterFile.isEmpty()) {
+            throw new IllegalStateException(
+                "liquibase_master_file not configured in query_optimizer section of generator.yml");
+        }
+        return writeChangesetToFile(masterFile.get(), changesets);
+    }
+
     /**
      * Creates a Liquibase changeset for a single-column index.
      * 
@@ -132,8 +218,8 @@ public class LiquibaseGenerator {
         String changesetId = generateChangesetId("drop_" + sanitize(indexName));
         StringBuilder sb = new StringBuilder();
         
-        sb.append("<changeSet id=\"").append(changesetId).append("\" author=\"").append(config.author()).append("\">\n");
-        
+        sb.append("<changeSet id=\"").append(changesetId).append("\" author=\"").append(config.author()).append("\" runInTransaction=\"false\">\n");
+
         if (config.includePreconditions()) {
             sb.append("    <preConditions onFail=\"MARK_RAN\">\n");
             sb.append("        <indexExists indexName=\"").append(indexName).append("\"/>\n");
@@ -197,10 +283,10 @@ public class LiquibaseGenerator {
         writer.println(content);
         writer.close();
 
-        // Update master file to include the new changeset file
-        updateMasterFile(masterPath,
-                outputFile.toAbsolutePath().toString().replace(Settings.getBasePath() + "src/main/resources/",""));
-        
+        // Update master file to include the new changeset file using relative path
+        String relativePath = dir.relativize(outputFile).toString();
+        updateMasterFile(masterPath, relativePath);
+
         return new WriteResult(outputFile.toFile(), true);
     }
     
@@ -218,11 +304,13 @@ public class LiquibaseGenerator {
     
     /**
      * Generates a unique index name based on table and column names.
-     * 
+     * Ensures the name doesn't exceed 60 characters. If it does, truncates and adds a hash suffix.
+     *
      * @param tableName the table name
      * @param columns the column names
-     * @return generated index name
+     * @return generated index name (max 60 characters)
      */
+    @SuppressWarnings("java:S2676")
     public String generateIndexName(String tableName, List<String> columns) {
         if (columns.isEmpty()) {
             throw new IllegalArgumentException("Columns cannot be empty");
@@ -234,7 +322,25 @@ public class LiquibaseGenerator {
                 .map(this::sanitize)
                 .collect(Collectors.joining("_"));
         
-        return ("idx_" + sanitize(tableName) + "_" + columnPart).toLowerCase();
+        String fullName = ("idx_" + sanitize(tableName) + "_" + columnPart).toLowerCase();
+
+        // Oracle and other databases have index name limits (typically 30-128 chars)
+        // Using 60 as a safe limit for portability
+        if (fullName.length() <= 60) {
+            return fullName;
+        }
+
+        // If too long, truncate and add hash suffix for uniqueness
+        // Format: idx_<table>_<truncated_cols>_<hash>
+        // Reserve 8 chars for "_" + 7-char hash
+        int maxBaseLength = 60 - 8;
+
+        // Create a deterministic hash from the full name
+        int hash = Math.abs(fullName.hashCode());
+        String hashSuffix = String.format("%07d", hash % 10000000);
+
+        String truncatedBase = fullName.substring(0, Math.min(fullName.length(), maxBaseLength));
+        return truncatedBase + "_" + hashSuffix;
     }
     
     /**
@@ -271,12 +377,12 @@ public class LiquibaseGenerator {
         
         StringBuilder sb = new StringBuilder();
         
-        sb.append("<changeSet id=\"").append(changesetId).append("\" author=\"").append(config.author()).append("\">\n");
-        
+        sb.append("<changeSet id=\"").append(changesetId).append("\" author=\"").append(config.author()).append("\" runInTransaction=\"false\">\n");
+
         if (config.includePreconditions()) {
             sb.append("    <preConditions onFail=\"MARK_RAN\">\n");
             sb.append("        <not>\n");
-            sb.append("            <indexExists tableName=\"").append(tableName).append("\" indexName=\"").append(indexName).append("\"/>\n");
+            sb.append("            <indexExists tableName=\"").append(tableName).append("\" columnNames=\"").append(columnList).append("\"/>\n");
             sb.append("        </not>\n");
             sb.append("    </preConditions>\n");
         }
@@ -306,21 +412,21 @@ public class LiquibaseGenerator {
     private String getCreateIndexSql(DatabaseDialect dialect, String indexName, String tableName, String columnList) {
         return switch (dialect) {
             case POSTGRESQL -> "CREATE INDEX CONCURRENTLY " + indexName + " ON " + tableName + " (" + columnList + ");";
-            case ORACLE -> "CREATE INDEX " + indexName + " ON " + tableName + " (" + columnList + ") ONLINE";
-            case MYSQL -> "CREATE INDEX " + indexName + " ON " + tableName + " (" + columnList + ");";
-            case H2 -> "CREATE INDEX " + indexName + " ON " + tableName + " (" + columnList + ");";
+            case ORACLE -> CREATE_INDEX + indexName + " ON " + tableName + " (" + columnList + ") ONLINE;";
+            case MYSQL -> CREATE_INDEX + indexName + " ON " + tableName + " (" + columnList + ");";
+            case H2 -> CREATE_INDEX + indexName + " ON " + tableName + " (" + columnList + ");";
         };
     }
     
     private String getDropIndexSql(DatabaseDialect dialect, String indexName) {
         return switch (dialect) {
             case POSTGRESQL -> "DROP INDEX CONCURRENTLY IF EXISTS " + indexName + ";";
-            case ORACLE -> "DROP INDEX " + indexName;
-            case MYSQL -> "DROP INDEX " + indexName + ";";
+            case ORACLE, MYSQL -> "DROP INDEX " + indexName + ";";
             case H2 -> "DROP INDEX IF EXISTS " + indexName + ";";
         };
     }
     
+
     private String generateChangesetId(String baseName) {
         String baseId = baseName + "_" + System.currentTimeMillis();
         
@@ -353,10 +459,15 @@ public class LiquibaseGenerator {
     
     private void updateMasterFile(Path masterFile, String fileName) throws IOException {
         String masterText = Files.readString(masterFile, StandardCharsets.UTF_8);
-        String includeTag = String.format("    <include file=\"%s\"/>", fileName);
+        
+        // Detect the relative path prefix used by existing include entries
+        String pathPrefix = detectRelativePathPrefix(masterText);
+        String fullPath = pathPrefix + fileName;
+        
+        String includeTag = String.format("    <include file=\"%s\"/>", fullPath);
         
         // Check if this specific file is already included
-        if (!masterText.contains("file=\"" + fileName + "\"")) {
+        if (!masterText.contains("file=\"" + fullPath + "\"")) {
             int idx = masterText.lastIndexOf("</databaseChangeLog>");
 
             String updated = masterText.substring(0, idx) + includeTag + "\n" + masterText.substring(idx);
@@ -364,5 +475,59 @@ public class LiquibaseGenerator {
                 writer.println(updated);
             }
         }
+    }
+    
+    /**
+     * Detects the relative path prefix used by existing include entries in the master file.
+     * Analyzes existing &lt;include file="..."/&gt; entries to find a common directory prefix.
+     *
+     * @param masterText the content of the master changelog file
+     * @return the detected path prefix (e.g., "/db/changelog/"), or empty string if none found
+     */
+    private String detectRelativePathPrefix(String masterText) {
+        // Pattern to match <include file="..."/> entries
+        Pattern includePattern = Pattern.compile("<include\\s+file=\"([^\"]+)\"\\s*/>");
+        Matcher matcher = includePattern.matcher(masterText);
+        
+        List<String> existingPaths = new ArrayList<>();
+        while (matcher.find()) {
+            existingPaths.add(matcher.group(1));
+        }
+        
+        if (existingPaths.isEmpty()) {
+            return "";
+        }
+        
+        // Find the common directory prefix from existing entries
+        // Look for entries that have a directory component (contain '/')
+        List<String> pathsWithDirs = existingPaths.stream()
+                .filter(p -> p.contains("/"))
+                .toList();
+        
+        if (pathsWithDirs.isEmpty()) {
+            return "";
+        }
+        
+        // Extract directory prefixes (everything before the last '/')
+        List<String> dirPrefixes = pathsWithDirs.stream()
+                .map(p -> p.substring(0, p.lastIndexOf('/') + 1))
+                .distinct()
+                .toList();
+        
+        // If all entries share the same prefix, use it
+        if (dirPrefixes.size() == 1) {
+            return dirPrefixes.get(0);
+        }
+        
+        // If there are multiple prefixes, find the most common one
+        // (this handles cases where some entries might have different paths)
+        Map<String, Long> prefixCounts = pathsWithDirs.stream()
+                .map(p -> p.substring(0, p.lastIndexOf('/') + 1))
+                .collect(Collectors.groupingBy(p -> p, Collectors.counting()));
+        
+        return prefixCounts.entrySet().stream()
+                .max(Map.Entry.comparingByValue())
+                .map(Map.Entry::getKey)
+                .orElse("");
     }
 }
