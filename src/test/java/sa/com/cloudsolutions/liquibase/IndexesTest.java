@@ -8,6 +8,7 @@ import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -132,6 +133,43 @@ class IndexesTest {
         assertNotNull(indexMap);
         assertTrue(indexMap.containsKey("products"));
         assertEquals(1, indexMap.get("products").size());
+    }
+
+    @Test
+    void testLoadWithRawSqlIndexes(@TempDir Path tempDir) throws IOException, LiquibaseException {
+        File changelog = tempDir.resolve("changelog.xml").toFile();
+        try (FileWriter fw = new FileWriter(changelog)) {
+            fw.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+            fw.write("<databaseChangeLog\n");
+            fw.write("    xmlns=\"http://www.liquibase.org/xml/ns/dbchangelog\"\n");
+            fw.write("    xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n");
+            fw.write("    xsi:schemaLocation=\"http://www.liquibase.org/xml/ns/dbchangelog\n");
+            fw.write("    http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd\">\n");
+            fw.write("  <changeSet id=\"1\" author=\"test\">\n");
+            fw.write("    <sql>\n");
+            fw.write("      CREATE INDEX idx_users_email ON users (email);\n");
+            fw.write("      CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_users_username\n");
+            fw.write("      ON users (username DESC);\n");
+            fw.write("      CREATE INDEX idx_orders_status ON orders (status);\n");
+            fw.write("      DROP INDEX idx_users_email;\n");
+            fw.write("      DROP INDEX idx_orders_status ON orders;\n");
+            fw.write("    </sql>\n");
+            fw.write("  </changeSet>\n");
+            fw.write("</databaseChangeLog>\n");
+        }
+
+        Map<String, Set<Indexes.IndexInfo>> indexMap = Indexes.load(changelog);
+        assertNotNull(indexMap, "Index map should not be null");
+        assertTrue(indexMap.containsKey("users"), "Users table should be present from SQL indexes");
+        assertFalse(indexMap.containsKey("orders"), "Orders index should be dropped via SQL");
+
+        Set<Indexes.IndexInfo> userIndexes = indexMap.get("users");
+        assertEquals(1, userIndexes.size(), "Only the unique SQL index should remain");
+
+        Indexes.IndexInfo uniqueIndex = userIndexes.iterator().next();
+        assertEquals(Indexes.UNIQUE_INDEX, uniqueIndex.type());
+        assertEquals("idx_users_username", uniqueIndex.name());
+        assertEquals(List.of("username"), uniqueIndex.columns());
     }
 
     @Test
