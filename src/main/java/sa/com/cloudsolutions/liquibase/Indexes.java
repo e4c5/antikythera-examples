@@ -1,6 +1,5 @@
 package sa.com.cloudsolutions.liquibase;
 
-import liquibase.change.AbstractSQLChange;
 import liquibase.change.Change;
 import liquibase.change.ColumnConfig;
 import liquibase.change.core.*;
@@ -15,8 +14,6 @@ import liquibase.resource.DirectoryResourceAccessor;
 import java.io.File;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import static sa.com.cloudsolutions.liquibase.LiquibaseResourceUtil.determineResourceRoot;
 import static sa.com.cloudsolutions.liquibase.LiquibaseResourceUtil.getRelativeChangelogPath;
@@ -28,21 +25,6 @@ public class Indexes {
     public static final String UNIQUE_INDEX = "UNIQUE_INDEX";
     public static final String PRIMARY_KEY = "PRIMARY_KEY";
     public static final String INDEX = "INDEX";
-    private static final Pattern CREATE_INDEX_STATEMENT = Pattern.compile(
-            "^\\s*CREATE\\s+(UNIQUE\\s+)?INDEX\\s+(?:CONCURRENTLY\\s+|ONLINE\\s+|IF\\s+NOT\\s+EXISTS\\s+)*"
-                    + "([\\w\"`\\[\\].]+)\\s+ON\\s+([\\w\"`\\[\\].]+)",
-            Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
-    private static final Pattern DROP_INDEX_STATEMENT = Pattern.compile(
-            "^\\s*DROP\\s+INDEX\\s+(?:CONCURRENTLY\\s+|ONLINE\\s+|IF\\s+EXISTS\\s+)*"
-                    + "([\\w\"`\\[\\].]+)(?:\\s+ON\\s+([\\w\"`\\[\\].]+))?.*",
-            Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
-    private static final String IDENTIFIER_PATTERN = "\"[^\"]+\"|`[^`]+`|\\[[^\\]]+\\]|[A-Za-z0-9_]+";
-    private static final Pattern SIMPLE_COLUMN_PATTERN = Pattern.compile(
-            "^\\s*((" + IDENTIFIER_PATTERN + ")(?:\\s*\\.\\s*(" + IDENTIFIER_PATTERN + "))*)\\s*"
-                    + "(?:\\bASC\\b|\\bDESC\\b)?"
-                    + "(?:\\s+\\bNULLS\\b\\s+\\w+)?"
-                    + "(?:\\s+\\bCOLLATE\\b\\s+\\S+)?\\s*$",
-            Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
 
     /**
      * Simple DTO to expose index information to callers.
@@ -152,8 +134,6 @@ public class Indexes {
             handleDropPrimaryKey(dpk, result);
         } else if (change instanceof DropUniqueConstraintChange duc) {
             handleDropUniqueConstraint(duc, result);
-        } else if (change instanceof AbstractSQLChange sqlChange) {
-            handleSqlChange(sqlChange, result);
         }
     }
 
@@ -277,62 +257,6 @@ public class Indexes {
         }
     }
 
-    private static void handleSqlChange(AbstractSQLChange sqlChange, Map<String, Set<IndexInfo>> result) {
-        String sql = sqlChange.getSql();
-        if (isBlank(sql))
-            return;
-
-        for (String statement : splitSqlStatements(sql)) {
-            if (isBlank(statement))
-                continue;
-            if (handleCreateIndexStatement(statement, result))
-                continue;
-            handleDropIndexStatement(statement, result);
-        }
-    }
-
-    private static boolean handleCreateIndexStatement(String statement, Map<String, Set<IndexInfo>> result) {
-        Matcher matcher = CREATE_INDEX_STATEMENT.matcher(statement);
-        if (!matcher.find())
-            return false;
-
-        boolean unique = matcher.group(1) != null;
-        String indexName = normalizeIdentifier(matcher.group(2));
-        String tableName = normalizeIdentifier(matcher.group(3));
-
-        int columnStart = findNextCharOutsideQuotes(statement, matcher.end(), '(');
-        if (columnStart < 0)
-            return true;
-        int columnEnd = findMatchingParen(statement, columnStart);
-        if (columnEnd < 0)
-            return true;
-
-        String columnList = statement.substring(columnStart + 1, columnEnd);
-        List<String> columns = parseSqlIndexColumns(columnList);
-        if (isBlank(tableName) || columns.isEmpty())
-            return true;
-
-        add(result, tableName, new IndexInfo(unique ? UNIQUE_INDEX : INDEX, orUnknown(indexName), columns));
-        return true;
-    }
-
-    private static void handleDropIndexStatement(String statement, Map<String, Set<IndexInfo>> result) {
-        Matcher matcher = DROP_INDEX_STATEMENT.matcher(statement);
-        if (!matcher.find())
-            return;
-
-        String indexName = normalizeIdentifier(matcher.group(1));
-        String tableName = normalizeIdentifier(matcher.group(2));
-
-        if (!isBlank(indexName)) {
-            if (!isBlank(tableName)) {
-                removeIndexByName(result, tableName, indexName);
-            } else {
-                removeIndexByNameAnyTable(result, indexName);
-            }
-        }
-    }
-
     // --- Helper methods ---
 
     private static void add(Map<String, Set<IndexInfo>> map, String table, IndexInfo index) {
@@ -398,207 +322,6 @@ public class Indexes {
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
                 .toList();
-    }
-
-    private static List<String> splitSqlStatements(String sql) {
-        String cleaned = stripSqlComments(sql);
-        List<String> statements = new ArrayList<>();
-        StringBuilder current = new StringBuilder();
-        char quote = 0;
-
-        for (int i = 0; i < cleaned.length(); i++) {
-            char c = cleaned.charAt(i);
-            if (quote != 0) {
-                current.append(c);
-                if (c == quote) {
-                    if ((quote == '\'' || quote == '"') && i + 1 < cleaned.length()
-                            && cleaned.charAt(i + 1) == quote) {
-                        current.append(cleaned.charAt(i + 1));
-                        i++;
-                    } else {
-                        quote = 0;
-                    }
-                }
-                continue;
-            }
-            if (c == '\'' || c == '"' || c == '`') {
-                quote = c;
-                current.append(c);
-                continue;
-            }
-            if (c == '[') {
-                quote = ']';
-                current.append(c);
-                continue;
-            }
-            if (c == ';') {
-                statements.add(current.toString());
-                current.setLength(0);
-                continue;
-            }
-            current.append(c);
-        }
-        if (!current.isEmpty()) {
-            statements.add(current.toString());
-        }
-        return statements;
-    }
-
-    private static String stripSqlComments(String sql) {
-        String withoutBlock = sql.replaceAll("(?s)/\\*.*?\\*/", " ");
-        return withoutBlock.replaceAll("(?m)--.*?$", " ");
-    }
-
-    private static int findNextCharOutsideQuotes(String sql, int start, char target) {
-        char quote = 0;
-        for (int i = start; i < sql.length(); i++) {
-            char c = sql.charAt(i);
-            if (quote != 0) {
-                if (c == quote) {
-                    if ((quote == '\'' || quote == '"') && i + 1 < sql.length()
-                            && sql.charAt(i + 1) == quote) {
-                        i++;
-                    } else {
-                        quote = 0;
-                    }
-                }
-                continue;
-            }
-            if (c == '\'' || c == '"' || c == '`') {
-                quote = c;
-                continue;
-            }
-            if (c == '[') {
-                quote = ']';
-                continue;
-            }
-            if (c == target) {
-                return i;
-            }
-        }
-        return -1;
-    }
-
-    private static int findMatchingParen(String sql, int start) {
-        if (start < 0 || start >= sql.length() || sql.charAt(start) != '(')
-            return -1;
-        int depth = 0;
-        char quote = 0;
-
-        for (int i = start; i < sql.length(); i++) {
-            char c = sql.charAt(i);
-            if (quote != 0) {
-                if (c == quote) {
-                    if ((quote == '\'' || quote == '"') && i + 1 < sql.length()
-                            && sql.charAt(i + 1) == quote) {
-                        i++;
-                    } else {
-                        quote = 0;
-                    }
-                }
-                continue;
-            }
-            if (c == '\'' || c == '"' || c == '`') {
-                quote = c;
-                continue;
-            }
-            if (c == '[') {
-                quote = ']';
-                continue;
-            }
-            if (c == '(') {
-                depth++;
-                continue;
-            }
-            if (c == ')') {
-                depth--;
-                if (depth == 0)
-                    return i;
-            }
-        }
-        return -1;
-    }
-
-    private static List<String> parseSqlIndexColumns(String columnList) {
-        if (isBlank(columnList))
-            return List.of();
-        List<String> columns = new ArrayList<>();
-        StringBuilder current = new StringBuilder();
-        int depth = 0;
-        char quote = 0;
-
-        for (int i = 0; i < columnList.length(); i++) {
-            char c = columnList.charAt(i);
-            if (quote != 0) {
-                current.append(c);
-                if (c == quote) {
-                    if ((quote == '\'' || quote == '"') && i + 1 < columnList.length()
-                            && columnList.charAt(i + 1) == quote) {
-                        current.append(columnList.charAt(i + 1));
-                        i++;
-                    } else {
-                        quote = 0;
-                    }
-                }
-                continue;
-            }
-            if (c == '\'' || c == '"' || c == '`') {
-                quote = c;
-                current.append(c);
-                continue;
-            }
-            if (c == '[') {
-                quote = ']';
-                current.append(c);
-                continue;
-            }
-            if (c == '(') {
-                depth++;
-                current.append(c);
-                continue;
-            }
-            if (c == ')') {
-                if (depth > 0)
-                    depth--;
-                current.append(c);
-                continue;
-            }
-            if (c == ',' && depth == 0) {
-                addColumnToken(columns, current.toString());
-                current.setLength(0);
-                continue;
-            }
-            current.append(c);
-        }
-        addColumnToken(columns, current.toString());
-        return columns;
-    }
-
-    private static void addColumnToken(List<String> columns, String token) {
-        if (isBlank(token))
-            return;
-        Matcher matcher = SIMPLE_COLUMN_PATTERN.matcher(token);
-        if (!matcher.matches())
-            return;
-        String columnName = normalizeIdentifier(matcher.group(1));
-        if (!isBlank(columnName)) {
-            columns.add(columnName);
-        }
-    }
-
-    private static String normalizeIdentifier(String identifier) {
-        if (isBlank(identifier))
-            return null;
-        String cleaned = identifier.replace("\"", "")
-                .replace("`", "")
-                .replace("[", "")
-                .replace("]", "")
-                .trim();
-        int lastDot = cleaned.lastIndexOf('.');
-        if (lastDot >= 0 && lastDot < cleaned.length() - 1) {
-            cleaned = cleaned.substring(lastDot + 1);
-        }
-        return cleaned.trim();
     }
 
     private static boolean isBlank(String s) {
