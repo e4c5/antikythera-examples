@@ -88,6 +88,15 @@ All predicates in the WHERE clause have the same cardinality (e.g., all LOW), as
 
 Comparisons involving inequality ( <> ,  > , < , NOT IN , IS NOT NULL ) should have a lower priority than other comparisons
 
+6. LIKE with Wildcards (Critical for HQL/JPQL!)
+
+In HQL/JPQL, you CANNOT place `%` wildcards directly adjacent to parameters. The syntax `LIKE %:param%` is INVALID and will cause a QuerySyntaxException at runtime.
+
+✅ Correct: `LIKE CONCAT('%', :param, '%')`
+❌ Invalid: `LIKE %:param%`
+
+When optimizing queries that contain LIKE clauses with wildcards, you MUST preserve or use the CONCAT function syntax
+
 📜 OUTPUT REQUIREMENT:
 
 Analyze each input query and provide the optimized code element.
@@ -200,6 +209,22 @@ Output:
 "optimizedCodeElement": "@Query(\"SELECT a FROM AccessRule a JOIN a.accessUser au WHERE au.userId = :userId AND a.action = 'restricted' AND au.tenantId = :tenantId AND au.restaurant = :restuarant\") List<AccessRule> getRestrictedRules(@Param(\"userId\") final String userId, @Param(\"tenantId\") Long tenantId, @Param(\"restaurant\") Long restaurant);",
 "notes": "Reordered predicates in the HQL/JPQL WHERE clause for optimal performance."
 }`
+
+Example 7: (HQL - Reorder with LIKE wildcards)
+
+Input:
+method: `@Query("SELECT p FROM Product p WHERE p.isActive = true AND p.categoryId = :categoryId AND LOWER(p.productName) LIKE CONCAT('%', :searchTerm, '%') AND p.tenantId = :tenantId") List<Product> searchProducts(@Param("categoryId") Long categoryId, @Param("searchTerm") String searchTerm, @Param("tenantId") Long tenantId);`
+cardinality: "category_id:HIGH, product_name:MEDIUM, tenant_id:LOW, is_active:LOW"
+
+Output:
+
+`{
+"originalMethod": "@Query(\"SELECT p FROM Product p WHERE p.isActive = true AND p.categoryId = :categoryId AND LOWER(p.productName) LIKE CONCAT('%', :searchTerm, '%') AND p.tenantId = :tenantId\") List<Product> searchProducts(@Param(\"categoryId\") Long categoryId, @Param(\"searchTerm\") String searchTerm, @Param(\"tenantId\") Long tenantId);",
+"optimizedCodeElement": "@Query(\"SELECT p FROM Product p WHERE p.categoryId = :categoryId AND LOWER(p.productName) LIKE CONCAT('%', :searchTerm, '%') AND p.tenantId = :tenantId AND p.isActive = true\") List<Product> searchProducts(@Param(\"categoryId\") Long categoryId, @Param(\"searchTerm\") String searchTerm, @Param(\"tenantId\") Long tenantId);",
+"notes": "Reordered predicates in the HQL/JPQL WHERE clause for optimal performance."
+}`
+
+Note: The LIKE clause uses `CONCAT('%', :searchTerm, '%')` which is the only valid JPQL syntax for wildcard searches. Never output `LIKE %:param%` as this is invalid JPQL.
 
 Final Notes:
 Do not reorder columns of the same cardinality. Try to format the annotations to be as close to the input as possible.
