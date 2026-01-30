@@ -16,11 +16,11 @@ mvn clean compile -pl antikythera-examples
 ## 2. Configuration for Agents
 
 ### VS Code (e.g., Roo Code, Continue, Claude Dev)
-To use this server in VS Code agents that support MCP, add the following entry to your `mcp_config.json` (usually located in your global app data or agent settings):
+To use this server in VS Code agents that support MCP, add the following entry to your `~/.config/Code/User/mcp.json`
 
 ```json
 {
-  "mcpServers": {
+  "servers": {
     "liquibase-validator": {
       "command": "mvn",
       "args": [
