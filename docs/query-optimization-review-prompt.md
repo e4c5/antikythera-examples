@@ -23,6 +23,7 @@ Conduct a technical review of the current Git diff. Focus on code integrity and 
 - Only report an issue if the tool identifies a syntax error or a structural problem.
 
 **2. Query & Method Audit:**
+- **Validate that every change query is syntactically correct and logically identical to the original, aside from the reordering of conditions.**
 - **Logical Reordering:** Verify that the reordered `WHERE` clause in the `@Query` annotation correctly prioritizes columns with higher cardinality.
 - **Method Naming:** Ensure the repository method name (e.g., `findByEmailAndStatus`) has been updated to reflect the new order (e.g., `findByStatusAndEmail`) if the optimizer changed the signature.
 - **Signature Propagation:** Confirm that for every repository method signature change, all call sites (Services, Controllers, and Tests) have been updated with the correctly ordered arguments. Pay special attention to method references (e.g., `repo::methodName`) and calls involving `this` (e.g., `this.repo.methodName`).
