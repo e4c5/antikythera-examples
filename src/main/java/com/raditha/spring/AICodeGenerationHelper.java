@@ -1,7 +1,10 @@
 package com.raditha.spring;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import sa.com.cloudsolutions.antikythera.examples.GeminiAIService;
 
 import java.io.IOException;
@@ -23,29 +26,19 @@ public class AICodeGenerationHelper {
      * @return JSON request payload
      */
     public static String buildAIRequest(String prompt) {
-        String escapedPrompt = escapeJsonString(prompt);
-        return String.format("""
-                {
-                  "contents": [{
-                    "role": "user",
-                    "parts": [{ "text": "%s" }]
-                  }]
-                }
-                """, escapedPrompt);
-    }
+        ObjectNode root = OBJECT_MAPPER.createObjectNode();
+        ArrayNode contents = root.putArray("contents");
+        ObjectNode content = contents.addObject();
+        content.put("role", "user");
+        ArrayNode parts = content.putArray("parts");
+        ObjectNode part = parts.addObject();
+        part.put("text", prompt != null ? prompt : "");
 
-    /**
-     * Escapes a string for JSON format.
-     */
-    private static String escapeJsonString(String str) {
-        if (str == null) {
-            return "";
+        try {
+            return OBJECT_MAPPER.writeValueAsString(root);
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("Failed to construct AI request JSON", e);
         }
-        return str.replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\n", "\\n")
-                .replace("\r", "\\r")
-                .replace("\t", "\\t");
     }
 
     /**
