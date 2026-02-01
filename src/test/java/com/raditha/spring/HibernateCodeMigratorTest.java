@@ -1,6 +1,7 @@
 package com.raditha.spring;
 
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
@@ -20,7 +21,12 @@ class HibernateCodeMigratorTest {
     static void setup() throws IOException {
         File configFile = new File("src/test/resources/generator.yml");
         Settings.loadConfigMap(configFile);
+    }
 
+    @BeforeEach
+    void resetAndPreprocess() throws IOException {
+        // Reset the compiler and runtime state before each test to ensure compilation units are loaded
+        AntikytheraRunTime.resetAll();
         AbstractCompiler.reset();
         AbstractCompiler.preProcess();
     }

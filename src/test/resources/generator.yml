@@ -36,3 +36,15 @@ log_level: INFO
 ai_service:
   api_key: test-api-key
   model: gemini-1.5-pro
+
+# Query optimizer configuration
+query_optimizer:
+  # Database dialects to generate Liquibase changesets for
+  supported_dialects:
+    - postgresql
+    - oracle
+  # Path to the master Liquibase changelog file
+  liquibase_master_file: /tmp/test-changelog/db.changelog-master.xml
+  # Maximum number of columns in a multi-column index (default: 4)
+  max_index_columns: 4
+
