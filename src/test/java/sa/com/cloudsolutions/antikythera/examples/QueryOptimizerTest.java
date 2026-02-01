@@ -13,6 +13,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
+import sa.com.cloudsolutions.antikythera.parser.converter.EntityMappingResolver;
 
 import java.io.File;
 import java.io.FileWriter;
@@ -54,6 +55,7 @@ class QueryOptimizerTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        EntityMappingResolver.reset();
         optimizer = new QueryOptimizer(tempLiquibaseFile);
         mockResult = mock(QueryAnalysisResult.class);
         mockIssue = mock(OptimizationIssue.class);
