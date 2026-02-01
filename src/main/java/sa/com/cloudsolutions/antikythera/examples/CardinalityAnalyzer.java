@@ -22,6 +22,10 @@ public class CardinalityAnalyzer {
     // Optional map of table -> (column -> data type) for accurate low-cardinality detection
     private static final Map<String, Map<String, ColumnDataType>> columnTypeMap = new HashMap<>();
 
+    // Lookup maps for O(1) checks
+    private static Map<String, Set<String>> pkColumnMap = new HashMap<>();
+    private static Map<String, Set<String>> uniqueColumnMap = new HashMap<>();
+
     // User-provided overrides for column cardinality (lower-cased column names)
     private static Set<String> userDefinedLow = Collections.emptySet();
     private static Set<String> userDefinedHigh = Collections.emptySet();
@@ -41,6 +45,37 @@ public class CardinalityAnalyzer {
 
     public static void setIndexMap(Map<String, Set<Indexes.IndexInfo>> indexMap) {
         CardinalityAnalyzer.indexMap = indexMap;
+        buildLookupMaps();
+    }
+
+    private static void buildLookupMaps() {
+        pkColumnMap.clear();
+        uniqueColumnMap.clear();
+
+        if (indexMap == null) {
+            return;
+        }
+
+        for (Map.Entry<String, Set<Indexes.IndexInfo>> entry : indexMap.entrySet()) {
+            String tableName = entry.getKey().toLowerCase();
+            Set<Indexes.IndexInfo> indexes = entry.getValue();
+
+            if (indexes == null) continue;
+
+            for (Indexes.IndexInfo index : indexes) {
+                if ("PRIMARY_KEY".equals(index.type())) {
+                    index.columns().forEach(col ->
+                        pkColumnMap.computeIfAbsent(tableName, k -> new java.util.HashSet<>())
+                                   .add(col.toLowerCase())
+                    );
+                } else if ("UNIQUE_CONSTRAINT".equals(index.type()) || "UNIQUE_INDEX".equals(index.type())) {
+                    index.columns().forEach(col ->
+                        uniqueColumnMap.computeIfAbsent(tableName, k -> new java.util.HashSet<>())
+                                       .add(col.toLowerCase())
+                    );
+                }
+            }
+        }
     }
     /**
      * Configure user-defined low/high cardinality columns.
@@ -124,18 +159,11 @@ public class CardinalityAnalyzer {
      * @return true if the column is a primary key, false otherwise
      */
     public static boolean isPrimaryKey(String tableName, String columnName) {
-        if (indexMap == null) {
+        if (tableName == null || columnName == null) {
             return false;
         }
-        Set<Indexes.IndexInfo> indexes = indexMap.get(tableName);
-        if (indexes == null) {
-            return false;
-        }
-
-        return indexes.stream()
-                .filter(index -> "PRIMARY_KEY".equals(index.type()))
-                .flatMap(index -> index.columns().stream())
-                .anyMatch(col -> col.toLowerCase().equals(columnName));
+        Set<String> pkColumns = pkColumnMap.get(tableName.toLowerCase());
+        return pkColumns != null && pkColumns.contains(columnName.toLowerCase());
     }
     
     /**
@@ -169,15 +197,11 @@ public class CardinalityAnalyzer {
      * @return true if the column has a unique constraint, false otherwise
      */
     public static boolean hasUniqueConstraint(String tableName, String columnName) {
-        Set<Indexes.IndexInfo> indexes = indexMap.get(tableName);
-        if (indexes == null) {
+        if (tableName == null || columnName == null) {
             return false;
         }
-        
-        return indexes.stream()
-                .filter(index -> "UNIQUE_CONSTRAINT".equals(index.type()) || "UNIQUE_INDEX".equals(index.type()))
-                .flatMap(index -> index.columns().stream())
-                .anyMatch(col -> col.toLowerCase().equals(columnName));
+        Set<String> uniqueColumns = uniqueColumnMap.get(tableName.toLowerCase());
+        return uniqueColumns != null && uniqueColumns.contains(columnName.toLowerCase());
     }
 
     /**
