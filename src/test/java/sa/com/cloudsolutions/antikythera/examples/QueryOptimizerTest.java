@@ -25,8 +25,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class QueryOptimizerTest {
-
-    private QueryOptimizer optimizer;
     private QueryAnalysisResult mockResult;
     private OptimizationIssue mockIssue;
     private RepositoryQuery mockOriginalQuery;
@@ -51,12 +49,11 @@ class QueryOptimizerTest {
             fw.write("    http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.0.xsd\">\n");
             fw.write("</databaseChangeLog>");
         }
+        tempLiquibaseFile.deleteOnExit();
     }
 
     @BeforeEach
     void setUp() throws Exception {
-        EntityMappingResolver.reset();
-        optimizer = new QueryOptimizer(tempLiquibaseFile);
         mockResult = mock(QueryAnalysisResult.class);
         mockIssue = mock(OptimizationIssue.class);
         mockOriginalQuery = mock(RepositoryQuery.class);
