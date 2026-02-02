@@ -55,6 +55,9 @@ public class QueryOptimizationChecker {
     // Skip already processed repositories
     protected static boolean skipProcessed = false;
 
+    // Target class - if set, only analyze this specific repository
+    protected static String targetClass = null;
+
     // Maximum number of columns allowed in a multi-column index (configurable)
     protected final int maxIndexColumns;
 
@@ -92,22 +95,31 @@ public class QueryOptimizationChecker {
      * Analyzes all JPA repositories using RepositoryParser to extract and analyze
      * queries.
      *
+     * @return the number of repositories that were actually analyzed (not skipped)
      */
-    public void analyze() throws IOException, ReflectiveOperationException, InterruptedException {
+    public int analyze() throws IOException, ReflectiveOperationException, InterruptedException {
         Map<String, TypeWrapper> resolvedTypes = AntikytheraRunTime.getResolvedTypes();
         Set<String> processedRepositories = skipProcessed ? OptimizationStatsLogger.getProcessedRepositories() : Set.of();
-        int i = 0;
+        int totalRepositories = 0;
         int repositoriesProcessed = 0;
+        int repositoriesSkipped = 0;
         for (Map.Entry<String, TypeWrapper> entry : resolvedTypes.entrySet()) {
             String fullyQualifiedName = entry.getKey();
             TypeWrapper typeWrapper = entry.getValue();
 
-            i++;
             if (BaseRepositoryParser.isJpaRepository(typeWrapper)) {
+                totalRepositories++;
+
+                // Filter by target_class if specified
+                if (targetClass != null && !targetClass.equals(fullyQualifiedName)) {
+                    continue;
+                }
+
                 if (skipProcessed && processedRepositories.contains(fullyQualifiedName)) {
                     if (!quietMode) {
                         System.out.printf("⏭️ Skipping already processed repository: %s%n", fullyQualifiedName);
                     }
+                    repositoriesSkipped++;
                     continue;
                 }
                 results.clear(); // Clear results for each repository
@@ -125,7 +137,14 @@ public class QueryOptimizationChecker {
         }
         OptimizationStatsLogger.flush();
 
-        System.out.printf("\n✅ Successfully analyzed %d out of %d repositories%n", repositoriesProcessed, i);
+        if (repositoriesSkipped > 0) {
+            System.out.printf("\n✅ Analyzed %d repositories, skipped %d already processed (total: %d)%n",
+                    repositoriesProcessed, repositoriesSkipped, totalRepositories);
+        } else {
+            System.out.printf("\n✅ Successfully analyzed %d repositories%n", repositoriesProcessed);
+        }
+
+        return repositoriesProcessed;
     }
 
     /**
@@ -215,6 +234,10 @@ public class QueryOptimizationChecker {
         // Add all raw queries to the batch
         for (RepositoryQuery query : rawQueries) {
             if (!"save".equals(query.getMethodDeclaration().getNameAsString())) {
+                String methodName = query.getMethodDeclaration().getNameAsString();
+                if (!quietMode) {
+                    System.out.printf("  📝 Processing method: %s.%s%n", repositoryName, methodName);
+                }
                 batch.addQuery(query);
                 addWhereClauseColumnCardinality(batch, query);
             }
@@ -588,11 +611,29 @@ public class QueryOptimizationChecker {
 
     /**
      * Set whether to skip already processed repositories.
-     * 
+     *
      * @param enabled true to skip, false to re-analyze
      */
     public static void setSkipProcessed(boolean enabled) {
         skipProcessed = enabled;
+    }
+
+    /**
+     * Set the target class to analyze. If set, only this repository will be analyzed.
+     *
+     * @param className fully qualified class name, or null to analyze all repositories
+     */
+    public static void setTargetClass(String className) {
+        targetClass = className;
+    }
+
+    /**
+     * Get the current target class filter.
+     *
+     * @return the target class name, or null if not set
+     */
+    public static String getTargetClass() {
+        return targetClass;
     }
 
     /**
@@ -1234,17 +1275,55 @@ public class QueryOptimizationChecker {
 
         CardinalityAnalyzer.configureUserDefinedCardinality(lowOverride, highOverride);
 
-        QueryOptimizationChecker checker = new QueryOptimizationChecker(getLiquibasePath());
-        checker.analyze();
+        // Read configuration from generator.yml
+        configureFromSettings();
 
-        // Generate Liquibase file with suggested changes and include in master
-        checker.generateLiquibaseChangesFile();
+        QueryOptimizationChecker checker = new QueryOptimizationChecker(getLiquibasePath());
+        int repositoriesAnalyzed = checker.analyze();
+
+        // Only generate Liquibase file if at least one repository was analyzed
+        if (repositoriesAnalyzed > 0) {
+            checker.generateLiquibaseChangesFile();
+        } else {
+            System.out.println("\n⏭️ Skipping Liquibase generation - no new repositories were analyzed");
+        }
 
         TokenUsage totalTokenUsage = checker.getCumulativeTokenUsage();
         OptimizationStatsLogger.printSummary(System.out);
 
         if (totalTokenUsage.getTotalTokens() > 0) {
             System.out.printf("🤖 AI Service Usage: %s%n", totalTokenUsage.getFormattedReport());
+        }
+    }
+
+    /**
+     * Configures QueryOptimizationChecker from generator.yml settings.
+     * Reads both skip_processed and target_class configurations.
+     * Call this from main() after Settings.loadConfigMap().
+     */
+    @SuppressWarnings("unchecked")
+    public static void configureFromSettings() {
+        // Read skip_processed from database.query_conversion section
+        Map<String, Object> dbConfig = (Map<String, Object>) Settings.getProperty("database");
+        if (dbConfig != null) {
+            Map<String, Object> qcConfig = (Map<String, Object>) dbConfig.get("query_conversion");
+            if (qcConfig != null) {
+                Object skipProcessedValue = qcConfig.get("skip_processed");
+                if (skipProcessedValue instanceof Boolean b && b) {
+                    setSkipProcessed(true);
+                    System.out.println("⏭️ Skip processed repositories: enabled");
+                }
+            }
+        }
+
+        // Read target_class from query_optimizer section
+        Map<String, Object> queryOptimizer = (Map<String, Object>) Settings.getProperty("query_optimizer");
+        if (queryOptimizer != null) {
+            Object targetClassValue = queryOptimizer.get("target_class");
+            if (targetClassValue instanceof String s && !s.isBlank()) {
+                setTargetClass(s);
+                System.out.printf("🎯 Target class filter: %s%n", s);
+            }
         }
     }
 

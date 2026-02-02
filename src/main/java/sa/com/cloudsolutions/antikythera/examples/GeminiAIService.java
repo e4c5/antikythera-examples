@@ -534,27 +534,41 @@ public class GeminiAIService {
      */
     OptimizedQueryResult extractRecommendedColumnOrder(String optimizedCodeElement, RepositoryQuery originalQuery)
             throws IOException {
-        CompilationUnit originalCompilationUnit = originalQuery.getMethodDeclaration()
-                .getCallableDeclaration().findCompilationUnit().orElseThrow();
+        try {
+            CompilationUnit originalCompilationUnit = originalQuery.getMethodDeclaration()
+                    .getCallableDeclaration().findCompilationUnit().orElseThrow();
 
-        ClassOrInterfaceDeclaration cdecl = cloneClassSignature(
-                originalCompilationUnit.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow());
-        CompilationUnit cu = new CompilationUnit();
-        cu.addType(cdecl);
+            ClassOrInterfaceDeclaration cdecl = cloneClassSignature(
+                    originalCompilationUnit.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow());
+            CompilationUnit cu = new CompilationUnit();
+            cu.addType(cdecl);
 
-        CompilationUnit tmp = StaticJavaParser.parse(String.format("interface Dummy{ %s }", optimizedCodeElement));
-        for (ImportDeclaration importDecl : originalCompilationUnit.getImports()) {
-            cu.addImport(importDecl);
+            CompilationUnit tmp = StaticJavaParser.parse(String.format("interface Dummy{ %s }", optimizedCodeElement));
+            for (ImportDeclaration importDecl : originalCompilationUnit.getImports()) {
+                cu.addImport(importDecl);
+            }
+            MethodDeclaration newMethod = tmp.findFirst(MethodDeclaration.class).orElseThrow();
+            // Replace it with the newly created method instance
+            cdecl.addMember(newMethod);
+
+            BaseRepositoryParser parser = BaseRepositoryParser.create(cu);
+            parser.processTypes();
+            parser.buildQueries();
+
+            // Handle case where no queries were produced (e.g., parsing failed or query not recognized)
+            var queries = parser.getAllQueries();
+            if (queries.isEmpty()) {
+                logger.warn("Failed to parse optimized query, falling back to original column order. Code: {}",
+                        optimizedCodeElement.substring(0, Math.min(100, optimizedCodeElement.length())));
+                return new OptimizedQueryResult(originalQuery, extractColumnOrderFromRepositoryQuery(originalQuery));
+            }
+
+            RepositoryQuery rq = queries.stream().findFirst().orElseThrow();
+            return new OptimizedQueryResult(rq, extractColumnOrderFromRepositoryQuery(rq));
+        } catch (Exception e) {
+            logger.warn("Error parsing optimized code element, falling back to original: {}", e.getMessage());
+            return new OptimizedQueryResult(originalQuery, extractColumnOrderFromRepositoryQuery(originalQuery));
         }
-        MethodDeclaration newMethod = tmp.findFirst(MethodDeclaration.class).orElseThrow();
-        // Replace it with the newly created method instance
-        cdecl.addMember(newMethod);
-
-        BaseRepositoryParser parser = BaseRepositoryParser.create(cu);
-        parser.processTypes();
-        parser.buildQueries();
-        RepositoryQuery rq = parser.getAllQueries().stream().findFirst().orElseThrow();
-        return new OptimizedQueryResult(rq, extractColumnOrderFromRepositoryQuery(rq));
     }
 
     /**
