@@ -5,7 +5,7 @@ This prompt is designed to be used with AI coding agents (like Antigravity, GitH
 ---
 
 ## 🚀 AI Review Prompt
-Carry out a review of the diff between the current branch and the main branch, focusing on the optimizations made by the `QueryOptimizer` tool.
+Carry out a review of the diff of the current, focusing on the optimizations made by the `QueryOptimizer` tool.
 
 **Context:**
 I have executed an automated `QueryOptimizer` on my Spring Boot / JPA project. The tool has performed two optimizations:
