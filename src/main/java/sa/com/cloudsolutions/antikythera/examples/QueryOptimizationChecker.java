@@ -52,9 +52,6 @@ public class QueryOptimizationChecker {
     // Quiet mode flag - suppresses detailed output, shows only changes
     protected static boolean quietMode = false;
 
-    // Skip already processed repositories
-    protected static boolean skipProcessed = false;
-
     // Target class - if set, only analyze this specific repository
     protected static String targetClass = null;
 
@@ -115,10 +112,8 @@ public class QueryOptimizationChecker {
         }
 
         Map<String, TypeWrapper> resolvedTypes = AntikytheraRunTime.getResolvedTypes();
-        Set<String> processedRepositories = skipProcessed ? OptimizationStatsLogger.getProcessedRepositories() : Set.of();
         int totalRepositories = 0;
         int repositoriesProcessed = 0;
-        int repositoriesSkipped = 0;
         int repositoriesResumed = 0;
 
         for (Map.Entry<String, TypeWrapper> entry : resolvedTypes.entrySet()) {
@@ -133,7 +128,7 @@ public class QueryOptimizationChecker {
                     continue;
                 }
 
-                // Check checkpoint first (for resume after crash)
+                // Check checkpoint for resume after crash/interruption
                 if (checkpointManager.isProcessed(fullyQualifiedName)) {
                     if (!quietMode) {
                         System.out.printf("⏭️ Skipping (checkpoint): %s%n", fullyQualifiedName);
@@ -142,14 +137,6 @@ public class QueryOptimizationChecker {
                     continue;
                 }
 
-                // Check CSV-based skip (for skip_processed feature)
-                if (skipProcessed && processedRepositories.contains(fullyQualifiedName)) {
-                    if (!quietMode) {
-                        System.out.printf("⏭️ Skipping already processed repository: %s%n", fullyQualifiedName);
-                    }
-                    repositoriesSkipped++;
-                    continue;
-                }
                 results.clear(); // Clear results for each repository
 
                 System.out.println("\n" + "=".repeat(80));
@@ -174,15 +161,9 @@ public class QueryOptimizationChecker {
         OptimizationStatsLogger.flush();
 
         // Print summary
-        if (repositoriesResumed > 0 || repositoriesSkipped > 0) {
-            System.out.printf("\n✅ Analyzed %d repositories", repositoriesProcessed);
-            if (repositoriesResumed > 0) {
-                System.out.printf(", resumed %d from checkpoint", repositoriesResumed);
-            }
-            if (repositoriesSkipped > 0) {
-                System.out.printf(", skipped %d already processed", repositoriesSkipped);
-            }
-            System.out.printf(" (total: %d)%n", totalRepositories);
+        if (repositoriesResumed > 0) {
+            System.out.printf("\n✅ Analyzed %d repositories, skipped %d from checkpoint (total: %d)%n",
+                    repositoriesProcessed, repositoriesResumed, totalRepositories);
         } else {
             System.out.printf("\n✅ Successfully analyzed %d repositories%n", repositoriesProcessed);
         }
@@ -648,20 +629,11 @@ public class QueryOptimizationChecker {
 
     /**
      * Enables or disables quiet mode.
-     * 
+     *
      * @param enabled true to enable quiet mode, false for normal output
      */
     public static void setQuietMode(boolean enabled) {
         quietMode = enabled;
-    }
-
-    /**
-     * Set whether to skip already processed repositories.
-     *
-     * @param enabled true to skip, false to re-analyze
-     */
-    public static void setSkipProcessed(boolean enabled) {
-        skipProcessed = enabled;
     }
 
     /**
@@ -1362,24 +1334,11 @@ public class QueryOptimizationChecker {
 
     /**
      * Configures QueryOptimizationChecker from generator.yml settings.
-     * Reads both skip_processed and target_class configurations.
+     * Reads target_class configuration.
      * Call this from main() after Settings.loadConfigMap().
      */
     @SuppressWarnings("unchecked")
     public static void configureFromSettings() {
-        // Read skip_processed from database.query_conversion section
-        Map<String, Object> dbConfig = (Map<String, Object>) Settings.getProperty("database");
-        if (dbConfig != null) {
-            Map<String, Object> qcConfig = (Map<String, Object>) dbConfig.get("query_conversion");
-            if (qcConfig != null) {
-                Object skipProcessedValue = qcConfig.get("skip_processed");
-                if (skipProcessedValue instanceof Boolean b && b) {
-                    setSkipProcessed(true);
-                    System.out.println("⏭️ Skip processed repositories: enabled");
-                }
-            }
-        }
-
         // Read target_class from query_optimizer section
         Map<String, Object> queryOptimizer = (Map<String, Object>) Settings.getProperty("query_optimizer");
         if (queryOptimizer != null) {

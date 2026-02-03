@@ -608,13 +608,8 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             }
         }
 
-        // Read configuration from generator.yml (skip_processed, target_class)
+        // Read configuration from generator.yml (target_class)
         configureFromSettings();
-
-        // CLI flags override YAML settings
-        if (hasFlag(args, "--skip-processed") || hasFlag(args, "-s")) {
-            QueryOptimizationChecker.setSkipProcessed(true);
-        }
 
         AbstractCompiler.loadDependencies();
         AbstractCompiler.preProcess();
