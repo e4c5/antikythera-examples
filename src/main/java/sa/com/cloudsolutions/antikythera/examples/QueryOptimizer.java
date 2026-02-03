@@ -40,7 +40,7 @@ import java.util.Set;
 public class QueryOptimizer extends QueryOptimizationChecker {
     private static final Logger logger = LoggerFactory.getLogger(QueryOptimizer.class);
     private boolean repositoryFileModified;
-    private static final Set<String> modifiedFiles = new java.util.HashSet<>();
+    private static Set<String> modifiedFiles = new java.util.HashSet<>();
 
     /**
      * Creates a new QueryOptimizationChecker that uses RepositoryParser for
@@ -71,6 +71,33 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                 this.repositoryParser.getCompilationUnit())) {
             OptimizationStatsLogger.updateRepositoriesModified(1);
         }
+
+        // Save modified files to checkpoint for resume capability
+        checkpointManager.setModifiedFiles(modifiedFiles);
+    }
+
+    /**
+     * Restores modified files from checkpoint on resume.
+     * Called during initialization when resuming from a checkpoint.
+     */
+    private void restoreModifiedFilesFromCheckpoint() {
+        Set<String> restored = checkpointManager.getModifiedFiles();
+        if (!restored.isEmpty()) {
+            modifiedFiles.addAll(restored);
+            logger.info("Restored {} modified files from checkpoint", restored.size());
+        }
+    }
+
+    @Override
+    public int analyze() throws IOException, ReflectiveOperationException, InterruptedException {
+        // Restore modified files from checkpoint before analysis
+        if (checkpointManager.hasCheckpoint()) {
+            // Load will be called by super.analyze(), but we need to check first
+            // and restore modified files if resuming
+            checkpointManager.load();
+            restoreModifiedFilesFromCheckpoint();
+        }
+        return super.analyze();
     }
 
     void actOnAnalysisResult(QueryAnalysisResult result) {
@@ -570,6 +597,16 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         // Parse command-line flags
         boolean quietMode = hasFlag(args, "--quiet") || hasFlag(args, "-q");
         QueryOptimizationChecker.setQuietMode(quietMode);
+
+        // Check for --fresh flag to clear checkpoint and start fresh
+        boolean freshStart = hasFlag(args, "--fresh") || hasFlag(args, "-f");
+        if (freshStart) {
+            CheckpointManager tempCheckpoint = new CheckpointManager();
+            if (tempCheckpoint.hasCheckpoint()) {
+                tempCheckpoint.clear();
+                System.out.println("🗑️ Checkpoint cleared - starting fresh");
+            }
+        }
 
         // Read configuration from generator.yml (skip_processed, target_class)
         configureFromSettings();

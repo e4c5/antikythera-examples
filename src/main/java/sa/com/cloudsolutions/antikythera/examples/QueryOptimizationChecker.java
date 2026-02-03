@@ -61,6 +61,9 @@ public class QueryOptimizationChecker {
     // Maximum number of columns allowed in a multi-column index (configurable)
     protected final int maxIndexColumns;
 
+    // Checkpoint manager for resume capability
+    protected CheckpointManager checkpointManager;
+
     /**
      * Creates a new QueryOptimizationChecker that uses RepositoryParser for
      * comprehensive query analysis.
@@ -89,6 +92,9 @@ public class QueryOptimizationChecker {
 
         // Read max_index_columns from configuration (default: 4)
         this.maxIndexColumns = getMaxIndexColumnsFromConfig();
+
+        // Initialize checkpoint manager
+        this.checkpointManager = new CheckpointManager();
     }
 
     /**
@@ -98,11 +104,23 @@ public class QueryOptimizationChecker {
      * @return the number of repositories that were actually analyzed (not skipped)
      */
     public int analyze() throws IOException, ReflectiveOperationException, InterruptedException {
+        // Load checkpoint for resume capability
+        boolean resumed = checkpointManager.load();
+        if (resumed) {
+            // Restore accumulated state from checkpoint
+            suggestedNewIndexes.addAll(checkpointManager.getSuggestedNewIndexes());
+            suggestedMultiColumnIndexes.addAll(checkpointManager.getSuggestedMultiColumnIndexes());
+            System.out.printf("🔄 Resuming from checkpoint: %d repositories already processed%n",
+                    checkpointManager.getProcessedCount());
+        }
+
         Map<String, TypeWrapper> resolvedTypes = AntikytheraRunTime.getResolvedTypes();
         Set<String> processedRepositories = skipProcessed ? OptimizationStatsLogger.getProcessedRepositories() : Set.of();
         int totalRepositories = 0;
         int repositoriesProcessed = 0;
         int repositoriesSkipped = 0;
+        int repositoriesResumed = 0;
+
         for (Map.Entry<String, TypeWrapper> entry : resolvedTypes.entrySet()) {
             String fullyQualifiedName = entry.getKey();
             TypeWrapper typeWrapper = entry.getValue();
@@ -115,6 +133,16 @@ public class QueryOptimizationChecker {
                     continue;
                 }
 
+                // Check checkpoint first (for resume after crash)
+                if (checkpointManager.isProcessed(fullyQualifiedName)) {
+                    if (!quietMode) {
+                        System.out.printf("⏭️ Skipping (checkpoint): %s%n", fullyQualifiedName);
+                    }
+                    repositoriesResumed++;
+                    continue;
+                }
+
+                // Check CSV-based skip (for skip_processed feature)
                 if (skipProcessed && processedRepositories.contains(fullyQualifiedName)) {
                     if (!quietMode) {
                         System.out.printf("⏭️ Skipping already processed repository: %s%n", fullyQualifiedName);
@@ -130,19 +158,37 @@ public class QueryOptimizationChecker {
                 try {
                     analyzeRepository(typeWrapper);
                     repositoriesProcessed++;
+
+                    // Save checkpoint after successful repository analysis
+                    checkpointManager.markProcessed(fullyQualifiedName);
+                    checkpointManager.setIndexSuggestions(suggestedNewIndexes, suggestedMultiColumnIndexes);
+                    checkpointManager.save();
                 } catch (AntikytheraException ae) {
                     logger.error("Error analyzing repository {}: {}", fullyQualifiedName, ae.getMessage());
+                    // Save checkpoint even on error so we don't lose progress
+                    checkpointManager.setIndexSuggestions(suggestedNewIndexes, suggestedMultiColumnIndexes);
+                    checkpointManager.save();
                 }
             }
         }
         OptimizationStatsLogger.flush();
 
-        if (repositoriesSkipped > 0) {
-            System.out.printf("\n✅ Analyzed %d repositories, skipped %d already processed (total: %d)%n",
-                    repositoriesProcessed, repositoriesSkipped, totalRepositories);
+        // Print summary
+        if (repositoriesResumed > 0 || repositoriesSkipped > 0) {
+            System.out.printf("\n✅ Analyzed %d repositories", repositoriesProcessed);
+            if (repositoriesResumed > 0) {
+                System.out.printf(", resumed %d from checkpoint", repositoriesResumed);
+            }
+            if (repositoriesSkipped > 0) {
+                System.out.printf(", skipped %d already processed", repositoriesSkipped);
+            }
+            System.out.printf(" (total: %d)%n", totalRepositories);
         } else {
             System.out.printf("\n✅ Successfully analyzed %d repositories%n", repositoriesProcessed);
         }
+
+        // Clear checkpoint on successful completion (all repos processed without error)
+        checkpointManager.clear();
 
         return repositoriesProcessed;
     }
@@ -1263,6 +1309,24 @@ public class QueryOptimizationChecker {
 
     public LiquibaseGenerator getLiquibaseGenerator() {
         return liquibaseGenerator;
+    }
+
+    public CheckpointManager getCheckpointManager() {
+        return checkpointManager;
+    }
+
+    public void setCheckpointManager(CheckpointManager checkpointManager) {
+        this.checkpointManager = checkpointManager;
+    }
+
+    /**
+     * Clears any existing checkpoint, forcing a fresh start on the next run.
+     * Use this when you want to reprocess all repositories from scratch.
+     */
+    public void clearCheckpoint() {
+        if (checkpointManager != null) {
+            checkpointManager.clear();
+        }
     }
 
     public static void main(String[] args) throws Exception {
