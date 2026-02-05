@@ -63,6 +63,22 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         OptimizationStatsLogger.updateQueriesAnalyzed(results.size());
 
         repositoryFileModified = false;
+        int methodsWithSignatureChanges = 0;
+        for (QueryAnalysisResult result : results) {
+            OptimizationIssue issue = result.getOptimizationIssue();
+            if (issue != null && issue.optimizedQuery() != null) {
+                String originalName = issue.query().getMethodName();
+                String newName = issue.optimizedQuery().getMethodName();
+                String aiExplanation = issue.aiExplanation();
+                if (!originalName.equals(newName) && (aiExplanation == null || !aiExplanation.startsWith("N/A"))) {
+                    methodsWithSignatureChanges++;
+                }
+            }
+        }
+        if (methodsWithSignatureChanges > 1) {
+            logger.info("Repository has {} methods with signature changes - each will scan all dependent classes",
+                    methodsWithSignatureChanges);
+        }
         for (QueryAnalysisResult result : results) {
             actOnAnalysisResult(result);
         }
@@ -117,17 +133,33 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                         issue.query().getMethodDeclaration().asMethodDeclaration(), queryValue);
 
                 // Check if method name changed (indicating signature should change)
-                boolean methodNameChanged = !issue.query().getMethodName().equals(optimizedQuery.getMethodName());
+                String originalMethodName = issue.query().getMethodName();
+                String newMethodName = optimizedQuery.getMethodName();
+                boolean methodNameChanged = !originalMethodName.equals(newMethodName);
+
+                // Skip method signature changes for derived query methods when AI has no meaningful recommendation
+                // (indicated by "N/A" explanation or unknown cardinality for both current and recommended)
+                String aiExplanation = issue.aiExplanation();
+                if (methodNameChanged && aiExplanation != null && aiExplanation.startsWith("N/A")) {
+                    logger.debug("Skipping method signature change for {} - AI indicates no optimization needed",
+                            originalMethodName);
+                    methodNameChanged = false;
+                }
 
                 // Apply method name change if recommended
                 if (methodNameChanged) {
+                    logger.info("Changing method name from {} to {}", originalMethodName, newMethodName);
+
+                    long startTime = System.currentTimeMillis();
                     updateMethodCallSignatures(result, issue.query().getRepositoryClassName());
+                    long elapsed = System.currentTimeMillis() - startTime;
+                    if (elapsed > 1000) {
+                        logger.warn("updateMethodCallSignatures took {}ms for method {}", elapsed, originalMethodName);
+                    }
 
                     MethodDeclaration method = issue.query().getMethodDeclaration().asMethodDeclaration();
                     Callable newMethod = optimizedQuery.getMethodDeclaration();
                     method.setName(newMethod.getNameAsString());
-                    logger.info("Changed method name from {} to {}",
-                            issue.query().getMethodName(), newMethod.getNameAsString());
 
                     reorderMethodParameters(
                             issue.query().getMethodDeclaration().asMethodDeclaration(),
@@ -313,17 +345,29 @@ public class QueryOptimizer extends QueryOptimizationChecker {
      * changes made.
      * This reorders call arguments to match the new parameter order. Only
      * same-arity calls are modified.
-     * 
+     *
      * @param update             the optimization results with signature changes
      * @param fullyQualifiedName the repository class name
      */
     public void updateMethodCallSignatures(QueryAnalysisResult update, String fullyQualifiedName) {
         Map<String, Set<String>> fields = Fields.getFieldDependencies(fullyQualifiedName);
 
-        if (fields == null) {
+        if (fields == null || fields.isEmpty()) {
+            logger.debug("No field dependencies found for {}", fullyQualifiedName);
             return;
         }
 
+        int totalFieldNames = fields.values().stream().mapToInt(Set::size).sum();
+        if (fields.size() > 200) {
+            logger.warn("Repository {} has {} dependent classes - signature updates may be slow",
+                    fullyQualifiedName, fields.size());
+        }
+        logger.info("Updating method call signatures: {} dependent classes, {} total field references for {}",
+                fields.size(), totalFieldNames, fullyQualifiedName);
+
+        long loopStartTime = System.currentTimeMillis();
+        int classesProcessed = 0;
+        int totalVisits = 0;
         for (Map.Entry<String, Set<String>> entry : fields.entrySet()) {
             String className = entry.getKey();
             Set<String> fieldNames = entry.getValue();
@@ -331,9 +375,18 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             TypeWrapper typeWrapper = AntikytheraRunTime.getResolvedTypes().get(className);
 
             if (typeWrapper != null) {
+                totalVisits += fieldNames.size();
                 updateMethodCallSignature(update, fullyQualifiedName, fieldNames, className);
+                classesProcessed++;
+                if (classesProcessed % 100 == 0) {
+                    long elapsed = System.currentTimeMillis() - loopStartTime;
+                    logger.info("Progress: {}/{} classes processed in {}ms ({} AST visits)",
+                            classesProcessed, fields.size(), elapsed, totalVisits);
+                }
             }
         }
+        long totalElapsed = System.currentTimeMillis() - loopStartTime;
+        logger.info("Finished: {} classes, {} AST visits in {}ms", classesProcessed, totalVisits, totalElapsed);
     }
 
     private static void updateMethodCallSignature(QueryAnalysisResult update, String fullyQualifiedName,
@@ -344,10 +397,19 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         // Process all field names for this class
         for (String fieldName : fieldNames) {
             NameChangeVisitor visitor = new NameChangeVisitor(fieldName, fullyQualifiedName);
-            // Visit the entire CompilationUnit to ensure modifications apply to the CU
-            // instance
+
+            long t1 = System.currentTimeMillis();
             CompilationUnit cu = AntikytheraRunTime.getCompilationUnit(className);
+            long t2 = System.currentTimeMillis();
+
             cu.accept(visitor, update);
+            long t3 = System.currentTimeMillis();
+
+            long getCuTime = t2 - t1;
+            long visitTime = t3 - t2;
+            if (getCuTime > 100 || visitTime > 100) {
+                logger.debug("Timing for {}: getCU={}ms, visit={}ms", className, getCuTime, visitTime);
+            }
 
             if (visitor.modified) {
                 classModified = true;
