@@ -339,7 +339,8 @@ public class QueryOptimizationChecker {
         // Analyze indexes based on actual WHERE conditions
         // Each condition now includes its own table name, which is critical for JOIN
         // queries
-        List<String> requiredIndexes = new ArrayList<>();
+        // Use LinkedHashSet to deduplicate (same column in multiple OR branches should only suggest one index)
+        Set<String> requiredIndexes = new LinkedHashSet<>();
 
         for (WhereCondition condition : whereConditions) {
             String tableName = condition.tableName() == null ? rawQuery.getPrimaryTable() : condition.getTableName();
@@ -365,12 +366,12 @@ public class QueryOptimizationChecker {
                 llmRecommendation.optimizedQuery());
 
         QueryAnalysisResult result = new QueryAnalysisResult(rawQuery, whereConditions);
-        result.setIndexSuggestions(requiredIndexes);
+        result.setIndexSuggestions(new ArrayList<>(requiredIndexes));
         result.setOptimizationIssue(enhancedRecommendation);
         return result;
     }
 
-    private void analyzeJoinRightSide(QueryAnalysisResult engineResult, List<String> requiredIndexes) {
+    private void analyzeJoinRightSide(QueryAnalysisResult engineResult, Set<String> requiredIndexes) {
         // Analyze right-side JOIN columns for missing indexes (critical for JOIN
         // performance)
         for (JoinCondition joinCondition : engineResult.getJoinConditions()) {
