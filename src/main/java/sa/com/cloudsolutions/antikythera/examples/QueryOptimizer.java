@@ -31,7 +31,9 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -41,6 +43,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
     private static final Logger logger = LoggerFactory.getLogger(QueryOptimizer.class);
     private boolean repositoryFileModified;
     private static Set<String> modifiedFiles = new java.util.HashSet<>();
+    private static Set<String> writtenFiles = new java.util.HashSet<>();
 
     /**
      * Creates a new QueryOptimizationChecker that uses RepositoryParser for
@@ -55,6 +58,16 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         EntityMappingResolver.build();
     }
 
+    /**
+     * Record to hold method rename information for batched processing.
+     */
+    record MethodRename(
+            String oldMethodName,
+            String newMethodName,
+            QueryAnalysisResult result,
+            OptimizationIssue issue
+    ) {}
+
     @Override
     void analyzeRepository(TypeWrapper typeWrapper)
             throws IOException, ReflectiveOperationException, InterruptedException {
@@ -63,24 +76,46 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         OptimizationStatsLogger.updateQueriesAnalyzed(results.size());
 
         repositoryFileModified = false;
-        int methodsWithSignatureChanges = 0;
+
+        // Collect all method renames first for batched processing
+        List<MethodRename> methodRenames = new ArrayList<>();
+
         for (QueryAnalysisResult result : results) {
             OptimizationIssue issue = result.getOptimizationIssue();
             if (issue != null && issue.optimizedQuery() != null) {
                 String originalName = issue.query().getMethodName();
                 String newName = issue.optimizedQuery().getMethodName();
                 String aiExplanation = issue.aiExplanation();
-                if (!originalName.equals(newName) && (aiExplanation == null || !aiExplanation.startsWith("N/A"))) {
-                    methodsWithSignatureChanges++;
+
+                boolean methodNameChanged = !originalName.equals(newName)
+                        && (aiExplanation == null || !aiExplanation.startsWith("N/A"));
+
+                if (methodNameChanged) {
+                    methodRenames.add(new MethodRename(originalName, newName, result, issue));
                 }
             }
         }
-        if (methodsWithSignatureChanges > 1) {
-            logger.info("Repository has {} methods with signature changes - each will scan all dependent classes",
-                    methodsWithSignatureChanges);
-        }
+
+        // Process all results (update annotations, etc.)
         for (QueryAnalysisResult result : results) {
-            actOnAnalysisResult(result);
+            actOnAnalysisResult(result, methodRenames);
+        }
+
+        // Batch update all method call signatures in dependent classes (single pass)
+        if (!methodRenames.isEmpty()) {
+            String repositoryClassName = typeWrapper.getFullyQualifiedName();
+            logger.info("Repository has {} methods with signature changes - processing in single batch",
+                    methodRenames.size());
+
+            long startTime = System.currentTimeMillis();
+            updateMethodCallSignaturesBatched(methodRenames, repositoryClassName);
+            long elapsed = System.currentTimeMillis() - startTime;
+
+            if (elapsed > 1000) {
+                logger.info("Batched signature update took {}ms for {} methods", elapsed, methodRenames.size());
+            }
+
+            OptimizationStatsLogger.updateMethodSignaturesChanged(methodRenames.size());
         }
 
         if (repositoryFileModified && writeFile(typeWrapper.getFullyQualifiedName(),
@@ -116,7 +151,14 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         return super.analyze();
     }
 
-    void actOnAnalysisResult(QueryAnalysisResult result) {
+    /**
+     * Process a single analysis result - update annotations and method signatures in the repository file.
+     * Note: Method call signature updates in dependent classes are handled separately via batched processing.
+     *
+     * @param result the analysis result to process
+     * @param methodRenames the list of all method renames for this repository (used to check if this result has a rename)
+     */
+    void actOnAnalysisResult(QueryAnalysisResult result, List<MethodRename> methodRenames) {
         OptimizationIssue issue = result.getOptimizationIssue();
         if (issue != null) {
             RepositoryQuery optimizedQuery = issue.optimizedQuery();
@@ -132,30 +174,14 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                 updateAnnotationValueWithTextBlockSupport(
                         issue.query().getMethodDeclaration().asMethodDeclaration(), queryValue);
 
-                // Check if method name changed (indicating signature should change)
+                // Check if this result has a method rename in our batched list
                 String originalMethodName = issue.query().getMethodName();
-                String newMethodName = optimizedQuery.getMethodName();
-                boolean methodNameChanged = !originalMethodName.equals(newMethodName);
+                boolean methodNameChanged = methodRenames.stream()
+                        .anyMatch(r -> r.oldMethodName().equals(originalMethodName));
 
-                // Skip method signature changes for derived query methods when AI has no meaningful recommendation
-                // (indicated by "N/A" explanation or unknown cardinality for both current and recommended)
-                String aiExplanation = issue.aiExplanation();
-                if (methodNameChanged && aiExplanation != null && aiExplanation.startsWith("N/A")) {
-                    logger.debug("Skipping method signature change for {} - AI indicates no optimization needed",
-                            originalMethodName);
-                    methodNameChanged = false;
-                }
-
-                // Apply method name change if recommended
+                // Apply method name change to the repository interface itself
                 if (methodNameChanged) {
-                    logger.info("Changing method name from {} to {}", originalMethodName, newMethodName);
-
-                    long startTime = System.currentTimeMillis();
-                    updateMethodCallSignatures(result, issue.query().getRepositoryClassName());
-                    long elapsed = System.currentTimeMillis() - startTime;
-                    if (elapsed > 1000) {
-                        logger.warn("updateMethodCallSignatures took {}ms for method {}", elapsed, originalMethodName);
-                    }
+                    logger.info("Changing method name from {} to {}", originalMethodName, optimizedQuery.getMethodName());
 
                     MethodDeclaration method = issue.query().getMethodDeclaration().asMethodDeclaration();
                     Callable newMethod = optimizedQuery.getMethodDeclaration();
@@ -165,14 +191,9 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                             issue.query().getMethodDeclaration().asMethodDeclaration(),
                             newMethod.asMethodDeclaration());
                 }
-                // Track if file was modified (annotation always changes and may also have
-                // parameter reordering)
-                repositoryFileModified = true;
 
-                // Track method signature changes
-                if (methodNameChanged) {
-                    OptimizationStatsLogger.updateMethodSignaturesChanged(1);
-                }
+                // Track if file was modified (annotation always changes and may also have parameter reordering)
+                repositoryFileModified = true;
             }
         }
     }
@@ -427,6 +448,106 @@ public class QueryOptimizer extends QueryOptimizationChecker {
     }
 
     /**
+     * Batched version of updateMethodCallSignatures that processes all method renames
+     * in a single pass through each dependent class. This is much more efficient when
+     * multiple methods in a repository need signature changes.
+     *
+     * @param methodRenames list of all method renames to apply
+     * @param fullyQualifiedName the repository class name
+     */
+    public void updateMethodCallSignaturesBatched(List<MethodRename> methodRenames, String fullyQualifiedName) {
+        Map<String, Set<String>> fields = Fields.getFieldDependencies(fullyQualifiedName);
+
+        if (fields == null || fields.isEmpty()) {
+            logger.debug("No field dependencies found for {}", fullyQualifiedName);
+            return;
+        }
+
+        if (fields.size() > 200) {
+            logger.warn("Repository {} has {} dependent classes - signature updates may be slow",
+                    fullyQualifiedName, fields.size());
+        }
+        logger.info("Batched update: {} dependent classes, {} method renames for {}",
+                fields.size(), methodRenames.size(), fullyQualifiedName);
+
+        long loopStartTime = System.currentTimeMillis();
+        int classesProcessed = 0;
+        int totalMethodCallsUpdated = 0;
+        List<String> classesModifiedInBatch = new ArrayList<>();
+
+        for (Map.Entry<String, Set<String>> entry : fields.entrySet()) {
+            String className = entry.getKey();
+            Set<String> fieldNames = entry.getValue();
+
+            TypeWrapper typeWrapper = AntikytheraRunTime.getResolvedTypes().get(className);
+
+            if (typeWrapper == null) {
+                throw new IllegalStateException(
+                        "Class " + className + " found in field dependencies but not in resolved types. " +
+                        "This may indicate incomplete preprocessing or an external dependency that should be excluded.");
+            }
+
+            int callsUpdated = updateMethodCallSignatureBatched(methodRenames, fieldNames, className);
+            if (callsUpdated > 0) {
+                classesModifiedInBatch.add(className);
+            }
+            totalMethodCallsUpdated += callsUpdated;
+            classesProcessed++;
+
+            if (classesProcessed % 100 == 0) {
+                long elapsed = System.currentTimeMillis() - loopStartTime;
+                logger.info("Progress: {}/{} classes processed in {}ms",
+                        classesProcessed, fields.size(), elapsed);
+            }
+        }
+
+        // Write modified files to disk immediately after batch processing
+        // This ensures changes are persisted before checkpoint is saved
+        int filesWritten = 0;
+        for (String className : classesModifiedInBatch) {
+            try {
+                if (writeFile(className)) {
+                    writtenFiles.add(className);
+                    filesWritten++;
+                }
+            } catch (IOException e) {
+                logger.error("Failed to write file for {}: {}", className, e.getMessage());
+            }
+        }
+
+        long totalElapsed = System.currentTimeMillis() - loopStartTime;
+        logger.info("Batched update finished: {} classes, {} method calls updated, {} files written in {}ms",
+                classesProcessed, totalMethodCallsUpdated, filesWritten, totalElapsed);
+
+        OptimizationStatsLogger.updateMethodCallsChanged(totalMethodCallsUpdated);
+    }
+
+    /**
+     * Updates method call signatures in a single class for all method renames in one AST visit.
+     *
+     * @param methodRenames list of all method renames to apply
+     * @param fieldNames set of field names that reference the repository in this class
+     * @param className the class to update
+     * @return number of method calls updated
+     */
+    private int updateMethodCallSignatureBatched(List<MethodRename> methodRenames,
+            Set<String> fieldNames, String className) {
+        CompilationUnit cu = AntikytheraRunTime.getCompilationUnit(className);
+
+        // Create a batched visitor that handles all renames and all field names
+        BatchedNameChangeVisitor visitor = new BatchedNameChangeVisitor(fieldNames, methodRenames);
+        cu.accept(visitor, null);
+
+        if (visitor.modified) {
+            if (modifiedFiles.add(className)) {
+                OptimizationStatsLogger.updateDependentClassesChanged(1);
+            }
+        }
+
+        return visitor.methodCallsUpdated;
+    }
+
+    /**
      * Writes the modified compilation unit to disk using FileOperationsManager.
      * 
      * Attempts to use LexicalPreservingPrinter for whitespace preservation, but
@@ -633,6 +754,195 @@ public class QueryOptimizer extends QueryOptimizationChecker {
     }
 
     /**
+     * Batched visitor that handles multiple method renames in a single AST pass.
+     * This is much more efficient than visiting the AST multiple times for each rename.
+     */
+    static class BatchedNameChangeVisitor extends ModifierVisitor<Void> {
+        private final Set<String> fieldNames;
+        private final List<MethodRename> methodRenames;
+        // Map from oldMethodName -> list of renames (to handle overloaded methods)
+        private final Map<String, List<MethodRename>> renameMap;
+        boolean modified;
+        int methodCallsUpdated = 0;
+
+        BatchedNameChangeVisitor(Set<String> fieldNames, List<MethodRename> methodRenames) {
+            this.fieldNames = fieldNames;
+            this.methodRenames = methodRenames;
+            // Build a map for quick lookup by old method name
+            // Use a list to handle overloaded methods with the same name but different arities
+            this.renameMap = new HashMap<>();
+            for (MethodRename rename : methodRenames) {
+                renameMap.computeIfAbsent(rename.oldMethodName(), k -> new ArrayList<>()).add(rename);
+            }
+        }
+
+        @Override
+        public MethodCallExpr visit(MethodCallExpr mce, Void arg) {
+            super.visit(mce, arg);
+            Optional<Expression> scope = mce.getScope();
+
+            if (scope.isEmpty()) {
+                return mce;
+            }
+
+            // Check if this is a call on one of our repository fields
+            String matchedFieldName = null;
+            for (String fieldName : fieldNames) {
+                if (isFieldMatch(scope.get(), fieldName)) {
+                    matchedFieldName = fieldName;
+                    break;
+                }
+                // Also check Mockito verify pattern
+                if (scope.get() instanceof MethodCallExpr verifyCall &&
+                        "verify".equals(verifyCall.getNameAsString()) && !verifyCall.getArguments().isEmpty()) {
+                    if (isFieldMatch(verifyCall.getArgument(0), fieldName)) {
+                        matchedFieldName = fieldName;
+                        break;
+                    }
+                }
+            }
+
+            if (matchedFieldName == null) {
+                return mce;
+            }
+
+            // Check if this method call matches any of our renames
+            String currentMethodName = mce.getNameAsString();
+            List<MethodRename> candidates = renameMap.get(currentMethodName);
+
+            if (candidates != null) {
+                // Find the matching rename by arity (number of arguments)
+                int callArity = mce.getArguments().size();
+                MethodRename matchingRename = findMatchingRenameByArity(candidates, callArity);
+
+                if (matchingRename != null) {
+                    // Verify arity matches BEFORE renaming to avoid creating broken code
+                    MethodDeclaration newMethod = matchingRename.issue().optimizedQuery()
+                            .getMethodDeclaration().asMethodDeclaration();
+
+                    if (callArity == newMethod.getParameters().size()) {
+                        mce.setName(matchingRename.newMethodName());
+                        reorderMethodArguments(mce, matchingRename.issue());
+                        modified = true;
+                        methodCallsUpdated++;
+                    }
+                    // If arity doesn't match, skip this call - don't rename it
+                }
+            }
+
+            return mce;
+        }
+
+        @Override
+        public MethodReferenceExpr visit(MethodReferenceExpr mre, Void arg) {
+            super.visit(mre, arg);
+            Expression scope = mre.getScope();
+
+            // Check if this is a reference on one of our repository fields
+            String matchedFieldName = null;
+            for (String fieldName : fieldNames) {
+                if (isFieldMatch(scope, fieldName)) {
+                    matchedFieldName = fieldName;
+                    break;
+                }
+                // Also check type expression (static method reference style)
+                if (scope.isTypeExpr() && scope.asTypeExpr().getType().asString().equals(fieldName)) {
+                    matchedFieldName = fieldName;
+                    break;
+                }
+            }
+
+            if (matchedFieldName == null) {
+                return mre;
+            }
+
+            // Check if this method reference matches any of our renames
+            // For method references, we can't determine arity at the call site,
+            // so only rename if there's exactly one candidate (no overloads)
+            String currentMethodName = mre.getIdentifier();
+            List<MethodRename> candidates = renameMap.get(currentMethodName);
+
+            if (candidates != null && candidates.size() == 1) {
+                // Safe to rename - only one candidate, no ambiguity
+                mre.setIdentifier(candidates.get(0).newMethodName());
+                modified = true;
+                methodCallsUpdated++;
+            }
+            // If multiple candidates (overloaded methods), skip - can't determine which one
+
+            return mre;
+        }
+
+        /**
+         * Finds a matching rename from candidates based on call arity.
+         * Returns null if no match found or if multiple matches exist (ambiguous).
+         */
+        private MethodRename findMatchingRenameByArity(List<MethodRename> candidates, int callArity) {
+            MethodRename match = null;
+            for (MethodRename candidate : candidates) {
+                MethodDeclaration oldMethod = candidate.issue().query()
+                        .getMethodDeclaration().asMethodDeclaration();
+                if (oldMethod.getParameters().size() == callArity) {
+                    if (match != null) {
+                        // Multiple matches with same arity - ambiguous, return null
+                        return null;
+                    }
+                    match = candidate;
+                }
+            }
+            return match;
+        }
+
+        private boolean isFieldMatch(Expression expr, String fieldName) {
+            if (expr instanceof NameExpr ne) {
+                return ne.getNameAsString().equals(fieldName);
+            }
+            if (expr instanceof FieldAccessExpr fae) {
+                return fae.getNameAsString().equals(fieldName) &&
+                        fae.getScope().isThisExpr();
+            }
+            return false;
+        }
+
+        /**
+         * Reorders method call arguments based on the optimization issue's parameter mapping.
+         * Called only after arity has been verified to match.
+         */
+        private void reorderMethodArguments(MethodCallExpr mce, OptimizationIssue issue) {
+            MethodDeclaration oldMethod = issue.query().getMethodDeclaration().asMethodDeclaration();
+            MethodDeclaration newMethod = issue.optimizedQuery().getMethodDeclaration().asMethodDeclaration();
+
+            Map<Integer, Integer> map = new HashMap<>();
+            for (int i = 0; i < oldMethod.getParameters().size(); i++) {
+                for (int j = 0; j < newMethod.getParameters().size(); j++) {
+                    if (oldMethod.getParameter(i).toString().equals(newMethod.getParameter(j).toString())) {
+                        map.put(j, i);
+                    }
+                }
+            }
+
+            NodeList<Expression> args = mce.getArguments();
+            // Arity already verified by caller, but double-check for safety
+            if (args.size() != newMethod.getParameters().size()) {
+                return;
+            }
+
+            NodeList<Expression> newArgs = new NodeList<>();
+            for (int i = 0; i < args.size(); i++) {
+                Integer oldIdx = map.get(i);
+                if (oldIdx != null && oldIdx < args.size()) {
+                    newArgs.add(args.get(oldIdx));
+                } else {
+                    return; // Fallback if mapping is missing or invalid
+                }
+            }
+
+            mce.getArguments().clear();
+            mce.setArguments(newArgs);
+        }
+    }
+
+    /**
      * Checks if a command-line flag is present.
      * 
      * @param args command-line arguments
@@ -711,7 +1021,11 @@ public class QueryOptimizer extends QueryOptimizationChecker {
 
     private static void updateFiles() throws IOException {
         for (String className : modifiedFiles) {
-            writeFile(className);
+            // Skip files that were already written during batch processing
+            if (!writtenFiles.contains(className)) {
+                writeFile(className);
+                writtenFiles.add(className);
+            }
         }
     }
 }
