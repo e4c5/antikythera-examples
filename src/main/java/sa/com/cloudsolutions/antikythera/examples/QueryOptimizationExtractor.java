@@ -1,6 +1,11 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
+import net.sf.jsqlparser.expression.Expression;
 import net.sf.jsqlparser.statement.Statement;
+import net.sf.jsqlparser.statement.delete.Delete;
+import net.sf.jsqlparser.statement.select.PlainSelect;
+import net.sf.jsqlparser.statement.select.Select;
+import net.sf.jsqlparser.statement.update.Update;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -72,6 +77,42 @@ public class QueryOptimizationExtractor {
         statement.accept(collector, null);
 
         return new ConditionExtractionResult(whereConditions, joinConditions);
+    }
+
+    /**
+     * Extracts the original WHERE clause text from a SQL Statement.
+     * Returns the WHERE clause as it appears in the original query, preserving OR/AND structure.
+     *
+     * @param statement the parsed SQL statement
+     * @return the WHERE clause text (without "WHERE" keyword), or empty string if none
+     */
+    public static String extractWhereClauseText(Statement statement) {
+        Expression whereExpr = null;
+
+        if (statement instanceof Select select) {
+            if (select instanceof PlainSelect plainSelect) {
+                whereExpr = plainSelect.getWhere();
+            } else {
+                try {
+                    PlainSelect plainSelect = select.getPlainSelect();
+                    if (plainSelect != null) {
+                        whereExpr = plainSelect.getWhere();
+                    }
+                } catch (ClassCastException e) {
+                    // SetOperationList or other complex select - can't extract simple WHERE
+                    return "";
+                }
+            }
+        } else if (statement instanceof Update update) {
+            whereExpr = update.getWhere();
+        } else if (statement instanceof Delete delete) {
+            whereExpr = delete.getWhere();
+        }
+
+        if (whereExpr != null) {
+            return whereExpr.toString();
+        }
+        return "";
     }
 
     /**
