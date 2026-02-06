@@ -448,34 +448,46 @@ public class QueryOptimizer extends QueryOptimizationChecker {
     }
 
     /**
-     * Batched version of updateMethodCallSignatures that processes all method renames
-     * in a single pass through each dependent class. This is much more efficient when
-     * multiple methods in a repository need signature changes.
+     * Batched version of updateMethodCallSignatures that uses the method call index
+     * to only process classes that actually call the methods being renamed.
+     * This is much more efficient than scanning all dependent classes.
      *
      * @param methodRenames list of all method renames to apply
      * @param fullyQualifiedName the repository class name
      */
     public void updateMethodCallSignaturesBatched(List<MethodRename> methodRenames, String fullyQualifiedName) {
-        Map<String, Set<String>> fields = Fields.getFieldDependencies(fullyQualifiedName);
+        // Collect all classes that need to be updated based on method call index
+        // Map: className -> Set<fieldNames> that need processing
+        Map<String, Set<String>> classesToProcess = new HashMap<>();
 
-        if (fields == null || fields.isEmpty()) {
-            logger.debug("No field dependencies found for {}", fullyQualifiedName);
+        for (MethodRename rename : methodRenames) {
+            Set<Fields.CallerInfo> callers = Fields.getMethodCallers(fullyQualifiedName, rename.oldMethodName());
+            for (Fields.CallerInfo caller : callers) {
+                classesToProcess
+                        .computeIfAbsent(caller.callerClass(), k -> new java.util.HashSet<>())
+                        .add(caller.fieldName());
+            }
+        }
+
+        if (classesToProcess.isEmpty()) {
+            logger.debug("No method callers found for {} methods being renamed", methodRenames.size());
             return;
         }
 
-        if (fields.size() > 200) {
-            logger.warn("Repository {} has {} dependent classes - signature updates may be slow",
-                    fullyQualifiedName, fields.size());
-        }
-        logger.info("Batched update: {} dependent classes, {} method renames for {}",
-                fields.size(), methodRenames.size(), fullyQualifiedName);
+        // Compare with old approach for logging
+        Map<String, Set<String>> allFields = Fields.getFieldDependencies(fullyQualifiedName);
+        int totalDependentClasses = allFields != null ? allFields.size() : 0;
+
+        logger.info("Method call index optimization: processing {} classes instead of {} ({}% reduction)",
+                classesToProcess.size(), totalDependentClasses,
+                totalDependentClasses > 0 ? (100 - (classesToProcess.size() * 100 / totalDependentClasses)) : 0);
 
         long loopStartTime = System.currentTimeMillis();
         int classesProcessed = 0;
         int totalMethodCallsUpdated = 0;
         List<String> classesModifiedInBatch = new ArrayList<>();
 
-        for (Map.Entry<String, Set<String>> entry : fields.entrySet()) {
+        for (Map.Entry<String, Set<String>> entry : classesToProcess.entrySet()) {
             String className = entry.getKey();
             Set<String> fieldNames = entry.getValue();
 
@@ -483,7 +495,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
 
             if (typeWrapper == null) {
                 throw new IllegalStateException(
-                        "Class " + className + " found in field dependencies but not in resolved types. " +
+                        "Class " + className + " found in method call index but not in resolved types. " +
                         "This may indicate incomplete preprocessing or an external dependency that should be excluded.");
             }
 
@@ -497,7 +509,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             if (classesProcessed % 100 == 0) {
                 long elapsed = System.currentTimeMillis() - loopStartTime;
                 logger.info("Progress: {}/{} classes processed in {}ms",
-                        classesProcessed, fields.size(), elapsed);
+                        classesProcessed, classesToProcess.size(), elapsed);
             }
         }
 
