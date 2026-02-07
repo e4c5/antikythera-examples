@@ -13,6 +13,7 @@ import com.github.javaparser.ast.expr.NormalAnnotationExpr;
 import com.github.javaparser.ast.expr.StringLiteralExpr;
 import com.github.javaparser.ast.expr.TextBlockLiteralExpr;
 import com.github.javaparser.ast.visitor.ModifierVisitor;
+import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.printer.lexicalpreservation.LexicalPreservingPrinter;
 import com.github.javaparser.ast.NodeList;
@@ -44,6 +45,11 @@ public class QueryOptimizer extends QueryOptimizationChecker {
     private boolean repositoryFileModified;
     private static Set<String> modifiedFiles = new java.util.HashSet<>();
     private static Set<String> writtenFiles = new java.util.HashSet<>();
+
+    // Profiling accumulators for writeFile breakdown
+    private static long totalLppTime = 0;
+    private static long totalDiskWriteTime = 0;
+    private static int lppCallCount = 0;
 
     /**
      * Creates a new QueryOptimizationChecker that uses RepositoryParser for
@@ -483,6 +489,8 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                 totalDependentClasses > 0 ? (100 - (classesToProcess.size() * 100 / totalDependentClasses)) : 0);
 
         long loopStartTime = System.currentTimeMillis();
+        long totalAstVisitTime = 0;
+        long totalFileWriteTime = 0;
         int classesProcessed = 0;
         int totalMethodCallsUpdated = 0;
         List<String> classesModifiedInBatch = new ArrayList<>();
@@ -499,8 +507,14 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                         "This may indicate incomplete preprocessing or an external dependency that should be excluded.");
             }
 
+            long astStart = System.currentTimeMillis();
+            logger.info("  Visiting class: {} (fields: {})", className, fieldNames);
             int callsUpdated = updateMethodCallSignatureBatched(methodRenames, fieldNames, className);
+            long astElapsed = System.currentTimeMillis() - astStart;
+            totalAstVisitTime += astElapsed;
+
             if (callsUpdated > 0) {
+                logger.info("  Updated {} calls in {} ({}ms)", callsUpdated, className, astElapsed);
                 classesModifiedInBatch.add(className);
             }
             totalMethodCallsUpdated += callsUpdated;
@@ -518,10 +532,12 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         int filesWritten = 0;
         for (String className : classesModifiedInBatch) {
             try {
+                long writeStart = System.currentTimeMillis();
                 if (writeFile(className)) {
                     writtenFiles.add(className);
                     filesWritten++;
                 }
+                totalFileWriteTime += System.currentTimeMillis() - writeStart;
             } catch (IOException e) {
                 logger.error("Failed to write file for {}: {}", className, e.getMessage());
             }
@@ -530,6 +546,16 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         long totalElapsed = System.currentTimeMillis() - loopStartTime;
         logger.info("Batched update finished: {} classes, {} method calls updated, {} files written in {}ms",
                 classesProcessed, totalMethodCallsUpdated, filesWritten, totalElapsed);
+        logger.info("  Profiling breakdown: AST visiting={}ms, File writing={}ms, Other={}ms",
+                totalAstVisitTime, totalFileWriteTime, totalElapsed - totalAstVisitTime - totalFileWriteTime);
+        if (lppCallCount > 0) {
+            logger.info("  File writing breakdown: LexicalPreservingPrinter={}ms ({}calls, {}ms/call avg), Disk I/O={}ms",
+                    totalLppTime, lppCallCount, totalLppTime / lppCallCount, totalDiskWriteTime);
+            // Reset for next batch
+            totalLppTime = 0;
+            totalDiskWriteTime = 0;
+            lppCallCount = 0;
+        }
 
         OptimizationStatsLogger.updateMethodCallsChanged(totalMethodCallsUpdated);
     }
@@ -544,11 +570,20 @@ public class QueryOptimizer extends QueryOptimizationChecker {
      */
     private int updateMethodCallSignatureBatched(List<MethodRename> methodRenames,
             Set<String> fieldNames, String className) {
+        long getCuStart = System.currentTimeMillis();
         CompilationUnit cu = AntikytheraRunTime.getCompilationUnit(className);
+        long getCuTime = System.currentTimeMillis() - getCuStart;
+        logger.info("    Got CompilationUnit in {}ms, starting visitor...", getCuTime);
 
         // Create a batched visitor that handles all renames and all field names
         BatchedNameChangeVisitor visitor = new BatchedNameChangeVisitor(fieldNames, methodRenames);
+        long acceptStart = System.currentTimeMillis();
         cu.accept(visitor, null);
+        long acceptTime = System.currentTimeMillis() - acceptStart;
+
+        logger.info("  Timing breakdown for {}: getCompilationUnit={}ms, cu.accept={}ms",
+                className.substring(className.lastIndexOf('.') + 1), getCuTime, acceptTime);
+        visitor.logDiagnostics();
 
         if (visitor.modified) {
             if (modifiedFiles.add(className)) {
@@ -587,6 +622,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         // changes properly
         String content;
 
+        long lppStart = System.currentTimeMillis();
         try {
             content = LexicalPreservingPrinter.print(cu);
         } catch (Exception e) {
@@ -596,19 +632,24 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                     fullyQualifiedName, e.getMessage());
             content = cu.toString();
         }
+        totalLppTime += System.currentTimeMillis() - lppStart;
+        lppCallCount++;
 
         File f = new File(fullPath);
 
+        long diskStart = System.currentTimeMillis();
+        boolean result = false;
         if (f.exists()) {
-            return writeFile(f, content);
+            result = writeFile(f, content);
         } else {
             File t = new File(fullPath.replace("src/main", "src/test"));
             if (t.exists()) {
-                return writeFile(t, content);
+                result = writeFile(t, content);
             }
         }
+        totalDiskWriteTime += System.currentTimeMillis() - diskStart;
 
-        return false;
+        return result;
     }
 
     private static boolean writeFile(File f, String content) throws FileNotFoundException {
@@ -770,12 +811,16 @@ public class QueryOptimizer extends QueryOptimizationChecker {
      * This is much more efficient than visiting the AST multiple times for each rename.
      */
     static class BatchedNameChangeVisitor extends ModifierVisitor<Void> {
+        private static final Logger visitorLogger = LoggerFactory.getLogger(BatchedNameChangeVisitor.class);
         private final Set<String> fieldNames;
         private final List<MethodRename> methodRenames;
         // Map from oldMethodName -> list of renames (to handle overloaded methods)
         private final Map<String, List<MethodRename>> renameMap;
         boolean modified;
         int methodCallsUpdated = 0;
+        // Diagnostic counters
+        int totalVisits = 0;
+        long totalVisitTime = 0;
 
         BatchedNameChangeVisitor(Set<String> fieldNames, List<MethodRename> methodRenames) {
             this.fieldNames = fieldNames;
@@ -788,12 +833,20 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             }
         }
 
+        void logDiagnostics() {
+            visitorLogger.info("  Visitor diagnostics: {} MethodCallExpr visits, total time {}ms, avg {}μs/visit",
+                    totalVisits, totalVisitTime, totalVisits > 0 ? (totalVisitTime * 1000 / totalVisits) : 0);
+        }
+
         @Override
         public MethodCallExpr visit(MethodCallExpr mce, Void arg) {
+            long visitStart = System.currentTimeMillis();
+            totalVisits++;
             super.visit(mce, arg);
             Optional<Expression> scope = mce.getScope();
 
             if (scope.isEmpty()) {
+                totalVisitTime += System.currentTimeMillis() - visitStart;
                 return mce;
             }
 
@@ -815,6 +868,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             }
 
             if (matchedFieldName == null) {
+                totalVisitTime += System.currentTimeMillis() - visitStart;
                 return mce;
             }
 
@@ -842,6 +896,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                 }
             }
 
+            totalVisitTime += System.currentTimeMillis() - visitStart;
             return mce;
         }
 

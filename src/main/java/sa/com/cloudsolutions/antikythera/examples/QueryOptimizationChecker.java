@@ -115,6 +115,9 @@ public class QueryOptimizationChecker {
         int totalRepositories = 0;
         int repositoriesProcessed = 0;
         int repositoriesResumed = 0;
+        int repositoriesSkippedByFilter = 0;
+
+        logger.debug("targetClass filter value: {}", targetClass);
 
         for (Map.Entry<String, TypeWrapper> entry : resolvedTypes.entrySet()) {
             String fullyQualifiedName = entry.getKey();
@@ -125,6 +128,8 @@ public class QueryOptimizationChecker {
 
                 // Filter by target_class if specified
                 if (targetClass != null && !targetClass.equals(fullyQualifiedName)) {
+                    repositoriesSkippedByFilter++;
+                    logger.debug("Skipping repository (target_class filter): {}", fullyQualifiedName);
                     continue;
                 }
 
@@ -161,7 +166,10 @@ public class QueryOptimizationChecker {
         OptimizationStatsLogger.flush();
 
         // Print summary
-        if (repositoriesResumed > 0) {
+        if (repositoriesSkippedByFilter > 0) {
+            System.out.printf("\n✅ Analyzed %d repositories, skipped %d by target_class filter (total: %d)%n",
+                    repositoriesProcessed, repositoriesSkippedByFilter, totalRepositories);
+        } else if (repositoriesResumed > 0) {
             System.out.printf("\n✅ Analyzed %d repositories, skipped %d from checkpoint (total: %d)%n",
                     repositoriesProcessed, repositoriesResumed, totalRepositories);
         } else {
@@ -1347,7 +1355,11 @@ public class QueryOptimizationChecker {
             if (targetClassValue instanceof String s && !s.isBlank()) {
                 setTargetClass(s);
                 System.out.printf("🎯 Target class filter: %s%n", s);
+            } else {
+                System.out.println("ℹ️ No target_class filter specified (processing all repositories)");
             }
+        } else {
+            System.out.println("ℹ️ No query_optimizer section in settings (processing all repositories)");
         }
     }
 
