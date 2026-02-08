@@ -17,7 +17,6 @@ import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.generator.QueryType;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
 import sa.com.cloudsolutions.antikythera.parser.BaseRepositoryParser;
-import sa.com.cloudsolutions.antikythera.parser.Callable;
 import com.github.javaparser.ast.body.MethodDeclaration;
 
 import java.io.IOException;
@@ -56,6 +55,11 @@ public class GeminiAIService {
         Map.entry(GEMINI_3_FLASH, new ModelPricing(0.50, 1.00, 3.00, 4.50, 0.10, 200000)),
         Map.entry("gemini-1.0-pro", new ModelPricing(0.50, 1.50, 0.25))
     );
+    public static final String NOTES = "notes";
+    public static final String STRING = "string";
+    public static final String PARTS = "parts";
+    public static final String OPTIMIZED_CODE_ELEMENT = "optimizedCodeElement";
+    public static final String API_KEY = "api_key";
 
     private Map<String, Object> config;
     private HttpClient httpClient;
@@ -164,14 +168,14 @@ public class GeminiAIService {
 
         // system_instruction
         ObjectNode systemInstruction = root.putObject("system_instruction");
-        ArrayNode parts = systemInstruction.putArray("parts");
+        ArrayNode parts = systemInstruction.putArray(PARTS);
         parts.addObject().put("text", systemPrompt);
 
         // contents
         ArrayNode contents = root.putArray("contents");
         ObjectNode content = contents.addObject();
         content.put("role", "user");
-        ArrayNode contentParts = content.putArray("parts");
+        ArrayNode contentParts = content.putArray(PARTS);
         contentParts.addObject().put("text", userQueryData);
 
         // generationConfig
@@ -185,14 +189,14 @@ public class GeminiAIService {
         items.put("type", "object");
 
         ObjectNode properties = items.putObject("properties");
-        properties.putObject("originalMethod").put("type", "string");
-        properties.putObject("optimizedCodeElement").put("type", "string");
-        properties.putObject("notes").put("type", "string");
+        properties.putObject("originalMethod").put("type", STRING);
+        properties.putObject(OPTIMIZED_CODE_ELEMENT).put("type", STRING);
+        properties.putObject(NOTES).put("type", STRING);
 
         ArrayNode required = items.putArray("required");
         required.add("originalMethod");
-        required.add("optimizedCodeElement");
-        required.add("notes");
+        required.add(OPTIMIZED_CODE_ELEMENT);
+        required.add(NOTES);
 
         return objectMapper.writeValueAsString(root);
     }
@@ -257,7 +261,7 @@ public class GeminiAIService {
         String apiEndpoint = getConfigString("api_endpoint",
                 "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent");
         String model = getConfigString("model", GEMINI_3_FLASH);
-        String apiKey = getConfigString("api_key", null);
+        String apiKey = getConfigString(API_KEY, null);
         int timeoutSeconds = getConfigInt("timeout_seconds", 90);
 
         if (retryCount > 0) {
@@ -356,7 +360,7 @@ public class GeminiAIService {
         if (candidates.isArray() && !candidates.isEmpty()) {
             JsonNode firstCandidate = candidates.get(0);
             JsonNode content = firstCandidate.path("content");
-            JsonNode parts = content.path("parts");
+            JsonNode parts = content.path(PARTS);
 
             if (parts.isArray() && !parts.isEmpty()) {
                 String textResponse = parts.get(0).path("text").asText();
@@ -450,8 +454,8 @@ public class GeminiAIService {
      */
     OptimizationIssue parseOptimizationRecommendation(JsonNode recommendation, RepositoryQuery originalQuery)
             throws IOException {
-        String optimizedCodeElement = recommendation.path("optimizedCodeElement").asText();
-        String notes = recommendation.path("notes").asText();
+        String optimizedCodeElement = recommendation.path(OPTIMIZED_CODE_ELEMENT).asText();
+        String notes = recommendation.path(NOTES).asText();
 
         // Determine if optimization was applied
         boolean optimizationNeeded = !notes.contains("N/A") && !notes.contains("unchanged")
@@ -639,7 +643,7 @@ public class GeminiAIService {
      * Validates the configuration to ensure required settings are present.
      */
     void validateConfig() {
-        String apiKey = getConfigString("api_key", null);
+        String apiKey = getConfigString(API_KEY, null);
         if (apiKey == null || apiKey.trim().isEmpty()) {
             throw new IllegalStateException(
                     "AI service API key is required. Set GEMINI_API_KEY environment variable or configure ai_service.api_key in generator.yml");
@@ -659,7 +663,7 @@ public class GeminiAIService {
         }
 
         // Fallback to environment variables
-        if ("api_key".equals(key)) {
+        if (API_KEY.equals(key)) {
             String envValue = System.getenv("GEMINI_API_KEY");
             if (envValue != null && !envValue.trim().isEmpty()) {
                 return envValue;

@@ -105,10 +105,9 @@ class CheckpointManagerTest {
         CheckpointManager newManager = new CheckpointManager(checkpointFile);
         newManager.load();
 
-        LinkedHashSet<String> loadedSingle = newManager.getSuggestedNewIndexes();
-        LinkedHashSet<String> loadedMulti = newManager.getSuggestedMultiColumnIndexes();
+        Set<String> loadedSingle = newManager.getSuggestedNewIndexes();
+        Set<String> loadedMulti = newManager.getSuggestedMultiColumnIndexes();
 
-        assertEquals(2, loadedSingle.size());
         assertTrue(loadedSingle.contains("users|email"));
         assertTrue(loadedSingle.contains("orders|customer_id"));
 

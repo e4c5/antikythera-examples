@@ -164,25 +164,29 @@ public class Fields {
      */
     private static void indexMethodCalls(CompilationUnit cu, String repositoryFqn,
             String callerClass, Set<String> fieldNames) {
-        cu.findAll(MethodCallExpr.class).forEach(mce -> {
-            mce.getScope().ifPresent(scope -> {
-                String matchedField = findMatchingField(scope, fieldNames);
-                if (matchedField != null) {
-                    String methodName = mce.getNameAsString();
-                    addToMethodCallIndex(repositoryFqn, methodName, callerClass, matchedField);
-                }
+        cu.findAll(MethodCallExpr.class).forEach(mce ->
+            indexMethodCall(repositoryFqn, callerClass, fieldNames, mce)
+        );
+    }
 
-                // Also check Mockito verify pattern: verify(field).methodName()
-                if (scope instanceof MethodCallExpr verifyCall &&
-                        "verify".equals(verifyCall.getNameAsString()) &&
-                        !verifyCall.getArguments().isEmpty()) {
-                    String verifyField = findMatchingField(verifyCall.getArgument(0), fieldNames);
-                    if (verifyField != null) {
-                        String methodName = mce.getNameAsString();
-                        addToMethodCallIndex(repositoryFqn, methodName, callerClass, verifyField);
-                    }
+    private static void indexMethodCall(String repositoryFqn, String callerClass, Set<String> fieldNames, MethodCallExpr mce) {
+        mce.getScope().ifPresent(scope -> {
+            String matchedField = findMatchingField(scope, fieldNames);
+            if (matchedField != null) {
+                String methodName = mce.getNameAsString();
+                addToMethodCallIndex(repositoryFqn, methodName, callerClass, matchedField);
+            }
+
+            // Also check Mockito verify pattern: verify(field).methodName()
+            if (scope instanceof MethodCallExpr verifyCall &&
+                    "verify".equals(verifyCall.getNameAsString()) &&
+                    !verifyCall.getArguments().isEmpty()) {
+                String verifyField = findMatchingField(verifyCall.getArgument(0), fieldNames);
+                if (verifyField != null) {
+                    String methodName = mce.getNameAsString();
+                    addToMethodCallIndex(repositoryFqn, methodName, callerClass, verifyField);
                 }
-            });
+            }
         });
     }
 
@@ -211,10 +215,10 @@ public class Fields {
             if (fieldNames.contains(name)) {
                 return name;
             }
-        } else if (expr instanceof FieldAccessExpr fae) {
-            if (fae.getScope().isThisExpr()) {
+        } else {
+            if (expr instanceof FieldAccessExpr fae) {
                 String name = fae.getNameAsString();
-                if (fieldNames.contains(name)) {
+                if (fieldNames.contains(name)  && fae.getScope().isThisExpr()) {
                     return name;
                 }
             }

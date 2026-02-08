@@ -261,12 +261,12 @@ public class CheckpointManager {
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public static class Checkpoint {
-        public String sessionId;
-        public String startTime;
-        public String lastUpdate;
+        private String sessionId;
+        private String startTime;
+        private String lastUpdate;
         public Set<String> processedRepositories = new HashSet<>();
-        public LinkedHashSet<String> suggestedNewIndexes = new LinkedHashSet<>();
-        public LinkedHashSet<String> suggestedMultiColumnIndexes = new LinkedHashSet<>();
+        public Set<String> suggestedNewIndexes = new LinkedHashSet<>();
+        public Set<String> suggestedMultiColumnIndexes = new LinkedHashSet<>();
         public Set<String> modifiedFiles = new HashSet<>();
 
         // Default constructor for Jackson

@@ -42,8 +42,8 @@ import java.util.Set;
 public class QueryOptimizer extends QueryOptimizationChecker {
     private static final Logger logger = LoggerFactory.getLogger(QueryOptimizer.class);
     private boolean repositoryFileModified;
-    private final static Set<String> modifiedFiles = new java.util.HashSet<>();
-    private final static Set<String> writtenFiles = new java.util.HashSet<>();
+    private static final Set<String> modifiedFiles = new java.util.HashSet<>();
+    private static final  Set<String> writtenFiles = new java.util.HashSet<>();
 
     // Profiling accumulators for writeFile breakdown
     private static long totalLppTime = 0;
