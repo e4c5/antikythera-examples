@@ -13,7 +13,6 @@ import com.github.javaparser.ast.expr.NormalAnnotationExpr;
 import com.github.javaparser.ast.expr.StringLiteralExpr;
 import com.github.javaparser.ast.expr.TextBlockLiteralExpr;
 import com.github.javaparser.ast.visitor.ModifierVisitor;
-import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.printer.lexicalpreservation.LexicalPreservingPrinter;
 import com.github.javaparser.ast.NodeList;
@@ -229,7 +228,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
 
             // If remaining fits in target width, append and finish
             if (remaining <= targetWidth) {
-                if (result.length() > 0) {
+                if (!result.isEmpty()) {
                     result.append("\n").append(indent);
                 }
                 result.append(query.substring(currentPos));
@@ -264,7 +263,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             }
 
             // Append the segment
-            if (result.length() > 0) {
+            if (!result.isEmpty()) {
                 result.append("\n").append(indent);
             }
             result.append(query.substring(currentPos, breakPoint));
@@ -581,14 +580,10 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         cu.accept(visitor, null);
         long acceptTime = System.currentTimeMillis() - acceptStart;
 
-        logger.info("  Timing breakdown for {}: getCompilationUnit={}ms, cu.accept={}ms",
-                className.substring(className.lastIndexOf('.') + 1), getCuTime, acceptTime);
         visitor.logDiagnostics();
 
-        if (visitor.modified) {
-            if (modifiedFiles.add(className)) {
-                OptimizationStatsLogger.updateDependentClassesChanged(1);
-            }
+        if (visitor.modified && modifiedFiles.add(className)) {
+            OptimizationStatsLogger.updateDependentClassesChanged(1);
         }
 
         return visitor.methodCallsUpdated;
@@ -657,6 +652,45 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         writer.print(content); // Use the content variable we already computed
         writer.close();
         return true;
+    }
+
+    /**
+     * Reorders method call arguments based on the optimization issue's column order
+     * changes.
+     * This ensures that when parameter order changes (e.g., findByEmailAndStatus ->
+     * findByStatusAndEmail),
+     * the method call arguments are also reordered to match.
+     */
+    static void reorderMethodArguments(MethodCallExpr mce, OptimizationIssue issue) {
+        MethodDeclaration oldMethod = issue.query().getMethodDeclaration().asMethodDeclaration();
+        MethodDeclaration newMethod = issue.optimizedQuery().getMethodDeclaration().asMethodDeclaration();
+        Map<Integer, Integer> map = new HashMap<>();
+        for (int i = 0; i < oldMethod.getParameters().size(); i++) {
+            for (int j = 0; j < newMethod.getParameters().size(); j++) {
+                if (oldMethod.getParameter(i).toString().equals(newMethod.getParameter(j).toString())) {
+                    map.put(j, i);
+                }
+            }
+        }
+
+        NodeList<Expression> args = mce.getArguments();
+        if (args.size() != newMethod.getParameters().size()) {
+            return;
+        }
+
+        NodeList<Expression> newArgs = new NodeList<>();
+        for (int i = 0; i < args.size(); i++) {
+            Integer oldIdx = map.get(i);
+            if (oldIdx != null && oldIdx < args.size()) {
+                newArgs.add(args.get(oldIdx));
+            } else {
+                // Fallback if mapping is missing or invalid
+                return;
+            }
+        }
+
+        mce.getArguments().clear();
+        mce.setArguments(newArgs);
     }
 
     static class NameChangeVisitor extends ModifierVisitor<QueryAnalysisResult> {
@@ -763,48 +797,10 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                        fae.getScope().isThisExpr();
             }
             return false;
-        }
 
-        /**
-         * Reorders method call arguments based on the optimization issue's column order
-         * changes.
-         * This ensures that when parameter order changes (e.g., findByEmailAndStatus ->
-         * findByStatusAndEmail),
-         * the method call arguments are also reordered to match.
-         * 
-         */
-        void reorderMethodArguments(MethodCallExpr mce, OptimizationIssue issue) {
-            MethodDeclaration oldMethod = issue.query().getMethodDeclaration().asMethodDeclaration();
-            MethodDeclaration newMethod = issue.optimizedQuery().getMethodDeclaration().asMethodDeclaration();
-            Map<Integer, Integer> map = new HashMap<>();
-            for (int i = 0; i < oldMethod.getParameters().size(); i++) {
-                for (int j = 0; j < newMethod.getParameters().size(); j++) {
-                    if (oldMethod.getParameter(i).toString().equals(newMethod.getParameter(j).toString())) {
-                        map.put(j, i);
-                    }
-                }
-            }
-
-            NodeList<Expression> args = mce.getArguments();
-            if (args.size() != newMethod.getParameters().size()) {
-                return;
-            }
-
-            NodeList<Expression> newArgs = new NodeList<>();
-            for (int i = 0; i < args.size(); i++) {
-                Integer oldIdx = map.get(i);
-                if (oldIdx != null && oldIdx < args.size()) {
-                    newArgs.add(args.get(oldIdx));
-                } else {
-                    // Fallback if mapping is missing or invalid
-                    return;
-                }
-            }
-
-            mce.getArguments().clear();
-            mce.setArguments(newArgs);
         }
     }
+
 
     /**
      * Batched visitor that handles multiple method renames in a single AST pass.
@@ -813,7 +809,6 @@ public class QueryOptimizer extends QueryOptimizationChecker {
     static class BatchedNameChangeVisitor extends ModifierVisitor<Void> {
         private static final Logger visitorLogger = LoggerFactory.getLogger(BatchedNameChangeVisitor.class);
         private final Set<String> fieldNames;
-        private final List<MethodRename> methodRenames;
         // Map from oldMethodName -> list of renames (to handle overloaded methods)
         private final Map<String, List<MethodRename>> renameMap;
         boolean modified;
@@ -824,7 +819,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
 
         BatchedNameChangeVisitor(Set<String> fieldNames, List<MethodRename> methodRenames) {
             this.fieldNames = fieldNames;
-            this.methodRenames = methodRenames;
+
             // Build a map for quick lookup by old method name
             // Use a list to handle overloaded methods with the same name but different arities
             this.renameMap = new HashMap<>();
@@ -971,42 +966,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             return false;
         }
 
-        /**
-         * Reorders method call arguments based on the optimization issue's parameter mapping.
-         * Called only after arity has been verified to match.
-         */
-        private void reorderMethodArguments(MethodCallExpr mce, OptimizationIssue issue) {
-            MethodDeclaration oldMethod = issue.query().getMethodDeclaration().asMethodDeclaration();
-            MethodDeclaration newMethod = issue.optimizedQuery().getMethodDeclaration().asMethodDeclaration();
 
-            Map<Integer, Integer> map = new HashMap<>();
-            for (int i = 0; i < oldMethod.getParameters().size(); i++) {
-                for (int j = 0; j < newMethod.getParameters().size(); j++) {
-                    if (oldMethod.getParameter(i).toString().equals(newMethod.getParameter(j).toString())) {
-                        map.put(j, i);
-                    }
-                }
-            }
-
-            NodeList<Expression> args = mce.getArguments();
-            // Arity already verified by caller, but double-check for safety
-            if (args.size() != newMethod.getParameters().size()) {
-                return;
-            }
-
-            NodeList<Expression> newArgs = new NodeList<>();
-            for (int i = 0; i < args.size(); i++) {
-                Integer oldIdx = map.get(i);
-                if (oldIdx != null && oldIdx < args.size()) {
-                    newArgs.add(args.get(oldIdx));
-                } else {
-                    return; // Fallback if mapping is missing or invalid
-                }
-            }
-
-            mce.getArguments().clear();
-            mce.setArguments(newArgs);
-        }
     }
 
     /**
