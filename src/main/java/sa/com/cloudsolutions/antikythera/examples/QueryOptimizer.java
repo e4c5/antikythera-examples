@@ -578,7 +578,6 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         BatchedNameChangeVisitor visitor = new BatchedNameChangeVisitor(fieldNames, methodRenames);
         long acceptStart = System.currentTimeMillis();
         cu.accept(visitor, null);
-        long acceptTime = System.currentTimeMillis() - acceptStart;
 
         visitor.logDiagnostics();
 

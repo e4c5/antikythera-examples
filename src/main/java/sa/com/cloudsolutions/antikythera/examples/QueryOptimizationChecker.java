@@ -1003,6 +1003,49 @@ public class QueryOptimizationChecker {
         Set<String> toRemove = new HashSet<>();
 
         // Check each multi-column index against all others
+        removeRedundantMultiColumnIndexes(toRemove);
+
+
+        // Also check single-column indexes against multi-column indexes
+        removeRedundantSingleColumnIndexes(toRemove);
+
+        // Remove the redundant indexes
+        suggestedMultiColumnIndexes.removeAll(toRemove);
+        suggestedNewIndexes.removeAll(toRemove);
+
+        // Update stats if we removed any
+        if (!toRemove.isEmpty()) {
+            OptimizationStatsLogger.updateIndexesGenerated(-toRemove.size());
+        }
+    }
+
+    private void removeRedundantSingleColumnIndexes(Set<String> toRemove) {
+        for (String singleKey : suggestedNewIndexes) {
+            String[] parts = singleKey.split("\\|", 2);
+            if (parts.length != 2) continue;
+            String table = parts[0];
+            String column = parts[1];
+
+            // Check if any multi-column index on the same table starts with this column
+            for (String mcKey : suggestedMultiColumnIndexes) {
+                String[] mcParts = mcKey.split("\\|", 2);
+                if (mcParts.length != 2) continue;
+                String mcTable = mcParts[0];
+                String[] mcColumns = mcParts[1].split(",");
+
+                if (table.equals(mcTable) && mcColumns.length > 0 && mcColumns[0].equalsIgnoreCase(column)) {
+                    toRemove.add(singleKey);
+                    if (!quietMode) {
+                        logger.info("Final cleanup: Removing redundant single-column index {} - covered by multi-column index {}",
+                                singleKey, mcKey);
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    private void removeRedundantMultiColumnIndexes(Set<String> toRemove) {
         for (String key1 : suggestedMultiColumnIndexes) {
             String[] parts1 = key1.split("\\|", 2);
             if (parts1.length != 2) continue;
@@ -1029,40 +1072,6 @@ public class QueryOptimizationChecker {
                     break;
                 }
             }
-        }
-
-        // Also check single-column indexes against multi-column indexes
-        for (String singleKey : suggestedNewIndexes) {
-            String[] parts = singleKey.split("\\|", 2);
-            if (parts.length != 2) continue;
-            String table = parts[0];
-            String column = parts[1];
-
-            // Check if any multi-column index on the same table starts with this column
-            for (String mcKey : suggestedMultiColumnIndexes) {
-                String[] mcParts = mcKey.split("\\|", 2);
-                if (mcParts.length != 2) continue;
-                String mcTable = mcParts[0];
-                String[] mcColumns = mcParts[1].split(",");
-
-                if (table.equals(mcTable) && mcColumns.length > 0 && mcColumns[0].equalsIgnoreCase(column)) {
-                    toRemove.add(singleKey);
-                    if (!quietMode) {
-                        logger.info("Final cleanup: Removing redundant single-column index {} - covered by multi-column index {}",
-                                singleKey, mcKey);
-                    }
-                    break;
-                }
-            }
-        }
-
-        // Remove the redundant indexes
-        suggestedMultiColumnIndexes.removeAll(toRemove);
-        suggestedNewIndexes.removeAll(toRemove);
-
-        // Update stats if we removed any
-        if (!toRemove.isEmpty()) {
-            OptimizationStatsLogger.updateIndexesGenerated(-toRemove.size());
         }
     }
 
