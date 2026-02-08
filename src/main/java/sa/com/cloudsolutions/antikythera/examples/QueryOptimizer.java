@@ -678,72 +678,42 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         // Use method names as cache key - they're unique enough and much faster than getSignature()
         String cacheKey = oldMethod.getNameAsString() + "->" + newMethod.getNameAsString();
         Map<Integer, Integer> map = parameterMappingCache.computeIfAbsent(cacheKey, k -> {
-            long mappingStart = System.nanoTime();
             Map<Integer, Integer> newMap = new HashMap<>();
             // Build parameter mapping: newIndex -> oldIndex
-            // OPTIMIZATION: Use name+type instead of toString() which is expensive
-            // toString() renders the entire AST subtree, while we only need name and type
-            
-            long totalGetTypeTime = 0;
-            int typeCallCount = 0;
-            
             for (int i = 0; i < oldMethod.getParameters().size(); i++) {
-                long beforeGetType = System.nanoTime();
-                String oldParamType = oldMethod.getParameter(i).getType().asString();
-                totalGetTypeTime += (System.nanoTime() - beforeGetType);
-                typeCallCount++;
-                
-                String oldParam = oldMethod.getParameter(i).getNameAsString() + ":" + oldParamType;
+                String oldParam = oldMethod.getParameter(i).getNameAsString() + ":" + 
+                                oldMethod.getParameter(i).getType().asString();
                 
                 for (int j = 0; j < newMethod.getParameters().size(); j++) {
-                    beforeGetType = System.nanoTime();
-                    String newParamType = newMethod.getParameter(j).getType().asString();
-                    totalGetTypeTime += (System.nanoTime() - beforeGetType);
-                    typeCallCount++;
-                    
-                    String newParam = newMethod.getParameter(j).getNameAsString() + ":" + newParamType;
+                    String newParam = newMethod.getParameter(j).getNameAsString() + ":" +
+                                    newMethod.getParameter(j).getType().asString();
                     
                     if (oldParam.equals(newParam)) {
                         newMap.put(j, i);
-                        break;  // Found match, move to next old parameter
+                        break;
                     }
                 }
             }
-            
-            long mappingTime = (System.nanoTime() - mappingStart) / 1_000_000;
-            long avgGetTypeTime = totalGetTypeTime / typeCallCount / 1_000_000;
-            
-            if (mappingTime > 100) {
-                logger.info("        Parameter mapping took {}ms ({} getType() calls, avg {}ms each)",
-                        mappingTime, typeCallCount, avgGetTypeTime);
-            }
-            
             return newMap;
         });
 
 
-        // CRITICAL OPTIMIZATION: Reorder arguments in-place instead of creating new NodeList
-        // Creating a new NodeList and adding Expression nodes one by one is EXTREMELY slow
-        // because it may trigger AST cloning or parent updates for each add operation
-        
-        // First, extract all arguments into an array (fast)
+        // Reorder arguments in-place using array to avoid expensive NodeList operations
         Expression[] argsArray = new Expression[args.size()];
         for (int i = 0; i < args.size(); i++) {
             argsArray[i] = args.get(i);
         }
         
-        // Clear the arguments list once
         args.clear();
         
-        // Add back in the new order using the mapping
         for (int i = 0; i < argsArray.length; i++) {
             Integer oldIdx = map.get(i);
             if (oldIdx != null && oldIdx < argsArray.length) {
                 args.add(argsArray[oldIdx]);
             } else {
-                // Fallback if mapping is missing or invalid - restore original order
+                // Fallback if mapping is missing or invalid
                 for (int j = 0; j < argsArray.length; j++) {
-                    if (j < args.size()) continue;  // Skip already added
+                    if (j < args.size()) continue;
                     args.add(argsArray[j]);
                 }
                 return;
@@ -923,8 +893,6 @@ public class QueryOptimizer extends QueryOptimizationChecker {
          * Called from processCompilationUnit() for each MethodCallExpr found via findAll().
          */
         void processMethodCall(MethodCallExpr mce) {
-            long startTime = System.nanoTime();
-            
             // Early scope check
             Optional<Expression> scope = mce.getScope();
             if (scope.isEmpty()) {
@@ -943,38 +911,21 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                 return;
             }
 
-            long beforeRename = System.nanoTime();
-            
             // Process the rename
             List<MethodRename> candidates = renameMap.get(currentMethodName);
             int callArity = mce.getArguments().size();
             MethodRename matchingRename = findMatchingRenameByArity(candidates, callArity);
 
             if (matchingRename != null) {
-                // Verify arity matches BEFORE renaming to avoid creating broken code
+                // Verify arity matches BEFORE renaming
                 MethodDeclaration newMethod = matchingRename.issue().optimizedQuery()
                         .getMethodDeclaration().asMethodDeclaration();
 
                 if (callArity == newMethod.getParameters().size()) {
-                    long beforeSetName = System.nanoTime();
                     mce.setName(matchingRename.newMethodName());
-                    long afterSetName = System.nanoTime();
-                    
-                    long beforeReorder = System.nanoTime();
                     reorderMethodArguments(mce, matchingRename.issue());
-                    long afterReorder = System.nanoTime();
-                    
                     modified = true;
                     methodCallsUpdated++;
-                    
-                    long totalTime = (afterReorder - startTime) / 1_000_000;
-                    long setNameTime = (afterSetName - beforeSetName) / 1_000_000;
-                    long reorderTime = (afterReorder - beforeReorder) / 1_000_000;
-                    
-                    if (totalTime > 10) {  // Log if takes more than 10ms
-                        visitorLogger.info("      SLOW method call update: {}ms total (setName: {}ms, reorder: {}ms) for {}",
-                                totalTime, setNameTime, reorderTime, currentMethodName);
-                    }
                 }
             }
         }
