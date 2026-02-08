@@ -102,14 +102,7 @@ public class QueryOptimizationChecker {
      */
     public int analyze() throws IOException, ReflectiveOperationException, InterruptedException {
         // Load checkpoint for resume capability
-        boolean resumed = checkpointManager.load();
-        if (resumed) {
-            // Restore accumulated state from checkpoint
-            suggestedNewIndexes.addAll(checkpointManager.getSuggestedNewIndexes());
-            suggestedMultiColumnIndexes.addAll(checkpointManager.getSuggestedMultiColumnIndexes());
-            System.out.printf("🔄 Resuming from checkpoint: %d repositories already processed%n",
-                    checkpointManager.getProcessedCount());
-        }
+        checkResumptionState();
 
         Map<String, TypeWrapper> resolvedTypes = AntikytheraRunTime.getResolvedTypes();
         int totalRepositories = 0;
@@ -180,6 +173,17 @@ public class QueryOptimizationChecker {
         checkpointManager.clear();
 
         return repositoriesProcessed;
+    }
+
+    private void checkResumptionState() {
+        boolean resumed = checkpointManager.load();
+        if (resumed) {
+            // Restore accumulated state from checkpoint
+            suggestedNewIndexes.addAll(checkpointManager.getSuggestedNewIndexes());
+            suggestedMultiColumnIndexes.addAll(checkpointManager.getSuggestedMultiColumnIndexes());
+            System.out.printf("🔄 Resuming from checkpoint: %d repositories already processed%n",
+                    checkpointManager.getProcessedCount());
+        }
     }
 
     /**
@@ -806,77 +810,90 @@ public class QueryOptimizationChecker {
             // Filter out ALL low-cardinality columns from the index
             // Low cardinality columns should never be included in indexes as they provide
             // minimal selectivity benefit and can actually hurt performance
-            List<String> filteredColumns = new ArrayList<>();
-            for (String column : columnsForTable) {
-                CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(table, column);
-                if (cardinality == CardinalityLevel.LOW) {
-                    // Skip low cardinality column - don't include it in the index
-                    if (!quietMode) {
-                        logger.info("Excluding low-cardinality column '{}' from index on table '{}'.", column, table);
-                    }
-                    continue; // Skip this column but continue processing remaining columns
-                }
-                filteredColumns.add(column);
-            }
+            List<String> filteredColumns = getFilteredColumns(columnsForTable, table);
 
             if (filteredColumns.size() > 1) {
-                // Limit to maxIndexColumns (default 4)
-                if (filteredColumns.size() > maxIndexColumns) {
-                    if (!quietMode) {
-                        logger.info("Limiting multi-column index on table {} from {} columns to {} columns (max_index_columns config)",
-                                table, filteredColumns.size(), maxIndexColumns);
-                    }
-                    filteredColumns = filteredColumns.subList(0, maxIndexColumns);
-                }
-
-                // Check if an existing DATABASE index already covers these columns
-                if (CardinalityAnalyzer.hasIndexCoveringColumns(table, filteredColumns)) {
-                    if (!quietMode) {
-                        logger.info("Skipping index on table {} for columns {} - already covered by existing index",
-                                table, filteredColumns);
-                    }
-                    continue;
-                }
-
-                // Create the key for this proposed index
-                String key = (table + "|" + String.join(",", filteredColumns)).toLowerCase();
-
-                // Check if this proposed index is already covered by another PROPOSED index
-                if (isIndexCoveredByProposedIndex(table.toLowerCase(), filteredColumns)) {
-                    if (!quietMode) {
-                        logger.info("Skipping index {} - already covered by a larger proposed index", key);
-                    }
-                    continue;
-                }
-
-                // Before adding, remove any smaller proposed indexes that this new index covers
-                removeProposedIndexesCoveredBy(table.toLowerCase(), filteredColumns);
-
-                // Create multi-column index for this specific table
-                if (suggestedMultiColumnIndexes.add(key)) {
-                    OptimizationStatsLogger.updateIndexesGenerated(1);
-                }
+                generateRequiredCompositeIndex(filteredColumns, table);
             } else if (filteredColumns.size() == 1) {
-                // Only one column needs indexing - create single-column index
-                String column = filteredColumns.get(0);
-                boolean hasExisting = CardinalityAnalyzer.hasIndexWithLeadingColumn(table, column);
-                if (!hasExisting) {
-                    String key = (table + "|" + column).toLowerCase();
-
-                    // Check if this single-column is already covered by a proposed multi-column index
-                    if (isSingleColumnCoveredByProposed(table.toLowerCase(), column.toLowerCase())) {
-                        if (!quietMode) {
-                            logger.info("Skipping single-column index {} - already covered by a proposed multi-column index", key);
-                        }
-                        continue;
-                    }
-
-                    if (suggestedNewIndexes.add(key)) {
-                        OptimizationStatsLogger.updateIndexesGenerated(1);
-                    }
-                }
+                generateRequiredSingleColumnIndex(filteredColumns, table);
             }
         }
+    }
+
+    private void generateRequiredSingleColumnIndex(List<String> filteredColumns, String table) {
+        // Only one column needs indexing - create single-column index
+        String column = filteredColumns.get(0);
+        boolean hasExisting = CardinalityAnalyzer.hasIndexWithLeadingColumn(table, column);
+        if (!hasExisting) {
+            String key = (table + "|" + column).toLowerCase();
+
+            // Check if this single-column is already covered by a proposed multi-column index
+            if (isSingleColumnCoveredByProposed(table.toLowerCase(), column.toLowerCase())) {
+                if (!quietMode) {
+                    logger.info("Skipping single-column index {} - already covered by a proposed multi-column index", key);
+                }
+                return;
+            }
+
+            if (suggestedNewIndexes.add(key)) {
+                OptimizationStatsLogger.updateIndexesGenerated(1);
+            }
+        }
+    }
+
+    private void generateRequiredCompositeIndex(List<String> filteredColumns, String table) {
+        // Limit to maxIndexColumns (default 4)
+        if (filteredColumns.size() > maxIndexColumns) {
+            if (!quietMode) {
+                logger.info("Limiting multi-column index on table {} from {} columns to {} columns (max_index_columns config)",
+                        table, filteredColumns.size(), maxIndexColumns);
+            }
+            filteredColumns = filteredColumns.subList(0, maxIndexColumns);
+        }
+
+        // Check if an existing DATABASE index already covers these columns
+        if (CardinalityAnalyzer.hasIndexCoveringColumns(table, filteredColumns)) {
+            if (!quietMode) {
+                logger.info("Skipping index on table {} for columns {} - already covered by existing index",
+                        table, filteredColumns);
+            }
+            return;
+        }
+
+        // Create the key for this proposed index
+        String key = (table + "|" + String.join(",", filteredColumns)).toLowerCase();
+
+        // Check if this proposed index is already covered by another PROPOSED index
+        if (isIndexCoveredByProposedIndex(table.toLowerCase(), filteredColumns)) {
+            if (!quietMode) {
+                logger.info("Skipping index {} - already covered by a larger proposed index", key);
+            }
+            return;
+        }
+
+        // Before adding, remove any smaller proposed indexes that this new index covers
+        removeProposedIndexesCoveredBy(table.toLowerCase(), filteredColumns);
+
+        // Create multi-column index for this specific table
+        if (suggestedMultiColumnIndexes.add(key)) {
+            OptimizationStatsLogger.updateIndexesGenerated(1);
+        }
+    }
+
+    private static List<String> getFilteredColumns(List<String> columnsForTable, String table) {
+        List<String> filteredColumns = new ArrayList<>();
+        for (String column : columnsForTable) {
+            CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(table, column);
+            if (cardinality == CardinalityLevel.LOW) {
+                // Skip low cardinality column - don't include it in the index
+                if (!quietMode) {
+                    logger.info("Excluding low-cardinality column '{}' from index on table '{}'.", column, table);
+                }
+                continue; // Skip this column but continue processing remaining columns
+            }
+            filteredColumns.add(column);
+        }
+        return filteredColumns;
     }
 
     /**
