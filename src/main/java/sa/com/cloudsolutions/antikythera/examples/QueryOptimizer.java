@@ -572,19 +572,19 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         long getCuStart = System.currentTimeMillis();
         CompilationUnit cu = AntikytheraRunTime.getCompilationUnit(className);
         long getCuTime = System.currentTimeMillis() - getCuStart;
-        logger.info("    Got CompilationUnit in {}ms, starting visitor...", getCuTime);
+        logger.info("    Got CompilationUnit in {}ms, starting processing...", getCuTime);
 
-        // Create a batched visitor that handles all renames and all field names
-        BatchedNameChangeVisitor visitor = new BatchedNameChangeVisitor(fieldNames, methodRenames);
-        cu.accept(visitor, null);
+        // Use direct processing instead of visitor pattern for better performance
+        BatchedNameChangeProcessor processor = new BatchedNameChangeProcessor(fieldNames, methodRenames);
+        int methodCallsUpdated = processor.processCompilationUnit(cu);
 
-        visitor.logDiagnostics();
+        processor.logDiagnostics();
 
-        if (visitor.modified && modifiedFiles.add(className)) {
+        if (processor.modified && modifiedFiles.add(className)) {
             OptimizationStatsLogger.updateDependentClassesChanged(1);
         }
 
-        return visitor.methodCallsUpdated;
+        return methodCallsUpdated;
     }
 
     /**
@@ -652,6 +652,10 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         return true;
     }
 
+    // Cache for parameter mappings to avoid recomputing for every method call
+    // Key: hash of old+new method signatures, Value: parameter mapping
+    private static final Map<String, Map<Integer, Integer>> parameterMappingCache = new HashMap<>();
+    
     /**
      * Reorders method call arguments based on the optimization issue's column order
      * changes.
@@ -662,33 +666,89 @@ public class QueryOptimizer extends QueryOptimizationChecker {
     static void reorderMethodArguments(MethodCallExpr mce, OptimizationIssue issue) {
         MethodDeclaration oldMethod = issue.query().getMethodDeclaration().asMethodDeclaration();
         MethodDeclaration newMethod = issue.optimizedQuery().getMethodDeclaration().asMethodDeclaration();
-        Map<Integer, Integer> map = new HashMap<>();
-        for (int i = 0; i < oldMethod.getParameters().size(); i++) {
-            for (int j = 0; j < newMethod.getParameters().size(); j++) {
-                if (oldMethod.getParameter(i).toString().equals(newMethod.getParameter(j).toString())) {
-                    map.put(j, i);
-                }
-            }
-        }
-
+        
         NodeList<Expression> args = mce.getArguments();
         if (args.size() != newMethod.getParameters().size()) {
             return;
         }
+        
+        // CRITICAL OPTIMIZATION: Cache the parameter mapping
+        // This method is called for EVERY matching method call, but the mapping is the same
+        // For 10 calls to the same method, we were rebuilding the mapping 10 times!
+        // Use method names as cache key - they're unique enough and much faster than getSignature()
+        String cacheKey = oldMethod.getNameAsString() + "->" + newMethod.getNameAsString();
+        Map<Integer, Integer> map = parameterMappingCache.computeIfAbsent(cacheKey, k -> {
+            long mappingStart = System.nanoTime();
+            Map<Integer, Integer> newMap = new HashMap<>();
+            // Build parameter mapping: newIndex -> oldIndex
+            // OPTIMIZATION: Use name+type instead of toString() which is expensive
+            // toString() renders the entire AST subtree, while we only need name and type
+            
+            long totalGetTypeTime = 0;
+            int typeCallCount = 0;
+            
+            for (int i = 0; i < oldMethod.getParameters().size(); i++) {
+                long beforeGetType = System.nanoTime();
+                String oldParamType = oldMethod.getParameter(i).getType().asString();
+                totalGetTypeTime += (System.nanoTime() - beforeGetType);
+                typeCallCount++;
+                
+                String oldParam = oldMethod.getParameter(i).getNameAsString() + ":" + oldParamType;
+                
+                for (int j = 0; j < newMethod.getParameters().size(); j++) {
+                    beforeGetType = System.nanoTime();
+                    String newParamType = newMethod.getParameter(j).getType().asString();
+                    totalGetTypeTime += (System.nanoTime() - beforeGetType);
+                    typeCallCount++;
+                    
+                    String newParam = newMethod.getParameter(j).getNameAsString() + ":" + newParamType;
+                    
+                    if (oldParam.equals(newParam)) {
+                        newMap.put(j, i);
+                        break;  // Found match, move to next old parameter
+                    }
+                }
+            }
+            
+            long mappingTime = (System.nanoTime() - mappingStart) / 1_000_000;
+            long avgGetTypeTime = totalGetTypeTime / typeCallCount / 1_000_000;
+            
+            if (mappingTime > 100) {
+                logger.info("        Parameter mapping took {}ms ({} getType() calls, avg {}ms each)",
+                        mappingTime, typeCallCount, avgGetTypeTime);
+            }
+            
+            return newMap;
+        });
 
-        NodeList<Expression> newArgs = new NodeList<>();
+
+        // CRITICAL OPTIMIZATION: Reorder arguments in-place instead of creating new NodeList
+        // Creating a new NodeList and adding Expression nodes one by one is EXTREMELY slow
+        // because it may trigger AST cloning or parent updates for each add operation
+        
+        // First, extract all arguments into an array (fast)
+        Expression[] argsArray = new Expression[args.size()];
         for (int i = 0; i < args.size(); i++) {
+            argsArray[i] = args.get(i);
+        }
+        
+        // Clear the arguments list once
+        args.clear();
+        
+        // Add back in the new order using the mapping
+        for (int i = 0; i < argsArray.length; i++) {
             Integer oldIdx = map.get(i);
-            if (oldIdx != null && oldIdx < args.size()) {
-                newArgs.add(args.get(oldIdx));
+            if (oldIdx != null && oldIdx < argsArray.length) {
+                args.add(argsArray[oldIdx]);
             } else {
-                // Fallback if mapping is missing or invalid
+                // Fallback if mapping is missing or invalid - restore original order
+                for (int j = 0; j < argsArray.length; j++) {
+                    if (j < args.size()) continue;  // Skip already added
+                    args.add(argsArray[j]);
+                }
                 return;
             }
         }
-
-        mce.getArguments().clear();
-        mce.setArguments(newArgs);
     }
 
     static class NameChangeVisitor extends ModifierVisitor<QueryAnalysisResult> {
@@ -795,11 +855,12 @@ public class QueryOptimizer extends QueryOptimizationChecker {
 
 
     /**
-     * Batched visitor that handles multiple method renames in a single AST pass.
-     * This is much more efficient than visiting the AST multiple times for each rename.
+     * Batched processor that handles multiple method renames efficiently.
+     * Uses findAll() to pre-filter relevant nodes instead of visiting the entire AST tree.
+     * This is much more efficient than the ModifierVisitor pattern for large files.
      */
-    static class BatchedNameChangeVisitor extends ModifierVisitor<Void> {
-        private static final Logger visitorLogger = LoggerFactory.getLogger(BatchedNameChangeVisitor.class);
+    static class BatchedNameChangeProcessor {
+        private static final Logger visitorLogger = LoggerFactory.getLogger(BatchedNameChangeProcessor.class);
         private final Set<String> fieldNames;
         // Map from oldMethodName -> list of renames (to handle overloaded methods)
         private final Map<String, List<MethodRename>> renameMap;
@@ -809,7 +870,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         int totalVisits = 0;
         long totalVisitTime = 0;
 
-        BatchedNameChangeVisitor(Set<String> fieldNames, List<MethodRename> methodRenames) {
+        BatchedNameChangeProcessor(Set<String> fieldNames, List<MethodRename> methodRenames) {
             this.fieldNames = fieldNames;
 
             // Build a map for quick lookup by old method name
@@ -820,111 +881,141 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             }
         }
 
+        /**
+         * Process a compilation unit by finding and modifying relevant method calls.
+         * Uses findAll() for efficient filtering instead of visiting all nodes.
+         */
+        int processCompilationUnit(CompilationUnit cu) {
+            long startTime = System.currentTimeMillis();
+
+            // OPTIMIZATION: Use findAll() to get only MethodCallExpr nodes
+            // This is much faster than visiting all nodes in the AST
+            List<MethodCallExpr> allMethodCalls = cu.findAll(MethodCallExpr.class);
+            logger.info("    Found {} total method calls, filtering...", allMethodCalls.size());
+
+            long filterStart = System.currentTimeMillis();
+            for (MethodCallExpr mce : allMethodCalls) {
+                totalVisits++;
+                processMethodCall(mce);
+            }
+            long filterTime = System.currentTimeMillis() - filterStart;
+
+            // Process method references
+            List<MethodReferenceExpr> allMethodRefs = cu.findAll(MethodReferenceExpr.class);
+            for (MethodReferenceExpr mre : allMethodRefs) {
+                processMethodReference(mre);
+            }
+
+            totalVisitTime = System.currentTimeMillis() - startTime;
+            logger.info("    Processed {} method calls in {}ms (filter: {}ms)",
+                    allMethodCalls.size(), totalVisitTime, filterTime);
+
+            return methodCallsUpdated;
+        }
+
         void logDiagnostics() {
             visitorLogger.info("  Visitor diagnostics: {} MethodCallExpr visits, total time {}ms, avg {}μs/visit",
                     totalVisits, totalVisitTime, totalVisits > 0 ? (totalVisitTime * 1000 / totalVisits) : 0);
         }
 
-        @Override
-        public MethodCallExpr visit(MethodCallExpr mce, Void arg) {
-            long visitStart = System.currentTimeMillis();
-            totalVisits++;
-            super.visit(mce, arg);
+        /**
+         * Process a single method call expression.
+         * Called from processCompilationUnit() for each MethodCallExpr found via findAll().
+         */
+        void processMethodCall(MethodCallExpr mce) {
+            long startTime = System.nanoTime();
+            
+            // Early scope check
             Optional<Expression> scope = mce.getScope();
-
             if (scope.isEmpty()) {
-                totalVisitTime += System.currentTimeMillis() - visitStart;
-                return mce;
+                return;
             }
 
-            // Check if this is a call on one of our repository fields
-            String matchedFieldName = null;
-            for (String fieldName : fieldNames) {
-                if (isFieldMatch(scope.get(), fieldName)) {
-                    matchedFieldName = fieldName;
-                    break;
-                }
-                // Also check Mockito verify pattern
-                if (scope.get() instanceof MethodCallExpr verifyCall &&
-                        "verify".equals(verifyCall.getNameAsString()) && !verifyCall.getArguments().isEmpty()) {
-                    if (isFieldMatch(verifyCall.getArgument(0), fieldName)) {
-                        matchedFieldName = fieldName;
-                        break;
-                    }
-                }
+            // Extract field name with O(1) lookup
+            String matchedFieldName = extractFieldName(scope.get());
+            if (matchedFieldName == null || !fieldNames.contains(matchedFieldName)) {
+                return;
             }
 
-            if (matchedFieldName == null) {
-                totalVisitTime += System.currentTimeMillis() - visitStart;
-                return mce;
-            }
-
-            // Check if this method call matches any of our renames
+            // Early method name check
             String currentMethodName = mce.getNameAsString();
-            List<MethodRename> candidates = renameMap.get(currentMethodName);
-
-            if (candidates != null) {
-                // Find the matching rename by arity (number of arguments)
-                int callArity = mce.getArguments().size();
-                MethodRename matchingRename = findMatchingRenameByArity(candidates, callArity);
-
-                if (matchingRename != null) {
-                    // Verify arity matches BEFORE renaming to avoid creating broken code
-                    MethodDeclaration newMethod = matchingRename.issue().optimizedQuery()
-                            .getMethodDeclaration().asMethodDeclaration();
-
-                    if (callArity == newMethod.getParameters().size()) {
-                        mce.setName(matchingRename.newMethodName());
-                        reorderMethodArguments(mce, matchingRename.issue());
-                        modified = true;
-                        methodCallsUpdated++;
-                    }
-                    // If arity doesn't match, skip this call - don't rename it
-                }
+            if (!renameMap.containsKey(currentMethodName)) {
+                return;
             }
 
-            totalVisitTime += System.currentTimeMillis() - visitStart;
-            return mce;
+            long beforeRename = System.nanoTime();
+            
+            // Process the rename
+            List<MethodRename> candidates = renameMap.get(currentMethodName);
+            int callArity = mce.getArguments().size();
+            MethodRename matchingRename = findMatchingRenameByArity(candidates, callArity);
+
+            if (matchingRename != null) {
+                // Verify arity matches BEFORE renaming to avoid creating broken code
+                MethodDeclaration newMethod = matchingRename.issue().optimizedQuery()
+                        .getMethodDeclaration().asMethodDeclaration();
+
+                if (callArity == newMethod.getParameters().size()) {
+                    long beforeSetName = System.nanoTime();
+                    mce.setName(matchingRename.newMethodName());
+                    long afterSetName = System.nanoTime();
+                    
+                    long beforeReorder = System.nanoTime();
+                    reorderMethodArguments(mce, matchingRename.issue());
+                    long afterReorder = System.nanoTime();
+                    
+                    modified = true;
+                    methodCallsUpdated++;
+                    
+                    long totalTime = (afterReorder - startTime) / 1_000_000;
+                    long setNameTime = (afterSetName - beforeSetName) / 1_000_000;
+                    long reorderTime = (afterReorder - beforeReorder) / 1_000_000;
+                    
+                    if (totalTime > 10) {  // Log if takes more than 10ms
+                        visitorLogger.info("      SLOW method call update: {}ms total (setName: {}ms, reorder: {}ms) for {}",
+                                totalTime, setNameTime, reorderTime, currentMethodName);
+                    }
+                }
+            }
         }
 
-        @Override
-        public MethodReferenceExpr visit(MethodReferenceExpr mre, Void arg) {
-            super.visit(mre, arg);
+        /**
+         * Process a single method reference expression.
+         * Called from processCompilationUnit() for each MethodReferenceExpr found via findAll().
+         */
+        private void processMethodReference(MethodReferenceExpr mre) {
             Expression scope = mre.getScope();
 
-            // Check if this is a reference on one of our repository fields
-            String matchedFieldName = null;
-            for (String fieldName : fieldNames) {
-                if (isFieldMatch(scope, fieldName)) {
-                    matchedFieldName = fieldName;
-                    break;
-                }
-                // Also check type expression (static method reference style)
-                if (scope.isTypeExpr() && scope.asTypeExpr().getType().asString().equals(fieldName)) {
-                    matchedFieldName = fieldName;
-                    break;
+            // Extract and check field name
+            String matchedFieldName = extractFieldName(scope);
+            // Also check type expression (static method reference style)
+            if (matchedFieldName == null && scope.isTypeExpr()) {
+                String typeName = scope.asTypeExpr().getType().asString();
+                if (fieldNames.contains(typeName)) {
+                    matchedFieldName = typeName;
                 }
             }
 
             if (matchedFieldName == null) {
-                return mre;
+                return;
             }
 
-            // Check if this method reference matches any of our renames
+            // Check method name
+            String currentMethodName = mre.getIdentifier();
+            if (!renameMap.containsKey(currentMethodName)) {
+                return;
+            }
+
+            // Process the rename
             // For method references, we can't determine arity at the call site,
             // so only rename if there's exactly one candidate (no overloads)
-            String currentMethodName = mre.getIdentifier();
             List<MethodRename> candidates = renameMap.get(currentMethodName);
-
             if (candidates != null && candidates.size() == 1) {
                 // Safe to rename - only one candidate, no ambiguity
                 mre.setIdentifier(candidates.get(0).newMethodName());
                 modified = true;
                 methodCallsUpdated++;
             }
-            // If multiple candidates (overloaded methods), skip - can't determine which one
-
-            return mre;
         }
 
         /**
@@ -947,18 +1038,38 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             return match;
         }
 
-        private boolean isFieldMatch(Expression expr, String fieldName) {
+        /**
+         * Extracts the field name from a scope expression.
+         * Handles: NameExpr, FieldAccessExpr (this.field), and Mockito verify pattern.
+         * Returns null if the expression doesn't match any known pattern.
+         */
+        private String extractFieldName(Expression expr) {
+            // Direct field reference: fieldName.method()
             if (expr instanceof NameExpr ne) {
-                return ne.getNameAsString().equals(fieldName);
+                return ne.getNameAsString();
             }
-            if (expr instanceof FieldAccessExpr fae) {
-                return fae.getNameAsString().equals(fieldName) &&
-                        fae.getScope().isThisExpr();
+
+            // This-qualified reference: this.fieldName.method()
+            if (expr instanceof FieldAccessExpr fae && fae.getScope().isThisExpr()) {
+                return fae.getNameAsString();
             }
-            return false;
+
+            // Mockito verify pattern: verify(fieldName).method()
+            if (expr instanceof MethodCallExpr verifyCall &&
+                    "verify".equals(verifyCall.getNameAsString()) &&
+                    !verifyCall.getArguments().isEmpty()) {
+                Expression arg = verifyCall.getArgument(0);
+                // Recursively extract from the verify argument
+                if (arg instanceof NameExpr ne) {
+                    return ne.getNameAsString();
+                }
+                if (arg instanceof FieldAccessExpr fae && fae.getScope().isThisExpr()) {
+                    return fae.getNameAsString();
+                }
+            }
+
+            return null;
         }
-
-
     }
 
     /**

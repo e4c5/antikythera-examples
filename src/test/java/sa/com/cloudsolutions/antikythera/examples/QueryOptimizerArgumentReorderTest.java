@@ -110,8 +110,8 @@ class QueryOptimizerArgumentReorderTest {
         call.addArgument(new NameExpr("\"valX\""));
         call.addArgument(new NameExpr("\"valY\""));
 
-        QueryOptimizer.BatchedNameChangeVisitor visitor = new QueryOptimizer.BatchedNameChangeVisitor(fields, renames);
-        visitor.visit(call, null);
+        QueryOptimizer.BatchedNameChangeProcessor processor = new QueryOptimizer.BatchedNameChangeProcessor(fields, renames);
+        processor.processMethodCall(call);
 
         // Verify: repo.findByYAndX("valY", "valX")
         assertEquals("findByYAndX", call.getNameAsString());
