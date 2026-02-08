@@ -42,8 +42,8 @@ import java.util.Set;
 public class QueryOptimizer extends QueryOptimizationChecker {
     private static final Logger logger = LoggerFactory.getLogger(QueryOptimizer.class);
     private boolean repositoryFileModified;
-    private static Set<String> modifiedFiles = new java.util.HashSet<>();
-    private static Set<String> writtenFiles = new java.util.HashSet<>();
+    private final static Set<String> modifiedFiles = new java.util.HashSet<>();
+    private final static Set<String> writtenFiles = new java.util.HashSet<>();
 
     // Profiling accumulators for writeFile breakdown
     private static long totalLppTime = 0;
@@ -576,7 +576,6 @@ public class QueryOptimizer extends QueryOptimizationChecker {
 
         // Create a batched visitor that handles all renames and all field names
         BatchedNameChangeVisitor visitor = new BatchedNameChangeVisitor(fieldNames, methodRenames);
-        long acceptStart = System.currentTimeMillis();
         cu.accept(visitor, null);
 
         visitor.logDiagnostics();
@@ -711,14 +710,8 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             if (issue == null || issue.optimizedQuery() == null) {
                 return mce;
             }
-
-            boolean isMatchingCall = false;
-
             // Case 1: Regular method call - fieldName.methodName(...) or
-            // this.fieldName.methodName(...)
-            if (scope.isPresent() && isFieldMatch(scope.get())) {
-                isMatchingCall = true;
-            }
+            boolean isMatchingCall = scope.isPresent() && isFieldMatch(scope.get());
 
             // Case 2: Mockito verify call - verify(fieldName).methodName(...)
             if (scope.isPresent() && scope.get() instanceof MethodCallExpr verifyCall &&
