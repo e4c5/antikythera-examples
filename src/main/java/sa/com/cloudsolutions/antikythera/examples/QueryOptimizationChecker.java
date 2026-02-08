@@ -1036,7 +1036,7 @@ public class QueryOptimizationChecker {
         }
     }
 
-    private void removeRedundantSingleColumnIndexes(Set<String> toRemove) {
+    void removeRedundantSingleColumnIndexes(Set<String> toRemove) {
         for (String singleKey : suggestedNewIndexes) {
             String[] parts = singleKey.split("\\|", 2);
             if (parts.length != 2) continue;
@@ -1062,7 +1062,7 @@ public class QueryOptimizationChecker {
         }
     }
 
-    private void removeRedundantMultiColumnIndexes(Set<String> toRemove) {
+    void removeRedundantMultiColumnIndexes(Set<String> toRemove) {
         for (String key1 : suggestedMultiColumnIndexes) {
             String[] parts1 = key1.split("\\|", 2);
             if (parts1.length != 2) continue;
