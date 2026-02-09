@@ -675,10 +675,6 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         return true;
     }
 
-    // Cache for parameter mappings to avoid recomputing for every method call
-    // Key: hash of old+new method signatures, Value: parameter mapping
-    private static final Map<String, Map<Integer, Integer>> parameterMappingCache = new HashMap<>();
-    
     /**
      * Reorders method call arguments based on the optimization issue's column order
      * changes.
@@ -695,32 +691,33 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             return;
         }
         
-        // CRITICAL OPTIMIZATION: Cache the parameter mapping
-        // This method is called for EVERY matching method call, but the mapping is the same
-        // For 10 calls to the same method, we were rebuilding the mapping 10 times!
-        // Use repository FQN and full signatures as cache key to avoid collisions
-        String repositoryFqn = issue.query().getRepositoryClassName();
-        String cacheKey = repositoryFqn + ":" + oldMethod.getSignature().asString() + "->" + newMethod.getSignature().asString();
-        Map<Integer, Integer> map = parameterMappingCache.computeIfAbsent(cacheKey, k -> {
-            Map<Integer, Integer> newMap = new HashMap<>();
-            // Build parameter mapping: newIndex -> oldIndex
-            for (int i = 0; i < oldMethod.getParameters().size(); i++) {
-                String oldParam = oldMethod.getParameter(i).getNameAsString() + ":" + 
-                                oldMethod.getParameter(i).getType().asString();
-                
-                for (int j = 0; j < newMethod.getParameters().size(); j++) {
-                    String newParam = newMethod.getParameter(j).getNameAsString() + ":" +
-                                    newMethod.getParameter(j).getType().asString();
-                    
-                    if (oldParam.equals(newParam)) {
-                        newMap.put(j, i);
-                        break;
-                    }
-                }
+        // Use the column order mapping from the OptimizationIssue
+        // currentColumnOrder: order of columns in old method
+        // recommendedColumnOrder: order of columns in new method
+        List<String> currentOrder = issue.currentColumnOrder();
+        List<String> recommendedOrder = issue.recommendedColumnOrder();
+        
+        if (currentOrder == null || recommendedOrder == null || currentOrder.isEmpty() || recommendedOrder.isEmpty()) {
+            return;
+        }
+        
+        // Build parameter mapping: newIndex -> oldIndex
+        // Use the existing column order information which is authoritative
+        Map<Integer, Integer> map = new HashMap<>();
+        for (int newIdx = 0; newIdx < recommendedOrder.size(); newIdx++) {
+            String columnName = recommendedOrder.get(newIdx);
+            int oldIdx = currentOrder.indexOf(columnName);
+            if (oldIdx >= 0) {
+                map.put(newIdx, oldIdx);
             }
-            return newMap;
-        });
-
+        }
+        
+        // If mapping is incomplete, something went wrong
+        if (map.size() != args.size()) {
+            logger.warn("Column order mapping incomplete for method {}. Expected {} mappings, got {}. currentOrder={}, recommendedOrder={}", 
+                mce.getNameAsString(), args.size(), map.size(), currentOrder, recommendedOrder);
+            return;
+        }
 
         // Reorder arguments in-place using array to avoid expensive NodeList operations
         Expression[] argsArray = new Expression[args.size()];
@@ -734,15 +731,6 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             Integer oldIdx = map.get(i);
             if (oldIdx != null && oldIdx < argsArray.length) {
                 args.add(argsArray[oldIdx]);
-            } else {
-                // Fallback if mapping is missing or invalid
-                logger.warn("Argument reordering mapping incomplete for method {}. Index {} not found in map {}. Falling back to sequential filling. Original args length: {}", 
-                    mce.getNameAsString(), i, map, argsArray.length);
-                for (int j = 0; j < argsArray.length; j++) {
-                    if (j < args.size()) continue;
-                    args.add(argsArray[j]);
-                }
-                return;
             }
         }
     }

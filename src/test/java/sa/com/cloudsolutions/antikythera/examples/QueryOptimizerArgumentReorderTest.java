@@ -62,6 +62,10 @@ class QueryOptimizerArgumentReorderTest {
 
         when(mockResult.getMethodName()).thenReturn("findByAAndB");
         when(mockOptimizedQuery.getMethodName()).thenReturn("findByBAndA");
+        
+        // Setup column orders: a and b -> b and a (reordered)
+        when(mockIssue.currentColumnOrder()).thenReturn(List.of("a", "b"));
+        when(mockIssue.recommendedColumnOrder()).thenReturn(List.of("b", "a"));
 
         // Setup method call: repo.findByAAndB("valA", 123)
         MethodCallExpr call = new MethodCallExpr(new NameExpr("repo"), "findByAAndB");
@@ -93,6 +97,10 @@ class QueryOptimizerArgumentReorderTest {
         newMethod.addParameter(new Parameter(new ClassOrInterfaceType(null, "String"), "y"));
         newMethod.addParameter(new Parameter(new ClassOrInterfaceType(null, "String"), "x"));
         when(mockNewCallable.asMethodDeclaration()).thenReturn(newMethod);
+        
+        // Setup column orders: x and y -> y and x (reordered)
+        when(mockIssue.currentColumnOrder()).thenReturn(List.of("x", "y"));
+        when(mockIssue.recommendedColumnOrder()).thenReturn(List.of("y", "x"));
         
         // Setup MethodRename
         QueryOptimizer.MethodRename rename = new QueryOptimizer.MethodRename(
