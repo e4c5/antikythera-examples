@@ -46,9 +46,9 @@ public class QueryOptimizer extends QueryOptimizationChecker {
     private static final  Set<String> writtenFiles = new java.util.HashSet<>();
 
     // Profiling accumulators for writeFile breakdown
-    private static long totalLppTime = 0;
-    private static long totalDiskWriteTime = 0;
-    private static int lppCallCount = 0;
+    private long totalLppTime = 0;
+    private long totalDiskWriteTime = 0;
+    private int lppCallCount = 0;
 
     /**
      * Creates a new QueryOptimizationChecker that uses RepositoryParser for
@@ -548,12 +548,8 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         logger.info("  Profiling breakdown: AST visiting={}ms, File writing={}ms, Other={}ms",
                 totalAstVisitTime, totalFileWriteTime, totalElapsed - totalAstVisitTime - totalFileWriteTime);
         if (lppCallCount > 0) {
-            logger.info("  File writing breakdown: LexicalPreservingPrinter={}ms ({}calls, {}ms/call avg), Disk I/O={}ms",
+            logger.info("  Cumulative profiling breakdown: LexicalPreservingPrinter={}ms ({}calls, {}ms/call avg), Disk I/O={}ms",
                     totalLppTime, lppCallCount, totalLppTime / lppCallCount, totalDiskWriteTime);
-            // Reset for next batch
-            totalLppTime = 0;
-            totalDiskWriteTime = 0;
-            lppCallCount = 0;
         }
 
         OptimizationStatsLogger.updateMethodCallsChanged(totalMethodCallsUpdated);
@@ -602,11 +598,11 @@ public class QueryOptimizer extends QueryOptimizationChecker {
      * @return true if the file was actually written (content changed), false if
      *         skipped (no changes)
      */
-    static boolean writeFile(String fullyQualifiedName) throws IOException {
+    boolean writeFile(String fullyQualifiedName) throws IOException {
         return writeFile(fullyQualifiedName, AntikytheraRunTime.getCompilationUnit(fullyQualifiedName));
     }
 
-    static boolean writeFile(String fullyQualifiedName, CompilationUnit cu) throws IOException {
+    boolean writeFile(String fullyQualifiedName, CompilationUnit cu) throws IOException {
         String relativePath = AbstractCompiler.classToPath(fullyQualifiedName);
         String fullPath = Settings.getBasePath() + "/src/main/java/" + relativePath;
 
@@ -645,7 +641,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         return result;
     }
 
-    private static boolean writeFile(File f, String content) throws FileNotFoundException {
+    private boolean writeFile(File f, String content) throws FileNotFoundException {
         PrintWriter writer = new PrintWriter(f);
         writer.print(content); // Use the content variable we already computed
         writer.close();
@@ -675,8 +671,9 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         // CRITICAL OPTIMIZATION: Cache the parameter mapping
         // This method is called for EVERY matching method call, but the mapping is the same
         // For 10 calls to the same method, we were rebuilding the mapping 10 times!
-        // Use method names as cache key - they're unique enough and much faster than getSignature()
-        String cacheKey = oldMethod.getNameAsString() + "->" + newMethod.getNameAsString();
+        // Use repository FQN and full signatures as cache key to avoid collisions
+        String repositoryFqn = issue.query().getRepositoryClassName();
+        String cacheKey = repositoryFqn + ":" + oldMethod.getSignature().asString() + "->" + newMethod.getSignature().asString();
         Map<Integer, Integer> map = parameterMappingCache.computeIfAbsent(cacheKey, k -> {
             Map<Integer, Integer> newMap = new HashMap<>();
             // Build parameter mapping: newIndex -> oldIndex
@@ -712,6 +709,8 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                 args.add(argsArray[oldIdx]);
             } else {
                 // Fallback if mapping is missing or invalid
+                logger.warn("Argument reordering mapping incomplete for method {}. Index {} not found in map {}. Falling back to sequential filling. Original args length: {}", 
+                    mce.getNameAsString(), i, map, argsArray.length);
                 for (int j = 0; j < argsArray.length; j++) {
                     if (j < args.size()) continue;
                     args.add(argsArray[j]);
@@ -1084,7 +1083,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         checker.generateLiquibaseChangesFile();
 
         OptimizationStatsLogger.printSummary(System.out);
-        updateFiles();
+        checker.updateFiles();
 
         System.out.println("\n--- Final AI Token Usage Report ---");
         System.out.println(checker.getCumulativeTokenUsage().getFormattedReport());
@@ -1100,13 +1099,17 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         System.exit(0);
     }
 
-    private static void updateFiles() throws IOException {
+    private void updateFiles() throws IOException {
         for (String className : modifiedFiles) {
             // Skip files that were already written during batch processing
             if (!writtenFiles.contains(className)) {
                 writeFile(className);
                 writtenFiles.add(className);
             }
+        }
+        if (lppCallCount > 0) {
+            logger.info("Final Profiling Report: LexicalPreservingPrinter={}ms ({}calls, {}ms/call avg), Disk I/O={}ms",
+                    totalLppTime, lppCallCount, totalLppTime / lppCallCount, totalDiskWriteTime);
         }
     }
 }
