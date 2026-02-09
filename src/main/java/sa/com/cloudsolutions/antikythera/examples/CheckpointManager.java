@@ -79,14 +79,14 @@ public class CheckpointManager {
     public boolean load() {
         // Return cached result if already loaded
         if (loaded) {
-            return checkpoint.processedRepositories != null && !checkpoint.processedRepositories.isEmpty();
+            return checkpoint.getProcessedRepositories() != null && !checkpoint.getProcessedRepositories().isEmpty();
         }
 
         if (!checkpointFile.exists()) {
             logger.debug("No checkpoint file found, starting fresh");
             checkpoint = new Checkpoint();
-            checkpoint.sessionId = UUID.randomUUID().toString();
-            checkpoint.startTime = Instant.now().toString();
+            checkpoint.setSessionId(UUID.randomUUID().toString());
+            checkpoint.setStartTime(Instant.now().toString());
             loaded = true;
             return false;
         }
@@ -94,14 +94,14 @@ public class CheckpointManager {
         try {
             checkpoint = objectMapper.readValue(checkpointFile, Checkpoint.class);
             logger.info("Loaded checkpoint from {} - {} repositories already processed",
-                    checkpointFile.getName(), checkpoint.processedRepositories.size());
+                    checkpointFile.getName(), checkpoint.getProcessedRepositories().size());
             loaded = true;
             return true;
         } catch (IOException e) {
             logger.warn("Failed to load checkpoint file: {}. Starting fresh.", e.getMessage());
             checkpoint = new Checkpoint();
-            checkpoint.sessionId = UUID.randomUUID().toString();
-            checkpoint.startTime = Instant.now().toString();
+            checkpoint.setSessionId(UUID.randomUUID().toString());
+            checkpoint.setStartTime(Instant.now().toString());
             loaded = true;
             return false;
         }
@@ -112,11 +112,11 @@ public class CheckpointManager {
      * Call this after each successful repository analysis.
      */
     public void save() {
-        checkpoint.lastUpdate = Instant.now().toString();
+        checkpoint.setLastUpdate(Instant.now().toString());
         try {
             objectMapper.writeValue(checkpointFile, checkpoint);
             logger.debug("Checkpoint saved: {} repositories processed",
-                    checkpoint.processedRepositories.size());
+                    checkpoint.getProcessedRepositories().size());
         } catch (IOException e) {
             logger.error("Failed to save checkpoint: {}", e.getMessage());
         }
@@ -144,7 +144,7 @@ public class CheckpointManager {
      * @return true if already processed
      */
     public boolean isProcessed(String fullyQualifiedName) {
-        return checkpoint.processedRepositories.contains(fullyQualifiedName);
+        return checkpoint.getProcessedRepositories().contains(fullyQualifiedName);
     }
 
     /**
@@ -153,7 +153,7 @@ public class CheckpointManager {
      * @param fullyQualifiedName the fully qualified repository class name
      */
     public void markProcessed(String fullyQualifiedName) {
-        checkpoint.processedRepositories.add(fullyQualifiedName);
+        checkpoint.getProcessedRepositories().add(fullyQualifiedName);
     }
 
     /**
@@ -162,7 +162,7 @@ public class CheckpointManager {
      * @return unmodifiable set of processed repository names
      */
     public Set<String> getProcessedRepositories() {
-        return Set.copyOf(checkpoint.processedRepositories);
+        return Set.copyOf(checkpoint.getProcessedRepositories());
     }
 
     /**
@@ -171,7 +171,7 @@ public class CheckpointManager {
      * @return count of processed repositories
      */
     public int getProcessedCount() {
-        return checkpoint.processedRepositories.size();
+        return checkpoint.getProcessedRepositories().size();
     }
 
     /**
@@ -180,10 +180,10 @@ public class CheckpointManager {
      * @param singleColumnIndexes single-column index suggestions (table|column format)
      * @param multiColumnIndexes multi-column index suggestions (table|col1,col2 format)
      */
-    public void setIndexSuggestions(LinkedHashSet<String> singleColumnIndexes,
-                                     LinkedHashSet<String> multiColumnIndexes) {
-        checkpoint.suggestedNewIndexes = new LinkedHashSet<>(singleColumnIndexes);
-        checkpoint.suggestedMultiColumnIndexes = new LinkedHashSet<>(multiColumnIndexes);
+    public void setIndexSuggestions(Set<String> singleColumnIndexes,
+                                     Set<String> multiColumnIndexes) {
+        checkpoint.setSuggestedNewIndexes(new LinkedHashSet<>(singleColumnIndexes));
+        checkpoint.setSuggestedMultiColumnIndexes(new LinkedHashSet<>(multiColumnIndexes));
     }
 
     /**
@@ -191,9 +191,9 @@ public class CheckpointManager {
      *
      * @return set of index suggestions in table|column format
      */
-    public LinkedHashSet<String> getSuggestedNewIndexes() {
-        return checkpoint.suggestedNewIndexes != null
-                ? new LinkedHashSet<>(checkpoint.suggestedNewIndexes)
+    public Set<String> getSuggestedNewIndexes() {
+        return checkpoint.getSuggestedNewIndexes() != null
+                ? new LinkedHashSet<>(checkpoint.getSuggestedNewIndexes())
                 : new LinkedHashSet<>();
     }
 
@@ -202,9 +202,9 @@ public class CheckpointManager {
      *
      * @return set of index suggestions in table|col1,col2 format
      */
-    public LinkedHashSet<String> getSuggestedMultiColumnIndexes() {
-        return checkpoint.suggestedMultiColumnIndexes != null
-                ? new LinkedHashSet<>(checkpoint.suggestedMultiColumnIndexes)
+    public Set<String> getSuggestedMultiColumnIndexes() {
+        return checkpoint.getSuggestedMultiColumnIndexes() != null
+                ? new LinkedHashSet<>(checkpoint.getSuggestedMultiColumnIndexes())
                 : new LinkedHashSet<>();
     }
 
@@ -214,7 +214,7 @@ public class CheckpointManager {
      * @param modifiedFiles set of fully qualified class names that were modified
      */
     public void setModifiedFiles(Set<String> modifiedFiles) {
-        checkpoint.modifiedFiles = new HashSet<>(modifiedFiles);
+        checkpoint.setModifiedFiles(new HashSet<>(modifiedFiles));
     }
 
     /**
@@ -223,8 +223,8 @@ public class CheckpointManager {
      * @return set of modified file class names
      */
     public Set<String> getModifiedFiles() {
-        return checkpoint.modifiedFiles != null
-                ? new HashSet<>(checkpoint.modifiedFiles)
+        return checkpoint.getModifiedFiles() != null
+                ? new HashSet<>(checkpoint.getModifiedFiles())
                 : new HashSet<>();
     }
 
@@ -243,7 +243,7 @@ public class CheckpointManager {
      * @return the session UUID string
      */
     public String getSessionId() {
-        return checkpoint.sessionId;
+        return checkpoint.getSessionId();
     }
 
     /**
@@ -264,15 +264,71 @@ public class CheckpointManager {
         private String sessionId;
         private String startTime;
         private String lastUpdate;
-        public Set<String> processedRepositories = new HashSet<>();
-        public Set<String> suggestedNewIndexes = new LinkedHashSet<>();
-        public Set<String> suggestedMultiColumnIndexes = new LinkedHashSet<>();
-        public Set<String> modifiedFiles = new HashSet<>();
+        private Set<String> processedRepositories = new HashSet<>();
+        private Set<String> suggestedNewIndexes = new LinkedHashSet<>();
+        private Set<String> suggestedMultiColumnIndexes = new LinkedHashSet<>();
+        private Set<String> modifiedFiles = new HashSet<>();
 
         // Default constructor for Jackson
         public Checkpoint() {
             this.sessionId = UUID.randomUUID().toString();
             this.startTime = Instant.now().toString();
+        }
+
+        public String getSessionId() {
+            return sessionId;
+        }
+
+        public void setSessionId(String sessionId) {
+            this.sessionId = sessionId;
+        }
+
+        public String getStartTime() {
+            return startTime;
+        }
+
+        public void setStartTime(String startTime) {
+            this.startTime = startTime;
+        }
+
+        public String getLastUpdate() {
+            return lastUpdate;
+        }
+
+        public void setLastUpdate(String lastUpdate) {
+            this.lastUpdate = lastUpdate;
+        }
+
+        public Set<String> getProcessedRepositories() {
+            return processedRepositories;
+        }
+
+        public void setProcessedRepositories(Set<String> processedRepositories) {
+            this.processedRepositories = processedRepositories;
+        }
+
+        public Set<String> getSuggestedNewIndexes() {
+            return suggestedNewIndexes;
+        }
+
+        public void setSuggestedNewIndexes(Set<String> suggestedNewIndexes) {
+            this.suggestedNewIndexes = suggestedNewIndexes;
+        }
+
+        public Set<String> getSuggestedMultiColumnIndexes() {
+            return suggestedMultiColumnIndexes;
+        }
+
+        public void setSuggestedMultiColumnIndexes(Set<String> suggestedMultiColumnIndexes) {
+            this.suggestedMultiColumnIndexes = suggestedMultiColumnIndexes;
+        }
+
+        public Set<String> getModifiedFiles() {
+            return modifiedFiles;
+        }
+
+        public void setModifiedFiles(Set<String> modifiedFiles) {
+            this.modifiedFiles = modifiedFiles;
         }
     }
 }
