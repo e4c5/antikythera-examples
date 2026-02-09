@@ -125,28 +125,7 @@ public class QueryOptimizationChecker {
             if (BaseRepositoryParser.isJpaRepository(typeWrapper)) {
                 totalRepositories++;
 
-                // Filter by target_class if specified
-                if (targetClass != null && !targetClass.equals(fullyQualifiedName)) {
-                    repositoriesSkippedByFilter++;
-                    logger.debug("Skipping repository (target_class filter): {}", fullyQualifiedName);
-                    continue;
-                }
-
-                // Filter by skip_class if specified
-                if (skipClass != null && skipClass.equals(fullyQualifiedName)) {
-                    repositoriesSkippedByFilter++;
-                    logger.debug("Skipping repository (skip_class filter): {}", fullyQualifiedName);
-                    continue;
-                }
-
-                // Check checkpoint for resume after crash/interruption
-                if (checkpointManager.isProcessed(fullyQualifiedName)) {
-                    if (!quietMode) {
-                        System.out.printf("⏭️ Skipping (checkpoint): %s%n", fullyQualifiedName);
-                    }
-                    repositoriesResumed++;
-                    continue;
-                }
+                if (shouldSkipRepository(fullyQualifiedName)) continue;
 
                 results.clear(); // Clear results for each repository
 
@@ -186,6 +165,32 @@ public class QueryOptimizationChecker {
         checkpointManager.clear();
 
         return repositoriesProcessed;
+    }
+
+    private boolean shouldSkipRepository(String fullyQualifiedName) {
+        // Filter by target_class if specified
+        if (targetClass != null && !targetClass.equals(fullyQualifiedName)) {
+            repositoriesSkippedByFilter++;
+            logger.debug("Skipping repository (target_class filter): {}", fullyQualifiedName);
+            return true;
+        }
+
+        // Filter by skip_class if specified
+        if (skipClass != null && skipClass.equals(fullyQualifiedName)) {
+            repositoriesSkippedByFilter++;
+            logger.debug("Skipping repository (skip_class filter): {}", fullyQualifiedName);
+            return true;
+        }
+
+        // Check checkpoint for resume after crash/interruption
+        if (checkpointManager.isProcessed(fullyQualifiedName)) {
+            if (!quietMode) {
+                System.out.printf("⏭️ Skipping (checkpoint): %s%n", fullyQualifiedName);
+            }
+            repositoriesResumed++;
+            return true;
+        }
+        return false;
     }
 
     private void checkResumptionState() {
