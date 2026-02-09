@@ -683,7 +683,6 @@ public class QueryOptimizer extends QueryOptimizationChecker {
      * the method call arguments are also reordered to match.
      */
     static void reorderMethodArguments(MethodCallExpr mce, OptimizationIssue issue) {
-        MethodDeclaration oldMethod = issue.query().getMethodDeclaration().asMethodDeclaration();
         MethodDeclaration newMethod = issue.optimizedQuery().getMethodDeclaration().asMethodDeclaration();
         
         NodeList<Expression> args = mce.getArguments();
