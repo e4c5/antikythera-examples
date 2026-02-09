@@ -55,11 +55,16 @@ public class QueryOptimizationChecker {
     // Target class - if set, only analyze this specific repository
     protected static String targetClass = null;
 
+    // Skip class - if set, do not analyze this repository
+    protected static String skipClass = null;
+
     // Maximum number of columns allowed in a multi-column index (configurable)
     protected final int maxIndexColumns;
 
     // Checkpoint manager for resume capability
     protected CheckpointManager checkpointManager;
+    private int repositoriesSkippedByFilter;
+    private int repositoriesResumed;
 
     /**
      * Creates a new QueryOptimizationChecker that uses RepositoryParser for
@@ -107,10 +112,11 @@ public class QueryOptimizationChecker {
         Map<String, TypeWrapper> resolvedTypes = AntikytheraRunTime.getResolvedTypes();
         int totalRepositories = 0;
         int repositoriesProcessed = 0;
-        int repositoriesResumed = 0;
-        int repositoriesSkippedByFilter = 0;
+        repositoriesResumed = 0;
+        repositoriesSkippedByFilter = 0;
 
         logger.debug("targetClass filter value: {}", targetClass);
+        logger.debug("skipClass filter value: {}", skipClass);
 
         for (Map.Entry<String, TypeWrapper> entry : resolvedTypes.entrySet()) {
             String fullyQualifiedName = entry.getKey();
@@ -123,6 +129,13 @@ public class QueryOptimizationChecker {
                 if (targetClass != null && !targetClass.equals(fullyQualifiedName)) {
                     repositoriesSkippedByFilter++;
                     logger.debug("Skipping repository (target_class filter): {}", fullyQualifiedName);
+                    continue;
+                }
+
+                // Filter by skip_class if specified
+                if (skipClass != null && skipClass.equals(fullyQualifiedName)) {
+                    repositoriesSkippedByFilter++;
+                    logger.debug("Skipping repository (skip_class filter): {}", fullyQualifiedName);
                     continue;
                 }
 
@@ -1055,7 +1068,7 @@ public class QueryOptimizationChecker {
                 List<String> mcColumns = parseIndexColumnsForTable(mcKey, table);
                 if (mcColumns == null) continue;
 
-                if (mcColumns.size() > 0 && mcColumns.get(0).equalsIgnoreCase(column)) {
+                if (!mcColumns.isEmpty() && mcColumns.get(0).equalsIgnoreCase(column)) {
                     toRemove.add(singleKey);
                     if (!quietMode) {
                         logger.info("Final cleanup: Removing redundant single-column index {} - covered by multi-column index {}",
@@ -1378,12 +1391,18 @@ public class QueryOptimizationChecker {
         Map<String, Object> queryOptimizer = (Map<String, Object>) Settings.getProperty("query_optimizer");
         if (queryOptimizer != null) {
             Object targetClassValue = queryOptimizer.get("target_class");
-            if (targetClassValue instanceof String s && !s.isBlank()) {
-                setTargetClass(s);
-                System.out.printf("🎯 Target class filter: %s%n", s);
-            } else {
-                System.out.println("ℹ️ No target_class filter specified (processing all repositories)");
-            }
+                if (targetClassValue instanceof String s && !s.isBlank()) {
+                    targetClass = s;
+                    System.out.printf("🎯 Target class filter: %s%n", s);
+                } else {
+                    System.out.println("ℹ️ No target_class filter specified (processing all repositories)");
+                }
+
+                Object skipClassValue = queryOptimizer.get("skip_class");
+                if (skipClassValue instanceof String s && !s.isBlank()) {
+                    skipClass = s;
+                    System.out.printf("🚫 Skip class filter: %s%n", s);
+                }
         } else {
             System.out.println("ℹ️ No query_optimizer section in settings (processing all repositories)");
         }

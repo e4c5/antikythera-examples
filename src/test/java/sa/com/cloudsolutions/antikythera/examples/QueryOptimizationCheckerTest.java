@@ -2,6 +2,7 @@ package sa.com.cloudsolutions.antikythera.examples;
 
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -79,7 +80,14 @@ class QueryOptimizationCheckerTest {
         checker = new QueryOptimizationChecker(liquibaseFile);
         checker.setRepositoryParser(mockRepositoryParser);
         checker.setAiService(mockAiService);
-        OptimizationStatsLogger.initialize("test-repo");
+        OptimizationStatsLogger.initialize("test");
+    }
+
+    @AfterEach
+    void tearDown() {
+        QueryOptimizationChecker.setQuietMode(false);
+        QueryOptimizationChecker.setTargetClass(null);
+        QueryOptimizationChecker.skipClass = null;
     }
 
     @Test
@@ -234,6 +242,17 @@ class QueryOptimizationCheckerTest {
 
         QueryOptimizationChecker.setQuietMode(false);
         assertFalse(QueryOptimizationChecker.isQuietMode());
+    }
+
+    @Test
+    void testSkipClassOperations() {
+        assertNull(QueryOptimizationChecker.skipClass);
+
+        QueryOptimizationChecker.skipClass = "com.example.SkipRepo";
+        assertEquals("com.example.SkipRepo", QueryOptimizationChecker.skipClass);
+
+        QueryOptimizationChecker.skipClass = null;
+        assertNull(QueryOptimizationChecker.skipClass);
     }
 
     @Test
