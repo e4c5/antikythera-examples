@@ -527,7 +527,7 @@ public class GeminiAIService {
     /**
      * Record to hold both the optimized query and its column order.
      */
-    private record OptimizedQueryResult(RepositoryQuery optimizedQuery, List<String> columnOrder) {
+    record OptimizedQueryResult(RepositoryQuery optimizedQuery, List<String> columnOrder) {
     }
 
     /**
