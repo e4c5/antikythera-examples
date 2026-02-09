@@ -73,13 +73,13 @@ class WhereAndJoinSeparationTest {
         assertNotNull(result);
         
         // Verify WHERE conditions
-        List<WhereCondition> whereConditions = result.getWhereConditions();
+        List<WhereCondition> whereConditions = result.whereConditions();
         assertEquals(2, whereConditions.size(), "Should have 2 WHERE conditions");
         assertTrue(whereConditions.stream().anyMatch(c -> "status".equals(c.columnName())));
         assertTrue(whereConditions.stream().anyMatch(c -> "amount".equals(c.columnName())));
         
         // Verify JOIN conditions
-        List<JoinCondition> joinConditions = result.getJoinConditions();
+        List<JoinCondition> joinConditions = result.joinConditions();
         assertEquals(1, joinConditions.size(), "Should have 1 JOIN condition");
         JoinCondition joinCondition = joinConditions.get(0);
         assertTrue("customer_id".equals(joinCondition.leftColumn()) || "customer_id".equals(joinCondition.rightColumn()));

@@ -543,7 +543,10 @@ public class GeminiAIService {
                     .getCallableDeclaration().findCompilationUnit().orElseThrow();
 
             ClassOrInterfaceDeclaration cdecl = cloneClassSignature(
-                    originalCompilationUnit.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow());
+                    originalQuery.getMethodDeclaration()
+                            .getCallableDeclaration()
+                            .findAncestor(ClassOrInterfaceDeclaration.class)
+                            .orElseThrow());
             CompilationUnit cu = new CompilationUnit();
             cu.addType(cdecl);
 

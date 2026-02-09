@@ -90,19 +90,7 @@ public class QueryOptimizationExtractor {
         Expression whereExpr = null;
 
         if (statement instanceof Select select) {
-            if (select instanceof PlainSelect plainSelect) {
-                whereExpr = plainSelect.getWhere();
-            } else {
-                try {
-                    PlainSelect plainSelect = select.getPlainSelect();
-                    if (plainSelect != null) {
-                        whereExpr = plainSelect.getWhere();
-                    }
-                } catch (ClassCastException e) {
-                    // SetOperationList or other complex select - can't extract simple WHERE
-                    return "";
-                }
-            }
+            whereExpr = getWhereFromSelect(select);
         } else if (statement instanceof Update update) {
             whereExpr = update.getWhere();
         } else if (statement instanceof Delete delete) {
@@ -115,24 +103,27 @@ public class QueryOptimizationExtractor {
         return "";
     }
 
+    private static Expression getWhereFromSelect(Select select) {
+        if (select instanceof PlainSelect plainSelect) {
+            return plainSelect.getWhere();
+        } else if (select instanceof net.sf.jsqlparser.statement.select.ParenthesedSelect parenthesedSelect) {
+            return getWhereFromSelect(parenthesedSelect.getSelect());
+        } else if (select instanceof net.sf.jsqlparser.statement.select.SetOperationList setOpList) {
+            if (setOpList.getSelects() != null) {
+                for (Select innerSelect : setOpList.getSelects()) {
+                    Expression where = getWhereFromSelect(innerSelect);
+                    if (where != null) {
+                        return where;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
     /**
-     * Result object containing both WHERE and JOIN conditions.
-     */
-    public static class ConditionExtractionResult {
-        private final List<WhereCondition> whereConditions;
-        private final List<JoinCondition> joinConditions;
-
-        public ConditionExtractionResult(List<WhereCondition> whereConditions, List<JoinCondition> joinConditions) {
-            this.whereConditions = whereConditions;
-            this.joinConditions = joinConditions;
-        }
-
-        public List<WhereCondition> getWhereConditions() {
-            return whereConditions;
-        }
-
-        public List<JoinCondition> getJoinConditions() {
-            return joinConditions;
-        }
+         * Result object containing both WHERE and JOIN conditions.
+         */
+        public record ConditionExtractionResult(List<WhereCondition> whereConditions, List<JoinCondition> joinConditions) {
     }
 }
