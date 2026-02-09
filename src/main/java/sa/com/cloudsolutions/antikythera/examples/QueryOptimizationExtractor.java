@@ -104,11 +104,13 @@ public class QueryOptimizationExtractor {
     }
 
     private static Expression getWhereFromSelect(Select select) {
-        if (select instanceof PlainSelect plainSelect) {
+        Object selectBody = (select != null) ? select.getSelectBody() : null;
+        
+        if (selectBody instanceof PlainSelect plainSelect) {
             return plainSelect.getWhere();
-        } else if (select instanceof net.sf.jsqlparser.statement.select.ParenthesedSelect parenthesedSelect) {
+        } else if (selectBody instanceof net.sf.jsqlparser.statement.select.ParenthesedSelect parenthesedSelect) {
             return getWhereFromSelect(parenthesedSelect.getSelect());
-        } else if (select instanceof net.sf.jsqlparser.statement.select.SetOperationList setOpList) {
+        } else if (selectBody instanceof net.sf.jsqlparser.statement.select.SetOperationList setOpList) {
             if (setOpList.getSelects() != null) {
                 for (Select innerSelect : setOpList.getSelects()) {
                     Expression where = getWhereFromSelect(innerSelect);

@@ -58,14 +58,16 @@ class WhereClauseCollector extends StatementVisitorAdapter<Void> {
 
     @Override
     public <S> Void visit(Select select, S context) {
-        // Handle different select types safely
-        if (select instanceof PlainSelect plainSelect) {
+        // Handle different select types safely by unwraping the select body
+        Object selectBody = (select != null) ? select.getSelectBody() : null;
+        
+        if (selectBody instanceof PlainSelect plainSelect) {
             processPlainSelect(plainSelect);
-        } else if (select instanceof SetOperationList setOpList) {
+        } else if (selectBody instanceof SetOperationList setOpList) {
             processSetOperationList(setOpList);
-        } else if (select instanceof ParenthesedSelect parenthesedSelect) {
+        } else if (selectBody instanceof ParenthesedSelect parenthesedSelect) {
             processFromItem(parenthesedSelect);
-        } else {
+        } else if (select != null) {
             // Fallback: try getPlainSelect() for simple cases, but catch ClassCastException
             try {
                 PlainSelect plainSelect = select.getPlainSelect();
@@ -73,7 +75,7 @@ class WhereClauseCollector extends StatementVisitorAdapter<Void> {
                     processPlainSelect(plainSelect);
                 }
             } catch (ClassCastException e) {
-                // This can happen with SetOperationList - already handled above
+                // This can happen with SetOperationList - already handled if identified via selectBody
             }
         }
         return null;

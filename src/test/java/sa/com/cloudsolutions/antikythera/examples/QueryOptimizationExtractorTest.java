@@ -300,5 +300,18 @@ class QueryOptimizationExtractorTest {
         String whereClause = QueryOptimizationExtractor.extractWhereClauseText(statement);
         assertEquals("status = 'ACTIVE'", whereClause);
     }
+
+    @Test
+    void testUnionWhereConditions() throws JSQLParserException {
+        String sql = "SELECT * FROM table1 WHERE id = 1 UNION SELECT * FROM table2 WHERE id = 2";
+        Statement statement = CCJSqlParserUtil.parse(sql);
+        List<WhereCondition> conditions = QueryOptimizationExtractor.extractWhereConditions(statement);
+        
+        assertNotNull(conditions);
+        assertEquals(2, conditions.size(), "Should extract WHERE conditions from both sides of UNION");
+        
+        assertTrue(conditions.stream().anyMatch(c -> "table1".equals(c.getTableName()) && "id".equals(c.columnName())));
+        assertTrue(conditions.stream().anyMatch(c -> "table2".equals(c.getTableName()) && "id".equals(c.columnName())));
+    }
 }
 
