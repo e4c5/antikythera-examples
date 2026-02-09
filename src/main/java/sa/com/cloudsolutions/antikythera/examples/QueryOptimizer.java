@@ -32,6 +32,8 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -82,6 +84,9 @@ public class QueryOptimizer extends QueryOptimizationChecker {
 
         repositoryFileModified = false;
 
+        // Collect existing method names to prevent rename collisions
+        Set<String> reservedMethodNames = collectRepositoryMethodNames();
+
         // Collect all method renames first for batched processing
         List<MethodRename> methodRenames = new ArrayList<>();
 
@@ -96,7 +101,13 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                         && (aiExplanation == null || !aiExplanation.startsWith("N/A"));
 
                 if (methodNameChanged) {
+                    if (reservedMethodNames.contains(newName)) {
+                        logger.warn("Skipping rename from {} to {} because target name already exists in {}",
+                                originalName, newName, typeWrapper.getFullyQualifiedName());
+                        continue;
+                    }
                     methodRenames.add(new MethodRename(originalName, newName, result, issue));
+                    reservedMethodNames.add(newName);
                 }
             }
         }
@@ -142,6 +153,22 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             modifiedFiles.addAll(restored);
             logger.info("Restored {} modified files from checkpoint", restored.size());
         }
+    }
+
+    /**
+     * Collects method names declared in the current repository.
+     * Used to prevent renaming a method to a name that already exists.
+     * Reuses the existing repositoryParser.getAllQueries() to avoid redundant AST traversal.
+     */
+    private Set<String> collectRepositoryMethodNames() {
+        Set<String> names = new HashSet<>();
+        Collection<RepositoryQuery> allQueries = repositoryParser.getAllQueries();
+        if (allQueries != null) {
+            for (RepositoryQuery query : allQueries) {
+                names.add(query.getMethodDeclaration().getNameAsString());
+            }
+        }
+        return names;
     }
 
     @Override
