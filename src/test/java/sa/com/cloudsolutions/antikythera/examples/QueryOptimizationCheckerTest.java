@@ -487,6 +487,17 @@ class QueryOptimizationCheckerTest {
     }
 
     @Test
+    void testRemoveProposedIndexesCoveredBy_TableMismatch() {
+        checker.getSuggestedMultiColumnIndexes().add("orders|user_id");
+        List<String> newColumns = List.of("user_id", "created_date");
+        
+        // This should NOT remove "orders|user_id" because we are adding an index to "users"
+        checker.removeProposedIndexesCoveredBy("users", newColumns);
+        
+        assertTrue(checker.getSuggestedMultiColumnIndexes().contains("orders|user_id"));
+    }
+
+    @Test
     void testEdgeCasesAndErrorHandling() {
         // Test with valid inputs first
         assertFalse(checker.hasOptimalIndexForColumn("users", "email"));
@@ -495,8 +506,5 @@ class QueryOptimizationCheckerTest {
         // Test isCoveredByComposite with edge cases
         assertFalse(checker.isCoveredByComposite("users", "email"));
         assertFalse(checker.isCoveredByComposite("", ""));
-
-        // Note: Testing with null inputs would cause NPE in the current implementation
-        // This indicates the methods should have null checks added
     }
 }

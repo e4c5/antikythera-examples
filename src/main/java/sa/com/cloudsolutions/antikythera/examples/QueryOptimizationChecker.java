@@ -923,10 +923,9 @@ public class QueryOptimizationChecker {
      * @param columns the columns of the proposed index
      * @return true if there's already a larger proposed index that covers this one
      */
-    private boolean isIndexCoveredByProposedIndex(String table, List<String> columns) {
+    boolean isIndexCoveredByProposedIndex(String table, List<String> columns) {
         for (String existingKey : suggestedMultiColumnIndexes) {
             List<String> existingColumns = parseIndexColumnsForTable(existingKey, table);
-            if (existingColumns == null) continue;
 
             // Check if existingColumns covers the new columns (existing is larger or equal and starts with same prefix)
             if (existingColumns.size() >= columns.size() && isPrefixIgnoreCase(columns, existingColumns)) {
@@ -966,13 +965,13 @@ public class QueryOptimizationChecker {
      * @param table the table name (lowercase)
      * @param columns the columns of the new larger index
      */
-    private void removeProposedIndexesCoveredBy(String table, List<String> columns) {
+    void removeProposedIndexesCoveredBy(String table, List<String> columns) {
         Set<String> toRemove = new HashSet<>();
 
         // Check multi-column indexes
         for (String existingKey : suggestedMultiColumnIndexes) {
             List<String> existingColumns = parseIndexColumnsForTable(existingKey, table);
-            if (existingColumns == null) continue;
+            if (existingColumns.isEmpty()) continue;
 
             // If existing is smaller and is a prefix of the new columns, remove it
             if (existingColumns.size() < columns.size() && isPrefixIgnoreCase(existingColumns, columns)) {
@@ -1014,10 +1013,10 @@ public class QueryOptimizationChecker {
      */
     private List<String> parseIndexColumnsForTable(String indexKey, String expectedTable) {
         String[] parts = indexKey.split("\\|", 2);
-        if (parts.length != 2) return null;
+        if (parts.length != 2) return List.of();
         
         String table = parts[0];
-        if (!table.equals(expectedTable)) return null;
+        if (!table.equals(expectedTable)) return List.of();
         
         return List.of(parts[1].split(","));
     }
@@ -1071,7 +1070,6 @@ public class QueryOptimizationChecker {
             // Check if any multi-column index on the same table starts with this column
             for (String mcKey : suggestedMultiColumnIndexes) {
                 List<String> mcColumns = parseIndexColumnsForTable(mcKey, table);
-                if (mcColumns == null) continue;
 
                 if (!mcColumns.isEmpty() && mcColumns.get(0).equalsIgnoreCase(column)) {
                     toRemove.add(singleKey);
@@ -1096,7 +1094,6 @@ public class QueryOptimizationChecker {
                 if (key1.equals(key2)) continue;
 
                 List<String> columns2 = parseIndexColumnsForTable(key2, table1);
-                if (columns2 == null) continue;
 
                 // Check if columns1 is a prefix of columns2 (columns2 covers columns1)
                 if (columns2.size() > columns1.size() && isPrefixIgnoreCase(columns1, columns2)) {
@@ -1224,22 +1221,7 @@ public class QueryOptimizationChecker {
     private void addIndexDropChanges(List<String> result) {
         // Analyze existing indexes to suggest drops for low-cardinality leading columns
         // (always perform)
-        LinkedHashSet<String> dropCandidates = new LinkedHashSet<>();
-        Map<String, Set<Indexes.IndexInfo>> map = CardinalityAnalyzer.getIndexMap();
-        if (map != null) {
-            for (var entry : map.entrySet()) {
-                String table = entry.getKey();
-                for (var idx : entry.getValue()) {
-                    if ("INDEX".equals(idx.type()) && idx.columns() != null && !idx.columns().isEmpty()) {
-                        String first = idx.columns().getFirst();
-                        CardinalityLevel card = CardinalityAnalyzer.analyzeColumnCardinality(table, first);
-                        if (card == CardinalityLevel.LOW && !idx.name().isEmpty()) {
-                            dropCandidates.add(idx.name());
-                        }
-                    }
-                }
-            }
-        }
+        LinkedHashSet<String> dropCandidates = getDropCandidates();
 
         // Add drop index changesets even if there are no create suggestions
         if (!dropCandidates.isEmpty()) {
@@ -1256,6 +1238,26 @@ public class QueryOptimizationChecker {
             OptimizationStatsLogger.updateIndexesDropped(dropCandidates.size());
             result.add("\n    <!-- Summary: " + dropCandidates.size() + " total index drop recommendations -->");
         }
+    }
+
+    private static LinkedHashSet<String> getDropCandidates() {
+        LinkedHashSet<String> dropCandidates = new LinkedHashSet<>();
+        Map<String, Set<Indexes.IndexInfo>> map = CardinalityAnalyzer.getIndexMap();
+        if (map != null) {
+            for (var entry : map.entrySet()) {
+                String table = entry.getKey();
+                for (var idx : entry.getValue()) {
+                    if ("INDEX".equals(idx.type()) && idx.columns() != null && !idx.columns().isEmpty()) {
+                        String first = idx.columns().getFirst();
+                        CardinalityLevel card = CardinalityAnalyzer.analyzeColumnCardinality(table, first);
+                        if (card == CardinalityLevel.LOW && !idx.name().isEmpty()) {
+                            dropCandidates.add(idx.name());
+                        }
+                    }
+                }
+            }
+        }
+        return dropCandidates;
     }
 
     boolean isCoveredByComposite(String table, String column) {
