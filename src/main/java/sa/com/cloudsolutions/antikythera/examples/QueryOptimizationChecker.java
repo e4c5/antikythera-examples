@@ -791,48 +791,39 @@ public class QueryOptimizationChecker {
     }
 
     void collectIndexSuggestions(QueryAnalysisResult result) {
-        // Group columns by table - critical for JOIN queries where columns come from
-        // multiple tables
-        Map<String, List<String>> columnsByTable = new HashMap<>();
+        Map<String, Set<String>> columnsByTable = new HashMap<>();
 
-        // Process WHERE conditions
+        // Collect from WHERE conditions
         for (WhereCondition condition : result.getWhereConditions()) {
             if (condition.cardinality() != CardinalityLevel.LOW) {
-                String tableName = condition.tableName() == null ? result.getQuery().getPrimaryTable()
-                        : condition.getTableName();
-                // Normalize table and column names to lowercase to ensure consistent key handling
-                String normalizedTableName = tableName != null ? tableName.toLowerCase() : null;
-                String normalizedColumnName = condition.columnName() != null ? condition.columnName().toLowerCase() : null;
-                if (normalizedTableName != null && normalizedColumnName != null) {
-                    List<String> tableColumns = columnsByTable.computeIfAbsent(normalizedTableName, k -> new ArrayList<>());
-                    // Avoid duplicate columns (case-insensitive)
-                    boolean alreadyExists = tableColumns.stream().anyMatch(c -> c.equalsIgnoreCase(normalizedColumnName));
-                    if (!alreadyExists) {
-                        tableColumns.add(normalizedColumnName);
-                    }
-                }
+                String table = condition.tableName() == null ? result.getQuery().getPrimaryTable() : condition.getTableName();
+                addColumnToMap(columnsByTable, table, condition.columnName());
             }
         }
 
-        groupJoinColumnsByTable(result, columnsByTable);
+        // Collect from JOIN conditions (right-side probe table)
+        for (JoinCondition join : result.getJoinConditions()) {
+            addColumnToMap(columnsByTable, join.getRightTable(), join.getRightColumn());
+        }
 
-        generatedRequiredIndexesList(columnsByTable);
+        generateRequiredIndexes(columnsByTable);
     }
 
-    private void generatedRequiredIndexesList(Map<String, List<String>> columnsByTable) {
-        // Process each table's columns separately to create table-specific indexes
-        for (Map.Entry<String, List<String>> entry : columnsByTable.entrySet()) {
-            String table = entry.getKey();
-            List<String> columnsForTable = entry.getValue();
+    private void addColumnToMap(Map<String, Set<String>> columnsByTable, String table, String column) {
+        if (table != null && column != null) {
+            columnsByTable.computeIfAbsent(table.toLowerCase(), k -> new LinkedHashSet<>())
+                         .add(column.toLowerCase());
+        }
+    }
 
-            // Filter out ALL low-cardinality columns from the index
-            // Low cardinality columns should never be included in indexes as they provide
-            // minimal selectivity benefit and can actually hurt performance
-            List<String> filteredColumns = getFilteredColumns(columnsForTable, table);
+    private void generateRequiredIndexes(Map<String, Set<String>> columnsByTable) {
+        for (Map.Entry<String, Set<String>> entry : columnsByTable.entrySet()) {
+            String table = entry.getKey();
+            List<String> filteredColumns = getFilteredColumns(new ArrayList<>(entry.getValue()), table);
 
             if (filteredColumns.size() > 1) {
                 generateRequiredCompositeIndex(filteredColumns, table);
-            } else if (filteredColumns.size() == 1) {
+            } else if (!filteredColumns.isEmpty()) {
                 generateRequiredSingleColumnIndex(filteredColumns, table);
             }
         }
@@ -1107,32 +1098,6 @@ public class QueryOptimizationChecker {
         }
     }
 
-    private static void groupJoinColumnsByTable(QueryAnalysisResult result, Map<String, List<String>> columnsByTable) {
-        // Process right-side JOIN columns (critical for JOIN performance)
-        for (JoinCondition joinCondition : result.getJoinConditions()) {
-            String rightTable = joinCondition.getRightTable();
-            String rightColumn = joinCondition.getRightColumn();
-
-            if (rightTable != null && rightColumn != null) {
-                // Normalize table name to lowercase for consistent key handling
-                String normalizedTable = rightTable.toLowerCase();
-                String normalizedColumn = rightColumn.toLowerCase();
-                CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(normalizedTable, normalizedColumn);
-
-                // Only add non-low cardinality columns that don't already have indexes
-                if (cardinality != CardinalityLevel.LOW &&
-                        !CardinalityAnalyzer.hasIndexWithLeadingColumn(normalizedTable, normalizedColumn)) {
-
-                    // Add to columnsByTable for index generation, avoiding duplicates (case-insensitive)
-                    List<String> tableColumns = columnsByTable.computeIfAbsent(normalizedTable, k -> new ArrayList<>());
-                    boolean alreadyExists = tableColumns.stream().anyMatch(c -> c.equalsIgnoreCase(normalizedColumn));
-                    if (!alreadyExists) {
-                        tableColumns.add(normalizedColumn);
-                    }
-                }
-            }
-        }
-    }
 
     String indent(String s, int spaces) {
         String pad = " ".repeat(Math.max(0, spaces));
