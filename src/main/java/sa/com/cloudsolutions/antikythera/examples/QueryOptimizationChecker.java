@@ -907,13 +907,8 @@ public class QueryOptimizationChecker {
      */
     private boolean isIndexCoveredByProposedIndex(String table, List<String> columns) {
         for (String existingKey : suggestedMultiColumnIndexes) {
-            String[] parts = existingKey.split("\\|", 2);
-            if (parts.length != 2) continue;
-
-            String existingTable = parts[0];
-            if (!existingTable.equals(table)) continue;
-
-            List<String> existingColumns = List.of(parts[1].split(","));
+            List<String> existingColumns = parseIndexColumnsForTable(existingKey, table);
+            if (existingColumns == null) continue;
 
             // Check if existingColumns covers the new columns (existing is larger or equal and starts with same prefix)
             if (existingColumns.size() >= columns.size() && isPrefixIgnoreCase(columns, existingColumns)) {
@@ -958,13 +953,8 @@ public class QueryOptimizationChecker {
 
         // Check multi-column indexes
         for (String existingKey : suggestedMultiColumnIndexes) {
-            String[] parts = existingKey.split("\\|", 2);
-            if (parts.length != 2) continue;
-
-            String existingTable = parts[0];
-            if (!existingTable.equals(table)) continue;
-
-            List<String> existingColumns = List.of(parts[1].split(","));
+            List<String> existingColumns = parseIndexColumnsForTable(existingKey, table);
+            if (existingColumns == null) continue;
 
             // If existing is smaller and is a prefix of the new columns, remove it
             if (existingColumns.size() < columns.size() && isPrefixIgnoreCase(existingColumns, columns)) {
@@ -995,6 +985,23 @@ public class QueryOptimizationChecker {
         if (!toRemove.isEmpty()) {
             OptimizationStatsLogger.updateIndexesGenerated(-toRemove.size());
         }
+    }
+
+    /**
+     * Parses an index key and returns the columns if the key is valid and matches the given table.
+     * 
+     * @param indexKey the index key in format "table|col1,col2,..."
+     * @param expectedTable the table name to match
+     * @return list of columns if valid and table matches, null otherwise
+     */
+    private List<String> parseIndexColumnsForTable(String indexKey, String expectedTable) {
+        String[] parts = indexKey.split("\\|", 2);
+        if (parts.length != 2) return null;
+        
+        String table = parts[0];
+        if (!table.equals(expectedTable)) return null;
+        
+        return List.of(parts[1].split(","));
     }
 
     /**
@@ -1045,12 +1052,10 @@ public class QueryOptimizationChecker {
 
             // Check if any multi-column index on the same table starts with this column
             for (String mcKey : suggestedMultiColumnIndexes) {
-                String[] mcParts = mcKey.split("\\|", 2);
-                if (mcParts.length != 2) continue;
-                String mcTable = mcParts[0];
-                String[] mcColumns = mcParts[1].split(",");
+                List<String> mcColumns = parseIndexColumnsForTable(mcKey, table);
+                if (mcColumns == null) continue;
 
-                if (table.equals(mcTable) && mcColumns.length > 0 && mcColumns[0].equalsIgnoreCase(column)) {
+                if (mcColumns.size() > 0 && mcColumns.get(0).equalsIgnoreCase(column)) {
                     toRemove.add(singleKey);
                     if (!quietMode) {
                         logger.info("Final cleanup: Removing redundant single-column index {} - covered by multi-column index {}",
@@ -1072,13 +1077,8 @@ public class QueryOptimizationChecker {
             for (String key2 : suggestedMultiColumnIndexes) {
                 if (key1.equals(key2)) continue;
 
-                String[] parts2 = key2.split("\\|", 2);
-                if (parts2.length != 2) continue;
-                String table2 = parts2[0];
-                List<String> columns2 = List.of(parts2[1].split(","));
-
-                // Only compare indexes on the same table
-                if (!table1.equals(table2)) continue;
+                List<String> columns2 = parseIndexColumnsForTable(key2, table1);
+                if (columns2 == null) continue;
 
                 // Check if columns1 is a prefix of columns2 (columns2 covers columns1)
                 if (columns2.size() > columns1.size() && isPrefixIgnoreCase(columns1, columns2)) {
