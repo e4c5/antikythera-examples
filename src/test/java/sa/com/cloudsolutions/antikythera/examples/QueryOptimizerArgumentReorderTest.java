@@ -1,5 +1,6 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
+import com.github.javaparser.ast.Modifier;
 import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.Parameter;
@@ -80,6 +81,44 @@ class QueryOptimizerArgumentReorderTest {
         assertEquals(2, call.getArguments().size());
         assertEquals("123", call.getArgument(0).toString());
         assertEquals("\"valA\"", call.getArgument(1).toString());
+    }
+
+    @Test
+    void testReordersArguments_WithFinalModifierMismatch() {
+        // Reproduces the real-world bug: old method has 'final' on some params,
+        // but the optimized method drops 'final' during reorderMethodParameters cloning.
+        // e.g., existsBy...(..., final String facilityType) -> existsBy...(..., String facilityType, ...)
+
+        // Old method: findByAAndB(final Long a, boolean b)
+        MethodDeclaration oldMethod = new MethodDeclaration();
+        Parameter paramA = new Parameter(new ClassOrInterfaceType(null, "Long"), "a");
+        paramA.addModifier(Modifier.Keyword.FINAL);
+        oldMethod.addParameter(paramA);
+        oldMethod.addParameter(new Parameter(new ClassOrInterfaceType(null, "boolean"), "b"));
+        when(mockOldCallable.asMethodDeclaration()).thenReturn(oldMethod);
+
+        // Optimized method: findByBAndA(boolean b, Long a) — note: no 'final' on a
+        MethodDeclaration newMethod = new MethodDeclaration();
+        newMethod.addParameter(new Parameter(new ClassOrInterfaceType(null, "boolean"), "b"));
+        newMethod.addParameter(new Parameter(new ClassOrInterfaceType(null, "Long"), "a"));
+        when(mockNewCallable.asMethodDeclaration()).thenReturn(newMethod);
+
+        when(mockResult.getMethodName()).thenReturn("findByAAndB");
+        when(mockOptimizedQuery.getMethodName()).thenReturn("findByBAndA");
+
+        // Setup method call: repo.findByAAndB(tenantId, true)
+        MethodCallExpr call = new MethodCallExpr(new NameExpr("repo"), "findByAAndB");
+        call.addArgument(new NameExpr("tenantId"));
+        call.addArgument(new NameExpr("true"));
+
+        QueryOptimizer.NameChangeVisitor visitor = new QueryOptimizer.NameChangeVisitor("repo", "com.example.Repo");
+        visitor.visit(call, mockResult);
+
+        // Verify: arguments are reordered despite final modifier mismatch
+        assertEquals("findByBAndA", call.getNameAsString());
+        assertEquals(2, call.getArguments().size());
+        assertEquals("true", call.getArgument(0).toString());
+        assertEquals("tenantId", call.getArgument(1).toString());
     }
 
     @Test

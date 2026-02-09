@@ -132,6 +132,15 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             }
 
             OptimizationStatsLogger.updateMethodSignaturesChanged(methodRenames.size());
+
+            // NOW reorder repository method parameters — this must happen AFTER the
+            // batched caller update because reorderMethodArguments reads the old method's
+            // original parameter order to build the argument mapping.
+            for (MethodRename rename : methodRenames) {
+                reorderMethodParameters(
+                        rename.issue().query().getMethodDeclaration().asMethodDeclaration(),
+                        rename.issue().optimizedQuery().getMethodDeclaration().asMethodDeclaration());
+            }
         }
 
         if (repositoryFileModified && writeFile(typeWrapper.getFullyQualifiedName(),
@@ -212,16 +221,17 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                         .anyMatch(r -> r.oldMethodName().equals(originalMethodName));
 
                 // Apply method name change to the repository interface itself
+                // NOTE: Do NOT reorder parameters here — that must happen AFTER
+                // updateMethodCallSignaturesBatched(), because reorderMethodArguments()
+                // reads the old method's parameters to build the mapping. If we mutate
+                // them now, the caller update will see identical old/new params and skip
+                // reordering.
                 if (methodNameChanged) {
                     logger.info("Changing method name from {} to {}", originalMethodName, optimizedQuery.getMethodName());
 
                     MethodDeclaration method = issue.query().getMethodDeclaration().asMethodDeclaration();
                     Callable newMethod = optimizedQuery.getMethodDeclaration();
                     method.setName(newMethod.getNameAsString());
-
-                    reorderMethodParameters(
-                            issue.query().getMethodDeclaration().asMethodDeclaration(),
-                            newMethod.asMethodDeclaration());
                 }
 
                 // Track if file was modified (annotation always changes and may also have parameter reordering)
@@ -676,45 +686,40 @@ public class QueryOptimizer extends QueryOptimizationChecker {
     }
 
     /**
-     * Reorders method call arguments based on the optimization issue's column order
-     * changes.
+     * Reorders method call arguments based on parameter matching between old and new
+     * method declarations.
      * This ensures that when parameter order changes (e.g., findByEmailAndStatus ->
      * findByStatusAndEmail),
      * the method call arguments are also reordered to match.
+     *
+     * Uses direct parameter matching (type + name) which is more reliable than
+     * column order mapping, as it handles cases like Pageable parameters correctly.
      */
     static void reorderMethodArguments(MethodCallExpr mce, OptimizationIssue issue) {
+        MethodDeclaration oldMethod = issue.query().getMethodDeclaration().asMethodDeclaration();
         MethodDeclaration newMethod = issue.optimizedQuery().getMethodDeclaration().asMethodDeclaration();
-        
+
         NodeList<Expression> args = mce.getArguments();
         if (args.size() != newMethod.getParameters().size()) {
             return;
         }
-        
-        // Use the column order mapping from the OptimizationIssue
-        // currentColumnOrder: order of columns in old method
-        // recommendedColumnOrder: order of columns in new method
-        List<String> currentOrder = issue.currentColumnOrder();
-        List<String> recommendedOrder = issue.recommendedColumnOrder();
-        
-        if (currentOrder == null || recommendedOrder == null || currentOrder.isEmpty() || recommendedOrder.isEmpty()) {
-            return;
-        }
-        
-        // Build parameter mapping: newIndex -> oldIndex
-        // Use the existing column order information which is authoritative
+
+        // Build parameter mapping: newIndex -> oldIndex by matching parameter type+name
+        // Compare by type and name only (ignoring modifiers like 'final' and annotations
+        // like @Param) because reorderMethodParameters may clone parameters that drop
+        // modifiers present in the original declaration.
         Map<Integer, Integer> map = new HashMap<>();
-        for (int newIdx = 0; newIdx < recommendedOrder.size(); newIdx++) {
-            String columnName = recommendedOrder.get(newIdx);
-            int oldIdx = currentOrder.indexOf(columnName);
-            if (oldIdx >= 0) {
-                map.put(newIdx, oldIdx);
+        for (int i = 0; i < oldMethod.getParameters().size(); i++) {
+            for (int j = 0; j < newMethod.getParameters().size(); j++) {
+                if (oldMethod.getParameter(i).getTypeAsString().equals(newMethod.getParameter(j).getTypeAsString())
+                        && oldMethod.getParameter(i).getNameAsString().equals(newMethod.getParameter(j).getNameAsString())) {
+                    map.put(j, i);
+                }
             }
         }
-        
-        // If mapping is incomplete, something went wrong
+
+        // If mapping is incomplete, don't reorder
         if (map.size() != args.size()) {
-            logger.warn("Column order mapping incomplete for method {}. Expected {} mappings, got {}. currentOrder={}, recommendedOrder={}", 
-                mce.getNameAsString(), args.size(), map.size(), currentOrder, recommendedOrder);
             return;
         }
 
@@ -723,9 +728,9 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         for (int i = 0; i < args.size(); i++) {
             argsArray[i] = args.get(i);
         }
-        
+
         args.clear();
-        
+
         for (int i = 0; i < argsArray.length; i++) {
             Integer oldIdx = map.get(i);
             if (oldIdx != null && oldIdx < argsArray.length) {
