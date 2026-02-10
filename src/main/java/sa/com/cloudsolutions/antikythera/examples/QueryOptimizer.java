@@ -106,6 +106,20 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                                 originalName, newName, typeWrapper.getFullyQualifiedName());
                         continue;
                     }
+
+                    // For derived queries (no @Query annotation), skip renames that only
+                    // reorder parameters beyond the first few positions — the disruption
+                    // of renaming every caller is not worth a minor late-column swap.
+                    if (QueryType.DERIVED.equals(issue.query().getQueryType())) {
+                        MethodDeclaration oldMd = issue.query().getMethodDeclaration().asMethodDeclaration();
+                        MethodDeclaration newMd = issue.optimizedQuery().getMethodDeclaration().asMethodDeclaration();
+                        if (!hasEarlyParameterChange(oldMd, newMd, EARLY_PARAM_THRESHOLD)) {
+                            logger.info("Skipping rename from {} to {} — reordering only affects parameters after position {}",
+                                    originalName, newName, EARLY_PARAM_THRESHOLD);
+                            continue;
+                        }
+                    }
+
                     methodRenames.add(new MethodRename(originalName, newName, result, issue));
                     reservedMethodNames.add(newName);
                 }
@@ -386,6 +400,39 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             }
             OptimizationStatsLogger.updateQueryAnnotationsChanged(1);
         }
+    }
+
+    /**
+     * Minimum number of leading parameters that must be affected for a derived query
+     * rename to proceed. If the recommended reordering only swaps parameters at or
+     * after this position, the rename is skipped because the performance benefit is
+     * too small to justify changing every caller.
+     */
+    static final int EARLY_PARAM_THRESHOLD = 4;
+
+    /**
+     * Checks whether a parameter reordering affects any of the first {@code threshold}
+     * parameters.  Returns {@code true} when at least one parameter in positions
+     * 0 .. threshold-1 differs (by type or name) between old and new declarations.
+     *
+     * @param oldMethod the original method declaration
+     * @param newMethod the optimized method declaration
+     * @param threshold how many leading parameters to inspect
+     * @return true if any of the first {@code threshold} parameters changed position
+     */
+    static boolean hasEarlyParameterChange(MethodDeclaration oldMethod,
+            MethodDeclaration newMethod, int threshold) {
+        int limit = Math.min(threshold,
+                Math.min(oldMethod.getParameters().size(), newMethod.getParameters().size()));
+        for (int i = 0; i < limit; i++) {
+            Parameter oldParam = oldMethod.getParameter(i);
+            Parameter newParam = newMethod.getParameter(i);
+            if (!oldParam.getTypeAsString().equals(newParam.getTypeAsString())
+                    || !oldParam.getNameAsString().equals(newParam.getNameAsString())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

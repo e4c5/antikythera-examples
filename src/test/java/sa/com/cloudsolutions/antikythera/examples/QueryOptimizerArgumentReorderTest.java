@@ -19,6 +19,8 @@ import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -119,6 +121,62 @@ class QueryOptimizerArgumentReorderTest {
         assertEquals(2, call.getArguments().size());
         assertEquals("true", call.getArgument(0).toString());
         assertEquals("tenantId", call.getArgument(1).toString());
+    }
+
+    @Test
+    void testHasEarlyParameterChange_swapInFirstFour() {
+        // Old: (String a, String b, Long c, boolean d, String e)
+        // New: (String b, String a, Long c, boolean d, String e)  — swap at positions 0,1
+        MethodDeclaration oldMethod = buildMethod("String", "a", "String", "b", "Long", "c", "boolean", "d", "String", "e");
+        MethodDeclaration newMethod = buildMethod("String", "b", "String", "a", "Long", "c", "boolean", "d", "String", "e");
+
+        assertTrue(QueryOptimizer.hasEarlyParameterChange(oldMethod, newMethod, 4));
+    }
+
+    @Test
+    void testHasEarlyParameterChange_swapOnlyAfterFourth() {
+        // Old: (String a, String b, Long c, boolean d, String e, Long f)
+        // New: (String a, String b, Long c, boolean d, Long f, String e)  — swap at 4,5 only
+        MethodDeclaration oldMethod = buildMethod("String", "a", "String", "b", "Long", "c", "boolean", "d", "String", "e", "Long", "f");
+        MethodDeclaration newMethod = buildMethod("String", "a", "String", "b", "Long", "c", "boolean", "d", "Long", "f", "String", "e");
+
+        assertFalse(QueryOptimizer.hasEarlyParameterChange(oldMethod, newMethod, 4));
+    }
+
+    @Test
+    void testHasEarlyParameterChange_identicalParams() {
+        MethodDeclaration oldMethod = buildMethod("String", "a", "Long", "b");
+        MethodDeclaration newMethod = buildMethod("String", "a", "Long", "b");
+
+        assertFalse(QueryOptimizer.hasEarlyParameterChange(oldMethod, newMethod, 4));
+    }
+
+    @Test
+    void testHasEarlyParameterChange_fewerThanThreshold() {
+        // Only 2 params, threshold is 4 — checks the 2 that exist
+        MethodDeclaration oldMethod = buildMethod("String", "a", "Long", "b");
+        MethodDeclaration newMethod = buildMethod("Long", "b", "String", "a");
+
+        assertTrue(QueryOptimizer.hasEarlyParameterChange(oldMethod, newMethod, 4));
+    }
+
+    @Test
+    void testHasEarlyParameterChange_swapAtExactlyFourthPosition() {
+        // Old: (String a, String b, Long c, boolean d, ...)
+        // New: (String a, String b, Long c, String e, ...)  — change at position 3 (the fourth param)
+        MethodDeclaration oldMethod = buildMethod("String", "a", "String", "b", "Long", "c", "boolean", "d", "String", "e");
+        MethodDeclaration newMethod = buildMethod("String", "a", "String", "b", "Long", "c", "String", "e", "boolean", "d");
+
+        assertTrue(QueryOptimizer.hasEarlyParameterChange(oldMethod, newMethod, 4));
+    }
+
+    /** Helper to build a MethodDeclaration from alternating type/name pairs. */
+    private static MethodDeclaration buildMethod(String... typeNamePairs) {
+        MethodDeclaration md = new MethodDeclaration();
+        for (int i = 0; i < typeNamePairs.length; i += 2) {
+            md.addParameter(new Parameter(new ClassOrInterfaceType(null, typeNamePairs[i]), typeNamePairs[i + 1]));
+        }
+        return md;
     }
 
     @Test
