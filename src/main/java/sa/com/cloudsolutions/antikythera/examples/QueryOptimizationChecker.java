@@ -1,5 +1,6 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
+import liquibase.exception.LiquibaseException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
@@ -73,7 +74,7 @@ public class QueryOptimizationChecker {
      * @param liquibaseXmlPath path to the Liquibase XML file for database metadata
      * @throws Exception if initialization fails
      */
-    public QueryOptimizationChecker(File liquibaseXmlPath) throws Exception {
+    public QueryOptimizationChecker(File liquibaseXmlPath) throws LiquibaseException, IOException {
         this.liquibaseXmlPath = liquibaseXmlPath;
         // Load database metadata for cardinality analysis
         Map<String, Set<Indexes.IndexInfo>> indexMap = Indexes.load(liquibaseXmlPath);
@@ -1062,7 +1063,7 @@ public class QueryOptimizationChecker {
             for (String mcKey : suggestedMultiColumnIndexes) {
                 List<String> mcColumns = parseIndexColumnsForTable(mcKey, table);
 
-                if (!mcColumns.isEmpty() && mcColumns.get(0).equalsIgnoreCase(column)) {
+                if (!mcColumns.isEmpty() && mcColumns.getFirst().equalsIgnoreCase(column)) {
                     toRemove.add(singleKey);
                     if (!quietMode) {
                         logger.info("Final cleanup: Removing redundant single-column index {} - covered by multi-column index {}",
@@ -1081,8 +1082,13 @@ public class QueryOptimizationChecker {
             String table1 = parts1[0];
             List<String> columns1 = List.of(parts1[1].split(","));
 
-            for (String key2 : suggestedMultiColumnIndexes) {
-                if (key1.equals(key2)) continue;
+            removeRedundantMultiColumnIndex(toRemove, key1, table1, columns1);
+        }
+    }
+
+    private void removeRedundantMultiColumnIndex(Set<String> toRemove, String key1, String table1, List<String> columns1) {
+        for (String key2 : suggestedMultiColumnIndexes) {
+            if (!key1.equals(key2)) {
 
                 List<String> columns2 = parseIndexColumnsForTable(key2, table1);
 

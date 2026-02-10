@@ -16,6 +16,8 @@ import com.github.javaparser.ast.visitor.ModifierVisitor;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.printer.lexicalpreservation.LexicalPreservingPrinter;
 import com.github.javaparser.ast.NodeList;
+import liquibase.exception.LiquibaseException;
+import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
@@ -57,9 +59,9 @@ public class QueryOptimizer extends QueryOptimizationChecker {
      * comprehensive query analysis.
      *
      * @param liquibaseXmlPath path to the Liquibase XML file for database metadata
-     * @throws Exception if initialization fails
+     * @throws LiquibaseException or IOException if initialization fails
      */
-    public QueryOptimizer(File liquibaseXmlPath) throws Exception {
+    public QueryOptimizer(File liquibaseXmlPath) throws LiquibaseException, IOException {
         super(liquibaseXmlPath);
         Fields.buildDependencies();
         EntityMappingResolver.build();
@@ -91,39 +93,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         List<MethodRename> methodRenames = new ArrayList<>();
 
         for (QueryAnalysisResult result : results) {
-            OptimizationIssue issue = result.getOptimizationIssue();
-            if (issue != null && issue.optimizedQuery() != null) {
-                String originalName = issue.query().getMethodName();
-                String newName = issue.optimizedQuery().getMethodName();
-                String aiExplanation = issue.aiExplanation();
-
-                boolean methodNameChanged = !originalName.equals(newName)
-                        && (aiExplanation == null || !aiExplanation.startsWith("N/A"));
-
-                if (methodNameChanged) {
-                    if (reservedMethodNames.contains(newName)) {
-                        logger.warn("Skipping rename from {} to {} because target name already exists in {}",
-                                originalName, newName, typeWrapper.getFullyQualifiedName());
-                        continue;
-                    }
-
-                    // For derived queries (no @Query annotation), skip renames that only
-                    // reorder parameters beyond the first few positions — the disruption
-                    // of renaming every caller is not worth a minor late-column swap.
-                    if (QueryType.DERIVED.equals(issue.query().getQueryType())) {
-                        MethodDeclaration oldMd = issue.query().getMethodDeclaration().asMethodDeclaration();
-                        MethodDeclaration newMd = issue.optimizedQuery().getMethodDeclaration().asMethodDeclaration();
-                        if (!hasEarlyParameterChange(oldMd, newMd, EARLY_PARAM_THRESHOLD)) {
-                            logger.info("Skipping rename from {} to {} — reordering only affects parameters after position {}",
-                                    originalName, newName, EARLY_PARAM_THRESHOLD);
-                            continue;
-                        }
-                    }
-
-                    methodRenames.add(new MethodRename(originalName, newName, result, issue));
-                    reservedMethodNames.add(newName);
-                }
-            }
+            analyzeQueryOptimizationResult(typeWrapper, result, reservedMethodNames, methodRenames);
         }
 
         // Process all results (update annotations, etc.)
@@ -138,7 +108,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                     methodRenames.size());
 
             long startTime = System.currentTimeMillis();
-            updateMethodCallSignaturesBatched(methodRenames, repositoryClassName);
+            batchUpdateMethodSignatures(methodRenames, repositoryClassName);
             long elapsed = System.currentTimeMillis() - startTime;
 
             if (elapsed > 1000) {
@@ -164,6 +134,44 @@ public class QueryOptimizer extends QueryOptimizationChecker {
 
         // Save modified files to checkpoint for resume capability
         checkpointManager.setModifiedFiles(modifiedFiles);
+    }
+
+    private static void analyzeQueryOptimizationResult(TypeWrapper typeWrapper, QueryAnalysisResult result,
+                                                       Set<String> reservedMethodNames, List<MethodRename> methodRenames) {
+        OptimizationIssue issue = result.getOptimizationIssue();
+        if (issue == null || issue.optimizedQuery() == null) {
+            return;
+        }
+        String originalName = issue.query().getMethodName();
+        String newName = issue.optimizedQuery().getMethodName();
+        String aiExplanation = issue.aiExplanation();
+
+        boolean methodNameChanged = !originalName.equals(newName)
+                && (aiExplanation == null || !aiExplanation.startsWith("N/A"));
+
+        if (methodNameChanged) {
+            if (reservedMethodNames.contains(newName)) {
+                logger.warn("Skipping rename from {} to {} because target name already exists in {}",
+                        originalName, newName, typeWrapper.getFullyQualifiedName());
+                return;
+            }
+
+            // For derived queries (no @Query annotation), skip renames that only
+            // reorder parameters beyond the first few positions — the disruption
+            // of renaming every caller is not worth a minor late-column swap.
+            if (QueryType.DERIVED.equals(issue.query().getQueryType())) {
+                MethodDeclaration oldMd = issue.query().getMethodDeclaration().asMethodDeclaration();
+                MethodDeclaration newMd = issue.optimizedQuery().getMethodDeclaration().asMethodDeclaration();
+                if (!hasEarlyParameterChange(oldMd, newMd, EARLY_PARAM_THRESHOLD)) {
+                    logger.info("Skipping rename from {} to {} — reordering only affects parameters after position {}",
+                            originalName, newName, EARLY_PARAM_THRESHOLD);
+                    return;
+                }
+            }
+
+            methodRenames.add(new MethodRename(originalName, newName, result, issue));
+            reservedMethodNames.add(newName);
+        }
     }
 
     /**
@@ -544,19 +552,10 @@ public class QueryOptimizer extends QueryOptimizationChecker {
      * @param methodRenames list of all method renames to apply
      * @param fullyQualifiedName the repository class name
      */
-    public void updateMethodCallSignaturesBatched(List<MethodRename> methodRenames, String fullyQualifiedName) {
+    public void batchUpdateMethodSignatures(List<MethodRename> methodRenames, String fullyQualifiedName) throws IOException {
         // Collect all classes that need to be updated based on method call index
         // Map: className -> Set<fieldNames> that need processing
-        Map<String, Set<String>> classesToProcess = new HashMap<>();
-
-        for (MethodRename rename : methodRenames) {
-            Set<Fields.CallerInfo> callers = Fields.getMethodCallers(fullyQualifiedName, rename.oldMethodName());
-            for (Fields.CallerInfo caller : callers) {
-                classesToProcess
-                        .computeIfAbsent(caller.callerClass(), k -> new java.util.HashSet<>())
-                        .add(caller.fieldName());
-            }
-        }
+        Map<String, Set<String>> classesToProcess = findClassesWithDependency(methodRenames, fullyQualifiedName);
 
         if (classesToProcess.isEmpty()) {
             logger.debug("No method callers found for {} methods being renamed", methodRenames.size());
@@ -572,8 +571,6 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                 totalDependentClasses > 0 ? (100 - (classesToProcess.size() * 100 / totalDependentClasses)) : 0);
 
         long loopStartTime = System.currentTimeMillis();
-        long totalAstVisitTime = 0;
-        long totalFileWriteTime = 0;
         int classesProcessed = 0;
         int totalMethodCallsUpdated = 0;
         List<String> classesModifiedInBatch = new ArrayList<>();
@@ -594,7 +591,6 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             logger.info("  Visiting class: {} (fields: {})", className, fieldNames);
             int callsUpdated = updateMethodCallSignatureBatched(methodRenames, fieldNames, className);
             long astElapsed = System.currentTimeMillis() - astStart;
-            totalAstVisitTime += astElapsed;
 
             if (callsUpdated > 0) {
                 logger.info("  Updated {} calls in {} ({}ms)", callsUpdated, className, astElapsed);
@@ -612,31 +608,27 @@ public class QueryOptimizer extends QueryOptimizationChecker {
 
         // Write modified files to disk immediately after batch processing
         // This ensures changes are persisted before checkpoint is saved
-        int filesWritten = 0;
+
         for (String className : classesModifiedInBatch) {
-            try {
-                long writeStart = System.currentTimeMillis();
-                if (writeFile(className)) {
-                    writtenFiles.add(className);
-                    filesWritten++;
-                }
-                totalFileWriteTime += System.currentTimeMillis() - writeStart;
-            } catch (IOException e) {
-                logger.error("Failed to write file for {}: {}", className, e.getMessage());
+            if (writeFile(className)) {
+                writtenFiles.add(className);
             }
         }
-
-        long totalElapsed = System.currentTimeMillis() - loopStartTime;
-        logger.info("Batched update finished: {} classes, {} method calls updated, {} files written in {}ms",
-                classesProcessed, totalMethodCallsUpdated, filesWritten, totalElapsed);
-        logger.info("  Profiling breakdown: AST visiting={}ms, File writing={}ms, Other={}ms",
-                totalAstVisitTime, totalFileWriteTime, totalElapsed - totalAstVisitTime - totalFileWriteTime);
-        if (lppCallCount > 0) {
-            logger.info("  Cumulative profiling breakdown: LexicalPreservingPrinter={}ms ({}calls, {}ms/call avg), Disk I/O={}ms",
-                    totalLppTime, lppCallCount, totalLppTime / lppCallCount, totalDiskWriteTime);
-        }
-
         OptimizationStatsLogger.updateMethodCallsChanged(totalMethodCallsUpdated);
+    }
+
+    private static @NonNull Map<String, Set<String>> findClassesWithDependency(List<MethodRename> methodRenames, String fullyQualifiedName) {
+        Map<String, Set<String>> classesToProcess = new HashMap<>();
+
+        for (MethodRename rename : methodRenames) {
+            Set<Fields.CallerInfo> callers = Fields.getMethodCallers(fullyQualifiedName, rename.oldMethodName());
+            for (Fields.CallerInfo caller : callers) {
+                classesToProcess
+                        .computeIfAbsent(caller.callerClass(), k -> new HashSet<>())
+                        .add(caller.fieldName());
+            }
+        }
+        return classesToProcess;
     }
 
     /**

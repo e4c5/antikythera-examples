@@ -12,6 +12,7 @@ import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 
+import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.generator.QueryType;
@@ -423,6 +424,10 @@ public class GeminiAIService {
             return response.substring(jsonStart, jsonEnd + 1);
         }
 
+        return extractJsonFromCodeBlocks(response);
+    }
+
+    private static @NonNull String extractJsonFromCodeBlocks(String response) {
         // If no array found, try to find JSON in code blocks
         String[] lines = response.split("\n");
         StringBuilder jsonBuilder = new StringBuilder();

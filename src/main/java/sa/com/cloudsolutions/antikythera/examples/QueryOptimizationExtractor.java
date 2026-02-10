@@ -110,8 +110,8 @@ public class QueryOptimizationExtractor {
             return plainSelect.getWhere();
         } else if (selectBody instanceof net.sf.jsqlparser.statement.select.ParenthesedSelect parenthesedSelect) {
             return getWhereFromSelect(parenthesedSelect.getSelect());
-        } else if (selectBody instanceof net.sf.jsqlparser.statement.select.SetOperationList setOpList) {
-            if (setOpList.getSelects() != null) {
+        } else {
+            if (selectBody instanceof net.sf.jsqlparser.statement.select.SetOperationList setOpList && setOpList.getSelects() != null) {
                 for (Select innerSelect : setOpList.getSelects()) {
                     Expression where = getWhereFromSelect(innerSelect);
                     if (where != null) {
@@ -124,8 +124,8 @@ public class QueryOptimizationExtractor {
     }
 
     /**
-         * Result object containing both WHERE and JOIN conditions.
-         */
-        public record ConditionExtractionResult(List<WhereCondition> whereConditions, List<JoinCondition> joinConditions) {
+     * Result object containing both WHERE and JOIN conditions.
+     */
+    public record ConditionExtractionResult(List<WhereCondition> whereConditions, List<JoinCondition> joinConditions) {
     }
 }
