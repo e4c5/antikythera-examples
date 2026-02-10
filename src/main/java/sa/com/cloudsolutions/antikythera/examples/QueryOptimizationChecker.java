@@ -52,6 +52,12 @@ public class QueryOptimizationChecker {
     // Quiet mode flag - suppresses detailed output, shows only changes
     protected static boolean quietMode = false;
 
+    // Skip already processed repositories
+    protected static boolean skipProcessed = false;
+
+    // Maximum number of columns allowed in a multi-column index (configurable)
+    protected final int maxIndexColumns;
+
     /**
      * Creates a new QueryOptimizationChecker that uses RepositoryParser for
      * comprehensive query analysis.
@@ -76,8 +82,10 @@ public class QueryOptimizationChecker {
             aiConfig = new HashMap<>();
         }
         this.aiService.configure(aiConfig);
-        // Initialize Liquibase generator with default configuration
-        this.liquibaseGenerator = new LiquibaseGenerator();
+        this.liquibaseGenerator = new LiquibaseGenerator(LiquibaseGenerator.ChangesetConfig.fromConfiguration());
+
+        // Read max_index_columns from configuration (default: 4)
+        this.maxIndexColumns = getMaxIndexColumnsFromConfig();
     }
 
     /**
@@ -87,13 +95,21 @@ public class QueryOptimizationChecker {
      */
     public void analyze() throws IOException, ReflectiveOperationException, InterruptedException {
         Map<String, TypeWrapper> resolvedTypes = AntikytheraRunTime.getResolvedTypes();
+        Set<String> processedRepositories = skipProcessed ? OptimizationStatsLogger.getProcessedRepositories() : Set.of();
         int i = 0;
         int repositoriesProcessed = 0;
         for (Map.Entry<String, TypeWrapper> entry : resolvedTypes.entrySet()) {
             String fullyQualifiedName = entry.getKey();
             TypeWrapper typeWrapper = entry.getValue();
 
+            i++;
             if (BaseRepositoryParser.isJpaRepository(typeWrapper)) {
+                if (skipProcessed && processedRepositories.contains(fullyQualifiedName)) {
+                    if (!quietMode) {
+                        System.out.printf("⏭️ Skipping already processed repository: %s%n", fullyQualifiedName);
+                    }
+                    continue;
+                }
                 results.clear(); // Clear results for each repository
 
                 System.out.println("\n" + "=".repeat(80));
@@ -260,12 +276,17 @@ public class QueryOptimizationChecker {
      */
     QueryAnalysisResult createResultWithIndexAnalysis(OptimizationIssue llmRecommendation,
             RepositoryQuery rawQuery) {
-        // Use QueryAnalysisEngine to extract WHERE conditions from the actual query
-        // This is independent of LLM recommendations
-        QueryAnalysisResult engineResult = analysisEngine.analyzeQuery(rawQuery);
+        // Use QueryAnalysisEngine to extract WHERE conditions from the query
+        // If the LLM provided an optimized query, analyze that instead of the raw query
+        // to ensure index suggestions match the recommended code changes.
+        RepositoryQuery queryToAnalyze = llmRecommendation.optimizedQuery() != null
+                ? llmRecommendation.optimizedQuery()
+                : rawQuery;
+
+        QueryAnalysisResult engineResult = analysisEngine.analyzeQuery(queryToAnalyze);
         List<WhereCondition> whereConditions = engineResult.getWhereConditions();
 
-        // Analyze indexes based on actual WHERE conditions, not LLM recommendations
+        // Analyze indexes based on actual WHERE conditions
         // Each condition now includes its own table name, which is critical for JOIN
         // queries
         List<String> requiredIndexes = new ArrayList<>();
@@ -300,7 +321,8 @@ public class QueryOptimizationChecker {
     }
 
     private void analyzeJoinRightSide(QueryAnalysisResult engineResult, List<String> requiredIndexes) {
-        // Analyze right-side JOIN columns for missing indexes (critical for JOIN performance)
+        // Analyze right-side JOIN columns for missing indexes (critical for JOIN
+        // performance)
         for (JoinCondition joinCondition : engineResult.getJoinConditions()) {
             String rightTable = joinCondition.getRightTable();
             String rightColumn = joinCondition.getRightColumn();
@@ -565,6 +587,15 @@ public class QueryOptimizationChecker {
     }
 
     /**
+     * Set whether to skip already processed repositories.
+     * 
+     * @param enabled true to skip, false to re-analyze
+     */
+    public static void setSkipProcessed(boolean enabled) {
+        skipProcessed = enabled;
+    }
+
+    /**
      * Checks if quiet mode is enabled.
      * 
      * @return true if quiet mode is enabled
@@ -679,7 +710,17 @@ public class QueryOptimizationChecker {
             if (condition.cardinality() != CardinalityLevel.LOW) {
                 String tableName = condition.tableName() == null ? result.getQuery().getPrimaryTable()
                         : condition.getTableName();
-                columnsByTable.computeIfAbsent(tableName, k -> new ArrayList<>()).add(condition.columnName());
+                // Normalize table and column names to lowercase to ensure consistent key handling
+                String normalizedTableName = tableName != null ? tableName.toLowerCase() : null;
+                String normalizedColumnName = condition.columnName() != null ? condition.columnName().toLowerCase() : null;
+                if (normalizedTableName != null && normalizedColumnName != null) {
+                    List<String> tableColumns = columnsByTable.computeIfAbsent(normalizedTableName, k -> new ArrayList<>());
+                    // Avoid duplicate columns (case-insensitive)
+                    boolean alreadyExists = tableColumns.stream().anyMatch(c -> c.equalsIgnoreCase(normalizedColumnName));
+                    if (!alreadyExists) {
+                        tableColumns.add(normalizedColumnName);
+                    }
+                }
             }
         }
 
@@ -694,18 +735,56 @@ public class QueryOptimizationChecker {
             String table = entry.getKey();
             List<String> columnsForTable = entry.getValue();
 
-            // Filter out columns that already have indexes and low-cardinality columns
+            // Filter out ALL low-cardinality columns from the index
+            // Low cardinality columns should never be included in indexes as they provide
+            // minimal selectivity benefit and can actually hurt performance
             List<String> filteredColumns = new ArrayList<>();
             for (String column : columnsForTable) {
                 CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(table, column);
-                if (cardinality != CardinalityLevel.LOW) {
-                    filteredColumns.add(column);
+                if (cardinality == CardinalityLevel.LOW) {
+                    // Skip low cardinality column - don't include it in the index
+                    if (!quietMode) {
+                        logger.info("Excluding low-cardinality column '{}' from index on table '{}'.", column, table);
+                    }
+                    continue; // Skip this column but continue processing remaining columns
                 }
+                filteredColumns.add(column);
             }
 
             if (filteredColumns.size() > 1) {
-                // Create multi-column index for this specific table
+                // Limit to maxIndexColumns (default 4)
+                if (filteredColumns.size() > maxIndexColumns) {
+                    if (!quietMode) {
+                        logger.info("Limiting multi-column index on table {} from {} columns to {} columns (max_index_columns config)",
+                                table, filteredColumns.size(), maxIndexColumns);
+                    }
+                    filteredColumns = filteredColumns.subList(0, maxIndexColumns);
+                }
+
+                // Check if an existing DATABASE index already covers these columns
+                if (CardinalityAnalyzer.hasIndexCoveringColumns(table, filteredColumns)) {
+                    if (!quietMode) {
+                        logger.info("Skipping index on table {} for columns {} - already covered by existing index",
+                                table, filteredColumns);
+                    }
+                    continue;
+                }
+
+                // Create the key for this proposed index
                 String key = (table + "|" + String.join(",", filteredColumns)).toLowerCase();
+
+                // Check if this proposed index is already covered by another PROPOSED index
+                if (isIndexCoveredByProposedIndex(table.toLowerCase(), filteredColumns)) {
+                    if (!quietMode) {
+                        logger.info("Skipping index {} - already covered by a larger proposed index", key);
+                    }
+                    continue;
+                }
+
+                // Before adding, remove any smaller proposed indexes that this new index covers
+                removeProposedIndexesCoveredBy(table.toLowerCase(), filteredColumns);
+
+                // Create multi-column index for this specific table
                 if (suggestedMultiColumnIndexes.add(key)) {
                     OptimizationStatsLogger.updateIndexesGenerated(1);
                 }
@@ -715,11 +794,207 @@ public class QueryOptimizationChecker {
                 boolean hasExisting = CardinalityAnalyzer.hasIndexWithLeadingColumn(table, column);
                 if (!hasExisting) {
                     String key = (table + "|" + column).toLowerCase();
+
+                    // Check if this single-column is already covered by a proposed multi-column index
+                    if (isSingleColumnCoveredByProposed(table.toLowerCase(), column.toLowerCase())) {
+                        if (!quietMode) {
+                            logger.info("Skipping single-column index {} - already covered by a proposed multi-column index", key);
+                        }
+                        continue;
+                    }
+
                     if (suggestedNewIndexes.add(key)) {
                         OptimizationStatsLogger.updateIndexesGenerated(1);
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * Checks if a proposed index is already covered by another larger proposed index.
+     * An index (A, B) is covered by (A, B, C) if the larger index starts with all columns
+     * of the smaller index in the same order.
+     *
+     * @param table the table name (lowercase)
+     * @param columns the columns of the proposed index
+     * @return true if there's already a larger proposed index that covers this one
+     */
+    private boolean isIndexCoveredByProposedIndex(String table, List<String> columns) {
+        for (String existingKey : suggestedMultiColumnIndexes) {
+            String[] parts = existingKey.split("\\|", 2);
+            if (parts.length != 2) continue;
+
+            String existingTable = parts[0];
+            if (!existingTable.equals(table)) continue;
+
+            List<String> existingColumns = List.of(parts[1].split(","));
+
+            // Check if existingColumns covers the new columns (existing is larger or equal and starts with same prefix)
+            if (existingColumns.size() >= columns.size() && isPrefixIgnoreCase(columns, existingColumns)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Checks if a single-column index is already covered by a proposed multi-column index
+     * that has this column as its leading column.
+     *
+     * @param table the table name (lowercase)
+     * @param column the column name (lowercase)
+     * @return true if there's a multi-column index with this as the leading column
+     */
+    private boolean isSingleColumnCoveredByProposed(String table, String column) {
+        for (String mcKey : suggestedMultiColumnIndexes) {
+            String[] mcParts = mcKey.split("\\|", 2);
+            if (mcParts.length != 2) continue;
+
+            String mcTable = mcParts[0];
+            String[] mcColumns = mcParts[1].split(",");
+
+            if (table.equals(mcTable) && mcColumns.length > 0 && mcColumns[0].equalsIgnoreCase(column)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Removes any proposed indexes that are covered by a new larger index being added.
+     * For example, if adding (A, B, C), this will remove existing (A) and (A, B).
+     *
+     * @param table the table name (lowercase)
+     * @param columns the columns of the new larger index
+     */
+    private void removeProposedIndexesCoveredBy(String table, List<String> columns) {
+        Set<String> toRemove = new HashSet<>();
+
+        // Check multi-column indexes
+        for (String existingKey : suggestedMultiColumnIndexes) {
+            String[] parts = existingKey.split("\\|", 2);
+            if (parts.length != 2) continue;
+
+            String existingTable = parts[0];
+            if (!existingTable.equals(table)) continue;
+
+            List<String> existingColumns = List.of(parts[1].split(","));
+
+            // If existing is smaller and is a prefix of the new columns, remove it
+            if (existingColumns.size() < columns.size() && isPrefixIgnoreCase(existingColumns, columns)) {
+                toRemove.add(existingKey);
+                if (!quietMode) {
+                    logger.info("Removing smaller proposed index {} - will be covered by new index on columns {}",
+                            existingKey, columns);
+                }
+            }
+        }
+
+        // Check single-column indexes
+        if (!columns.isEmpty()) {
+            String firstColumn = columns.get(0).toLowerCase();
+            String singleKey = table + "|" + firstColumn;
+            if (suggestedNewIndexes.contains(singleKey)) {
+                toRemove.add(singleKey);
+                if (!quietMode) {
+                    logger.info("Removing single-column index {} - will be covered by new multi-column index on columns {}",
+                            singleKey, columns);
+                }
+            }
+        }
+
+        // Remove the covered indexes and update stats
+        suggestedMultiColumnIndexes.removeAll(toRemove);
+        suggestedNewIndexes.removeAll(toRemove);
+        if (!toRemove.isEmpty()) {
+            OptimizationStatsLogger.updateIndexesGenerated(-toRemove.size());
+        }
+    }
+
+    /**
+     * Checks if list1 is a prefix of list2 (case-insensitive comparison).
+     * For example, [A, B] is a prefix of [A, B, C, D].
+     */
+    private boolean isPrefixIgnoreCase(List<String> list1, List<String> list2) {
+        if (list1.size() > list2.size()) return false;
+        for (int i = 0; i < list1.size(); i++) {
+            if (!list1.get(i).equalsIgnoreCase(list2.get(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Final cleanup pass to remove any remaining redundant proposed indexes.
+     * This is called once before generating the Liquibase file to catch any edge cases
+     * that might have slipped through the incremental checks.
+     */
+    private void finalRedundancyCleanup() {
+        Set<String> toRemove = new HashSet<>();
+
+        // Check each multi-column index against all others
+        for (String key1 : suggestedMultiColumnIndexes) {
+            String[] parts1 = key1.split("\\|", 2);
+            if (parts1.length != 2) continue;
+            String table1 = parts1[0];
+            List<String> columns1 = List.of(parts1[1].split(","));
+
+            for (String key2 : suggestedMultiColumnIndexes) {
+                if (key1.equals(key2)) continue;
+
+                String[] parts2 = key2.split("\\|", 2);
+                if (parts2.length != 2) continue;
+                String table2 = parts2[0];
+                List<String> columns2 = List.of(parts2[1].split(","));
+
+                // Only compare indexes on the same table
+                if (!table1.equals(table2)) continue;
+
+                // Check if columns1 is a prefix of columns2 (columns2 covers columns1)
+                if (columns2.size() > columns1.size() && isPrefixIgnoreCase(columns1, columns2)) {
+                    toRemove.add(key1);
+                    if (!quietMode) {
+                        logger.info("Final cleanup: Removing redundant index {} - covered by {}", key1, key2);
+                    }
+                    break;
+                }
+            }
+        }
+
+        // Also check single-column indexes against multi-column indexes
+        for (String singleKey : suggestedNewIndexes) {
+            String[] parts = singleKey.split("\\|", 2);
+            if (parts.length != 2) continue;
+            String table = parts[0];
+            String column = parts[1];
+
+            // Check if any multi-column index on the same table starts with this column
+            for (String mcKey : suggestedMultiColumnIndexes) {
+                String[] mcParts = mcKey.split("\\|", 2);
+                if (mcParts.length != 2) continue;
+                String mcTable = mcParts[0];
+                String[] mcColumns = mcParts[1].split(",");
+
+                if (table.equals(mcTable) && mcColumns.length > 0 && mcColumns[0].equalsIgnoreCase(column)) {
+                    toRemove.add(singleKey);
+                    if (!quietMode) {
+                        logger.info("Final cleanup: Removing redundant single-column index {} - covered by multi-column index {}",
+                                singleKey, mcKey);
+                    }
+                    break;
+                }
+            }
+        }
+
+        // Remove the redundant indexes
+        suggestedMultiColumnIndexes.removeAll(toRemove);
+        suggestedNewIndexes.removeAll(toRemove);
+
+        // Update stats if we removed any
+        if (!toRemove.isEmpty()) {
+            OptimizationStatsLogger.updateIndexesGenerated(-toRemove.size());
         }
     }
 
@@ -730,16 +1005,20 @@ public class QueryOptimizationChecker {
             String rightColumn = joinCondition.getRightColumn();
 
             if (rightTable != null && rightColumn != null) {
-                CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(rightTable, rightColumn);
+                // Normalize table name to lowercase for consistent key handling
+                String normalizedTable = rightTable.toLowerCase();
+                String normalizedColumn = rightColumn.toLowerCase();
+                CardinalityLevel cardinality = CardinalityAnalyzer.analyzeColumnCardinality(normalizedTable, normalizedColumn);
 
                 // Only add non-low cardinality columns that don't already have indexes
                 if (cardinality != CardinalityLevel.LOW &&
-                    !CardinalityAnalyzer.hasIndexWithLeadingColumn(rightTable, rightColumn)) {
+                        !CardinalityAnalyzer.hasIndexWithLeadingColumn(normalizedTable, normalizedColumn)) {
 
-                    // Add to columnsByTable for index generation, avoiding duplicates
-                    List<String> tableColumns = columnsByTable.computeIfAbsent(rightTable, k -> new ArrayList<>());
-                    if (!tableColumns.contains(rightColumn)) {
-                        tableColumns.add(rightColumn);
+                    // Add to columnsByTable for index generation, avoiding duplicates (case-insensitive)
+                    List<String> tableColumns = columnsByTable.computeIfAbsent(normalizedTable, k -> new ArrayList<>());
+                    boolean alreadyExists = tableColumns.stream().anyMatch(c -> c.equalsIgnoreCase(normalizedColumn));
+                    if (!alreadyExists) {
+                        tableColumns.add(normalizedColumn);
                     }
                 }
             }
@@ -793,6 +1072,9 @@ public class QueryOptimizationChecker {
      * @return GeneratedChangesets containing all changesets and counts
      */
     List<String> generateLiquibaseChangesets() {
+        // Final cleanup pass to remove any remaining redundant indexes before generating
+        finalRedundancyCleanup();
+
         List<String> result = new ArrayList<>();
 
         for (String key : suggestedMultiColumnIndexes) {
@@ -868,9 +1150,9 @@ public class QueryOptimizationChecker {
         return suggestedMultiColumnIndexes.stream()
                 .anyMatch(mcKey -> {
                     String[] mcParts = mcKey.split("\\|", 2);
-                    if (mcParts.length == 2 && mcParts[0].equals(table)) {
+                    if (mcParts.length == 2 && mcParts[0].equalsIgnoreCase(table)) {
                         String[] cols = mcParts[1].split(",");
-                        return cols.length > 0 && cols[0].equals(column);
+                        return cols.length > 0 && cols[0].equalsIgnoreCase(column);
                     }
                     return false;
                 });
@@ -989,5 +1271,32 @@ public class QueryOptimizationChecker {
 
     LinkedHashSet<String> getSuggestedMultiColumnIndexes() {
         return suggestedMultiColumnIndexes;
+    }
+
+    int getMaxIndexColumns() {
+        return maxIndexColumns;
+    }
+
+    /**
+     * Reads the max_index_columns configuration from query_optimizer section.
+     * Returns the default value of 4 if not configured.
+     *
+     * @return maximum number of columns allowed in a multi-column index
+     */
+    @SuppressWarnings("unchecked")
+    private static int getMaxIndexColumnsFromConfig() {
+        Map<String, Object> queryOptimizer = (Map<String, Object>) Settings.getProperty("query_optimizer");
+        if (queryOptimizer != null) {
+            Object maxColumns = queryOptimizer.get("max_index_columns");
+            if (maxColumns instanceof Number n) {
+                int value = n.intValue();
+                // Validate the value is reasonable (at least 1, at most 16)
+                if (value >= 1 && value <= 16) {
+                    return value;
+                }
+                logger.warn("max_index_columns value {} is out of range (1-16), using default of 4", value);
+            }
+        }
+        return 4; // Default value
     }
 }
