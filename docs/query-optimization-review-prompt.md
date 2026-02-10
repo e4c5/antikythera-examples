@@ -38,6 +38,22 @@ Conduct a technical review of the current Git diff. Focus on code integrity and 
 **5. Index drops:**
 - ** If the liquibase file is correctly validated, identify what indexes are dropped in the liquibase file and make a comment on why it might have been dropped
 
+**6. Method Changes Beyond Reordering:**
+- **Scope Validation:** Verify the optimizer ONLY reordered WHERE clause conditions. Flag any other changes to method logic, return types, or filtering behavior.
+- **New Methods:** Identify any new repository methods added and ensure they follow the same cardinality-first principle.
+- **Query Structure:** Confirm no JOIN conditions, GROUP BY clauses, or ORDER BY clauses were inadvertently modified.
+- **Null Handling:** Check if nullable columns in the WHERE clause are properly handled—reordering might affect null behavior in some SQL dialects.
+
+**7. Call-Site Completeness:**
+- **Search Strategy:** Use repository-wide grep/search to find ALL usages of changed method names (beyond Services, Controllers, and Tests):
+    - Configuration classes
+    - Aspect classes
+    - Event listeners
+    - Batch jobs
+    - Dynamic method invocations or reflection-based calls
+- **Method References:** Explicitly check for `::` references (e.g., `repository::findByStatusAndEmail`) in streams or functional interfaces.
+- **This Context:** Search for `this.` method calls within the repository itself (inherited methods, etc.)
+- 
 **Output:**
 Provide a summary of "Verified Optimizations" and a list of "Regressions/Corrections" if any mismatched signatures or syntax errors are detected.
 Place this out in a markdown file that is named as `review-<date>.md`, where `<date>` is the current date in `YYYYMMDD` format. Additionally include
