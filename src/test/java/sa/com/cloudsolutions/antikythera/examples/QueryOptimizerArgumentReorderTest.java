@@ -224,4 +224,89 @@ class QueryOptimizerArgumentReorderTest {
         assertEquals("\"valY\"", call.getArgument(0).toString());
         assertEquals("\"valX\"", call.getArgument(1).toString());
     }
+
+    @Test
+    void testNameChangeVisitor_DoReturnWhenPattern() {
+        // Setup original method: findByAAndB(String a, int b)
+        MethodDeclaration oldMethod = new MethodDeclaration();
+        oldMethod.addParameter(new Parameter(new ClassOrInterfaceType(null, "String"), "a"));
+        oldMethod.addParameter(new Parameter(new ClassOrInterfaceType(null, "int"), "b"));
+        when(mockOldCallable.asMethodDeclaration()).thenReturn(oldMethod);
+
+        // Setup optimized method: findByBAndA(int b, String a)
+        MethodDeclaration newMethod = new MethodDeclaration();
+        newMethod.addParameter(new Parameter(new ClassOrInterfaceType(null, "int"), "b"));
+        newMethod.addParameter(new Parameter(new ClassOrInterfaceType(null, "String"), "a"));
+        when(mockNewCallable.asMethodDeclaration()).thenReturn(newMethod);
+
+        when(mockResult.getMethodName()).thenReturn("findByAAndB");
+        when(mockOptimizedQuery.getMethodName()).thenReturn("findByBAndA");
+
+        when(mockIssue.currentColumnOrder()).thenReturn(List.of("a", "b"));
+        when(mockIssue.recommendedColumnOrder()).thenReturn(List.of("b", "a"));
+
+        // Simulate doReturn(val).when(repo).findByAAndB("valA", 123)
+        // AST: findByAAndB has scope = when(repo)
+        MethodCallExpr whenCall = new MethodCallExpr(null, "when");
+        whenCall.addArgument(new NameExpr("repo"));
+        MethodCallExpr call = new MethodCallExpr(whenCall, "findByAAndB");
+        call.addArgument(new NameExpr("\"valA\""));
+        call.addArgument(new NameExpr("123"));
+
+        QueryOptimizer.NameChangeVisitor visitor = new QueryOptimizer.NameChangeVisitor("repo", "com.example.Repo");
+        visitor.visit(call, mockResult);
+
+        // Verify: name changed and args reordered
+        assertEquals("findByBAndA", call.getNameAsString());
+        assertEquals(2, call.getArguments().size());
+        assertEquals("123", call.getArgument(0).toString());
+        assertEquals("\"valA\"", call.getArgument(1).toString());
+    }
+
+    @Test
+    void testBatchedNameChangeProcessor_DoReturnWhenPattern() {
+        // Setup original method: findByXAndY(String x, String y)
+        MethodDeclaration oldMethod = new MethodDeclaration();
+        oldMethod.setName("findByXAndY");
+        oldMethod.addParameter(new Parameter(new ClassOrInterfaceType(null, "String"), "x"));
+        oldMethod.addParameter(new Parameter(new ClassOrInterfaceType(null, "String"), "y"));
+        when(mockOldCallable.asMethodDeclaration()).thenReturn(oldMethod);
+
+        // Setup optimized method: findByYAndX(String y, String x)
+        MethodDeclaration newMethod = new MethodDeclaration();
+        newMethod.setName("findByYAndX");
+        newMethod.addParameter(new Parameter(new ClassOrInterfaceType(null, "String"), "y"));
+        newMethod.addParameter(new Parameter(new ClassOrInterfaceType(null, "String"), "x"));
+        when(mockNewCallable.asMethodDeclaration()).thenReturn(newMethod);
+
+        when(mockIssue.currentColumnOrder()).thenReturn(List.of("x", "y"));
+        when(mockIssue.recommendedColumnOrder()).thenReturn(List.of("y", "x"));
+
+        QueryOptimizer.MethodRename rename = new QueryOptimizer.MethodRename(
+            "findByXAndY",
+            "findByYAndX",
+            mockResult,
+            mockIssue
+        );
+        List<QueryOptimizer.MethodRename> renames = Collections.singletonList(rename);
+        Set<String> fields = new HashSet<>();
+        fields.add("repo");
+
+        // Simulate doReturn(val).when(repo).findByXAndY("valX", "valY")
+        // AST: findByXAndY has scope = when(repo)
+        MethodCallExpr whenCall = new MethodCallExpr(null, "when");
+        whenCall.addArgument(new NameExpr("repo"));
+        MethodCallExpr call = new MethodCallExpr(whenCall, "findByXAndY");
+        call.addArgument(new NameExpr("\"valX\""));
+        call.addArgument(new NameExpr("\"valY\""));
+
+        QueryOptimizer.BatchedNameChangeProcessor processor = new QueryOptimizer.BatchedNameChangeProcessor(fields, renames);
+        processor.processMethodCall(call);
+
+        // Verify: name changed and args reordered
+        assertEquals("findByYAndX", call.getNameAsString());
+        assertEquals(2, call.getArguments().size());
+        assertEquals("\"valY\"", call.getArgument(0).toString());
+        assertEquals("\"valX\"", call.getArgument(1).toString());
+    }
 }

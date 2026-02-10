@@ -808,10 +808,11 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             // Case 1: Regular method call - fieldName.methodName(...) or
             boolean isMatchingCall = scope.isPresent() && isFieldMatch(scope.get());
 
-            // Case 2: Mockito verify call - verify(fieldName).methodName(...)
-            if (scope.isPresent() && scope.get() instanceof MethodCallExpr verifyCall &&
-                    ("verify".equals(verifyCall.getNameAsString()) && !verifyCall.getArguments().isEmpty())) {
-                Expression firstArg = verifyCall.getArgument(0);
+            // Case 2: Mockito verify/when call - verify(fieldName).methodName(...)
+            // or doReturn(val).when(fieldName).methodName(...)
+            if (scope.isPresent() && scope.get() instanceof MethodCallExpr mockitoCall &&
+                    Fields.isMockitoStubbingOrVerify(mockitoCall) && !mockitoCall.getArguments().isEmpty()) {
+                Expression firstArg = mockitoCall.getArgument(0);
                 if (isFieldMatch(firstArg)) {
                     isMatchingCall = true;
                 }
@@ -1070,12 +1071,12 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                 return fae.getNameAsString();
             }
 
-            // Mockito verify pattern: verify(fieldName).method()
-            if (expr instanceof MethodCallExpr verifyCall &&
-                    "verify".equals(verifyCall.getNameAsString()) &&
-                    !verifyCall.getArguments().isEmpty()) {
-                Expression arg = verifyCall.getArgument(0);
-                // Recursively extract from the verify argument
+            // Mockito patterns: verify(fieldName).method() and
+            // doReturn(val).when(fieldName).method()
+            if (expr instanceof MethodCallExpr mockitoCall &&
+                    Fields.isMockitoStubbingOrVerify(mockitoCall) &&
+                    !mockitoCall.getArguments().isEmpty()) {
+                Expression arg = mockitoCall.getArgument(0);
                 if (arg instanceof NameExpr ne) {
                     return ne.getNameAsString();
                 }

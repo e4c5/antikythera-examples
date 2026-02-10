@@ -177,14 +177,15 @@ public class Fields {
                 addToMethodCallIndex(repositoryFqn, methodName, callerClass, matchedField);
             }
 
-            // Also check Mockito verify pattern: verify(field).methodName()
-            if (scope instanceof MethodCallExpr verifyCall &&
-                    "verify".equals(verifyCall.getNameAsString()) &&
-                    !verifyCall.getArguments().isEmpty()) {
-                String verifyField = findMatchingField(verifyCall.getArgument(0), fieldNames);
-                if (verifyField != null) {
+            // Also check Mockito patterns: verify(field).methodName() and
+            // doReturn(val).when(field).methodName()
+            if (scope instanceof MethodCallExpr mockitoCall &&
+                    isMockitoStubbingOrVerify(mockitoCall) &&
+                    !mockitoCall.getArguments().isEmpty()) {
+                String mockitoField = findMatchingField(mockitoCall.getArgument(0), fieldNames);
+                if (mockitoField != null) {
                     String methodName = mce.getNameAsString();
-                    addToMethodCallIndex(repositoryFqn, methodName, callerClass, verifyField);
+                    addToMethodCallIndex(repositoryFqn, methodName, callerClass, mockitoField);
                 }
             }
         });
@@ -224,6 +225,17 @@ public class Fields {
             }
         }
         return null;
+    }
+
+    /**
+     * Checks if a method call is a Mockito stubbing or verification call
+     * (i.e., {@code verify(field)} or {@code when(field)}).
+     * Used to detect patterns like {@code verify(repo).method()} and
+     * {@code doReturn(val).when(repo).method()}.
+     */
+    static boolean isMockitoStubbingOrVerify(MethodCallExpr call) {
+        String name = call.getNameAsString();
+        return "verify".equals(name) || "when".equals(name);
     }
 
     /**
