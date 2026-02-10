@@ -18,6 +18,7 @@ public class QueryAnalysisResult {
     private List<JoinCondition> joinConditions;
     private OptimizationIssue optimizationIssue;
     private List<String> indexSuggestions;
+    private String originalWhereClauseText;
 
     /**
      * Creates a new QueryOptimizationResult instance.
@@ -30,6 +31,7 @@ public class QueryAnalysisResult {
         this.whereConditions = new ArrayList<>(whereConditions != null ? whereConditions : Collections.emptyList());
         this.joinConditions = Collections.emptyList();
         this.indexSuggestions = List.of();
+        this.originalWhereClauseText = "";
     }
 
     // Accessors to preserve record-like API compatibility
@@ -81,20 +83,24 @@ public class QueryAnalysisResult {
     }
 
     /**
-     * Gets the full WHERE clause text from the parsed WHERE conditions.
-     * Uses the existing parsed WHERE condition data instead of re-parsing the query text.
+     * Gets the full WHERE clause text.
+     * Returns the original WHERE clause text if available (preserving OR/AND structure),
+     * otherwise falls back to reconstructing from parsed conditions.
      *
-     * @return the full WHERE clause text reconstructed from parsed conditions, or empty string if not available
+     * @return the full WHERE clause text, or empty string if not available
      */
     public String getFullWhereClause() {
+        // Prefer original WHERE clause text if available (preserves OR/AND structure)
+        if (originalWhereClauseText != null && !originalWhereClauseText.isEmpty()) {
+            return "WHERE " + originalWhereClauseText;
+        }
+
+        // Fallback: reconstruct from parsed conditions (loses OR structure)
         if (whereConditions.isEmpty()) {
             return "";
         }
 
-        // Build WHERE clause from parsed conditions
         StringBuilder whereClause = new StringBuilder("WHERE ");
-
-        // Sort conditions by position to maintain proper order
         List<WhereCondition> sortedConditions = whereConditions.stream()
                 .sorted((c1, c2) -> Integer.compare(c1.position(), c2.position()))
                 .toList();
@@ -113,6 +119,16 @@ public class QueryAnalysisResult {
         }
 
         return whereClause.toString();
+    }
+
+    /**
+     * Sets the original WHERE clause text extracted from the parsed query.
+     * This preserves the original OR/AND structure for accurate display.
+     *
+     * @param whereClauseText the original WHERE clause text (without "WHERE" keyword)
+     */
+    public void setOriginalWhereClauseText(String whereClauseText) {
+        this.originalWhereClauseText = whereClauseText;
     }
 
     public void setIndexSuggestions(List<String> indexSuggestions) {

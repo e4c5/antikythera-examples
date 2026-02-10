@@ -1,6 +1,11 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
+import com.github.javaparser.StaticJavaParser;
+import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import net.sf.jsqlparser.parser.CCJSqlParserUtil;
+import net.sf.jsqlparser.statement.Statement;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -578,5 +583,41 @@ class GeminiAIServiceTest {
         // Test with null input
         String result4 = geminiAIService.extractJsonFromResponse(null);
         assertNull(result4);
+    }
+
+    @Test
+    void testExtractRecommendedColumnOrder_NestedClass() throws Exception {
+        // Create a CompilationUnit with a nested class
+        String code = """
+                package com.example;
+                public class Outer {
+                    public interface InnerRepository {
+                        User findByUsername(String username);
+                    }
+                }
+                """;
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        ClassOrInterfaceDeclaration inner = cu.findFirst(ClassOrInterfaceDeclaration.class, 
+                c -> c.getNameAsString().equals("InnerRepository")).orElseThrow();
+        MethodDeclaration md = inner.findFirst(MethodDeclaration.class).orElseThrow();
+        
+        // Mock RepositoryQuery
+        RepositoryQuery mockQuery = mock(RepositoryQuery.class);
+        Callable callable = new Callable(md, null);
+        when(mockQuery.getMethodDeclaration()).thenReturn(callable);
+        Statement stmt = CCJSqlParserUtil.parse("SELECT * FROM users WHERE username = ?");
+        when(mockQuery.getStatement()).thenReturn(stmt);
+        
+        // This should not throw Exception and should correctly find the ancestor
+        // It will fail later in BaseRepositoryParser.create(cu) if we don't handle it,
+        // but here we just want to verify the findAncestor logic works.
+        // Actually, extractRecommendedColumnOrder will call BaseRepositoryParser.create(cu)
+        // with the CLONED signature and the NEW method.
+        
+        String optimizedCode = "User findByUsername(String username);";
+        
+        // We expect it to fallback to original if parsing fails, which is fine for this test
+        // as long as it doesn't throw because of the missing ancestor.
+        assertDoesNotThrow(() -> geminiAIService.extractRecommendedColumnOrder(optimizedCode, mockQuery));
     }
 }
