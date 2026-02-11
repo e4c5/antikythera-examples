@@ -379,10 +379,18 @@ public class QueryOptimizer extends QueryOptimizationChecker {
 
         if (f.exists()) {
             return writeFile(f, content);
-        } else {
-            File t = new File(fullPath.replace("src/main", "src/test"));
-            if (t.exists()) {
-                return writeFile(t, content);
+        }
+
+        File t = new File(fullPath.replace("src/main", "src/test"));
+        if (t.exists()) {
+            return writeFile(t, content);
+        }
+
+        // Fallback: use CU's storage path when class name doesn't match file name
+        if (cu.getStorage().isPresent()) {
+            File storagePath = cu.getStorage().get().getPath().toFile();
+            if (storagePath.exists()) {
+                return writeFile(storagePath, content);
             }
         }
 
@@ -424,10 +432,11 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                 isMatchingCall = true;
             }
 
-            // Case 2: Mockito verify call - verify(fieldName).methodName(...)
-            if (scope.isPresent() && scope.get() instanceof MethodCallExpr verifyCall &&
-                    ("verify".equals(verifyCall.getNameAsString()) && !verifyCall.getArguments().isEmpty())) {
-                Expression firstArg = verifyCall.getArgument(0);
+            // Case 2: Mockito verify(field).method() or doXxx().when(field).method()
+            if (scope.isPresent() && scope.get() instanceof MethodCallExpr mockitoCall &&
+                    (("verify".equals(mockitoCall.getNameAsString()) || "when".equals(mockitoCall.getNameAsString()))
+                            && !mockitoCall.getArguments().isEmpty())) {
+                Expression firstArg = mockitoCall.getArgument(0);
                 if (isFieldMatch(firstArg)) {
                     isMatchingCall = true;
                 }

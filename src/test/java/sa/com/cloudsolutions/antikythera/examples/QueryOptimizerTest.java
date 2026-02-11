@@ -87,7 +87,12 @@ class QueryOptimizerTest {
         "WithThisExpression|class Service { void test() { this.repo.oldMethod(arg1); } }|this.repo.newMethod(arg1)",
         "WithMockitoVerifyAndThis|class ServiceTest { void test() { verify(this.repo).oldMethod(arg1); } }|verify(this.repo).newMethod(arg1)",
         "WithMethodReference|class Service { void test() { list.stream().map(repo::oldMethod).collect(Collectors.toList()); } }|repo::newMethod",
-        "WithMethodReferenceAndThis|class Service { void test() { list.stream().map(this.repo::oldMethod).collect(Collectors.toList()); } }|this.repo::newMethod"
+        "WithMethodReferenceAndThis|class Service { void test() { list.stream().map(this.repo::oldMethod).collect(Collectors.toList()); } }|this.repo::newMethod",
+        "WithDoReturnWhen|class ServiceTest { void test() { doReturn(result).when(repo).oldMethod(arg1); } }|doReturn(result).when(repo).newMethod(arg1)",
+        "WithDoNothingWhen|class ServiceTest { void test() { doNothing().when(repo).oldMethod(arg1); } }|doNothing().when(repo).newMethod(arg1)",
+        "WithDoThrowWhen|class ServiceTest { void test() { doThrow(new Exception()).when(repo).oldMethod(arg1); } }|doThrow(new Exception()).when(repo).newMethod(arg1)",
+        "WithMockitoVerify|class ServiceTest { void test() { verify(repo).oldMethod(arg1); } }|verify(repo).newMethod(arg1)",
+        "WithMockitoVerifyTimes|class ServiceTest { void test() { verify(repo, times(1)).oldMethod(arg1); } }|verify(repo, times(1)).newMethod(arg1)"
     })
     void testNameChangeVisitor(String testCase) {
         String[] parts = testCase.split("\\|");
