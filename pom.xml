@@ -133,6 +133,13 @@
             <version>4.7.7</version>
         </dependency>
 
+        <!-- Neo4j Java Driver for Knowledge Graph storage -->
+        <dependency>
+            <groupId>org.neo4j.driver</groupId>
+            <artifactId>neo4j-java-driver</artifactId>
+            <version>5.18.0</version>
+        </dependency>
+
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
