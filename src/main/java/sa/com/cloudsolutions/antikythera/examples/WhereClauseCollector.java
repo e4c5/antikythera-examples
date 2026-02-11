@@ -9,6 +9,7 @@ import net.sf.jsqlparser.statement.select.Join;
 import net.sf.jsqlparser.statement.select.ParenthesedSelect;
 import net.sf.jsqlparser.statement.select.PlainSelect;
 import net.sf.jsqlparser.statement.select.Select;
+import net.sf.jsqlparser.statement.select.SetOperationList;
 import net.sf.jsqlparser.statement.update.Update;
 
 import java.lang.reflect.Method;
@@ -57,9 +58,25 @@ class WhereClauseCollector extends StatementVisitorAdapter<Void> {
 
     @Override
     public <S> Void visit(Select select, S context) {
-        // Process PlainSelect statements
-        if (select.getPlainSelect() != null) {
-            processPlainSelect(select.getPlainSelect());
+        // Handle different select types safely by unwraping the select body
+        Object selectBody = (select != null) ? select.getSelectBody() : null;
+        
+        if (selectBody instanceof PlainSelect plainSelect) {
+            processPlainSelect(plainSelect);
+        } else if (selectBody instanceof SetOperationList setOpList) {
+            processSetOperationList(setOpList);
+        } else if (selectBody instanceof ParenthesedSelect parenthesedSelect) {
+            processFromItem(parenthesedSelect);
+        } else if (select != null) {
+            // Fallback: try getPlainSelect() for simple cases, but catch ClassCastException
+            try {
+                PlainSelect plainSelect = select.getPlainSelect();
+                if (plainSelect != null) {
+                    processPlainSelect(plainSelect);
+                }
+            } catch (ClassCastException e) {
+                // This can happen with SetOperationList - already handled if identified via selectBody
+            }
         }
         return null;
     }
@@ -239,10 +256,40 @@ class WhereClauseCollector extends StatementVisitorAdapter<Void> {
 
     /**
      * Processes a FromItem, recursively handling subqueries (ParenthesedSelect).
+     * Handles both plain selects and set operations (UNION, UNION ALL, INTERSECT, EXCEPT).
      */
     private void processFromItem(Object fromItem) {
-        if (fromItem instanceof ParenthesedSelect parenthesedSelect && parenthesedSelect.getPlainSelect() != null) {
-            processPlainSelect(parenthesedSelect.getPlainSelect());
+        if (fromItem instanceof ParenthesedSelect parenthesedSelect) {
+            // Get the select safely without calling getPlainSelect() which can throw ClassCastException
+            Select innerSelect = parenthesedSelect.getSelect();
+            if (innerSelect instanceof PlainSelect plainSelect) {
+                processPlainSelect(plainSelect);
+            } else if (innerSelect instanceof SetOperationList setOpList) {
+                // Handle UNION, UNION ALL, INTERSECT, EXCEPT - process each select in the set
+                processSetOperationList(setOpList);
+            } else if (innerSelect instanceof ParenthesedSelect nestedParenthesed) {
+                // Handle nested parenthesized selects
+                processFromItem(nestedParenthesed);
+            }
+        }
+    }
+
+    /**
+     * Processes a SetOperationList (UNION, UNION ALL, INTERSECT, EXCEPT).
+     * Recursively processes each select in the set operation.
+     */
+    private void processSetOperationList(SetOperationList setOpList) {
+        if (setOpList.getSelects() != null) {
+            for (Select select : setOpList.getSelects()) {
+                if (select instanceof PlainSelect plainSelect) {
+                    processPlainSelect(plainSelect);
+                } else if (select instanceof ParenthesedSelect parenthesedSelect) {
+                    processFromItem(parenthesedSelect);
+                } else if (select instanceof SetOperationList nestedSetOp) {
+                    // Handle nested set operations
+                    processSetOperationList(nestedSetOp);
+                }
+            }
         }
     }
 }

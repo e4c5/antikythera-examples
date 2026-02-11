@@ -1,6 +1,11 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
+import com.github.javaparser.StaticJavaParser;
+import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import net.sf.jsqlparser.parser.CCJSqlParserUtil;
+import net.sf.jsqlparser.statement.Statement;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,6 +27,8 @@ import java.io.IOException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
+import java.time.Duration;
 import java.util.*;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -261,9 +268,65 @@ class GeminiAIServiceTest {
         assertTrue(issue.aiExplanation().contains("Reordered for better performance"));
     }
 
-    /**
-     * Helper method to create a test QueryBatch with properly mocked RepositoryQuery.
-     */
+    @Test
+    void testAnalyzeQueryBatch_TimeoutRetrySuccess() throws Exception {
+        try (MockedStatic<HttpClient> httpClientMock = mockStatic(HttpClient.class)) {
+            HttpClient.Builder mockBuilder = mock(HttpClient.Builder.class);
+            when(mockBuilder.connectTimeout(any())).thenReturn(mockBuilder);
+            when(mockBuilder.build()).thenReturn(mockHttpClient);
+            httpClientMock.when(HttpClient::newBuilder).thenReturn(mockBuilder);
+
+            GeminiAIService testService = new GeminiAIService();
+            testService.configure(config);
+
+            // Mock timeout on first call, success on second
+            when(mockHttpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+                    .thenThrow(new HttpTimeoutException("Timeout"))
+                    .thenReturn(mockHttpResponse);
+
+            when(mockHttpResponse.statusCode()).thenReturn(200);
+            when(mockHttpResponse.body()).thenReturn("{\"candidates\": []}");
+
+            QueryBatch batch = createTestQueryBatch();
+            
+            List<OptimizationIssue> result = testService.analyzeQueryBatch(batch);
+            
+            assertNotNull(result);
+            // Verify send was called twice
+            verify(mockHttpClient, times(2)).send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+            
+            // Verify the second request had increased timeout
+            verify(mockHttpClient).send(argThat(request -> 
+                request.timeout().isPresent() && request.timeout().get().equals(Duration.ofSeconds(60))), 
+                any(HttpResponse.BodyHandler.class));
+        }
+    }
+
+    @Test
+    void testAnalyzeQueryBatch_DoubleTimeoutFails() throws Exception {
+        try (MockedStatic<HttpClient> httpClientMock = mockStatic(HttpClient.class)) {
+            HttpClient.Builder mockBuilder = mock(HttpClient.Builder.class);
+            when(mockBuilder.connectTimeout(any())).thenReturn(mockBuilder);
+            when(mockBuilder.build()).thenReturn(mockHttpClient);
+            httpClientMock.when(HttpClient::newBuilder).thenReturn(mockBuilder);
+
+            GeminiAIService testService = new GeminiAIService();
+            testService.configure(config);
+
+            // Mock timeout on both calls
+            when(mockHttpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+                    .thenThrow(new HttpTimeoutException("Timeout 1"))
+                    .thenThrow(new HttpTimeoutException("Timeout 2"));
+
+            QueryBatch batch = createTestQueryBatch();
+            
+            assertThrows(HttpTimeoutException.class, () -> testService.analyzeQueryBatch(batch));
+            
+            // Verify send was called exactly twice
+            verify(mockHttpClient, times(2)).send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+        }
+    }
+
     private QueryBatch createTestQueryBatch() {
         QueryBatch batch = new QueryBatch("UserRepository");
         MethodDeclaration md = bp.getCompilationUnit().findAll(MethodDeclaration.class).stream()
@@ -520,5 +583,41 @@ class GeminiAIServiceTest {
         // Test with null input
         String result4 = geminiAIService.extractJsonFromResponse(null);
         assertNull(result4);
+    }
+
+    @Test
+    void testExtractRecommendedColumnOrder_NestedClass() throws Exception {
+        // Create a CompilationUnit with a nested class
+        String code = """
+                package com.example;
+                public class Outer {
+                    public interface InnerRepository {
+                        User findByUsername(String username);
+                    }
+                }
+                """;
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        ClassOrInterfaceDeclaration inner = cu.findFirst(ClassOrInterfaceDeclaration.class, 
+                c -> c.getNameAsString().equals("InnerRepository")).orElseThrow();
+        MethodDeclaration md = inner.findFirst(MethodDeclaration.class).orElseThrow();
+        
+        // Mock RepositoryQuery
+        RepositoryQuery mockQuery = mock(RepositoryQuery.class);
+        Callable callable = new Callable(md, null);
+        when(mockQuery.getMethodDeclaration()).thenReturn(callable);
+        Statement stmt = CCJSqlParserUtil.parse("SELECT * FROM users WHERE username = ?");
+        when(mockQuery.getStatement()).thenReturn(stmt);
+        
+        // This should not throw Exception and should correctly find the ancestor
+        // It will fail later in BaseRepositoryParser.create(cu) if we don't handle it,
+        // but here we just want to verify the findAncestor logic works.
+        // Actually, extractRecommendedColumnOrder will call BaseRepositoryParser.create(cu)
+        // with the CLONED signature and the NEW method.
+        
+        String optimizedCode = "User findByUsername(String username);";
+        
+        // We expect it to fallback to original if parsing fails, which is fine for this test
+        // as long as it doesn't throw because of the missing ancestor.
+        assertDoesNotThrow(() -> geminiAIService.extractRecommendedColumnOrder(optimizedCode, mockQuery));
     }
 }

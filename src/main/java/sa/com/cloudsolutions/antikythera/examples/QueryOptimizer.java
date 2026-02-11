@@ -5,7 +5,9 @@ import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.expr.AnnotationExpr;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.MemberValuePair;
+import com.github.javaparser.ast.expr.FieldAccessExpr;
 import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.ast.expr.MethodReferenceExpr;
 import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.expr.NormalAnnotationExpr;
 import com.github.javaparser.ast.expr.StringLiteralExpr;
@@ -14,6 +16,8 @@ import com.github.javaparser.ast.visitor.ModifierVisitor;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.printer.lexicalpreservation.LexicalPreservingPrinter;
 import com.github.javaparser.ast.NodeList;
+import liquibase.exception.LiquibaseException;
+import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
@@ -29,7 +33,11 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -39,19 +47,35 @@ public class QueryOptimizer extends QueryOptimizationChecker {
     private static final Logger logger = LoggerFactory.getLogger(QueryOptimizer.class);
     private boolean repositoryFileModified;
     private static final Set<String> modifiedFiles = new java.util.HashSet<>();
+    private static final  Set<String> writtenFiles = new java.util.HashSet<>();
+
+    // Profiling accumulators for writeFile breakdown
+    private long totalLppTime = 0;
+    private long totalDiskWriteTime = 0;
+    private int lppCallCount = 0;
 
     /**
      * Creates a new QueryOptimizationChecker that uses RepositoryParser for
      * comprehensive query analysis.
      *
      * @param liquibaseXmlPath path to the Liquibase XML file for database metadata
-     * @throws Exception if initialization fails
+     * @throws LiquibaseException or IOException if initialization fails
      */
-    public QueryOptimizer(File liquibaseXmlPath) throws Exception {
+    public QueryOptimizer(File liquibaseXmlPath) throws LiquibaseException, IOException {
         super(liquibaseXmlPath);
         Fields.buildDependencies();
         EntityMappingResolver.build();
     }
+
+    /**
+     * Record to hold method rename information for batched processing.
+     */
+    record MethodRename(
+            String oldMethodName,
+            String newMethodName,
+            QueryAnalysisResult result,
+            OptimizationIssue issue
+    ) {}
 
     @Override
     void analyzeRepository(TypeWrapper typeWrapper)
@@ -61,17 +85,143 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         OptimizationStatsLogger.updateQueriesAnalyzed(results.size());
 
         repositoryFileModified = false;
+
+        // Collect existing method names to prevent rename collisions
+        Set<String> reservedMethodNames = collectRepositoryMethodNames();
+
+        // Collect all method renames first for batched processing
+        List<MethodRename> methodRenames = new ArrayList<>();
+
         for (QueryAnalysisResult result : results) {
-            actOnAnalysisResult(result);
+            analyzeQueryOptimizationResult(typeWrapper, result, reservedMethodNames, methodRenames);
+        }
+
+        // Process all results (update annotations, etc.)
+        for (QueryAnalysisResult result : results) {
+            actOnAnalysisResult(result, methodRenames);
+        }
+
+        // Batch update all method call signatures in dependent classes (single pass)
+        if (!methodRenames.isEmpty()) {
+            String repositoryClassName = typeWrapper.getFullyQualifiedName();
+            logger.info("Repository has {} methods with signature changes - processing in single batch",
+                    methodRenames.size());
+
+            long startTime = System.currentTimeMillis();
+            batchUpdateMethodSignatures(methodRenames, repositoryClassName);
+            long elapsed = System.currentTimeMillis() - startTime;
+
+            if (elapsed > 1000) {
+                logger.info("Batched signature update took {}ms for {} methods", elapsed, methodRenames.size());
+            }
+
+            OptimizationStatsLogger.updateMethodSignaturesChanged(methodRenames.size());
+
+            // NOW reorder repository method parameters — this must happen AFTER the
+            // batched caller update because reorderMethodArguments reads the old method's
+            // original parameter order to build the argument mapping.
+            for (MethodRename rename : methodRenames) {
+                reorderMethodParameters(
+                        rename.issue().query().getMethodDeclaration().asMethodDeclaration(),
+                        rename.issue().optimizedQuery().getMethodDeclaration().asMethodDeclaration());
+            }
         }
 
         if (repositoryFileModified && writeFile(typeWrapper.getFullyQualifiedName(),
                 this.repositoryParser.getCompilationUnit())) {
             OptimizationStatsLogger.updateRepositoriesModified(1);
         }
+
+        // Save modified files to checkpoint for resume capability
+        checkpointManager.setModifiedFiles(modifiedFiles);
     }
 
-    void actOnAnalysisResult(QueryAnalysisResult result) {
+    private static void analyzeQueryOptimizationResult(TypeWrapper typeWrapper, QueryAnalysisResult result,
+                                                       Set<String> reservedMethodNames, List<MethodRename> methodRenames) {
+        OptimizationIssue issue = result.getOptimizationIssue();
+        if (issue == null || issue.optimizedQuery() == null) {
+            return;
+        }
+        String originalName = issue.query().getMethodName();
+        String newName = issue.optimizedQuery().getMethodName();
+        String aiExplanation = issue.aiExplanation();
+
+        boolean methodNameChanged = !originalName.equals(newName)
+                && (aiExplanation == null || !aiExplanation.startsWith("N/A"));
+
+        if (methodNameChanged) {
+            if (reservedMethodNames.contains(newName)) {
+                logger.warn("Skipping rename from {} to {} because target name already exists in {}",
+                        originalName, newName, typeWrapper.getFullyQualifiedName());
+                return;
+            }
+
+            // For derived queries (no @Query annotation), skip renames that only
+            // reorder parameters beyond the first few positions — the disruption
+            // of renaming every caller is not worth a minor late-column swap.
+            if (QueryType.DERIVED.equals(issue.query().getQueryType())) {
+                MethodDeclaration oldMd = issue.query().getMethodDeclaration().asMethodDeclaration();
+                MethodDeclaration newMd = issue.optimizedQuery().getMethodDeclaration().asMethodDeclaration();
+                if (!hasEarlyParameterChange(oldMd, newMd, EARLY_PARAM_THRESHOLD)) {
+                    logger.info("Skipping rename from {} to {} — reordering only affects parameters after position {}",
+                            originalName, newName, EARLY_PARAM_THRESHOLD);
+                    return;
+                }
+            }
+
+            methodRenames.add(new MethodRename(originalName, newName, result, issue));
+            reservedMethodNames.add(newName);
+        }
+    }
+
+    /**
+     * Restores modified files from checkpoint on resume.
+     * Called during initialization when resuming from a checkpoint.
+     */
+    private void restoreModifiedFilesFromCheckpoint() {
+        Set<String> restored = checkpointManager.getModifiedFiles();
+        if (!restored.isEmpty()) {
+            modifiedFiles.addAll(restored);
+            logger.info("Restored {} modified files from checkpoint", restored.size());
+        }
+    }
+
+    /**
+     * Collects method names declared in the current repository.
+     * Used to prevent renaming a method to a name that already exists.
+     * Reuses the existing repositoryParser.getAllQueries() to avoid redundant AST traversal.
+     */
+    private Set<String> collectRepositoryMethodNames() {
+        Set<String> names = new HashSet<>();
+        Collection<RepositoryQuery> allQueries = repositoryParser.getAllQueries();
+        if (allQueries != null) {
+            for (RepositoryQuery query : allQueries) {
+                names.add(query.getMethodDeclaration().getNameAsString());
+            }
+        }
+        return names;
+    }
+
+    @Override
+    public int analyze() throws IOException, ReflectiveOperationException, InterruptedException {
+        // Restore modified files from checkpoint before analysis
+        if (checkpointManager.hasCheckpoint()) {
+            // Load will be called by super.analyze(), but we need to check first
+            // and restore modified files if resuming
+            checkpointManager.load();
+            restoreModifiedFilesFromCheckpoint();
+        }
+        return super.analyze();
+    }
+
+    /**
+     * Process a single analysis result - update annotations and method signatures in the repository file.
+     * Note: Method call signature updates in dependent classes are handled separately via batched processing.
+     *
+     * @param result the analysis result to process
+     * @param methodRenames the list of all method renames for this repository (used to check if this result has a rename)
+     */
+    void actOnAnalysisResult(QueryAnalysisResult result, List<MethodRename> methodRenames) {
         OptimizationIssue issue = result.getOptimizationIssue();
         if (issue != null) {
             RepositoryQuery optimizedQuery = issue.optimizedQuery();
@@ -87,56 +237,119 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                 updateAnnotationValueWithTextBlockSupport(
                         issue.query().getMethodDeclaration().asMethodDeclaration(), queryValue);
 
-                // Check if method name changed (indicating signature should change)
-                boolean methodNameChanged = !issue.query().getMethodName().equals(optimizedQuery.getMethodName());
+                // Check if this result has a method rename in our batched list
+                String originalMethodName = issue.query().getMethodName();
+                boolean methodNameChanged = methodRenames.stream()
+                        .anyMatch(r -> r.oldMethodName().equals(originalMethodName));
 
-                // Apply method name change if recommended
+                // Apply method name change to the repository interface itself
+                // NOTE: Do NOT reorder parameters here — that must happen AFTER
+                // updateMethodCallSignaturesBatched(), because reorderMethodArguments()
+                // reads the old method's parameters to build the mapping. If we mutate
+                // them now, the caller update will see identical old/new params and skip
+                // reordering.
                 if (methodNameChanged) {
-                    updateMethodCallSignatures(result, issue.query().getRepositoryClassName());
+                    logger.info("Changing method name from {} to {}", originalMethodName, optimizedQuery.getMethodName());
 
                     MethodDeclaration method = issue.query().getMethodDeclaration().asMethodDeclaration();
                     Callable newMethod = optimizedQuery.getMethodDeclaration();
                     method.setName(newMethod.getNameAsString());
-                    logger.info("Changed method name from {} to {}",
-                            issue.query().getMethodName(), newMethod.getNameAsString());
-
-                    reorderMethodParameters(
-                            issue.query().getMethodDeclaration().asMethodDeclaration(),
-                            newMethod.asMethodDeclaration());
                 }
-                // Track if file was modified (annotation always changes and may also have
-                // parameter reordering)
+
+                // Track if file was modified (annotation always changes and may also have parameter reordering)
                 repositoryFileModified = true;
-
-                // Track method signature changes
-                if (methodNameChanged) {
-                    OptimizationStatsLogger.updateMethodSignaturesChanged(1);
-                }
             }
         }
     }
 
     /**
-     * Updates the annotation value with proper text block support.
-     * If the query contains literal \\n characters or actual newlines, it uses
-     * TextBlockLiteralExpr.
-     * Otherwise, it uses StringLiteralExpr.
+     * Formats a long query string for use in a Java text block by breaking it into
+     * multiple lines at whitespace boundaries near the target column width.
+     * The result contains actual newlines followed by proper indentation.
+     *
+     * @param query       the query string to format
+     * @param targetWidth the target column width (e.g., 80)
+     * @param indent      the indentation string for continuation lines
+     * @return the formatted query with actual newlines at whitespace boundaries
+     */
+    static String formatQueryForTextBlock(String query, int targetWidth, String indent) {
+        if (query == null || query.length() <= targetWidth) {
+            return query;
+        }
+
+        StringBuilder result = new StringBuilder();
+        int currentPos = 0;
+        int queryLength = query.length();
+
+        while (currentPos < queryLength) {
+            // Calculate remaining length
+            int remaining = queryLength - currentPos;
+
+            // If remaining fits in target width, append and finish
+            if (remaining <= targetWidth) {
+                if (!result.isEmpty()) {
+                    result.append("\n").append(indent);
+                }
+                result.append(query.substring(currentPos));
+                break;
+            }
+
+            // Find the best break point (last whitespace before or at target width)
+            int searchEnd = Math.min(currentPos + targetWidth, queryLength);
+            int breakPoint = -1;
+
+            // Search backwards from target width to find whitespace
+            for (int i = searchEnd; i > currentPos; i--) {
+                if (Character.isWhitespace(query.charAt(i - 1))) {
+                    breakPoint = i;
+                    break;
+                }
+            }
+
+            // If no whitespace found, search forward for the next whitespace
+            if (breakPoint == -1) {
+                for (int i = searchEnd; i < queryLength; i++) {
+                    if (Character.isWhitespace(query.charAt(i))) {
+                        breakPoint = i + 1; // Include the whitespace
+                        break;
+                    }
+                }
+            }
+
+            // If still no break point found, take the rest
+            if (breakPoint == -1) {
+                breakPoint = queryLength;
+            }
+
+            // Append the segment
+            if (!result.isEmpty()) {
+                result.append("\n").append(indent);
+            }
+            result.append(query.substring(currentPos, breakPoint));
+            currentPos = breakPoint;
+        }
+
+        return result.toString();
+    }
+
+    /**
+     * Formats the query value for the @Query annotation using text blocks.
+     * Long queries are broken into multiple lines for readability.
      *
      * @param method         the method declaration containing the annotation
      * @param newStringValue the new query value
      */
     private void updateAnnotationValueWithTextBlockSupport(MethodDeclaration method, String newStringValue) {
-        // Check if the string contains literal \\n or actual newlines
-        boolean isMultiline = newStringValue != null &&
-                (newStringValue.contains("\\\\n") || newStringValue.contains("\n"));
-
-        if (isMultiline) {
-            // Convert literal \\n to actual newlines
-            String processedValue = "    " + newStringValue.replace("\\\\n", "\n        ");
-            updateAnnotationValue(method, "Query", processedValue, true);
-        } else {
-            updateAnnotationValue(method, "Query", newStringValue, false);
-        }
+        // Format long queries for readability using text blocks (break at ~80 chars at
+        // whitespace)
+        // Use 8 spaces for indentation to align with typical method annotation
+        // indentation
+        String indent = "        ";
+        String formattedQuery = formatQueryForTextBlock(newStringValue, 80, indent);
+        // Prepend indent to first line and append newline + indent for closing
+        // delimiter alignment
+        String textBlockContent = indent + formattedQuery + "\n" + indent;
+        updateAnnotationValue(method, "Query", textBlockContent, true);
     }
 
     /**
@@ -187,10 +400,47 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                         .filter(p -> p.getName().asString().equals("value"))
                         .findFirst();
 
-                valuePair.ifPresent(memberValuePair -> memberValuePair.setValue(newValueExpr));
+                if (valuePair.isPresent()) {
+                    valuePair.get().setValue(newValueExpr);
+                } else {
+                    normal.addPair("value", newValueExpr);
+                }
             }
             OptimizationStatsLogger.updateQueryAnnotationsChanged(1);
         }
+    }
+
+    /**
+     * Minimum number of leading parameters that must be affected for a derived query
+     * rename to proceed. If the recommended reordering only swaps parameters at or
+     * after this position, the rename is skipped because the performance benefit is
+     * too small to justify changing every caller.
+     */
+    static final int EARLY_PARAM_THRESHOLD = 4;
+
+    /**
+     * Checks whether a parameter reordering affects any of the first {@code threshold}
+     * parameters.  Returns {@code true} when at least one parameter in positions
+     * 0 .. threshold-1 differs (by type or name) between old and new declarations.
+     *
+     * @param oldMethod the original method declaration
+     * @param newMethod the optimized method declaration
+     * @param threshold how many leading parameters to inspect
+     * @return true if any of the first {@code threshold} parameters changed position
+     */
+    static boolean hasEarlyParameterChange(MethodDeclaration oldMethod,
+            MethodDeclaration newMethod, int threshold) {
+        int limit = Math.min(threshold,
+                Math.min(oldMethod.getParameters().size(), newMethod.getParameters().size()));
+        for (int i = 0; i < limit; i++) {
+            Parameter oldParam = oldMethod.getParameter(i);
+            Parameter newParam = newMethod.getParameter(i);
+            if (!oldParam.getTypeAsString().equals(newParam.getTypeAsString())
+                    || !oldParam.getNameAsString().equals(newParam.getNameAsString())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -213,17 +463,29 @@ public class QueryOptimizer extends QueryOptimizationChecker {
      * changes made.
      * This reorders call arguments to match the new parameter order. Only
      * same-arity calls are modified.
-     * 
+     *
      * @param update             the optimization results with signature changes
      * @param fullyQualifiedName the repository class name
      */
     public void updateMethodCallSignatures(QueryAnalysisResult update, String fullyQualifiedName) {
         Map<String, Set<String>> fields = Fields.getFieldDependencies(fullyQualifiedName);
 
-        if (fields == null) {
+        if (fields == null || fields.isEmpty()) {
+            logger.debug("No field dependencies found for {}", fullyQualifiedName);
             return;
         }
 
+        int totalFieldNames = fields.values().stream().mapToInt(Set::size).sum();
+        if (fields.size() > 200) {
+            logger.warn("Repository {} has {} dependent classes - signature updates may be slow",
+                    fullyQualifiedName, fields.size());
+        }
+        logger.info("Updating method call signatures: {} dependent classes, {} total field references for {}",
+                fields.size(), totalFieldNames, fullyQualifiedName);
+
+        long loopStartTime = System.currentTimeMillis();
+        int classesProcessed = 0;
+        int totalVisits = 0;
         for (Map.Entry<String, Set<String>> entry : fields.entrySet()) {
             String className = entry.getKey();
             Set<String> fieldNames = entry.getValue();
@@ -231,30 +493,170 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             TypeWrapper typeWrapper = AntikytheraRunTime.getResolvedTypes().get(className);
 
             if (typeWrapper != null) {
-                boolean classModified = false;
-                int totalMethodCallsUpdated = 0;
-
-                // Process all field names for this class
-                for (String fieldName : fieldNames) {
-                    NameChangeVisitor visitor = new NameChangeVisitor(fieldName, fullyQualifiedName);
-                    // Visit the entire CompilationUnit to ensure modifications apply to the CU
-                    // instance
-                    CompilationUnit cu = AntikytheraRunTime.getCompilationUnit(className);
-                    cu.accept(visitor, update);
-
-                    if (visitor.modified) {
-                        classModified = true;
-                        totalMethodCallsUpdated += visitor.methodCallsUpdated;
-                    }
-                }
-
-                // Write file once if any field was modified
-                if (classModified) {
-                    modifiedFiles.add(className);
-                    OptimizationStatsLogger.updateMethodCallsChanged(totalMethodCallsUpdated);
+                totalVisits += fieldNames.size();
+                updateMethodCallSignature(update, fullyQualifiedName, fieldNames, className);
+                classesProcessed++;
+                if (classesProcessed % 100 == 0) {
+                    long elapsed = System.currentTimeMillis() - loopStartTime;
+                    logger.info("Progress: {}/{} classes processed in {}ms ({} AST visits)",
+                            classesProcessed, fields.size(), elapsed, totalVisits);
                 }
             }
         }
+        long totalElapsed = System.currentTimeMillis() - loopStartTime;
+        logger.info("Finished: {} classes, {} AST visits in {}ms", classesProcessed, totalVisits, totalElapsed);
+    }
+
+    private static void updateMethodCallSignature(QueryAnalysisResult update, String fullyQualifiedName,
+            Set<String> fieldNames, String className) {
+        boolean classModified = false;
+        int totalMethodCallsUpdated = 0;
+
+        // Process all field names for this class
+        for (String fieldName : fieldNames) {
+            NameChangeVisitor visitor = new NameChangeVisitor(fieldName, fullyQualifiedName);
+
+            long t1 = System.currentTimeMillis();
+            CompilationUnit cu = AntikytheraRunTime.getCompilationUnit(className);
+            long t2 = System.currentTimeMillis();
+
+            cu.accept(visitor, update);
+            long t3 = System.currentTimeMillis();
+
+            long getCuTime = t2 - t1;
+            long visitTime = t3 - t2;
+            if (getCuTime > 100 || visitTime > 100) {
+                logger.debug("Timing for {}: getCU={}ms, visit={}ms", className, getCuTime, visitTime);
+            }
+
+            if (visitor.modified) {
+                classModified = true;
+                totalMethodCallsUpdated += visitor.methodCallsUpdated;
+            }
+        }
+
+        // Write file once if any field was modified
+        if (classModified) {
+            if (modifiedFiles.add(className)) {
+                OptimizationStatsLogger.updateDependentClassesChanged(1);
+            }
+            OptimizationStatsLogger.updateMethodCallsChanged(totalMethodCallsUpdated);
+        }
+    }
+
+    /**
+     * Batched version of updateMethodCallSignatures that uses the method call index
+     * to only process classes that actually call the methods being renamed.
+     * This is much more efficient than scanning all dependent classes.
+     *
+     * @param methodRenames list of all method renames to apply
+     * @param fullyQualifiedName the repository class name
+     */
+    public void batchUpdateMethodSignatures(List<MethodRename> methodRenames, String fullyQualifiedName) throws IOException {
+        // Collect all classes that need to be updated based on method call index
+        // Map: className -> Set<fieldNames> that need processing
+        Map<String, Set<String>> classesToProcess = findClassesWithDependency(methodRenames, fullyQualifiedName);
+
+        if (classesToProcess.isEmpty()) {
+            logger.debug("No method callers found for {} methods being renamed", methodRenames.size());
+            return;
+        }
+
+        // Compare with old approach for logging
+        Map<String, Set<String>> allFields = Fields.getFieldDependencies(fullyQualifiedName);
+        int totalDependentClasses = allFields != null ? allFields.size() : 0;
+
+        logger.info("Method call index optimization: processing {} classes instead of {} ({}% reduction)",
+                classesToProcess.size(), totalDependentClasses,
+                totalDependentClasses > 0 ? (100 - (classesToProcess.size() * 100 / totalDependentClasses)) : 0);
+
+        long loopStartTime = System.currentTimeMillis();
+        int classesProcessed = 0;
+        int totalMethodCallsUpdated = 0;
+        List<String> classesModifiedInBatch = new ArrayList<>();
+
+        for (Map.Entry<String, Set<String>> entry : classesToProcess.entrySet()) {
+            String className = entry.getKey();
+            Set<String> fieldNames = entry.getValue();
+
+            TypeWrapper typeWrapper = AntikytheraRunTime.getResolvedTypes().get(className);
+
+            if (typeWrapper == null) {
+                throw new IllegalStateException(
+                        "Class " + className + " found in method call index but not in resolved types. " +
+                        "This may indicate incomplete preprocessing or an external dependency that should be excluded.");
+            }
+
+            long astStart = System.currentTimeMillis();
+            logger.info("  Visiting class: {} (fields: {})", className, fieldNames);
+            int callsUpdated = updateMethodCallSignatureBatched(methodRenames, fieldNames, className);
+            long astElapsed = System.currentTimeMillis() - astStart;
+
+            if (callsUpdated > 0) {
+                logger.info("  Updated {} calls in {} ({}ms)", callsUpdated, className, astElapsed);
+                classesModifiedInBatch.add(className);
+            }
+            totalMethodCallsUpdated += callsUpdated;
+            classesProcessed++;
+
+            if (classesProcessed % 100 == 0) {
+                long elapsed = System.currentTimeMillis() - loopStartTime;
+                logger.info("Progress: {}/{} classes processed in {}ms",
+                        classesProcessed, classesToProcess.size(), elapsed);
+            }
+        }
+
+        // Write modified files to disk immediately after batch processing
+        // This ensures changes are persisted before checkpoint is saved
+
+        for (String className : classesModifiedInBatch) {
+            if (writeFile(className)) {
+                writtenFiles.add(className);
+            }
+        }
+        OptimizationStatsLogger.updateMethodCallsChanged(totalMethodCallsUpdated);
+    }
+
+    private static @NonNull Map<String, Set<String>> findClassesWithDependency(List<MethodRename> methodRenames, String fullyQualifiedName) {
+        Map<String, Set<String>> classesToProcess = new HashMap<>();
+
+        for (MethodRename rename : methodRenames) {
+            Set<Fields.CallerInfo> callers = Fields.getMethodCallers(fullyQualifiedName, rename.oldMethodName());
+            for (Fields.CallerInfo caller : callers) {
+                classesToProcess
+                        .computeIfAbsent(caller.callerClass(), k -> new HashSet<>())
+                        .add(caller.fieldName());
+            }
+        }
+        return classesToProcess;
+    }
+
+    /**
+     * Updates method call signatures in a single class for all method renames in one AST visit.
+     *
+     * @param methodRenames list of all method renames to apply
+     * @param fieldNames set of field names that reference the repository in this class
+     * @param className the class to update
+     * @return number of method calls updated
+     */
+    private int updateMethodCallSignatureBatched(List<MethodRename> methodRenames,
+            Set<String> fieldNames, String className) {
+        long getCuStart = System.currentTimeMillis();
+        CompilationUnit cu = AntikytheraRunTime.getCompilationUnit(className);
+        long getCuTime = System.currentTimeMillis() - getCuStart;
+        logger.info("    Got CompilationUnit in {}ms, starting processing...", getCuTime);
+
+        // Use direct processing instead of visitor pattern for better performance
+        BatchedNameChangeProcessor processor = new BatchedNameChangeProcessor(fieldNames, methodRenames);
+        int methodCallsUpdated = processor.processCompilationUnit(cu);
+
+        processor.logDiagnostics();
+
+        if (processor.modified && modifiedFiles.add(className)) {
+            OptimizationStatsLogger.updateDependentClassesChanged(1);
+        }
+
+        return methodCallsUpdated;
     }
 
     /**
@@ -272,11 +674,11 @@ public class QueryOptimizer extends QueryOptimizationChecker {
      * @return true if the file was actually written (content changed), false if
      *         skipped (no changes)
      */
-    static boolean writeFile(String fullyQualifiedName) throws IOException {
+    boolean writeFile(String fullyQualifiedName) throws IOException {
         return writeFile(fullyQualifiedName, AntikytheraRunTime.getCompilationUnit(fullyQualifiedName));
     }
 
-    static boolean writeFile(String fullyQualifiedName, CompilationUnit cu) throws IOException {
+    boolean writeFile(String fullyQualifiedName, CompilationUnit cu) throws IOException {
         String relativePath = AbstractCompiler.classToPath(fullyQualifiedName);
         String fullPath = Settings.getBasePath() + "/src/main/java/" + relativePath;
 
@@ -285,6 +687,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         // changes properly
         String content;
 
+        long lppStart = System.currentTimeMillis();
         try {
             content = LexicalPreservingPrinter.print(cu);
         } catch (Exception e) {
@@ -294,26 +697,85 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                     fullyQualifiedName, e.getMessage());
             content = cu.toString();
         }
+        totalLppTime += System.currentTimeMillis() - lppStart;
+        lppCallCount++;
 
         File f = new File(fullPath);
 
+        long diskStart = System.currentTimeMillis();
+        boolean result = false;
         if (f.exists()) {
-            return writeFile(f, content);
+            result = writeFile(f, content);
         } else {
             File t = new File(fullPath.replace("src/main", "src/test"));
             if (t.exists()) {
-                return writeFile(t, content);
+                result = writeFile(t, content);
             }
         }
+        totalDiskWriteTime += System.currentTimeMillis() - diskStart;
 
-        return false;
+        return result;
     }
 
-    private static boolean writeFile(File f, String content) throws FileNotFoundException {
+    private boolean writeFile(File f, String content) throws FileNotFoundException {
         PrintWriter writer = new PrintWriter(f);
         writer.print(content); // Use the content variable we already computed
         writer.close();
         return true;
+    }
+
+    /**
+     * Reorders method call arguments based on parameter matching between old and new
+     * method declarations.
+     * This ensures that when parameter order changes (e.g., findByEmailAndStatus ->
+     * findByStatusAndEmail),
+     * the method call arguments are also reordered to match.
+     *
+     * Uses direct parameter matching (type + name) which is more reliable than
+     * column order mapping, as it handles cases like Pageable parameters correctly.
+     */
+    static void reorderMethodArguments(MethodCallExpr mce, OptimizationIssue issue) {
+        MethodDeclaration oldMethod = issue.query().getMethodDeclaration().asMethodDeclaration();
+        MethodDeclaration newMethod = issue.optimizedQuery().getMethodDeclaration().asMethodDeclaration();
+
+        NodeList<Expression> args = mce.getArguments();
+        if (args.size() != newMethod.getParameters().size()) {
+            return;
+        }
+
+        // Build parameter mapping: newIndex -> oldIndex by matching parameter type+name
+        // Compare by type and name only (ignoring modifiers like 'final' and annotations
+        // like @Param) because reorderMethodParameters may clone parameters that drop
+        // modifiers present in the original declaration.
+        Map<Integer, Integer> map = new HashMap<>();
+        for (int i = 0; i < oldMethod.getParameters().size(); i++) {
+            for (int j = 0; j < newMethod.getParameters().size(); j++) {
+                if (oldMethod.getParameter(i).getTypeAsString().equals(newMethod.getParameter(j).getTypeAsString())
+                        && oldMethod.getParameter(i).getNameAsString().equals(newMethod.getParameter(j).getNameAsString())) {
+                    map.put(j, i);
+                }
+            }
+        }
+
+        // If mapping is incomplete, don't reorder
+        if (map.size() != args.size()) {
+            return;
+        }
+
+        // Reorder arguments in-place using array to avoid expensive NodeList operations
+        Expression[] argsArray = new Expression[args.size()];
+        for (int i = 0; i < args.size(); i++) {
+            argsArray[i] = args.get(i);
+        }
+
+        args.clear();
+
+        for (int i = 0; i < argsArray.length; i++) {
+            Integer oldIdx = map.get(i);
+            if (oldIdx != null && oldIdx < argsArray.length) {
+                args.add(argsArray[oldIdx]);
+            }
+        }
     }
 
     static class NameChangeVisitor extends ModifierVisitor<QueryAnalysisResult> {
@@ -335,21 +797,16 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             if (issue == null || issue.optimizedQuery() == null) {
                 return mce;
             }
+            // Case 1: Regular method call - fieldName.methodName(...) or
+            boolean isMatchingCall = scope.isPresent() && isFieldMatch(scope.get());
 
-            boolean isMatchingCall = false;
-
-            // Case 1: Regular method call - fieldName.methodName(...)
-            if (scope.isPresent() && scope.get() instanceof NameExpr fe && fe.getNameAsString().equals(fieldName)) {
-                isMatchingCall = true;
-            }
-
-            // Case 2: Mockito verify call - verify(fieldName).methodName(...)
-            if (scope.isPresent() && scope.get() instanceof MethodCallExpr verifyCall) {
-                if ("verify".equals(verifyCall.getNameAsString()) && !verifyCall.getArguments().isEmpty()) {
-                    Expression firstArg = verifyCall.getArgument(0);
-                    if (firstArg instanceof NameExpr nameExpr && nameExpr.getNameAsString().equals(fieldName)) {
-                        isMatchingCall = true;
-                    }
+            // Case 2: Mockito verify/when call - verify(fieldName).methodName(...)
+            // or doReturn(val).when(fieldName).methodName(...)
+            if (scope.isPresent() && scope.get() instanceof MethodCallExpr mockitoCall &&
+                    Fields.isMockitoStubbingOrVerify(mockitoCall) && !mockitoCall.getArguments().isEmpty()) {
+                Expression firstArg = mockitoCall.getArgument(0);
+                if (isFieldMatch(firstArg)) {
+                    isMatchingCall = true;
                 }
             }
 
@@ -376,34 +833,251 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             return mce;
         }
 
-        /**
-         * Reorders method call arguments based on the optimization issue's column order
-         * changes.
-         * This ensures that when parameter order changes (e.g., findByEmailAndStatus ->
-         * findByStatusAndEmail),
-         * the method call arguments are also reordered to match.
-         * 
-         */
-        void reorderMethodArguments(MethodCallExpr mce, OptimizationIssue issue) {
-            MethodDeclaration oldMethod = issue.query().getMethodDeclaration().asMethodDeclaration();
-            MethodDeclaration newMethod = issue.optimizedQuery().getMethodDeclaration().asMethodDeclaration();
-            Map<Integer, Integer> map = new HashMap<>();
-            for (int i = 0; i < oldMethod.getParameters().size(); i++) {
-                for (int j = 0; j < newMethod.getParameters().size(); j++) {
-                    if (oldMethod.getParameter(i).toString().equals(newMethod.getParameter(j).toString())) {
-                        map.put(j, i);
-                    }
+        @Override
+        public MethodReferenceExpr visit(MethodReferenceExpr mre, QueryAnalysisResult update) {
+            super.visit(mre, update);
+            Expression scope = mre.getScope();
+            OptimizationIssue issue = update.getOptimizationIssue();
+            if (issue == null || issue.optimizedQuery() == null) {
+                return mre;
+            }
+
+            if (isFieldMatch(scope) && update.getMethodName().equals(mre.getIdentifier())) {
+                String originalMethodName = mre.getIdentifier();
+                String newMethodName = issue.optimizedQuery().getMethodName();
+
+                if (!originalMethodName.equals(newMethodName)) {
+                    mre.setIdentifier(newMethodName);
+                    modified = true;
+                    methodCallsUpdated++;
+                }
+            } else if (scope.isTypeExpr() && scope.asTypeExpr().getType().asString().equals(fieldName) 
+                    && update.getMethodName().equals(mre.getIdentifier())) {
+                // Support static method references if fieldName happens to match class name (rare but possible in tests)
+                // or if we want to support class name references.
+                String originalMethodName = mre.getIdentifier();
+                String newMethodName = issue.optimizedQuery().getMethodName();
+
+                if (!originalMethodName.equals(newMethodName)) {
+                    mre.setIdentifier(newMethodName);
+                    modified = true;
+                    methodCallsUpdated++;
                 }
             }
 
-            NodeList<Expression> args = mce.getArguments();
-            NodeList<Expression> newArgs = new NodeList<>();
-            for (int i = 0; i < args.size(); i++) {
-                newArgs.add(args.get(map.get(i)));
+            return mre;
+        }
+
+        private boolean isFieldMatch(Expression expr) {
+            if (expr instanceof NameExpr ne) {
+                return ne.getNameAsString().equals(fieldName);
+            }
+            if (expr instanceof FieldAccessExpr fae) {
+                return fae.getNameAsString().equals(fieldName) && 
+                       fae.getScope().isThisExpr();
+            }
+            return false;
+
+        }
+    }
+
+
+    /**
+     * Batched processor that handles multiple method renames efficiently.
+     * Uses findAll() to pre-filter relevant nodes instead of visiting the entire AST tree.
+     * This is much more efficient than the ModifierVisitor pattern for large files.
+     */
+    static class BatchedNameChangeProcessor {
+        private static final Logger visitorLogger = LoggerFactory.getLogger(BatchedNameChangeProcessor.class);
+        private final Set<String> fieldNames;
+        // Map from oldMethodName -> list of renames (to handle overloaded methods)
+        private final Map<String, List<MethodRename>> renameMap;
+        boolean modified;
+        int methodCallsUpdated = 0;
+        // Diagnostic counters
+        int totalVisits = 0;
+        long totalVisitTime = 0;
+
+        BatchedNameChangeProcessor(Set<String> fieldNames, List<MethodRename> methodRenames) {
+            this.fieldNames = fieldNames;
+
+            // Build a map for quick lookup by old method name
+            // Use a list to handle overloaded methods with the same name but different arities
+            this.renameMap = new HashMap<>();
+            for (MethodRename rename : methodRenames) {
+                renameMap.computeIfAbsent(rename.oldMethodName(), k -> new ArrayList<>()).add(rename);
+            }
+        }
+
+        /**
+         * Process a compilation unit by finding and modifying relevant method calls.
+         * Uses findAll() for efficient filtering instead of visiting all nodes.
+         */
+        int processCompilationUnit(CompilationUnit cu) {
+            long startTime = System.currentTimeMillis();
+
+            // OPTIMIZATION: Use findAll() to get only MethodCallExpr nodes
+            // This is much faster than visiting all nodes in the AST
+            List<MethodCallExpr> allMethodCalls = cu.findAll(MethodCallExpr.class);
+            logger.info("    Found {} total method calls, filtering...", allMethodCalls.size());
+
+            long filterStart = System.currentTimeMillis();
+            for (MethodCallExpr mce : allMethodCalls) {
+                totalVisits++;
+                processMethodCall(mce);
+            }
+            long filterTime = System.currentTimeMillis() - filterStart;
+
+            // Process method references
+            List<MethodReferenceExpr> allMethodRefs = cu.findAll(MethodReferenceExpr.class);
+            for (MethodReferenceExpr mre : allMethodRefs) {
+                processMethodReference(mre);
             }
 
-            mce.getArguments().clear();
-            mce.setArguments(newArgs);
+            totalVisitTime = System.currentTimeMillis() - startTime;
+            logger.info("    Processed {} method calls in {}ms (filter: {}ms)",
+                    allMethodCalls.size(), totalVisitTime, filterTime);
+
+            return methodCallsUpdated;
+        }
+
+        void logDiagnostics() {
+            visitorLogger.info("  Visitor diagnostics: {} MethodCallExpr visits, total time {}ms, avg {}μs/visit",
+                    totalVisits, totalVisitTime, totalVisits > 0 ? (totalVisitTime * 1000 / totalVisits) : 0);
+        }
+
+        /**
+         * Process a single method call expression.
+         * Called from processCompilationUnit() for each MethodCallExpr found via findAll().
+         */
+        void processMethodCall(MethodCallExpr mce) {
+            // Early scope check
+            Optional<Expression> scope = mce.getScope();
+            if (scope.isEmpty()) {
+                return;
+            }
+
+            // Extract field name with O(1) lookup
+            String matchedFieldName = extractFieldName(scope.get());
+            if (matchedFieldName == null || !fieldNames.contains(matchedFieldName)) {
+                return;
+            }
+
+            // Early method name check
+            String currentMethodName = mce.getNameAsString();
+            if (!renameMap.containsKey(currentMethodName)) {
+                return;
+            }
+
+            // Process the rename
+            List<MethodRename> candidates = renameMap.get(currentMethodName);
+            int callArity = mce.getArguments().size();
+            MethodRename matchingRename = findMatchingRenameByArity(candidates, callArity);
+
+            if (matchingRename != null) {
+                // Verify arity matches BEFORE renaming
+                MethodDeclaration newMethod = matchingRename.issue().optimizedQuery()
+                        .getMethodDeclaration().asMethodDeclaration();
+
+                if (callArity == newMethod.getParameters().size()) {
+                    mce.setName(matchingRename.newMethodName());
+                    reorderMethodArguments(mce, matchingRename.issue());
+                    modified = true;
+                    methodCallsUpdated++;
+                }
+            }
+        }
+
+        /**
+         * Process a single method reference expression.
+         * Called from processCompilationUnit() for each MethodReferenceExpr found via findAll().
+         */
+        private void processMethodReference(MethodReferenceExpr mre) {
+            Expression scope = mre.getScope();
+
+            // Extract and check field name
+            String matchedFieldName = extractFieldName(scope);
+            // Also check type expression (static method reference style)
+            if (matchedFieldName == null && scope.isTypeExpr()) {
+                String typeName = scope.asTypeExpr().getType().asString();
+                if (fieldNames.contains(typeName)) {
+                    matchedFieldName = typeName;
+                }
+            }
+
+            if (matchedFieldName == null) {
+                return;
+            }
+
+            // Check method name
+            String currentMethodName = mre.getIdentifier();
+            if (!renameMap.containsKey(currentMethodName)) {
+                return;
+            }
+
+            // Process the rename
+            // For method references, we can't determine arity at the call site,
+            // so only rename if there's exactly one candidate (no overloads)
+            List<MethodRename> candidates = renameMap.get(currentMethodName);
+            if (candidates != null && candidates.size() == 1) {
+                // Safe to rename - only one candidate, no ambiguity
+                mre.setIdentifier(candidates.get(0).newMethodName());
+                modified = true;
+                methodCallsUpdated++;
+            }
+        }
+
+        /**
+         * Finds a matching rename from candidates based on call arity.
+         * Returns null if no match found or if multiple matches exist (ambiguous).
+         */
+        private MethodRename findMatchingRenameByArity(List<MethodRename> candidates, int callArity) {
+            MethodRename match = null;
+            for (MethodRename candidate : candidates) {
+                MethodDeclaration oldMethod = candidate.issue().query()
+                        .getMethodDeclaration().asMethodDeclaration();
+                if (oldMethod.getParameters().size() == callArity) {
+                    if (match != null) {
+                        // Multiple matches with same arity - ambiguous, return null
+                        return null;
+                    }
+                    match = candidate;
+                }
+            }
+            return match;
+        }
+
+        /**
+         * Extracts the field name from a scope expression.
+         * Handles: NameExpr, FieldAccessExpr (this.field), and Mockito verify pattern.
+         * Returns null if the expression doesn't match any known pattern.
+         */
+        private String extractFieldName(Expression expr) {
+            // Direct field reference: fieldName.method()
+            if (expr instanceof NameExpr ne) {
+                return ne.getNameAsString();
+            }
+
+            // This-qualified reference: this.fieldName.method()
+            if (expr instanceof FieldAccessExpr fae && fae.getScope().isThisExpr()) {
+                return fae.getNameAsString();
+            }
+
+            // Mockito patterns: verify(fieldName).method() and
+            // doReturn(val).when(fieldName).method()
+            if (expr instanceof MethodCallExpr mockitoCall &&
+                    Fields.isMockitoStubbingOrVerify(mockitoCall) &&
+                    !mockitoCall.getArguments().isEmpty()) {
+                Expression arg = mockitoCall.getArgument(0);
+                if (arg instanceof NameExpr ne) {
+                    return ne.getNameAsString();
+                }
+                if (arg instanceof FieldAccessExpr fae && fae.getScope().isThisExpr()) {
+                    return fae.getNameAsString();
+                }
+            }
+
+            return null;
         }
     }
 
@@ -431,11 +1105,25 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         // parsed files
         AbstractCompiler.setEnableLexicalPreservation(true);
 
-        AbstractCompiler.preProcess();
-
         // Parse command-line flags
         boolean quietMode = hasFlag(args, "--quiet") || hasFlag(args, "-q");
         QueryOptimizationChecker.setQuietMode(quietMode);
+
+        // Check for --fresh flag to clear checkpoint and start fresh
+        boolean freshStart = hasFlag(args, "--fresh") || hasFlag(args, "-f");
+        if (freshStart) {
+            CheckpointManager tempCheckpoint = new CheckpointManager();
+            if (tempCheckpoint.hasCheckpoint()) {
+                tempCheckpoint.clear();
+                System.out.println("🗑️ Checkpoint cleared - starting fresh");
+            }
+        }
+
+        // Read configuration from generator.yml (target_class)
+        configureFromSettings();
+
+        AbstractCompiler.loadDependencies();
+        AbstractCompiler.preProcess();
 
         if (!quietMode) {
             System.out.println("Time to preprocess   " + (System.currentTimeMillis() - s) + "ms");
@@ -453,9 +1141,8 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         // Generate Liquibase file with suggested changes and include in master
         checker.generateLiquibaseChangesFile();
 
-        OptimizationStatsLogger.updateDependentClassesChanged(modifiedFiles.size());
         OptimizationStatsLogger.printSummary(System.out);
-        updateFiles();
+        checker.updateFiles();
 
         System.out.println("\n--- Final AI Token Usage Report ---");
         System.out.println(checker.getCumulativeTokenUsage().getFormattedReport());
@@ -471,9 +1158,17 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         System.exit(0);
     }
 
-    private static void updateFiles() throws IOException {
+    private void updateFiles() throws IOException {
         for (String className : modifiedFiles) {
-            writeFile(className);
+            // Skip files that were already written during batch processing
+            if (!writtenFiles.contains(className)) {
+                writeFile(className);
+                writtenFiles.add(className);
+            }
+        }
+        if (lppCallCount > 0) {
+            logger.info("Final Profiling Report: LexicalPreservingPrinter={}ms ({}calls, {}ms/call avg), Disk I/O={}ms",
+                    totalLppTime, lppCallCount, totalLppTime / lppCallCount, totalDiskWriteTime);
         }
     }
 }
