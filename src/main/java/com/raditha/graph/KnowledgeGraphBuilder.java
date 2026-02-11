@@ -113,6 +113,7 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
      * Called when a field is accessed during traversal.
      * Creates an ACCESSES edge in the knowledge graph.
      */
+    @Override
     protected void onFieldAccessed(GraphNode node, FieldAccessExpr fae) {
         String sourceId = SignatureUtils.getSignature(node);
         if (sourceId == null) return;
@@ -134,6 +135,7 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
      * Called when a type is explicitly used (e.g., in casts, catch clauses).
      * Creates a USES edge in the knowledge graph.
      */
+    @Override
     protected void onTypeUsed(GraphNode node, Type type) {
         String sourceId = SignatureUtils.getSignature(node);
         if (sourceId == null) return;
@@ -154,6 +156,7 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
      * Called when a lambda expression is discovered.
      * Creates an ENCLOSES edge in the knowledge graph.
      */
+    @Override
     protected void onLambdaDiscovered(GraphNode node, LambdaExpr lambda) {
         String sourceId = SignatureUtils.getSignature(node);
         if (sourceId == null) return;
@@ -176,6 +179,7 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
      * Called when a nested type (inner class) is discovered.
      * Creates an ENCLOSES edge in the knowledge graph.
      */
+    @Override
     protected void onNestedTypeDiscovered(GraphNode node, ClassOrInterfaceDeclaration nestedType) {
         String sourceId = SignatureUtils.getSignature(node);
         if (sourceId == null) return;

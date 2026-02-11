@@ -57,7 +57,7 @@ public class Neo4jConfig {
 
     @SuppressWarnings("unchecked")
     private static void loadNeo4jSettings() {
-        Optional<Map> neo4jOpt = Settings.getProperty("neo4j", Map.class);
+        Optional<Map> neo4jOpt = Settings.getProperty(DEFAULT_USERNAME, Map.class);
         neo4jSettings = neo4jOpt.orElse(Map.of());
         logger.info("Neo4j config loaded: uri={}", getUri());
     }
@@ -80,8 +80,8 @@ public class Neo4jConfig {
 
     public static int getBatchSize() {
         Object value = neo4jSettings.get("batch_size");
-        if (value instanceof Number) {
-            return ((Number) value).intValue();
+        if (value instanceof Number n) {
+            return n.intValue();
         }
         return DEFAULT_BATCH_SIZE;
     }
