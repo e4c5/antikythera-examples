@@ -56,8 +56,12 @@ public class QueryAnalysisEngine {
         updateWhereConditions(whereConditions, conversionResult);
         updateJoinConditions(joinConditions, conversionResult);
 
+        // Extract original WHERE clause text to preserve OR/AND structure for display
+        String originalWhereClauseText = QueryOptimizationExtractor.extractWhereClauseText(statementToAnalyze);
+
         QueryAnalysisResult result = new QueryAnalysisResult(repositoryQuery, whereConditions);
         result.setJoinConditions(joinConditions);
+        result.setOriginalWhereClauseText(originalWhereClauseText);
         return result;
     }
 

@@ -11,12 +11,8 @@ import sa.com.cloudsolutions.antikythera.parser.MavenHelper;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Stream;
 
 /**
  * Command Line Interface for generating the Knowledge Graph.
@@ -24,6 +20,7 @@ import java.util.stream.Stream;
  * Usage: java com.raditha.graph.KnowledgeGraphCLI <path-to-project-src> [path-to-graph.yml]
  * </p>
  */
+@SuppressWarnings("java:S106")
 public class KnowledgeGraphCLI {
 
     private static final Logger logger = LoggerFactory.getLogger(KnowledgeGraphCLI.class);
@@ -45,7 +42,7 @@ public class KnowledgeGraphCLI {
         }
     }
 
-    public void run(String projectPath, String configPath) throws Exception {
+    public void run(String projectPath, String configPath) throws IOException {
         logger.info("Initializing Knowledge Graph Builder...");
         logger.info("Target Project: {}", projectPath);
         logger.info("Configuration: {}", configPath);
@@ -75,7 +72,7 @@ public class KnowledgeGraphCLI {
         AbstractCompiler.preProcess();
 
         // 4. Collect ALL methods from the project
-        List<MethodDeclaration> methods = collectMethods(projectPath);
+        List<MethodDeclaration> methods = collectMethods();
         logger.info("Found {} methods to analyze.", methods.size());
 
         if (methods.isEmpty()) {
@@ -84,20 +81,16 @@ public class KnowledgeGraphCLI {
         }
 
         // 5. Build Graph
-        try (Neo4jGraphStore store = Neo4jGraphStore.fromSettings(configFile)) {
-            KnowledgeGraphBuilder builder = new KnowledgeGraphBuilder(store);
-            builder.build(methods);
-        } catch (Exception e) {
-            logger.error("Error building graph", e);
-            throw e;
-        }
+        Neo4jGraphStore store = Neo4jGraphStore.fromSettings(configFile);
+        KnowledgeGraphBuilder builder = new KnowledgeGraphBuilder(store);
+        builder.build(methods);
     }
 
     private void updateBasePath(String projectPath) {
         Settings.setProperty("base_path", projectPath);
     }
 
-    private List<MethodDeclaration> collectMethods(String projectRoot) {
+    private List<MethodDeclaration> collectMethods() {
         // We ignore projectRoot here because AbstractCompiler.preProcess() has already populated the runtime
         // based on the Settings.base_path (which we updated).
         

@@ -25,7 +25,10 @@ public class Neo4jGraphStore implements AutoCloseable {
     private final String database;
     private final int batchSize;
 
+    private static final String BASE_LABEL = "CodeElement";
+
     private Session session;
+
     private final List<KnowledgeGraphEdge> pendingEdges = new ArrayList<>();
     private int edgeCount = 0;
 
@@ -84,8 +87,8 @@ public class Neo4jGraphStore implements AutoCloseable {
         ensureSession();
         String cypher = """
             MERGE (n:%s {signature: $signature})
-            SET n.name = $name, n.fqn = $fqn
-            """.formatted(nodeType);
+            SET n:%s, n.name = $name, n.fqn = $fqn
+            """.formatted(BASE_LABEL, nodeType);
 
         session.run(cypher, Values.parameters(
                 "signature", signature,
@@ -93,6 +96,7 @@ public class Neo4jGraphStore implements AutoCloseable {
                 "fqn", fqn != null ? fqn : name
         ));
     }
+
 
     public void flushEdges() {
         if (pendingEdges.isEmpty()) {
@@ -122,13 +126,14 @@ public class Neo4jGraphStore implements AutoCloseable {
 
             String cypher = """
                 UNWIND $batch AS row
-                MERGE (source {signature: row.sourceId})
-                MERGE (target {signature: row.targetId})
+                MERGE (source:%s {signature: row.sourceId})
+                MERGE (target:%s {signature: row.targetId})
                 MERGE (source)-[r:%s]->(target)
                 SET r += row.attributes
-                """.formatted(type);
+                """.formatted(BASE_LABEL, BASE_LABEL, type);
 
             session.run(cypher, Values.parameters("batch", batch));
+
         }
         pendingEdges.clear();
     }
@@ -160,7 +165,7 @@ public class Neo4jGraphStore implements AutoCloseable {
      */
     public List<String> findCallers(String signature) {
         ensureSession();
-        String cypher = "MATCH (n)-[:CALLS]->(m {signature: $sig}) RETURN n.signature";
+        String cypher = "MATCH (n)-[:CALLS]->(m:%s {signature: $sig}) RETURN n.signature".formatted(BASE_LABEL);
         return session.run(cypher, Values.parameters("sig", signature))
                 .list(r -> r.get("n.signature").asString());
     }
@@ -172,7 +177,7 @@ public class Neo4jGraphStore implements AutoCloseable {
      */
     public List<String> findCallees(String signature) {
         ensureSession();
-        String cypher = "MATCH (n {signature: $sig})-[:CALLS]->(m) RETURN m.signature";
+        String cypher = "MATCH (n:%s {signature: $sig})-[:CALLS]->(m) RETURN m.signature".formatted(BASE_LABEL);
         return session.run(cypher, Values.parameters("sig", signature))
                 .list(r -> r.get("m.signature").asString());
     }
@@ -184,10 +189,11 @@ public class Neo4jGraphStore implements AutoCloseable {
      */
     public List<String> findUsages(String signature) {
         ensureSession();
-        String cypher = "MATCH (n)-[:USES]->(m {signature: $sig}) RETURN n.signature";
+        String cypher = "MATCH (n)-[:USES]->(m:%s {signature: $sig}) RETURN n.signature".formatted(BASE_LABEL);
         return session.run(cypher, Values.parameters("sig", signature))
                 .list(r -> r.get("n.signature").asString());
     }
+
 
     @Override
     public void close() {

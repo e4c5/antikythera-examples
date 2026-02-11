@@ -1,6 +1,11 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
+import net.sf.jsqlparser.expression.Expression;
 import net.sf.jsqlparser.statement.Statement;
+import net.sf.jsqlparser.statement.delete.Delete;
+import net.sf.jsqlparser.statement.select.PlainSelect;
+import net.sf.jsqlparser.statement.select.Select;
+import net.sf.jsqlparser.statement.update.Update;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -75,23 +80,52 @@ public class QueryOptimizationExtractor {
     }
 
     /**
+     * Extracts the original WHERE clause text from a SQL Statement.
+     * Returns the WHERE clause as it appears in the original query, preserving OR/AND structure.
+     *
+     * @param statement the parsed SQL statement
+     * @return the WHERE clause text (without "WHERE" keyword), or empty string if none
+     */
+    public static String extractWhereClauseText(Statement statement) {
+        Expression whereExpr = null;
+
+        if (statement instanceof Select select) {
+            whereExpr = getWhereFromSelect(select);
+        } else if (statement instanceof Update update) {
+            whereExpr = update.getWhere();
+        } else if (statement instanceof Delete delete) {
+            whereExpr = delete.getWhere();
+        }
+
+        if (whereExpr != null) {
+            return whereExpr.toString();
+        }
+        return "";
+    }
+
+    private static Expression getWhereFromSelect(Select select) {
+        Object selectBody = (select != null) ? select.getSelectBody() : null;
+        
+        if (selectBody instanceof PlainSelect plainSelect) {
+            return plainSelect.getWhere();
+        } else if (selectBody instanceof net.sf.jsqlparser.statement.select.ParenthesedSelect parenthesedSelect) {
+            return getWhereFromSelect(parenthesedSelect.getSelect());
+        } else {
+            if (selectBody instanceof net.sf.jsqlparser.statement.select.SetOperationList setOpList && setOpList.getSelects() != null) {
+                for (Select innerSelect : setOpList.getSelects()) {
+                    Expression where = getWhereFromSelect(innerSelect);
+                    if (where != null) {
+                        return where;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
      * Result object containing both WHERE and JOIN conditions.
      */
-    public static class ConditionExtractionResult {
-        private final List<WhereCondition> whereConditions;
-        private final List<JoinCondition> joinConditions;
-
-        public ConditionExtractionResult(List<WhereCondition> whereConditions, List<JoinCondition> joinConditions) {
-            this.whereConditions = whereConditions;
-            this.joinConditions = joinConditions;
-        }
-
-        public List<WhereCondition> getWhereConditions() {
-            return whereConditions;
-        }
-
-        public List<JoinCondition> getJoinConditions() {
-            return joinConditions;
-        }
+    public record ConditionExtractionResult(List<WhereCondition> whereConditions, List<JoinCondition> joinConditions) {
     }
 }

@@ -113,6 +113,7 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
      * Called when a field is accessed during traversal.
      * Creates an ACCESSES edge in the knowledge graph.
      */
+    @Override
     protected void onFieldAccessed(GraphNode node, FieldAccessExpr fae) {
         String sourceId = SignatureUtils.getSignature(node);
         if (sourceId == null) return;
@@ -134,6 +135,7 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
      * Called when a type is explicitly used (e.g., in casts, catch clauses).
      * Creates a USES edge in the knowledge graph.
      */
+    @Override
     protected void onTypeUsed(GraphNode node, Type type) {
         String sourceId = SignatureUtils.getSignature(node);
         if (sourceId == null) return;
@@ -154,6 +156,7 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
      * Called when a lambda expression is discovered.
      * Creates an ENCLOSES edge in the knowledge graph.
      */
+    @Override
     protected void onLambdaDiscovered(GraphNode node, LambdaExpr lambda) {
         String sourceId = SignatureUtils.getSignature(node);
         if (sourceId == null) return;
@@ -176,6 +179,7 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
      * Called when a nested type (inner class) is discovered.
      * Creates an ENCLOSES edge in the knowledge graph.
      */
+    @Override
     protected void onNestedTypeDiscovered(GraphNode node, ClassOrInterfaceDeclaration nestedType) {
         String sourceId = SignatureUtils.getSignature(node);
         if (sourceId == null) return;
@@ -199,11 +203,7 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
     // ========================
 
     private String resolveFieldSignature(GraphNode node, FieldAccessExpr fae) {
-        String scopeType = "Unknown";
-        if (node.getEnclosingType() != null) {
-            scopeType = node.getEnclosingType().getFullyQualifiedName()
-                    .orElse(node.getEnclosingType().getNameAsString());
-        }
+        String scopeType = fae.getScope().toString();
         return scopeType + "#" + fae.getNameAsString();
     }
 
@@ -219,11 +219,14 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
         String sourceId = SignatureUtils.getSignature(node);
         if (sourceId == null) return;
 
-        String targetId = mce.getNameAsString();
-        // Try to resolve fully qualified target - for now use simple name
-        if (node.getEnclosingType() != null) {
+        String targetId;
+        if (mce.getScope().isPresent()) {
+            targetId = mce.getScope().get().toString() + "#" + mce.getNameAsString() + "()";
+        } else if (node.getEnclosingType() != null) {
             targetId = node.getEnclosingType().getFullyQualifiedName()
                     .orElse(node.getEnclosingType().getNameAsString()) + "#" + mce.getNameAsString() + "()";
+        } else {
+            targetId = mce.getNameAsString() + "()";
         }
 
         List<String> args = mce.getArguments().stream()
@@ -259,7 +262,7 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
 
         String targetId;
         if (member instanceof MethodDeclaration md) {
-            targetId = sourceId + "#" + md.getNameAsString() + "()";
+            targetId = SignatureUtils.getMethodSignature(sourceId, md);
         } else {
             targetId = sourceId + "#member";
         }

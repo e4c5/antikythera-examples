@@ -334,4 +334,59 @@ class RelationshipExtractionTest {
         assertTrue(paramValues.contains("a,b"), "Should contain string literal with comma");
         assertTrue(paramValues.contains("x + y"), "Should contain binary expression");
     }
+
+    @Test
+    @DisplayName("CALLS: method calling method on another type should use target type from scope")
+    void testCallsEdge_OtherType() {
+        String code = """
+            package com.example;
+            class Controller {
+                private Repository repo;
+                void handle() {
+                    repo.save();
+                }
+            }
+            """;
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        MethodDeclaration caller = cu.findAll(MethodDeclaration.class).stream()
+                .filter(m -> m.getNameAsString().equals("handle"))
+                .findFirst().orElseThrow();
+        MethodCallExpr mce = cu.findFirst(MethodCallExpr.class).orElseThrow();
+
+        GraphNode node = Graph.createGraphNode(caller);
+        
+        builder.onMethodCalled(node, mce);
+
+        ArgumentCaptor<KnowledgeGraphEdge> captor = ArgumentCaptor.forClass(KnowledgeGraphEdge.class);
+        verify(mockStore).persistEdge(captor.capture());
+        
+        KnowledgeGraphEdge edge = captor.getValue();
+        assertEquals("repo#save()", edge.targetId());
+    }
+
+    @Test
+    @DisplayName("ACCESSES: accessing field on another type should use target type from scope")
+    void testAccessesEdge_OtherType() {
+        String code = """
+            package com.example;
+            class Service {
+                void process(User user) {
+                    String name = user.name;
+                }
+            }
+            """;
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        MethodDeclaration method = cu.findFirst(MethodDeclaration.class).orElseThrow();
+        FieldAccessExpr fae = cu.findFirst(FieldAccessExpr.class).orElseThrow();
+
+        GraphNode node = Graph.createGraphNode(method);
+        
+        builder.onFieldAccessed(node, fae);
+
+        ArgumentCaptor<KnowledgeGraphEdge> captor = ArgumentCaptor.forClass(KnowledgeGraphEdge.class);
+        verify(mockStore).persistEdge(captor.capture());
+        
+        KnowledgeGraphEdge edge = captor.getValue();
+        assertEquals("user#name", edge.targetId());
+    }
 }
