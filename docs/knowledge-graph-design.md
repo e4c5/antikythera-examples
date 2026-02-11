@@ -20,7 +20,7 @@ The Knowledge Graph Builder maps structural and behavioral relationships within 
 #### Nodes
 Reuses `sa.com.cloudsolutions.antikythera.depsolver.GraphNode`.
 *   **Identity**: Stable Signature (FQN + logical name/params).
-*   **Supported Types**: `TypeDeclaration`, `CallableDeclaration`, `FieldDeclaration`, `InitializerDeclaration`.
+*   **Supported Types**: `TypeDeclaration` (Class/Interface/Enum), `CallableDeclaration`, `FieldDeclaration`, `InitializerDeclaration`, `EnumConstantDeclaration`, `LambdaExpr`.
 
 #### Edges (`KnowledgeGraphEdge`)
 ```java
@@ -39,6 +39,7 @@ public record KnowledgeGraphEdge(
 | `CALLS` | Behavioral | Method invokes Method |
 | `ACCESSES` | Behavioral | Method reads/writes Field |
 | `USES` | Dependency | Method uses Type |
+| `REFERENCES` | Behavioral | Method references Method (Method Reference) |
 
 ### 3.3 Streaming Architecture
 Edges are **NOT accumulated in memory**. As each edge is discovered during DFS traversal, it is immediately persisted to Neo4j via batch transactions.
@@ -50,7 +51,7 @@ Traverse AST → discover edge → Neo4jGraphStore.persistEdge(edge) → commit 
 ### 3.4 Neo4j Storage
 
 #### Schema
-*   **Nodes**: Labeled by type (`Class`, `Method`, `Field`, `StaticBlock`).
+*   **Nodes**: Labeled by type (`Class`, `Interface`, `Enum`, `Method`, `Field`, `StaticBlock`, `Lambda`).
 *   **Properties**: `signature`, `name`, `fqn`, `lineNumber`.
 *   **Relationships**: Labeled by edge type with `attributes` map.
 
@@ -91,9 +92,20 @@ antikythera:
 *   **Task 5.1**: Cypher query wrappers (`findCallers`, `findCallees`).
 *   **Task 5.2**: Integration tests with test-bed/test-helper.
 
-## Appendix: Critical Findings
+## 5. Modeling Guidelines
 
-1.  **getNodeSignature() incomplete**: Only handles `CallableDeclaration`.
-2.  **No `createVisitor()` hook**: `DependencyVisitor` instantiated inline.
-3.  **`FieldAccessExpr` not visited**: Relies on `ExpressionStmt` handling.
-4.  **Inner class/lambda not traversed**: Requires new visitor methods.
+### 5.1 Enums
+Enums are treated as `TypeDeclaration` nodes. Their constants are linked via `CONTAINS` edges.
+
+### 5.2 Lambdas and Functional Interfaces
+*   **Lambdas**: Modeled as distinct nodes with a generated stable signature. All behavioral edges (`CALLS`, `ACCESSES`) from within the lambda must originate from the lambda node, not the enclosing method.
+*   **Method References**: Modeled as a `REFERENCES` edge from the source method to the target method.
+
+### 5.3 Chain Resolution
+Behavioral chains (fluent APIs, Streams) must be decomposed into individual edges. Intermediate types in the chain (e.g., `Stream<T>`) are captured via `USES` edges.
+
+## Appendix: Original Finding (Revised)
+
+1.  **getNodeSignature() incomplete**: Expanded to handle Enums, Initializers, and Lambdas.
+2.  **Structural Integrity**: Entry point moved to `CompilationUnit` level to ensure `EXTENDS`/`IMPLEMENTS`/`CONTAINS` are captured.
+3.  **Behavioral Accuracy**: Scope resolution improved to distinguish between local, instance, and static calls.
