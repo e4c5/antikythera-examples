@@ -7,4 +7,4 @@ neo4j:
   username: neo4j
   password: ${NEO4J_PASSWORD}  # Set NEO4J_PASSWORD environment variable
   database: neo4j
-  batch_size: 1000
+  batch_size: 1000  # supported aliases: batch_size, batchSize

@@ -24,5 +24,8 @@ public enum EdgeType {
     ACCESSES,
 
     /** Dependency: A method/class uses a type (in parameters, return types, casts, etc.). */
-    USES
+    USES,
+
+    /** Behavioral: A method/block references a method (e.g. method references). */
+    REFERENCES
 }

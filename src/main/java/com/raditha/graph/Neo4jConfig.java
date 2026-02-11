@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
@@ -21,6 +22,7 @@ public class Neo4jConfig {
     private static final String DEFAULT_USERNAME = "neo4j";
     private static final String DEFAULT_DATABASE = "neo4j";
     private static final int DEFAULT_BATCH_SIZE = 1000;
+    private static final String KEY_NEO4J = "neo4j";
 
     private static Map<String, Object> neo4jSettings;
 
@@ -57,8 +59,23 @@ public class Neo4jConfig {
 
     @SuppressWarnings("unchecked")
     private static void loadNeo4jSettings() {
-        Optional<Map> neo4jOpt = Settings.getProperty(DEFAULT_USERNAME, Map.class);
-        neo4jSettings = neo4jOpt.orElse(Map.of());
+        Map<String, Object> merged = new HashMap<>();
+
+        Optional<Map> directNeo4jOpt = Settings.getProperty(KEY_NEO4J, Map.class);
+        directNeo4jOpt.ifPresent(map -> merged.putAll((Map<String, Object>) map));
+
+        Optional<Map> antikytheraOpt = Settings.getProperty("antikythera", Map.class);
+        if (antikytheraOpt.isPresent()) {
+            Object graphObj = antikytheraOpt.get().get("graph");
+            if (graphObj instanceof Map<?, ?> graphMap) {
+                Object nestedNeo4jObj = graphMap.get(KEY_NEO4J);
+                if (nestedNeo4jObj instanceof Map<?, ?> nestedNeo4jMap) {
+                    nestedNeo4jMap.forEach((k, v) -> merged.put(String.valueOf(k), v));
+                }
+            }
+        }
+
+        neo4jSettings = merged;
         logger.info("Neo4j config loaded: uri={}", getUri());
     }
 
@@ -80,8 +97,18 @@ public class Neo4jConfig {
 
     public static int getBatchSize() {
         Object value = neo4jSettings.get("batch_size");
+        if (!(value instanceof Number)) {
+            value = neo4jSettings.get("batchSize");
+        }
         if (value instanceof Number n) {
             return n.intValue();
+        }
+        if (value instanceof String s) {
+            try {
+                return Integer.parseInt(s);
+            } catch (NumberFormatException e) {
+                logger.warn("Invalid Neo4j batch size '{}', using default {}", s, DEFAULT_BATCH_SIZE);
+            }
         }
         return DEFAULT_BATCH_SIZE;
     }

@@ -5,6 +5,7 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.InitializerDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.expr.LambdaExpr;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
@@ -102,6 +103,47 @@ class KnowledgeGraphDataStructuresTest {
     @DisplayName("Signature: null node returns null")
     void testNullNode() {
         assertNull(SignatureUtils.getSignature(null));
+    }
+
+    @Test
+    @DisplayName("Signature: enum constants are stable and unique")
+    void testEnumConstantSignature() {
+        String code = """
+            package com.example;
+            enum Status { NEW, DONE }
+            """;
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        var constants = cu.findAll(com.github.javaparser.ast.body.EnumConstantDeclaration.class);
+
+        String sig1 = SignatureUtils.getEnumConstantSignature("com.example.Status", constants.get(0));
+        String sig2 = SignatureUtils.getEnumConstantSignature("com.example.Status", constants.get(1));
+
+        assertEquals("com.example.Status#NEW", sig1);
+        assertEquals("com.example.Status#DONE", sig2);
+        assertNotEquals(sig1, sig2);
+    }
+
+    @Test
+    @DisplayName("Signature: lambda signatures are deterministic and unique by ordinal")
+    void testLambdaSignature() {
+        String code = """
+            package com.example;
+            class Service {
+                void run() {
+                    Runnable a = () -> {};
+                    Runnable b = () -> {};
+                }
+            }
+            """;
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        var lambdas = cu.findAll(LambdaExpr.class);
+
+        String sig1 = SignatureUtils.getLambdaSignature("com.example.Service#run()", lambdas.get(0), 1);
+        String sig2 = SignatureUtils.getLambdaSignature("com.example.Service#run()", lambdas.get(1), 2);
+
+        assertTrue(sig1.startsWith("com.example.Service#run()$lambda_"));
+        assertTrue(sig2.startsWith("com.example.Service#run()$lambda_"));
+        assertNotEquals(sig1, sig2);
     }
 
     @Test

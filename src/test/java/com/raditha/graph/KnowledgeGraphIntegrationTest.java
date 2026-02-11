@@ -2,7 +2,6 @@ package com.raditha.graph;
 
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
-import com.github.javaparser.ast.body.MethodDeclaration;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -22,6 +21,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 import org.testcontainers.containers.Neo4jContainer;
 import org.codehaus.plexus.util.xml.pull.XmlPullParserException;
@@ -100,18 +100,18 @@ class KnowledgeGraphIntegrationTest {
         // Use Antikythera framework to pre-process (parse & resolve) the testbed
         AbstractCompiler.preProcess();
         
-        List<MethodDeclaration> allMethods = new ArrayList<>();
+        List<CompilationUnit> units = new ArrayList<>();
         
         // Retrieve parsed units directly from AntikytheraRunTime
         for (CompilationUnit cu : AntikytheraRunTime.getResolvedCompilationUnits().values()) {
-            allMethods.addAll(cu.findAll(MethodDeclaration.class));
+            units.add(cu);
         }
 
 
-        assertTrue(allMethods.size() > 0, "Should have found methods in testbed");
+        assertTrue(units.size() > 0, "Should have found compilation units in testbed");
 
         // Build Graph
-        builder.build(allMethods);
+        builder.build(units);
 
         if (neo4jContainer != null) {
             // Live verification against Real DB
@@ -125,6 +125,15 @@ class KnowledgeGraphIntegrationTest {
             List<KnowledgeGraphEdge> capturedEdges = edgeCaptor.getAllValues();
             
             assertTrue(capturedEdges.size() > 100, "Should generate a significant number of edges for PetClinic");
+
+            Set<EdgeType> types = capturedEdges.stream()
+                .map(KnowledgeGraphEdge::type)
+                .collect(java.util.stream.Collectors.toSet());
+
+            assertTrue(types.contains(EdgeType.CONTAINS), "Should include structural CONTAINS edges");
+            assertTrue(types.contains(EdgeType.CALLS), "Should include behavioral CALLS edges");
+            assertTrue(types.contains(EdgeType.EXTENDS) || types.contains(EdgeType.IMPLEMENTS),
+                    "Should include inheritance edges");
 
             // Check for specific expected patterns (OwnerController calling something)
             boolean foundControllerInteraction = capturedEdges.stream()

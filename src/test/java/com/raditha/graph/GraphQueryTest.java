@@ -14,15 +14,12 @@ import org.neo4j.driver.Session;
 import org.neo4j.driver.SessionConfig;
 import org.neo4j.driver.Value;
 
-import java.io.IOException;
 import java.util.List;
 import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -84,7 +81,7 @@ class GraphQueryTest {
         assertEquals("A", callers.get(0));
         
         verify(session).run(
-            org.mockito.ArgumentMatchers.contains("MATCH (n)-[:CALLS]->(m {signature: $sig}) RETURN n.signature"),
+            org.mockito.ArgumentMatchers.contains("MATCH (n)-[:CALLS]->(m:CodeElement {signature: $sig}) RETURN n.signature"),
             any(org.neo4j.driver.Value.class)
         );
     }
@@ -112,7 +109,7 @@ class GraphQueryTest {
         assertEquals("B", callees.get(0));
         
         verify(session).run(
-            org.mockito.ArgumentMatchers.contains("MATCH (n {signature: $sig})-[:CALLS]->(m) RETURN m.signature"),
+            org.mockito.ArgumentMatchers.contains("MATCH (n:CodeElement {signature: $sig})-[:CALLS]->(m) RETURN m.signature"),
             any(org.neo4j.driver.Value.class)
         );
     }
@@ -140,7 +137,7 @@ class GraphQueryTest {
         assertEquals("A", usages.get(0));
         
         verify(session).run(
-            org.mockito.ArgumentMatchers.contains("MATCH (n)-[:USES]->(m {signature: $sig}) RETURN n.signature"),
+            org.mockito.ArgumentMatchers.contains("MATCH (n)-[:USES]->(m:CodeElement {signature: $sig}) RETURN n.signature"),
             any(org.neo4j.driver.Value.class)
         );
     }

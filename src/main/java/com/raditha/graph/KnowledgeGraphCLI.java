@@ -1,7 +1,6 @@
 package com.raditha.graph;
 
 import com.github.javaparser.ast.CompilationUnit;
-import com.github.javaparser.ast.body.MethodDeclaration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
@@ -11,7 +10,6 @@ import sa.com.cloudsolutions.antikythera.parser.MavenHelper;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -71,33 +69,26 @@ public class KnowledgeGraphCLI {
         logger.info("Pre-processing project sources via Antikythera...");
         AbstractCompiler.preProcess();
 
-        // 4. Collect ALL methods from the project
-        List<MethodDeclaration> methods = collectMethods();
-        logger.info("Found {} methods to analyze.", methods.size());
+        // 4. Collect resolved compilation units from runtime
+        List<CompilationUnit> units = collectCompilationUnits();
+        logger.info("Found {} compilation units to analyze.", units.size());
 
-        if (methods.isEmpty()) {
-            logger.warn("No methods found. Check the project path and structure.");
+        if (units.isEmpty()) {
+            logger.warn("No compilation units found. Check the project path and structure.");
             return;
         }
 
         // 5. Build Graph
         Neo4jGraphStore store = Neo4jGraphStore.fromSettings(configFile);
         KnowledgeGraphBuilder builder = new KnowledgeGraphBuilder(store);
-        builder.build(methods);
+        builder.build(units);
     }
 
     private void updateBasePath(String projectPath) {
         Settings.setProperty("base_path", projectPath);
     }
 
-    private List<MethodDeclaration> collectMethods() {
-        // We ignore projectRoot here because AbstractCompiler.preProcess() has already populated the runtime
-        // based on the Settings.base_path (which we updated).
-        
-        List<MethodDeclaration> allMethods = new ArrayList<>();
-        for (CompilationUnit cu : AntikytheraRunTime.getResolvedCompilationUnits().values()) {
-             allMethods.addAll(cu.findAll(MethodDeclaration.class));
-        }
-        return allMethods;
+    private List<CompilationUnit> collectCompilationUnits() {
+        return new java.util.ArrayList<>(AntikytheraRunTime.getResolvedCompilationUnits().values());
     }
 }
