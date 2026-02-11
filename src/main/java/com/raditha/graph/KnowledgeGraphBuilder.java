@@ -203,11 +203,7 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
     // ========================
 
     private String resolveFieldSignature(GraphNode node, FieldAccessExpr fae) {
-        String scopeType = "Unknown";
-        if (node.getEnclosingType() != null) {
-            scopeType = node.getEnclosingType().getFullyQualifiedName()
-                    .orElse(node.getEnclosingType().getNameAsString());
-        }
+        String scopeType = fae.getScope().toString();
         return scopeType + "#" + fae.getNameAsString();
     }
 
@@ -223,11 +219,14 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
         String sourceId = SignatureUtils.getSignature(node);
         if (sourceId == null) return;
 
-        String targetId = mce.getNameAsString();
-        // Try to resolve fully qualified target - for now use simple name
-        if (node.getEnclosingType() != null) {
+        String targetId;
+        if (mce.getScope().isPresent()) {
+            targetId = mce.getScope().get().toString() + "#" + mce.getNameAsString() + "()";
+        } else if (node.getEnclosingType() != null) {
             targetId = node.getEnclosingType().getFullyQualifiedName()
                     .orElse(node.getEnclosingType().getNameAsString()) + "#" + mce.getNameAsString() + "()";
+        } else {
+            targetId = mce.getNameAsString() + "()";
         }
 
         List<String> args = mce.getArguments().stream()
@@ -263,7 +262,7 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
 
         String targetId;
         if (member instanceof MethodDeclaration md) {
-            targetId = sourceId + "#" + md.getNameAsString() + "()";
+            targetId = SignatureUtils.getMethodSignature(sourceId, md);
         } else {
             targetId = sourceId + "#member";
         }
