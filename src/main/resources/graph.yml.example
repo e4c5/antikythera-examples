@@ -2,6 +2,8 @@
 # Copy this file to graph.yml and update with your Neo4j credentials
 # The actual graph.yml file should NOT be committed to version control
 
+base_path: /path/to/project/src/main/java  # Can be overridden with --base-path
+
 neo4j:
   uri: bolt://localhost:7687
   username: neo4j

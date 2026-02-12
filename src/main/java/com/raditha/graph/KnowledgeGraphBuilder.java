@@ -56,10 +56,10 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
     private static final Logger logger = LoggerFactory.getLogger(KnowledgeGraphBuilder.class);
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
-    private final Neo4jGraphStore graphStore;
+    private final GraphStore graphStore;
     private boolean autoClose = true;
 
-    public KnowledgeGraphBuilder(Neo4jGraphStore graphStore) {
+    public KnowledgeGraphBuilder(GraphStore graphStore) {
         this.graphStore = graphStore;
     }
 
@@ -130,11 +130,15 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
 
     public void close() {
         if (graphStore != null) {
-            graphStore.close();
+            try {
+                graphStore.close();
+            } catch (Exception e) {
+                logger.warn("Error closing graph store", e);
+            }
         }
     }
 
-    public Neo4jGraphStore getGraphStore() {
+    public GraphStore getGraphStore() {
         return graphStore;
     }
 

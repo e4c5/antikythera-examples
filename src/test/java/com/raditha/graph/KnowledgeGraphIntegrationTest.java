@@ -42,7 +42,7 @@ import static org.mockito.Mockito.verify;
 class KnowledgeGraphIntegrationTest {
 
     @Mock
-    private Neo4jGraphStore graphStore;
+    private GraphStore graphStore;
     
     private Neo4jContainer<?> neo4jContainer;
     

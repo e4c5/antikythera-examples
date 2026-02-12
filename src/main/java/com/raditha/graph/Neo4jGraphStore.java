@@ -17,7 +17,7 @@ import java.util.List;
  * Neo4j graph store for persisting Knowledge Graph nodes and edges.
  * Supports streaming persistence with configurable batch sizes.
  */
-public class Neo4jGraphStore implements AutoCloseable {
+public class Neo4jGraphStore implements GraphStore {
 
     private static final Logger logger = LoggerFactory.getLogger(Neo4jGraphStore.class);
 

@@ -38,7 +38,7 @@ class GraphQueryTest {
     @Mock
     private Result result;
 
-    private Neo4jGraphStore graphStore;
+    private GraphStore graphStore;
 
     @BeforeEach
     void setUp() {
@@ -52,7 +52,7 @@ class GraphQueryTest {
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown() throws Exception {
         if (graphStore != null) {
             graphStore.close();
         }

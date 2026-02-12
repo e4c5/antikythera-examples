@@ -18,13 +18,13 @@ import static org.mockito.Mockito.verify;
 
 class RelationshipExtractionTest {
 
-    private Neo4jGraphStore mockStore;
+    private GraphStore mockStore;
     private KnowledgeGraphBuilder builder;
 
     @BeforeEach
     void setUp() {
         Graph.getNodes().clear();
-        mockStore = mock(Neo4jGraphStore.class);
+        mockStore = mock(GraphStore.class);
         builder = new KnowledgeGraphBuilder(mockStore);
         builder.setAutoClose(false);
     }
