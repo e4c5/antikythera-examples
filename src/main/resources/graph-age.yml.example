@@ -1,0 +1,16 @@
+# Apache AGE Knowledge Graph Configuration Example
+# Copy this file to graph.yml to use Apache AGE as the backend
+
+base_path: /path/to/project/src/main/java  # Can be overridden with --base-path
+
+graph:
+  store:
+    type: age
+  
+  age:
+    url: jdbc:postgresql://localhost:5432/postgres
+    user: postgres
+    password: ${PG_PASSWORD}  # Set PG_PASSWORD environment variable
+    graphName: antikythera_graph
+    
+  batchSize: 1000

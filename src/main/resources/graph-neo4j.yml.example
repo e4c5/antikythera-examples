@@ -4,9 +4,14 @@
 
 base_path: /path/to/project/src/main/java  # Can be overridden with --base-path
 
-neo4j:
-  uri: bolt://localhost:7687
-  username: neo4j
-  password: ${NEO4J_PASSWORD}  # Set NEO4J_PASSWORD environment variable
-  database: neo4j
+graph:
+  store:
+    type: neo4j
+    
+  neo4j:
+    uri: bolt://localhost:7687
+    username: neo4j
+    password: ${NEO4J_PASSWORD}  # Set NEO4J_PASSWORD environment variable
+    database: neo4j
+    
   batch_size: 1000  # supported aliases: batch_size, batchSize
