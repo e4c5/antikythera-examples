@@ -4,10 +4,11 @@ import sa.com.cloudsolutions.antikythera.configuration.Settings;
 
 import java.io.File;
 import java.io.IOException;
+import java.sql.SQLException;
 
 public class GraphStoreFactory {
 
-    public static GraphStore createGraphStore(File configFile) throws IOException {
+    public static GraphStore createGraphStore(File configFile) throws IOException, SQLException {
         // Load configuration
         Neo4jConfig.load(configFile);
         

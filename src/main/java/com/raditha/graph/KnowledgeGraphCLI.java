@@ -10,6 +10,7 @@ import sa.com.cloudsolutions.antikythera.parser.MavenHelper;
 
 import java.io.File;
 import java.io.IOException;
+import java.sql.SQLException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
@@ -91,7 +92,7 @@ public class KnowledgeGraphCLI {
                 .findFirst();
     }
 
-    public void run(String projectPath, String configPath) throws IOException {
+    public void run(String projectPath, String configPath) throws IOException, SQLException {
         logger.info("Initializing Knowledge Graph Builder...");
         logger.info("Target Project: {}", projectPath);
         logger.info("Configuration: {}", configPath);

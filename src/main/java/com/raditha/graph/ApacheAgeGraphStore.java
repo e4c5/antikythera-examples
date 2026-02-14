@@ -35,7 +35,7 @@ public class ApacheAgeGraphStore implements GraphStore {
 
     private static final String BASE_LABEL = "CodeElement";
 
-    public ApacheAgeGraphStore(String url, String user, String password, String graphName, int batchSize) {
+    public ApacheAgeGraphStore(String url, String user, String password, String graphName, int batchSize) throws SQLException {
         this.url = url;
         this.user = user;
         this.password = password;
@@ -44,31 +44,27 @@ public class ApacheAgeGraphStore implements GraphStore {
         initialize();
     }
 
-    private void initialize() {
-        try {
-            ensureConnection();
-            try (Statement stmt = connection.createStatement()) {
-                // Ensure AGE extension is loaded
-                stmt.execute("LOAD 'age'");
-                stmt.execute("SET search_path = ag_catalog, \"$user\", public");
-                
-                // Check if graph exists, if not create it
-                // Note: creating graph strictly might fail if it already exists, need to handle gracefully or check first
-                // simple check via select * from ag_graph where name = ?
-                try (PreparedStatement checkStmt = connection.prepareStatement("SELECT 1 FROM ag_graph WHERE name = ?")) {
-                    checkStmt.setString(1, graphName);
-                    try (ResultSet rs = checkStmt.executeQuery()) {
-                         if (!rs.next()) {
-                             stmt.execute("SELECT create_graph('" + graphName + "')");
-                             logger.info("Created Apache AGE graph '{}'", graphName);
-                         } else {
-                             logger.info("Using existing Apache AGE graph '{}'", graphName);
-                         }
-                    }
+    private void initialize() throws SQLException {
+        ensureConnection();
+        try (Statement stmt = connection.createStatement()) {
+            // Ensure AGE extension is loaded
+            stmt.execute("LOAD 'age'");
+            stmt.execute("SET search_path = ag_catalog, \"$user\", public");
+
+            // Check if graph exists, if not create it
+            // Note: creating graph strictly might fail if it already exists, need to handle gracefully or check first
+            // simple check via select * from ag_graph where name = ?
+            try (PreparedStatement checkStmt = connection.prepareStatement("SELECT 1 FROM ag_graph WHERE name = ?")) {
+                checkStmt.setString(1, graphName);
+                try (ResultSet rs = checkStmt.executeQuery()) {
+                     if (!rs.next()) {
+                         stmt.execute("SELECT create_graph('" + graphName + "')");
+                         logger.info("Created Apache AGE graph '{}'", graphName);
+                     } else {
+                         logger.info("Using existing Apache AGE graph '{}'", graphName);
+                     }
                 }
             }
-        } catch (SQLException e) {
-            throw new RuntimeException("Failed to initialize Apache AGE connection", e);
         }
     }
 
