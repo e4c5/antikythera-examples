@@ -130,8 +130,9 @@ public class KnowledgeGraphCLI {
             return;
         }
 
-        // 5. Build Graph
-        GraphStore store = GraphStoreFactory.createGraphStore(configFile);
+        // 5. Build Graph (Settings already loaded above, use the no-arg variant
+        //    so the base_path override from step 2 is preserved)
+        GraphStore store = GraphStoreFactory.createGraphStore();
         KnowledgeGraphBuilder builder = new KnowledgeGraphBuilder(store);
         builder.build(units);
     }

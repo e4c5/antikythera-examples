@@ -63,8 +63,8 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
         this.graphStore = graphStore;
     }
 
-    public static KnowledgeGraphBuilder fromSettings(File configFile) throws IOException {
-        Neo4jGraphStore store = Neo4jGraphStore.fromSettings(configFile);
+    public static KnowledgeGraphBuilder fromSettings(File configFile) throws IOException, java.sql.SQLException {
+        GraphStore store = GraphStoreFactory.createGraphStore(configFile);
         return new KnowledgeGraphBuilder(store);
     }
 
