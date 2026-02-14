@@ -66,7 +66,7 @@ public class AnnotationFinder {
     /**
      * Checks if any annotation matches the search term (handles both simple and fully qualified names).
      */
-    private static boolean hasAnnotation(java.util.List<AnnotationExpr> annotations, String searchTerm, String simpleName) {
+    static boolean hasAnnotation(java.util.List<AnnotationExpr> annotations, String searchTerm, String simpleName) {
         return annotations.stream().anyMatch(ann -> matchesAnnotation(ann.getNameAsString(), searchTerm, simpleName));
     }
 
@@ -74,7 +74,7 @@ public class AnnotationFinder {
      * Checks if an annotation name matches the search term.
      * Matches if: exact match, fully qualified match, or simple name match.
      */
-    private static boolean matchesAnnotation(String annotationName, String searchTerm, String simpleName) {
+    static boolean matchesAnnotation(String annotationName, String searchTerm, String simpleName) {
         return annotationName.equals(searchTerm) 
             || annotationName.equals(simpleName)
             || annotationName.endsWith("." + searchTerm)
@@ -84,7 +84,7 @@ public class AnnotationFinder {
     /**
      * Extracts the simple name from a fully qualified name.
      */
-    private static String extractSimpleName(String name) {
+    static String extractSimpleName(String name) {
         int lastDot = name.lastIndexOf('.');
         return lastDot >= 0 ? name.substring(lastDot + 1) : name;
     }
@@ -92,7 +92,7 @@ public class AnnotationFinder {
     /**
      * Builds a method signature: methodName(ParamType1 param1, ParamType2 param2)
      */
-    private static String buildMethodSignature(MethodDeclaration method) {
+    static String buildMethodSignature(MethodDeclaration method) {
         String params = method.getParameters().stream()
                 .map(p -> p.getType().asString() + " " + p.getNameAsString())
                 .collect(Collectors.joining(", "));
