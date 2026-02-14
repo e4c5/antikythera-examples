@@ -17,6 +17,7 @@ This module provides a suite of advanced utilities and tools built on top of the
     - [Spring Boot Version Detector](#spring-boot-version-detector)
     - [Circular Dependency Tool](#circular-dependency-tool)
 - [Code Quality & Analysis Tools](#code-quality--analysis-tools)
+    - [AnnotationFinder](#annotationfinder)
     - [TestFixer](#testfixer)
     - [Logger Analysis](#logger-analysis)
     - [Liquibase Tools](#liquibase-tools)
@@ -191,6 +192,25 @@ mvn exec:java -Dexec.mainClass="com.raditha.spring.cycle.CircularDependencyTool"
 ---
 
 ## Code Quality & Analysis Tools
+
+### AnnotationFinder
+Finds all classes and methods annotated with a specific annotation.
+
+**Quick Start:**
+```bash
+mvn exec:java -Dexec.mainClass="sa.com.cloudsolutions.antikythera.examples.AnnotationFinder" \
+  -Dexec.args="Service"
+```
+
+**Features:**
+- Searches entire codebase for specified annotation
+- Outputs fully qualified class names for class-level annotations
+- Outputs class#method signature for method-level annotations
+- Supports any annotation name (e.g., `@Service`, `@Test`, `@Entity`, `@Query`)
+
+**Output Format:**
+- Class annotations: `com.example.MyService`
+- Method annotations: `com.example.MyClass#print()` or `com.example.MyClass#print(String s)`
 
 ### TestFixer
 Identifies and fixes bad testing patterns (missing assertions, framework migration).
