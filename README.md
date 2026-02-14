@@ -198,19 +198,28 @@ Finds all classes and methods annotated with a specific annotation.
 
 **Quick Start:**
 ```bash
+# Detailed output (default) - includes full method signatures
 mvn exec:java -Dexec.mainClass="sa.com.cloudsolutions.antikythera.examples.AnnotationFinder" \
   -Dexec.args="Service"
+
+# Simple output - method name only, duplicates eliminated
+mvn exec:java -Dexec.mainClass="sa.com.cloudsolutions.antikythera.examples.AnnotationFinder" \
+  -Dexec.args="Service --simple"
 ```
 
 **Features:**
 - Searches entire codebase for specified annotation
-- Outputs fully qualified class names for class-level annotations
-- Outputs class#method signature for method-level annotations
+- Handles both simple names (e.g., `Service`) and fully qualified names (e.g., `org.springframework.stereotype.Service`)
+- Two output modes: detailed (default) and simple
 - Supports any annotation name (e.g., `@Service`, `@Test`, `@Entity`, `@Query`)
 
 **Output Format:**
-- Class annotations: `com.example.MyService`
-- Method annotations: `com.example.MyClass#print()` or `com.example.MyClass#print(String s)`
+- **Class annotations**: `com.example.MyService` (same in both modes)
+- **Method annotations (detailed mode)**: `com.example.MyClass#print()` or `com.example.MyClass#print(String s)`
+- **Method annotations (simple mode)**: `com.example.MyClass#print` (method name only, no duplicates for overloaded methods)
+
+**Options:**
+- `--simple` or `-s`: Enable simple output mode (method name only, eliminates duplicates)
 
 ### TestFixer
 Identifies and fixes bad testing patterns (missing assertions, framework migration).

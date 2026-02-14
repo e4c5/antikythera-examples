@@ -9,6 +9,8 @@ import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -19,13 +21,19 @@ import java.util.stream.Collectors;
  * <pre>
  * mvn exec:java -Dexec.mainClass="sa.com.cloudsolutions.antikythera.examples.AnnotationFinder" \
  *   -Dexec.args="Service"
+ * 
+ * # Simple output mode (method name only, no duplicates)
+ * mvn exec:java -Dexec.mainClass="sa.com.cloudsolutions.antikythera.examples.AnnotationFinder" \
+ *   -Dexec.args="Service --simple"
  * </pre>
  * 
  * <p>Output format:
  * <ul>
  *   <li>For class annotations: Fully qualified class name (e.g., com.example.MyService)</li>
- *   <li>For method annotations: Fully qualified class name#method signature 
+ *   <li>For method annotations (detailed mode): Fully qualified class name#method signature 
  *       (e.g., com.example.MyClass#print() or com.example.MyClass#print(String s))</li>
+ *   <li>For method annotations (simple mode): Fully qualified class name#method name
+ *       (e.g., com.example.MyClass#print) - duplicates eliminated</li>
  * </ul>
  */
 @SuppressWarnings("java:S106")
@@ -33,30 +41,61 @@ public class AnnotationFinder {
 
     public static void main(String[] args) throws IOException {
         if (args.length == 0) {
-            System.err.println("Usage: AnnotationFinder <annotation-name>");
+            System.err.println("Usage: AnnotationFinder <annotation-name> [--simple|-s]");
             System.err.println("Example: AnnotationFinder Service");
-            System.err.println("Example: AnnotationFinder org.springframework.stereotype.Service");
+            System.err.println("Example: AnnotationFinder org.springframework.stereotype.Service --simple");
+            System.err.println("");
+            System.err.println("Options:");
+            System.err.println("  --simple, -s    Simple output mode: method name only (no parameters), duplicates eliminated");
             System.exit(1);
         }
 
-        String searchTerm = args[0];
-        String simpleName = extractSimpleName(searchTerm);
+        String searchTerm = null;
+        boolean simpleMode = false;
         
-        File yamlFile = new File(Settings.class.getClassLoader().getResource("depsolver.yml").getFile());
+        // Parse arguments
+        for (String arg : args) {
+            if (arg.equals("--simple") || arg.equals("-s")) {
+                simpleMode = true;
+            } else if (!arg.startsWith("-") && searchTerm == null) {
+                searchTerm = arg;
+            }
+        }
+        
+        if (searchTerm == null) {
+            System.err.println("Error: Annotation name is required");
+            System.exit(1);
+        }
+
+        final String finalSearchTerm = searchTerm;
+        final String simpleName = extractSimpleName(finalSearchTerm);
+        final boolean isSimpleMode = simpleMode;
+        
+        File yamlFile = new File(Settings.class.getClassLoader().getResource("graph.yml").getFile());
         Settings.loadConfigMap(yamlFile);
         AbstractCompiler.preProcess();
 
+        final Set<String> seen = isSimpleMode ? new HashSet<>() : null;
+
         AntikytheraRunTime.getResolvedCompilationUnits().forEach((cls, cu) -> 
             cu.findAll(ClassOrInterfaceDeclaration.class).forEach(classDecl -> {
-                String className = classDecl.getFullyQualifiedName().orElse(classDecl.getNameAsString());
+                final String className = classDecl.getFullyQualifiedName().orElse(classDecl.getNameAsString());
                 
-                if (hasAnnotation(classDecl.getAnnotations(), searchTerm, simpleName)) {
+                if (hasAnnotation(classDecl.getAnnotations(), finalSearchTerm, simpleName)) {
                     System.out.println(className);
                 }
                 
                 classDecl.getMethods().forEach(method -> {
-                    if (hasAnnotation(method.getAnnotations(), searchTerm, simpleName)) {
-                        System.out.println(className + "#" + buildMethodSignature(method));
+                    if (hasAnnotation(method.getAnnotations(), finalSearchTerm, simpleName)) {
+                        if (isSimpleMode && seen != null) {
+                            final String output = className + "#" + method.getNameAsString();
+                            if (seen.add(output)) {
+                                System.out.println(output);
+                            }
+                        } else {
+                            final String output = className + "#" + buildMethodSignature(method);
+                            System.out.println(output);
+                        }
                     }
                 });
             })

@@ -9,7 +9,9 @@ import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -287,6 +289,105 @@ class AnnotationFinderTest {
         assertTrue(AnnotationFinder.hasAnnotation(method.getAnnotations(), "Transactional", "Transactional"));
         assertFalse(AnnotationFinder.hasAnnotation(classDecl.getAnnotations(), "Transactional", "Transactional"));
         assertFalse(AnnotationFinder.hasAnnotation(method.getAnnotations(), "Service", "Service"));
+    }
+
+    @Test
+    void testSimpleModeOutput_JustMethodName() {
+        String code = """
+            package com.example;
+            import org.junit.jupiter.api.Test;
+            
+            class TestClass {
+                @Test
+                void testMethod() {
+                }
+                
+                @Test
+                void testMethod(String param) {
+                }
+            }
+            """;
+        
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        ClassOrInterfaceDeclaration classDecl = cu.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
+        String className = classDecl.getFullyQualifiedName().orElse(classDecl.getNameAsString());
+        
+        // In simple mode, both overloaded methods should produce the same output
+        java.util.List<MethodDeclaration> methods = classDecl.getMethods();
+        Set<String> seen = new java.util.HashSet<>();
+        
+        methods.forEach(method -> {
+            if (AnnotationFinder.hasAnnotation(method.getAnnotations(), "Test", "Test")) {
+                String output = className + "#" + method.getNameAsString();
+                seen.add(output);
+            }
+        });
+        
+        // Should only have one entry (duplicates eliminated)
+        assertEquals(1, seen.size());
+        assertTrue(seen.contains(className + "#testMethod"));
+    }
+
+    @Test
+    void testSimpleModeOutput_DifferentMethodNames() {
+        String code = """
+            package com.example;
+            import org.junit.jupiter.api.Test;
+            
+            class TestClass {
+                @Test
+                void testMethod1() {
+                }
+                
+                @Test
+                void testMethod2() {
+                }
+            }
+            """;
+        
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        ClassOrInterfaceDeclaration classDecl = cu.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
+        String className = classDecl.getFullyQualifiedName().orElse(classDecl.getNameAsString());
+        
+        java.util.List<MethodDeclaration> methods = classDecl.getMethods();
+        Set<String> seen = new java.util.HashSet<>();
+        
+        methods.forEach(method -> {
+            if (AnnotationFinder.hasAnnotation(method.getAnnotations(), "Test", "Test")) {
+                String output = className + "#" + method.getNameAsString();
+                seen.add(output);
+            }
+        });
+        
+        // Should have two entries (different method names)
+        assertEquals(2, seen.size());
+        assertTrue(seen.contains(className + "#testMethod1"));
+        assertTrue(seen.contains(className + "#testMethod2"));
+    }
+
+    @Test
+    void testSimpleModeOutput_NoParameters() {
+        String code = """
+            package com.example;
+            import org.junit.jupiter.api.Test;
+            
+            class TestClass {
+                @Test
+                void testMethod() {
+                }
+            }
+            """;
+        
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        MethodDeclaration method = cu.findFirst(MethodDeclaration.class).orElseThrow();
+        
+        // In simple mode, output should be just className#methodName (no parameters)
+        String simpleOutput = "com.example.TestClass#" + method.getNameAsString();
+        assertEquals("com.example.TestClass#testMethod", simpleOutput);
+        
+        // Detailed mode would include parameters
+        String detailedOutput = "com.example.TestClass#" + AnnotationFinder.buildMethodSignature(method);
+        assertEquals("com.example.TestClass#testMethod()", detailedOutput);
     }
 }
 
