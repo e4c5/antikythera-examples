@@ -90,36 +90,25 @@ public class ApacheAgeGraphStore implements GraphStore {
     public void persistNode(String signature, String nodeType, String name, String fqn) {
         try {
             ensureConnection();
-            // Using cypher function call within SQL
-            // SELECT * FROM cypher('graph_name', $$ ... $$) as (v agtype)
-            String cypher = """
-                SELECT * FROM cypher('%s', $$
-                    MERGE (n:%s {signature: $signature})
-                    SET n:%s, n.name = $name, n.fqn = $fqn
-                $$, $params$) as (v agtype)
-                """.formatted(graphName, BASE_LABEL, nodeType);
-
-            // Access parameters need to be constructed as a JSON string for AGE, 
-            // or we use string formatting if we want to be simple (but careful with injection).
-            // Apache AGE JDBC support for parameters logic: normally passed as a separate argument to the cypher function if supported,
-            // or we construct the string. The standard `cypher` function signature in PostgreSQL is cypher(graph_name, query_string, params_agtype)
-            
-            // For safety and correctness with AGE, we should use a prepared statement but handling agtype params via JDBC is tricky.
-            // A common pattern is to pass parameters as a JSON string cast to agtype.
-            
-            // Building JSON param string manually or via Jackson
             Map<String, Object> params = new HashMap<>();
             params.put("signature", signature);
             params.put("name", name);
             params.put("fqn", fqn != null ? fqn : name);
-            
+            params.put("nodeType", nodeType);
+
+            // AGE does not support SET n:Label — store the type as a property instead
+            String cypher = """
+                SELECT * FROM cypher('%s', $$
+                    MERGE (n:%s {signature: $signature})
+                    SET n.name = $name, n.fqn = $fqn, n.nodeType = $nodeType
+                $$, ?) as (v agtype)
+                """.formatted(graphName, BASE_LABEL);
+
             String jsonParams = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(params);
 
-            String sql = cypher.replace("$params$", "?");
-
-            try (PreparedStatement stmt = connection.prepareStatement(sql)) {
-                stmt.setObject(1, jsonParams, java.sql.Types.OTHER); // Pass as JSON/AGTYPE
-                stmt.execute(); 
+            try (PreparedStatement stmt = connection.prepareStatement(cypher)) {
+                stmt.setObject(1, jsonParams, java.sql.Types.OTHER);
+                stmt.execute();
             }
 
         } catch (Exception e) {
@@ -135,26 +124,30 @@ public class ApacheAgeGraphStore implements GraphStore {
         try {
             ensureConnection();
             logger.debug("Flushing {} pending edges to Apache AGE", pendingEdges.size());
-            
-            // Simplify: processing one by one or in small batches via string concatenation for now
-            // Bulk insert in AGE is often done via creating nodes and edges.
-            // For now, let's iterate and execute. Optimization can come later.
-            
+
             for (KnowledgeGraphEdge edge : pendingEdges) {
                  Map<String, Object> params = new HashMap<>();
                  params.put("sourceId", edge.sourceId());
                  params.put("targetId", edge.targetId());
-                 params.put("props", edge.attributes());
+
+                 // Build individual SET clauses — AGE does not support SET r += $map
+                 StringBuilder setClauses = new StringBuilder();
+                 for (Map.Entry<String, String> attr : edge.attributes().entrySet()) {
+                     params.put("attr_" + attr.getKey(), attr.getValue());
+                     setClauses.append("SET r.").append(attr.getKey())
+                               .append(" = $attr_").append(attr.getKey()).append(" ");
+                 }
 
                  String cypher = """
                     SELECT * FROM cypher('%s', $$
                         MATCH (source:%s {signature: $sourceId})
                         MATCH (target:%s {signature: $targetId})
                         MERGE (source)-[r:%s]->(target)
-                        SET r += $props
+                        %s
                     $$, ?) as (v agtype)
-                    """.formatted(graphName, BASE_LABEL, BASE_LABEL, edge.type().name());
-                 
+                    """.formatted(graphName, BASE_LABEL, BASE_LABEL,
+                                  edge.type().name(), setClauses.toString());
+
                  String jsonParams = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(params);
 
                  try (PreparedStatement stmt = connection.prepareStatement(cypher)) {
