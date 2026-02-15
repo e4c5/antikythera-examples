@@ -542,8 +542,36 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
             if (fqn != null) {
                 return fqn;
             }
+            // Local class inside a method body — use the Java compiler naming convention
+            TypeDeclaration<?> localType = wrapper.getType();
+            if (localType != null) {
+                return buildLocalClassName(localType);
+            }
         }
         return type.asString();
+    }
+
+    /**
+     * Builds a name for a local class using the Java compiler convention: OuterClass$NLocalName
+     * where N is a 1-based index among local classes with the same name in the enclosing type.
+     */
+    private String buildLocalClassName(TypeDeclaration<?> localType) {
+        String localName = localType.getNameAsString();
+        TypeDeclaration<?> enclosing = AbstractCompiler.getEnclosingType(localType.getParentNode().orElse(null));
+        if (enclosing != null) {
+            String enclosingFqn = enclosing.getFullyQualifiedName().orElse(enclosing.getNameAsString());
+            int index = 1;
+            for (TypeDeclaration<?> t : enclosing.findAll(TypeDeclaration.class)) {
+                if (t == localType) {
+                    break;
+                }
+                if (t.getNameAsString().equals(localName) && t.getFullyQualifiedName().isEmpty()) {
+                    index++;
+                }
+            }
+            return enclosingFqn + "$" + index + localName;
+        }
+        return localName;
     }
 
     private ScopeContext fromGraphNode(GraphNode node, String sourceId) {

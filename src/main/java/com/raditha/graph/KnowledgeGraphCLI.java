@@ -118,7 +118,7 @@ public class KnowledgeGraphCLI {
             logger.warn("Could not load Maven dependencies (pom.xml not found or invalid). Proceeding with limited resolution.", e);
         }
 
-        logger.info("Pre-processing project sources via Antikythera...");
+        new AbstractCompiler();
         AbstractCompiler.preProcess();
 
         // 4. Collect resolved compilation units from runtime
