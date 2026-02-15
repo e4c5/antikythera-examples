@@ -485,11 +485,7 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
                 return fromSymbols;
             }
 
-            String fqn = AbstractCompiler.findFullyQualifiedName(context.compilationUnit(), name);
-            if (fqn != null) {
-                return fqn;
-            }
-            return null;
+            return AbstractCompiler.findFullyQualifiedName(context.compilationUnit(), name);
         }
 
         if (expression instanceof ThisExpr) {
@@ -497,11 +493,7 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
         }
 
         if (expression instanceof FieldAccessExpr fieldAccessExpr) {
-            String scopeType = resolveExpressionType(context, fieldAccessExpr.getScope());
-            if (scopeType != null) {
-                return scopeType;
-            }
-            return null;
+            return resolveExpressionType(context, fieldAccessExpr.getScope());
         }
 
         if (expression instanceof ObjectCreationExpr objectCreationExpr) {
