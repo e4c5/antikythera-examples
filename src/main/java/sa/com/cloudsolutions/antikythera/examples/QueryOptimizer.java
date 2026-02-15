@@ -13,6 +13,7 @@ import com.github.javaparser.ast.expr.NormalAnnotationExpr;
 import com.github.javaparser.ast.expr.StringLiteralExpr;
 import com.github.javaparser.ast.expr.TextBlockLiteralExpr;
 import com.github.javaparser.ast.visitor.ModifierVisitor;
+import com.github.javaparser.ast.visitor.Visitable;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.printer.lexicalpreservation.LexicalPreservingPrinter;
 import com.github.javaparser.ast.NodeList;
@@ -911,34 +912,47 @@ public class QueryOptimizer extends QueryOptimizationChecker {
 
         /**
          * Process a compilation unit by finding and modifying relevant method calls.
-         * Uses findAll() for efficient filtering instead of visiting all nodes.
+         * Uses a single visitor pass for maximum efficiency.
          */
         int processCompilationUnit(CompilationUnit cu) {
             long startTime = System.currentTimeMillis();
 
-            // OPTIMIZATION: Use findAll() to get only MethodCallExpr nodes
-            // This is much faster than visiting all nodes in the AST
-            List<MethodCallExpr> allMethodCalls = cu.findAll(MethodCallExpr.class);
-            logger.info("    Found {} total method calls, filtering...", allMethodCalls.size());
-
-            long filterStart = System.currentTimeMillis();
-            for (MethodCallExpr mce : allMethodCalls) {
-                totalVisits++;
-                processMethodCall(mce);
-            }
-            long filterTime = System.currentTimeMillis() - filterStart;
-
-            // Process method references
-            List<MethodReferenceExpr> allMethodRefs = cu.findAll(MethodReferenceExpr.class);
-            for (MethodReferenceExpr mre : allMethodRefs) {
-                processMethodReference(mre);
-            }
+            // OPTIMIZATION: Use a single visitor pass instead of findAll()
+            // This traverses the AST exactly once for both node types
+            BatchedVisitor visitor = new BatchedVisitor();
+            cu.accept(visitor, null);
 
             totalVisitTime = System.currentTimeMillis() - startTime;
-            logger.info("    Processed {} method calls in {}ms (filter: {}ms)",
-                    allMethodCalls.size(), totalVisitTime, filterTime);
+            logger.info("    Processed compilation unit in {}ms ({} method calls updated)",
+                    totalVisitTime, methodCallsUpdated);
 
             return methodCallsUpdated;
+        }
+
+        /**
+         * Visitor that handles both MethodCallExpr and MethodReferenceExpr in a single pass.
+         * Extends ModifierVisitor to safely handle AST modifications during traversal.
+         */
+        class BatchedVisitor extends ModifierVisitor<Void> {
+            @Override
+            public Visitable visit(MethodCallExpr n, Void arg) {
+                // Visit children first (nested method calls)
+                Visitable v = super.visit(n, arg);
+                if (v instanceof MethodCallExpr) {
+                    totalVisits++;
+                    processMethodCall((MethodCallExpr) v);
+                }
+                return v;
+            }
+
+            @Override
+            public Visitable visit(MethodReferenceExpr n, Void arg) {
+                Visitable v = super.visit(n, arg);
+                if (v instanceof MethodReferenceExpr) {
+                    processMethodReference((MethodReferenceExpr) v);
+                }
+                return v;
+            }
         }
 
         void logDiagnostics() {
