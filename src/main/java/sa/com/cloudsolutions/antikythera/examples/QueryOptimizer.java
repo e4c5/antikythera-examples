@@ -27,6 +27,7 @@ import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
 import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 import sa.com.cloudsolutions.antikythera.parser.Callable;
+import sa.com.cloudsolutions.antikythera.parser.MavenHelper;
 import sa.com.cloudsolutions.antikythera.parser.converter.EntityMappingResolver;
 
 import java.io.File;
@@ -46,6 +47,7 @@ import java.util.Set;
 public class QueryOptimizer extends QueryOptimizationChecker {
     private static final Logger logger = LoggerFactory.getLogger(QueryOptimizer.class);
     private boolean repositoryFileModified;
+    private final boolean supportsTextBlocks;
     private static final Set<String> modifiedFiles = new java.util.HashSet<>();
     private static final  Set<String> writtenFiles = new java.util.HashSet<>();
 
@@ -65,6 +67,23 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         super(liquibaseXmlPath);
         Fields.buildDependencies();
         EntityMappingResolver.build();
+
+        int javaVersion = detectJavaVersion();
+        supportsTextBlocks = javaVersion >= 15;
+        if (!supportsTextBlocks) {
+            logger.info("Java version {} detected — text blocks will not be used in @Query annotations", javaVersion);
+        }
+    }
+
+    private static int detectJavaVersion() {
+        try {
+            MavenHelper helper = new MavenHelper();
+            helper.readPomFile();
+            return helper.getJavaVersion();
+        } catch (Exception e) {
+            logger.warn("Could not detect Java version from pom.xml: {}. Defaulting to 21.", e.getMessage());
+            return 21;
+        }
     }
 
     /**
@@ -340,16 +359,20 @@ public class QueryOptimizer extends QueryOptimizationChecker {
      * @param newStringValue the new query value
      */
     private void updateAnnotationValueWithTextBlockSupport(MethodDeclaration method, String newStringValue) {
-        // Format long queries for readability using text blocks (break at ~80 chars at
-        // whitespace)
-        // Use 8 spaces for indentation to align with typical method annotation
-        // indentation
-        String indent = "        ";
-        String formattedQuery = formatQueryForTextBlock(newStringValue, 80, indent);
-        // Prepend indent to first line and append newline + indent for closing
-        // delimiter alignment
-        String textBlockContent = indent + formattedQuery + "\n" + indent;
-        updateAnnotationValue(method, "Query", textBlockContent, true);
+        if (supportsTextBlocks) {
+            // Format long queries for readability using text blocks (break at ~80 chars at
+            // whitespace)
+            // Use 8 spaces for indentation to align with typical method annotation
+            // indentation
+            String indent = "        ";
+            String formattedQuery = formatQueryForTextBlock(newStringValue, 80, indent);
+            // Prepend indent to first line and append newline + indent for closing
+            // delimiter alignment
+            String textBlockContent = indent + formattedQuery + "\n" + indent;
+            updateAnnotationValue(method, "Query", textBlockContent, true);
+        } else {
+            updateAnnotationValue(method, "Query", newStringValue, false);
+        }
     }
 
     /**
