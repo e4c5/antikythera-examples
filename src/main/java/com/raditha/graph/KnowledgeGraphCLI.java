@@ -1,6 +1,7 @@
 package com.raditha.graph;
 
 import com.github.javaparser.ast.CompilationUnit;
+import org.codehaus.plexus.util.xml.pull.XmlPullParserException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
@@ -92,16 +93,13 @@ public class KnowledgeGraphCLI {
                 .findFirst();
     }
 
-    public void run(String projectPath, String configPath) throws IOException, SQLException {
+    public void run(String projectPath, String configPath) throws IOException, SQLException, XmlPullParserException {
         logger.info("Initializing Knowledge Graph Builder...");
         logger.info("Target Project: {}", projectPath);
         logger.info("Configuration: {}", configPath);
 
         // 1. Ensure Configuration is loaded from selected file
         File configFile = new File(configPath);
-        if (!configFile.exists()) {
-            throw new IOException("Configuration file not found: " + configPath);
-        }
         Settings.loadConfigMap(configFile);
 
         // 2. Override base_path with the provided CLI argument
@@ -110,13 +108,10 @@ public class KnowledgeGraphCLI {
 
         // 3. Initialize Parser via MavenHelper to resolve dependencies
         AbstractCompiler.reset();
-        try {
-            MavenHelper mavenHelper = new MavenHelper();
-            mavenHelper.readPomFile();
-            mavenHelper.buildJarPaths();
-        } catch (Exception e) {
-            logger.warn("Could not load Maven dependencies (pom.xml not found or invalid). Proceeding with limited resolution.", e);
-        }
+
+        MavenHelper mavenHelper = new MavenHelper();
+        mavenHelper.readPomFile();
+        mavenHelper.buildJarPaths();
 
         new AbstractCompiler();
         AbstractCompiler.preProcess();
