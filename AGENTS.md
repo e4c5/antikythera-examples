@@ -171,19 +171,21 @@ mvn exec:java -Dexec.mainClass="com.raditha.cleanunit.TestFixer" \
 
 1. **Repository Limit**: Currently processes first JPA repository only
 2. **Liquibase Path**: Must be at `<base_path>/src/main/resources/db/changelog/db.changelog-master.xml`
-3. **GEMINI_API_KEY**: Required in environment or `generator.yml`
+3. **API Key Required**: `GEMINI_API_KEY` or `OPENAI_API_KEY` environment variable required (depending on provider)
 4. **Call Site Updates**: Only updates direct method calls on repository fields, not indirect invocations
 
 ## Configuration
 
 **Primary Config**: `src/main/resources/generator.yml`
 
+### Gemini Configuration
+
 ```yaml
 base_path: ${projects_folder}/BM/csi-bm-approval-java-service/
 
 ai_service:
   provider: "gemini"
-  model: "gemini-2.5-flash-lite-preview-09-2025"
+  model: "gemini-3-flash-preview"  # or "gemini-2.5-flash-lite-preview-09-2025"
   api_key: "${GEMINI_API_KEY}"
   timeout_seconds: 90
   max_retries: 2
@@ -191,6 +193,25 @@ ai_service:
 ```
 
 **Required**: `GEMINI_API_KEY` environment variable
+
+### OpenAI Configuration
+
+```yaml
+base_path: ${projects_folder}/BM/csi-bm-approval-java-service/
+
+ai_service:
+  provider: "openai"
+  model: "gpt-4o"  # or "gpt-4o-mini" (recommended budget option)
+  api_key: "${OPENAI_API_KEY}"
+  api_endpoint: "https://api.openai.com/v1/chat/completions"  # Optional
+  timeout_seconds: 90
+  max_retries: 2
+  track_usage: true
+```
+
+**Required**: `OPENAI_API_KEY` environment variable
+
+**Supported Providers**: `gemini` (default) or `openai`
 
 **Liquibase**: Must be at `<project>/src/main/resources/db/changelog/db.changelog-master.xml`
 
@@ -209,7 +230,7 @@ ai_service:
 - JavaParser 3.26.2 (AST parsing/modification)
 - JSQLParser 5.3 (SQL parsing)
 - ANTLR4 Runtime 4.13.1 (HQL parsing)
-- Gemini API (AI optimization)
+- Gemini API or OpenAI API (AI optimization)
 - JUnit 5 + Mockito (testing)
 
 ## Output Artifacts
