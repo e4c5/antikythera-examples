@@ -4,15 +4,13 @@ import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
-import com.github.javaparser.ast.expr.AnnotationExpr;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
-import java.io.ByteArrayOutputStream;
-import java.io.PrintStream;
-import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -59,111 +57,113 @@ class AnnotationFinderTest {
         assertEquals("Entity", AnnotationFinder.extractSimpleName("javax.persistence.Entity"));
     }
 
-    @Test
-    void testHasAnnotation_WithMatchingAnnotation() {
-        String code = """
-            package test;
-            import org.springframework.stereotype.Service;
-            
-            @Service
-            class MyService {
-            }
-            """;
-        
-        CompilationUnit cu = StaticJavaParser.parse(code);
-        ClassOrInterfaceDeclaration classDecl = cu.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
-        
-        assertTrue(AnnotationFinder.hasAnnotation(classDecl.getAnnotations(), "Service", "Service"));
-        assertTrue(AnnotationFinder.hasAnnotation(classDecl.getAnnotations(), 
-                "org.springframework.stereotype.Service", "Service"));
-    }
-
-    @Test
-    void testHasAnnotation_WithFullyQualifiedAnnotation() {
-        String code = """
-            package test;
-            
-            @org.springframework.stereotype.Service
-            class MyService {
-            }
-            """;
-        
-        CompilationUnit cu = StaticJavaParser.parse(code);
-        ClassOrInterfaceDeclaration classDecl = cu.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
-        
-        assertTrue(AnnotationFinder.hasAnnotation(classDecl.getAnnotations(), "Service", "Service"));
-        assertTrue(AnnotationFinder.hasAnnotation(classDecl.getAnnotations(), 
-                "org.springframework.stereotype.Service", "Service"));
-    }
-
-    @Test
-    void testHasAnnotation_NoMatch() {
-        String code = """
-            package test;
-            
-            @Entity
-            class MyEntity {
-            }
-            """;
-        
-        CompilationUnit cu = StaticJavaParser.parse(code);
-        ClassOrInterfaceDeclaration classDecl = cu.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
-        
-        assertFalse(AnnotationFinder.hasAnnotation(classDecl.getAnnotations(), "Service", "Service"));
-    }
-
-    @Test
-    void testBuildMethodSignature_NoParameters() {
-        String code = """
-            package test;
-            
-            class MyClass {
-                void print() {
+    /**
+     * Provides test cases for hasAnnotation method.
+     */
+    static Stream<Arguments> hasAnnotationTestCases() {
+        return Stream.of(
+            Arguments.of(
+                "With matching annotation",
+                """
+                package test;
+                import org.springframework.stereotype.Service;
+                
+                @Service
+                class MyService {
                 }
-            }
-            """;
+                """,
+                true
+            ),
+            Arguments.of(
+                "With fully qualified annotation",
+                """
+                package test;
+                
+                @org.springframework.stereotype.Service
+                class MyService {
+                }
+                """,
+                true
+            ),
+            Arguments.of(
+                "No match",
+                """
+                package test;
+                
+                @Entity
+                class MyEntity {
+                }
+                """,
+                false
+            )
+        );
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("hasAnnotationTestCases")
+    void testHasAnnotation(String testName, String code, boolean shouldMatch) {
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        ClassOrInterfaceDeclaration classDecl = cu.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
         
+        assertEquals(shouldMatch, AnnotationFinder.hasAnnotation(classDecl.getAnnotations(), "Service", "Service"));
+        if (shouldMatch) {
+            assertTrue(AnnotationFinder.hasAnnotation(classDecl.getAnnotations(), 
+                    "org.springframework.stereotype.Service", "Service"));
+        }
+    }
+
+    /**
+     * Provides test cases for buildMethodSignature method.
+     */
+    static Stream<Arguments> buildMethodSignatureTestCases() {
+        return Stream.of(
+            Arguments.of(
+                "No parameters",
+                """
+                package test;
+                
+                class MyClass {
+                    void print() {
+                    }
+                }
+                """,
+                "print()"
+            ),
+            Arguments.of(
+                "With parameters",
+                """
+                package test;
+                
+                class MyClass {
+                    void print(String s) {
+                    }
+                }
+                """,
+                "print(String s)"
+            ),
+            Arguments.of(
+                "Multiple parameters",
+                """
+                package test;
+                
+                class MyClass {
+                    void process(String name, int count, boolean active) {
+                    }
+                }
+                """,
+                "process(String name, int count, boolean active)"
+            )
+        );
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("buildMethodSignatureTestCases")
+    void testBuildMethodSignature(String testName, String code, String expectedSignature) {
         CompilationUnit cu = StaticJavaParser.parse(code);
         MethodDeclaration method = cu.findFirst(MethodDeclaration.class).orElseThrow();
         
         String signature = AnnotationFinder.buildMethodSignature(method);
-        assertEquals("print()", signature);
-    }
-
-    @Test
-    void testBuildMethodSignature_WithParameters() {
-        String code = """
-            package test;
-            
-            class MyClass {
-                void print(String s) {
-                }
-            }
-            """;
-        
-        CompilationUnit cu = StaticJavaParser.parse(code);
-        MethodDeclaration method = cu.findFirst(MethodDeclaration.class).orElseThrow();
-        
-        String signature = AnnotationFinder.buildMethodSignature(method);
-        assertEquals("print(String s)", signature);
-    }
-
-    @Test
-    void testBuildMethodSignature_MultipleParameters() {
-        String code = """
-            package test;
-            
-            class MyClass {
-                void process(String name, int count, boolean active) {
-                }
-            }
-            """;
-        
-        CompilationUnit cu = StaticJavaParser.parse(code);
-        MethodDeclaration method = cu.findFirst(MethodDeclaration.class).orElseThrow();
-        
-        String signature = AnnotationFinder.buildMethodSignature(method);
-        assertEquals("process(String name, int count, boolean active)", signature);
+        assertEquals(expectedSignature, signature);
     }
 
     @Test

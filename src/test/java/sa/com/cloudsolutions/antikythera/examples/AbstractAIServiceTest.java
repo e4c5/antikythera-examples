@@ -1,6 +1,11 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -29,33 +34,58 @@ class AbstractAIServiceTest {
         assertTrue(result.endsWith("}"));
     }
 
-    @Test
-    void testExtractJsonFromCodeBlocks_WithPlainCodeBlock() {
-        String response = """
+    /**
+     * Provides test cases for code block extraction scenarios.
+     */
+    static Stream<Arguments> codeBlockTestCases() {
+        return Stream.of(
+            Arguments.of(
+                "Plain code block",
+                """
                 ```
                 {
                   "name": "test",
                   "value": 123
                 }
                 ```
-                """;
-
-        String result = AbstractAIService.extractJsonFromCodeBlocks(response);
-        
-        assertTrue(result.contains("\"name\": \"test\""));
-        assertTrue(result.contains("\"value\": 123"));
+                """,
+                "\"name\": \"test\"",
+                "\"value\": 123"
+            ),
+            Arguments.of(
+                "Array in code block",
+                "```json\n[\n  {\"id\": 1},\n  {\"id\": 2}\n]\n```\n",
+                "\"id\": 1",
+                "\"id\": 2"
+            ),
+            Arguments.of(
+                "Nested JSON in code block",
+                """
+                ```
+                {
+                  "outer": {
+                    "inner": {
+                      "value": 42
+                    }
+                  }
+                }
+                ```
+                """,
+                "\"outer\"",
+                "\"inner\""
+            )
+        );
     }
 
-    @Test
-    void testExtractJsonFromCodeBlocks_WithArrayInCodeBlock() {
-        String response = "```json\n[\n  {\"id\": 1},\n  {\"id\": 2}\n]\n```\n";
-
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("codeBlockTestCases")
+    void testExtractJsonFromCodeBlocks_WithCodeBlocks(String testName, String response, 
+                                                       String expectedContent1, String expectedContent2) {
         String result = AbstractAIService.extractJsonFromCodeBlocks(response);
         
-        // The method should extract the JSON array content
         assertFalse(result.isEmpty(), "Result should not be empty");
-        assertTrue(result.contains("\"id\": 1"), "Should contain first object");
-        assertTrue(result.contains("\"id\": 2"), "Should contain second object");
+        assertTrue(result.contains(expectedContent1), "Should contain: " + expectedContent1);
+        assertTrue(result.contains(expectedContent2), "Should contain: " + expectedContent2);
     }
 
     @Test
@@ -88,55 +118,66 @@ class AbstractAIServiceTest {
         assertTrue(result.contains("\"item\": 1"));
     }
 
-    @Test
-    void testExtractJsonFromCodeBlocks_WithTextBeforeJson() {
-        String response = """
+    /**
+     * Provides test cases for JSON with surrounding text.
+     */
+    static Stream<Arguments> textAroundJsonTestCases() {
+        return Stream.of(
+            Arguments.of(
+                "Text before JSON",
+                """
                 Some explanatory text here.
                 {
                   "data": "value"
                 }
-                """;
-
-        String result = AbstractAIService.extractJsonFromCodeBlocks(response);
-        
-        assertTrue(result.contains("\"data\": \"value\""));
-        assertFalse(result.contains("Some explanatory text"));
-    }
-
-    @Test
-    void testExtractJsonFromCodeBlocks_WithTextAfterJson() {
-        String response = """
+                """,
+                "\"data\": \"value\"",
+                "Some explanatory text",
+                false
+            ),
+            Arguments.of(
+                "Text after JSON",
+                """
                 {
                   "data": "value"
                 }
                 Some text after the JSON should be ignored.
-                """;
-
-        String result = AbstractAIService.extractJsonFromCodeBlocks(response);
-        
-        assertTrue(result.contains("\"data\": \"value\""));
-        assertFalse(result.contains("Some text after"));
-    }
-
-    @Test
-    void testExtractJsonFromCodeBlocks_WithNestedJson() {
-        String response = """
-                ```
+                """,
+                "\"data\": \"value\"",
+                "Some text after",
+                false
+            ),
+            Arguments.of(
+                "Mixed content with code block",
+                """
+                Here's some explanation.
+                
+                ```json
                 {
-                  "outer": {
-                    "inner": {
-                      "value": 42
-                    }
-                  }
+                  "status": "success",
+                  "count": 10
                 }
                 ```
-                """;
+                
+                And here's more text after.
+                """,
+                "\"status\": \"success\"",
+                "explanation",
+                false
+            )
+        );
+    }
 
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("textAroundJsonTestCases")
+    void testExtractJsonFromCodeBlocks_WithSurroundingText(String testName, String response,
+                                                            String expectedContent, String unexpectedContent,
+                                                            boolean shouldContainUnexpected) {
         String result = AbstractAIService.extractJsonFromCodeBlocks(response);
         
-        assertTrue(result.contains("\"outer\""));
-        assertTrue(result.contains("\"inner\""));
-        assertTrue(result.contains("\"value\": 42"));
+        assertTrue(result.contains(expectedContent), "Should contain: " + expectedContent);
+        assertEquals(shouldContainUnexpected, result.contains(unexpectedContent),
+                "Unexpected content handling for: " + unexpectedContent);
     }
 
     @Test
@@ -220,29 +261,6 @@ class AbstractAIServiceTest {
         assertTrue(result.startsWith("["));
         assertTrue(result.contains("1, 2, 3, 4, 5"));
         assertTrue(result.endsWith("]"));
-    }
-
-    @Test
-    void testExtractJsonFromCodeBlocks_WithMixedContent() {
-        String response = """
-                Here's some explanation.
-                
-                ```json
-                {
-                  "status": "success",
-                  "count": 10
-                }
-                ```
-                
-                And here's more text after.
-                """;
-
-        String result = AbstractAIService.extractJsonFromCodeBlocks(response);
-        
-        assertTrue(result.contains("\"status\": \"success\""));
-        assertTrue(result.contains("\"count\": 10"));
-        assertFalse(result.contains("explanation"));
-        assertFalse(result.contains("more text"));
     }
 
     @Test

@@ -315,8 +315,10 @@ public abstract class AbstractAIService {
             // Handle case where no queries were produced (e.g., parsing failed or query not recognized)
             var queries = parser.getAllQueries();
             if (queries.isEmpty()) {
-                logger.warn("Failed to parse optimized query, falling back to original column order. Code: {}",
-                        optimizedCodeElement.substring(0, Math.min(100, optimizedCodeElement.length())));
+                if (logger.isWarnEnabled()) {
+                    logger.warn("Failed to parse optimized query, falling back to original column order. Code: {}",
+                            optimizedCodeElement.substring(0, Math.min(100, optimizedCodeElement.length())));
+                }
                 return new OptimizedQueryResult(originalQuery, extractColumnOrderFromRepositoryQuery(originalQuery));
             }
 
