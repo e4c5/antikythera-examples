@@ -622,7 +622,8 @@ public abstract class AbstractAIService {
 
         if (!responseArray.isArray()) {
             logger.warn("AI response does not contain a JSON array as expected");
-            return issues;
+            logger.warn(jsonResponse);
+            System.exit(1);
         }
 
         // Process each optimization recommendation

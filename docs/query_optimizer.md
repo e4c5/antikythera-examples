@@ -130,7 +130,7 @@ ai_service:
   provider: "openai"
   model: "gpt-4o-mini"  # ⭐ RECOMMENDED: Best value-for-money (16.7x cheaper than gpt-4o)
   api_key: "${OPENAI_API_KEY}"  # Required: Set OPENAI_API_KEY environment variable
-  api_endpoint: "https://api.openai.com/v1/chat/completions"  # Optional, defaults to this
+  api_endpoint: "https://api.openai.com/v1/chat/completions"  # ✅ Correct endpoint for GPT-4o models
   timeout_seconds: 90
   max_retries: 2
   queries_per_request: 40
@@ -146,6 +146,8 @@ export OPENAI_API_KEY="your-openai-api-key"
 ```bash
 export OPENAI_API_ENDPOINT="https://api.openai.com/v1/chat/completions"  # For custom endpoints
 ```
+
+**Important:** The endpoint `/v1/chat/completions` is correct for GPT-4o and GPT-4o-mini models. This is the **Chat Completions API**, not the older `/v1/completions` endpoint (which is deprecated for GPT-3-style models). The code uses the messages array format which matches the Chat Completions API specification.
 
 ### Supported Models
 

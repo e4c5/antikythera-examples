@@ -74,9 +74,10 @@ public class OpenAIService extends AbstractAIService {
         userMessage.put("role", "user");
         userMessage.put(CONTENT, userContent);
         
-        // Response format - request JSON mode
-        ObjectNode responseFormat = root.putObject("response_format");
-        responseFormat.put("type", "json_object");
+        // Note: We don't use json_object mode because it requires a JSON object at root,
+        // but we need a JSON array. Instead, we rely on the system prompt to ensure
+        // JSON array format. The prompt explicitly requests a JSON array.
+        // OpenAI will still return valid JSON, just not strictly enforced by json_object mode.
         
         return objectMapper.writeValueAsString(root);
     }
