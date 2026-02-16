@@ -1,5 +1,7 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -57,22 +59,6 @@ class AbstractAIServiceTest {
                 "```json\n[\n  {\"id\": 1},\n  {\"id\": 2}\n]\n```\n",
                 "\"id\": 1",
                 "\"id\": 2"
-            ),
-            Arguments.of(
-                "Nested JSON in code block",
-                """
-                ```
-                {
-                  "outer": {
-                    "inner": {
-                      "value": 42
-                    }
-                  }
-                }
-                ```
-                """,
-                "\"outer\"",
-                "\"inner\""
             )
         );
     }
@@ -86,6 +72,41 @@ class AbstractAIServiceTest {
         assertFalse(result.isEmpty(), "Result should not be empty");
         assertTrue(result.contains(expectedContent1), "Should contain: " + expectedContent1);
         assertTrue(result.contains(expectedContent2), "Should contain: " + expectedContent2);
+    }
+
+    @Test
+    void testExtractJsonFromCodeBlocks_WithNestedJson() throws Exception {
+        String response = """
+                ```
+                {
+                  "outer": {
+                    "inner": {
+                      "value": 42
+                    }
+                  }
+                }
+                ```
+                """;
+
+        String result = AbstractAIService.extractJsonFromCodeBlocks(response);
+        
+        // Parse the extracted JSON to ensure it's structurally valid
+        ObjectMapper mapper = new ObjectMapper();
+        JsonNode jsonNode = mapper.readTree(result);
+        
+        // Verify the JSON is not null and has the expected structure
+        assertNotNull(jsonNode, "Parsed JSON should not be null");
+        assertTrue(jsonNode.isObject(), "Root should be an object");
+        
+        // Verify the nested structure is complete (no truncation)
+        assertTrue(jsonNode.has("outer"), "Should have 'outer' field");
+        JsonNode outer = jsonNode.get("outer");
+        assertTrue(outer.isObject(), "'outer' should be an object");
+        assertTrue(outer.has("inner"), "Should have 'inner' field");
+        JsonNode inner = outer.get("inner");
+        assertTrue(inner.isObject(), "'inner' should be an object");
+        assertTrue(inner.has("value"), "Should have 'value' field");
+        assertEquals(42, inner.get("value").asInt(), "'value' should be 42");
     }
 
     @Test

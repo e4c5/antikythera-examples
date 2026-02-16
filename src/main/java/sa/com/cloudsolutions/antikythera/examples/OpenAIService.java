@@ -31,12 +31,15 @@ public class OpenAIService extends AbstractAIService {
      * Entries are ordered from most specific to least specific (longest keys first)
      * to ensure correct matching with model.contains() logic.
      */
-    private static final Map<String, ModelPricing> MODEL_PRICING = new LinkedHashMap<>() {{
-        put("gpt-4o-mini", new ModelPricing(0.150, 0.600, 0.25));       // Most specific - check first
-        put("gpt-4-turbo", new ModelPricing(10.00, 30.00, 0.25));       // More specific than gpt-4
-        put(GPT_4_O, new ModelPricing(2.50, 10.00, 0.25));              // Current flagship model
-        put("gpt-4", new ModelPricing(30.00, 60.00, 0.25));             // Least specific - check last
-    }};
+    private static final Map<String, ModelPricing> MODEL_PRICING;
+    
+    static {
+        MODEL_PRICING = new LinkedHashMap<>();
+        MODEL_PRICING.put("gpt-4o-mini", new ModelPricing(0.150, 0.600, 0.25));       // Most specific - check first
+        MODEL_PRICING.put("gpt-4-turbo", new ModelPricing(10.00, 30.00, 0.25));       // More specific than gpt-4
+        MODEL_PRICING.put(GPT_4_O, new ModelPricing(2.50, 10.00, 0.25));              // Current flagship model
+        MODEL_PRICING.put("gpt-4", new ModelPricing(30.00, 60.00, 0.25));             // Least specific - check last
+    }
 
 
     public OpenAIService() throws IOException {
