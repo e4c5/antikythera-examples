@@ -144,6 +144,10 @@ public class OpenAIService extends AbstractAIService {
             int inputTokens = usage.path("prompt_tokens").asInt(0);
             int outputTokens = usage.path("completion_tokens").asInt(0);
             int totalTokens = usage.path("total_tokens").asInt(inputTokens + outputTokens);
+            
+            // Extract cached token count from prompt_tokens_details
+            JsonNode promptTokensDetails = usage.path("prompt_tokens_details");
+            int cachedContentTokenCount = promptTokensDetails.path("cached_tokens").asInt(0);
 
             String model = getConfigString(MODEL, GPT_4_O);
             double inputCost = 0;
@@ -156,7 +160,7 @@ public class OpenAIService extends AbstractAIService {
                     .orElse(null);
 
             if (pricing != null) {
-                inputCost = pricing.calculateInputCost(inputTokens, 0);
+                inputCost = pricing.calculateInputCost(inputTokens, cachedContentTokenCount);
                 outputCost = pricing.calculateOutputCost(inputTokens, outputTokens);
             } else {
                 // Fallback to a default if model is unknown
@@ -165,7 +169,7 @@ public class OpenAIService extends AbstractAIService {
                 outputCost = (outputTokens / 1000.0) * costPer1kTokens * 2; // Output typically costs 2x
             }
 
-            lastTokenUsage = new TokenUsage(inputTokens, outputTokens, totalTokens, 0, inputCost, outputCost);
+            lastTokenUsage = new TokenUsage(inputTokens, outputTokens, totalTokens, cachedContentTokenCount, inputCost, outputCost);
 
             boolean trackUsage = getConfigBoolean("track_usage", true);
             if (trackUsage) {
