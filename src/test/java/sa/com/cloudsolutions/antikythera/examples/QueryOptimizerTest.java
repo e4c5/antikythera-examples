@@ -65,21 +65,27 @@ class QueryOptimizerTest {
         when(mockResult.getMethodName()).thenReturn("oldMethod");
         when(mockOptimizedQuery.getMethodName()).thenReturn("newMethod");
 
-        // Mock original method
+        // Mock original method (with one parameter to match test call sites)
         sa.com.cloudsolutions.antikythera.parser.Callable mockOldCallable = mock(
                 sa.com.cloudsolutions.antikythera.parser.Callable.class);
         MethodDeclaration oldMd = new MethodDeclaration();
         oldMd.setName("oldMethod");
+        oldMd.addParameter("String", "arg1");
         when(mockOldCallable.asMethodDeclaration()).thenReturn(oldMd);
         when(mockOriginalQuery.getMethodDeclaration()).thenReturn(mockOldCallable);
 
-        // Mock optimized method
+        // Mock optimized method (same single parameter — no reordering needed)
         sa.com.cloudsolutions.antikythera.parser.Callable mockNewCallable = mock(
                 sa.com.cloudsolutions.antikythera.parser.Callable.class);
         MethodDeclaration newMd = new MethodDeclaration();
         newMd.setName("newMethod");
+        newMd.addParameter("String", "arg1");
         when(mockNewCallable.asMethodDeclaration()).thenReturn(newMd);
         when(mockOptimizedQuery.getMethodDeclaration()).thenReturn(mockNewCallable);
+
+        // Stub column orders so the fallback mapping can also succeed
+        when(mockIssue.currentColumnOrder()).thenReturn(List.of("arg1"));
+        when(mockIssue.recommendedColumnOrder()).thenReturn(List.of("arg1"));
     }
 
     @ParameterizedTest(name = "{0}")
