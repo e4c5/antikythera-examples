@@ -18,14 +18,21 @@ import java.util.Map;
  */
 public class OpenAIService extends AbstractAIService {
 
+
     public static final String GPT_4_O = "gpt-4o";
+    
+    /**
+     * OpenAI model pricing (per 1M tokens).
+     * Prices verified as of February 2026.
+     * Note: gpt-4o-mini is the recommended budget option.
+     */
     private static final Map<String, ModelPricing> MODEL_PRICING = Map.ofEntries(
-        Map.entry(GPT_4_O, new ModelPricing(2.50, 10.00, 0.25)),
-        Map.entry("gpt-4o-mini", new ModelPricing(0.150, 0.600, 0.25)),
-        Map.entry("gpt-4-turbo", new ModelPricing(10.00, 30.00, 0.25)),
-        Map.entry("gpt-4", new ModelPricing(30.00, 60.00, 0.25)),
-        Map.entry("gpt-3.5-turbo", new ModelPricing(0.50, 1.50, 0.25))
+        Map.entry(GPT_4_O, new ModelPricing(2.50, 10.00, 0.25)),              // Current flagship model
+        Map.entry("gpt-4o-mini", new ModelPricing(0.150, 0.600, 0.25)),       // Recommended budget option
+        Map.entry("gpt-4-turbo", new ModelPricing(10.00, 30.00, 0.25)),       // Legacy model
+        Map.entry("gpt-4", new ModelPricing(30.00, 60.00, 0.25))              // Legacy model
     );
+
 
     public OpenAIService() throws IOException {
         super();
