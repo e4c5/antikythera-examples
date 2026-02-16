@@ -64,14 +64,6 @@ public class Neo4jConfig {
         Optional<Map> directNeo4jOpt = Settings.getProperty(KEY_NEO4J, Map.class);
         directNeo4jOpt.ifPresent(map -> merged.putAll((Map<String, Object>) map));
 
-        Optional<Map> graphOpt = Settings.getProperty("graph", Map.class);
-        if (graphOpt.isPresent()) {
-            Object neo4jObj = graphOpt.get().get(KEY_NEO4J);
-            if (neo4jObj instanceof Map<?, ?> neo4jMap) {
-                neo4jMap.forEach((k, v) -> merged.put(String.valueOf(k), v));
-            }
-        }
-
         Optional<Map> antikytheraOpt = Settings.getProperty("antikythera", Map.class);
         if (antikytheraOpt.isPresent()) {
             Object graphObj = antikytheraOpt.get().get("graph");

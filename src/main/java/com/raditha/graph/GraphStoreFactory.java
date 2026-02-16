@@ -11,51 +11,20 @@ public class GraphStoreFactory {
         // Load configuration
         Neo4jConfig.load(configFile);
         
-        // Determine type from Settings
-        // We expect a structure like:
-        // graph:
-        //   store:
-        //     type: age
-        //   age:
-        //     ...
+        // Determine type from Settings or default to Neo4j
+        // Assuming we add a new setting "graph.store.type" or similar
+        // For now, let's use a simple heuristic or a new property in Neo4jConfig (rename to GraphConfig later?)
         
-        String type = "neo4j";
-        java.util.Map<String, Object> ageConfig = java.util.Collections.emptyMap();
-        int batchSize = 1000;
-
-        java.util.Optional<java.util.Map> graphConfigOpt = Settings.getProperty("graph", java.util.Map.class);
-        if (graphConfigOpt.isPresent()) {
-            java.util.Map<?, ?> graphConfig = graphConfigOpt.get();
-            
-            // Check store.type
-            Object storeObj = graphConfig.get("store");
-            if (storeObj instanceof java.util.Map<?, ?> storeConfig) {
-                Object typeObj = storeConfig.get("type");
-                if (typeObj != null) {
-                    type = typeObj.toString();
-                }
-            }
-            
-            // Get age config
-            Object ageObj = graphConfig.get("age");
-            if (ageObj instanceof java.util.Map<?, ?>) {
-                ageConfig = (java.util.Map<String, Object>) ageObj;
-            }
-
-            // Get batch size
-             Object batchObj = graphConfig.get("batchSize");
-             if (batchObj instanceof Number n) {
-                 batchSize = n.intValue();
-             }
-        }
+        String type = Settings.getProperty("graph.store.type", String.class).orElse("neo4j");
 
         if ("age".equalsIgnoreCase(type)) {
-            String url = (String) ageConfig.getOrDefault("url", "jdbc:postgresql://localhost:5432/postgres");
-            String user = (String) ageConfig.getOrDefault("user", "postgres");
-            String password = (String) ageConfig.getOrDefault("password", "postgres");
-            String graphName = (String) ageConfig.getOrDefault("graphName", "antikythera_graph");
-            
-            return new ApacheAgeGraphStore(url, user, password, graphName, batchSize);
+            return new ApacheAgeGraphStore(
+                Settings.getProperty("graph.age.url", String.class).orElse("jdbc:postgresql://localhost:5432/postgres"),
+                Settings.getProperty("graph.age.user", String.class).orElse("postgres"),
+                Settings.getProperty("graph.age.password", String.class).orElse("postgres"),
+                Settings.getProperty("graph.age.graphName", String.class).orElse("antikythera_graph"),
+                Settings.getProperty("graph.batchSize", Integer.class).orElse(1000)
+            );
         } else {
             return Neo4jGraphStore.fromSettings();
         }
