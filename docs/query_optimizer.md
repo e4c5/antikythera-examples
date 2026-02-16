@@ -69,7 +69,7 @@ base_path: ${projects_folder}/BM/csi-bm-approval-java-service/
 # AI service configuration
 ai_service:
   provider: "gemini"  # or "openai"
-  model: "gemini-3-flash-preview"  # Model name (varies by provider)
+  model: "gemini-3-flash-preview"  # For Gemini: "gemini-3-flash-preview" | For OpenAI: "gpt-4o-mini" (recommended)
   api_key: "${GEMINI_API_KEY}"  # or "${OPENAI_API_KEY}" for OpenAI
   api_endpoint: "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"  # Optional, defaults provided
   timeout_seconds: 120
@@ -123,10 +123,12 @@ export GEMINI_API_KEY="your-gemini-api-key"
 
 #### OpenAI Configuration
 
+**Recommended: `gpt-4o-mini` for best value-for-money**
+
 ```yaml
 ai_service:
   provider: "openai"
-  model: "gpt-4o"  # or "gpt-4o-mini" (recommended budget option)
+  model: "gpt-4o-mini"  # ⭐ RECOMMENDED: Best value-for-money (16.7x cheaper than gpt-4o)
   api_key: "${OPENAI_API_KEY}"  # Required: Set OPENAI_API_KEY environment variable
   api_endpoint: "https://api.openai.com/v1/chat/completions"  # Optional, defaults to this
   timeout_seconds: 90
@@ -153,10 +155,23 @@ export OPENAI_API_ENDPOINT="https://api.openai.com/v1/chat/completions"  # For c
 - `gemini-pro`
 
 #### OpenAI Models
-- `gpt-4o` (flagship model, higher cost)
-- `gpt-4o-mini` (recommended budget option)
-- `gpt-4-turbo` (legacy)
-- `gpt-4` (legacy)
+
+**Cost Comparison (per 1M tokens):**
+
+| Model | Input Cost | Output Cost | Best For |
+|-------|-----------|-------------|----------|
+| **`gpt-4o-mini`** ⭐ | **$0.15** | **$0.60** | **Query optimization (recommended)** |
+| `gpt-4o` | $2.50 | $10.00 | Complex reasoning tasks |
+| `gpt-4-turbo` | $10.00 | $30.00 | Legacy (not recommended) |
+| `gpt-4` | $30.00 | $60.00 | Legacy (not recommended) |
+
+**Recommendation:** Use **`gpt-4o-mini`** for query optimization. It provides excellent quality for structured tasks like SQL query optimization at **16.7x lower cost** than `gpt-4o`. The quality difference is minimal for this use case, making it the best value-for-money option.
+
+**Example Cost Calculation:**
+- Processing 100 queries with ~50K input tokens and ~10K output tokens:
+  - **gpt-4o-mini**: ~$0.008 per batch
+  - **gpt-4o**: ~$0.135 per batch
+  - **Savings**: ~94% cost reduction with gpt-4o-mini
 
 ### Liquibase Configuration
 
