@@ -80,15 +80,9 @@ public class OpenAIService extends AbstractAIService {
         return objectMapper.writeValueAsString(root);
     }
 
-    /**
-     * Sends the API request to OpenAI.
-     */
-    @Override
-    protected String sendApiRequest(String payload) throws IOException, InterruptedException {
-        return sendApiRequest(payload, 0);
-    }
 
-    private String sendApiRequest(String payload, int retryCount) throws IOException, InterruptedException {
+    @Override
+    protected String sendApiRequest(String payload, int retryCount) throws IOException, InterruptedException {
         String apiEndpoint = getConfigString("api_endpoint", "https://api.openai.com/v1/chat/completions");
         String apiKey = getConfigString(API_KEY, null);
         int timeoutSeconds = getConfigInt("timeout_seconds", 90);

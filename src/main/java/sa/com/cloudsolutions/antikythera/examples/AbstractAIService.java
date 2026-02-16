@@ -89,16 +89,37 @@ public abstract class AbstractAIService {
     }
 
     /**
-     * Builds the request payload for the AI API.
-     * Provider-specific implementation required.
+     * Sends an API request with the given payload.
+     * Default implementation delegates to sendApiRequest with initial retry count from config.
+     * Subclasses can override for provider-specific behavior.
+     */
+    protected String sendApiRequest(String payload) throws IOException, InterruptedException {
+        int initialRetryCount = getConfigInt("initial_retry_count", 0);
+        return sendApiRequest(payload, initialRetryCount);
+    }
+
+    /**
+     * Public method for sending raw API requests.
+     * This is for external callers like AICodeGenerationHelper.
+     */
+    public String sendRawRequest(String payload) throws IOException, InterruptedException {
+        return sendApiRequest(payload);
+    }
+
+    /**
+     * Builds the request payload specific to the AI provider.
      */
     protected abstract String buildRequestPayload(QueryBatch batch) throws IOException;
 
+
     /**
-     * Sends the API request to the AI service.
+     * Sends the API request to the AI service with retry support.
      * Provider-specific implementation required.
+     * 
+     * @param payload The request payload
+     * @param retryCount The current retry attempt number
      */
-    protected abstract String sendApiRequest(String payload) throws IOException, InterruptedException;
+    protected abstract String sendApiRequest(String payload, int retryCount) throws IOException, InterruptedException;
 
     /**
      * Parses the AI response and converts it to OptimizationIssue objects.

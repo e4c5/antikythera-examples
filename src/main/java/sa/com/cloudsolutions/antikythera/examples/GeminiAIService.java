@@ -128,23 +128,8 @@ public class GeminiAIService extends AbstractAIService {
                 .replace("\t", "\\t");
     }
 
-    /**
-     * Sends the API request to Gemini AI service.
-     */
     @Override
-    protected String sendApiRequest(String payload) throws IOException, InterruptedException {
-        return sendApiRequest(payload, 0);
-    }
-
-    /**
-     * Public method for sending raw API requests.
-     * This is for external callers like AICodeGenerationHelper.
-     */
-    public String sendRawRequest(String payload) throws IOException, InterruptedException {
-        return sendApiRequest(payload);
-    }
-
-    private String sendApiRequest(String payload, int retryCount) throws IOException, InterruptedException {
+    protected String sendApiRequest(String payload, int retryCount) throws IOException, InterruptedException {
         String apiEndpoint = getConfigString("api_endpoint",
                 "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent");
         String model = getConfigString("model", GEMINI_3_FLASH);
