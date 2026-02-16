@@ -79,6 +79,7 @@ class OpenAIServiceTest {
         config.put("timeout_seconds", 30);
         config.put("track_usage", true);
         config.put("cost_per_1k_tokens", 0.001);
+        config.put("initial_retry_count", 1);
 
         // Configure the service
         openAIService.configure(config);

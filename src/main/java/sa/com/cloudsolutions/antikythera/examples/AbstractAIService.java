@@ -102,8 +102,8 @@ public abstract class AbstractAIService {
      * Subclasses can override for provider-specific behavior.
      */
     protected String sendApiRequest(String payload) throws IOException, InterruptedException {
-        int initialRetryCount = getConfigInt("initial_retry_count", 0);
-        return sendApiRequest(payload, initialRetryCount);
+        int remainingRetries = getConfigInt("initial_retry_count", 0);
+        return sendApiRequest(payload, remainingRetries);
     }
 
     /**
@@ -112,7 +112,7 @@ public abstract class AbstractAIService {
      * 
      * @param request The HTTP request to send
      * @param payload The original payload (for retry)
-     * @param retryCount The current retry attempt number
+     * @param retryCount The number of remaining retry attempts
      * @return The response body
      */
     protected String executeHttpRequest(HttpRequest request, String payload, int retryCount) 
@@ -130,8 +130,9 @@ public abstract class AbstractAIService {
 
             return response.body();
         } catch (HttpTimeoutException e) {
-            if (retryCount == 0) {
-                return sendApiRequest(payload, 1);
+            if (retryCount > 0) {
+                logger.info("HTTP timeout occurred, retrying... ({} retries remaining)", retryCount);
+                return sendApiRequest(payload, retryCount - 1);
             }
             throw e;
         }
@@ -156,7 +157,7 @@ public abstract class AbstractAIService {
      * Provider-specific implementation required.
      * 
      * @param payload The request payload
-     * @param retryCount The current retry attempt number
+     * @param retryCount The number of remaining retry attempts
      */
     protected abstract String sendApiRequest(String payload, int retryCount) throws IOException, InterruptedException;
 

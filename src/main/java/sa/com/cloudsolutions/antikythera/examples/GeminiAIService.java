@@ -131,8 +131,10 @@ public class GeminiAIService extends AbstractAIService {
         String model = getConfigString("model", GEMINI_3_FLASH);
         String apiKey = getConfigString(API_KEY, null);
         int timeoutSeconds = getConfigInt("timeout_seconds", 90);
+        int initialRetryCount = getConfigInt("initial_retry_count", 0);
 
-        if (retryCount > 0) {
+        // If retryCount is less than initial, we're on a retry attempt
+        if (retryCount < initialRetryCount) {
             timeoutSeconds += 30;
             logger.info("Retrying API request with extra 30 seconds timeout (total: {}s)", timeoutSeconds);
         }
