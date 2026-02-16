@@ -2,6 +2,8 @@ package sa.com.cloudsolutions.antikythera.examples;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
@@ -12,6 +14,7 @@ import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import sa.com.cloudsolutions.antikythera.generator.QueryType;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
 import sa.com.cloudsolutions.antikythera.parser.BaseRepositoryParser;
 
@@ -385,5 +388,172 @@ public abstract class AbstractAIService {
         }
 
         return defaultValue;
+    }
+
+    /**
+     * Builds the query data array that is common to all AI providers.
+     * This creates a JSON array with query information including method signature,
+     * query type, query text, and table schema with cardinality.
+     *
+     * @param batch The query batch containing queries and cardinality information
+     * @return JSON string representing the array of query data
+     * @throws IOException if JSON serialization fails
+     */
+    protected String buildQueryDataArray(QueryBatch batch) throws IOException {
+        ArrayNode queries = objectMapper.createArrayNode();
+
+        for (RepositoryQuery query : batch.getQueries()) {
+            ObjectNode queryNode = queries.addObject();
+
+            String tableSchemaAndCardinality = buildTableSchemaString(batch, query);
+            String fullMethodSignature = query.getMethodDeclaration().getCallableDeclaration().toString();
+            String queryText = getQueryText(query);
+
+            queryNode.put("method", fullMethodSignature);
+            queryNode.put("queryType", query.getQueryType().toString());
+            queryNode.put("queryText", queryText);
+            queryNode.put("tableSchemaAndCardinality", tableSchemaAndCardinality);
+        }
+
+        return objectMapper.writeValueAsString(queries);
+    }
+
+    /**
+     * Gets the appropriate query text based on the query type.
+     * For DERIVED queries, returns the method name; otherwise returns the original query.
+     *
+     * @param query The repository query
+     * @return The query text
+     */
+    protected String getQueryText(RepositoryQuery query) {
+        if (query.getQueryType() == QueryType.DERIVED) {
+            return query.getMethodName();
+        }
+        return query.getOriginalQuery();
+    }
+
+    /**
+     * Builds the table schema and cardinality string for the AI prompt.
+     *
+     * @param batch The query batch containing cardinality information
+     * @param query The repository query
+     * @return Schema string in format "tableName (col1:CARDINALITY, col2:CARDINALITY, ...)"
+     */
+    protected String buildTableSchemaString(QueryBatch batch, RepositoryQuery query) {
+        StringBuilder schema = new StringBuilder();
+        String tableName = query.getPrimaryTable();
+        if (tableName == null || tableName.isEmpty()) {
+            tableName = "UnknownTable";
+        }
+
+        schema.append(tableName).append(" (");
+
+        boolean first = true;
+        for (var entry : batch.getColumnCardinalities().entrySet()) {
+            if (!first) {
+                schema.append(", ");
+            }
+            schema.append(entry.getKey()).append(":").append(entry.getValue());
+            first = false;
+        }
+
+        schema.append(")");
+        return schema.toString();
+    }
+
+    /**
+     * Extracts JSON content from the AI response, handling markdown code blocks.
+     * Looks for both JSON objects and arrays.
+     */
+    protected String extractJsonFromResponse(String response) {
+        if (response == null) {
+            return "";
+        }
+
+        // Look for JSON object or array patterns
+        int jsonStart = Math.max(response.indexOf('{'), response.indexOf('['));
+        int jsonEnd = Math.max(response.lastIndexOf('}'), response.lastIndexOf(']'));
+
+        if (jsonStart >= 0 && jsonEnd > jsonStart) {
+            return response.substring(jsonStart, jsonEnd + 1);
+        }
+
+        return extractJsonFromCodeBlocks(response);
+    }
+
+    /**
+     * Extracts JSON from markdown code blocks.
+     */
+    protected static String extractJsonFromCodeBlocks(String response) {
+        // If no JSON found, try to find JSON in code blocks
+        String[] lines = response.split("\n");
+        StringBuilder jsonBuilder = new StringBuilder();
+        boolean inCodeBlock = false;
+        boolean foundJson = false;
+
+        for (String line : lines) {
+            if (line.trim().startsWith("```")) {
+                inCodeBlock = !inCodeBlock;
+                continue;
+            }
+
+            if (inCodeBlock || line.trim().startsWith("{") || line.trim().startsWith("[") || foundJson) {
+                jsonBuilder.append(line).append("\n");
+                foundJson = true;
+                if (line.trim().endsWith("}") || line.trim().endsWith("]")) {
+                    break;
+                }
+            }
+        }
+
+        return jsonBuilder.toString().trim();
+    }
+
+    /**
+     * Common method to parse recommendations from JSON response.
+     * Handles both direct arrays and wrapped objects.
+     */
+    protected List<OptimizationIssue> parseRecommendationsFromJson(String jsonResponse, QueryBatch batch) throws IOException {
+        List<OptimizationIssue> issues = new ArrayList<>();
+
+        if (jsonResponse.trim().isEmpty()) {
+            logger.warn("No valid JSON found in AI response");
+            return issues;
+        }
+
+        JsonNode responseNode = objectMapper.readTree(jsonResponse);
+        JsonNode responseArray = responseNode;
+
+        // If the response is wrapped in an object, try to find the array
+        if (responseNode.isObject()) {
+            // Look for common array field names
+            if (responseNode.has("recommendations")) {
+                responseArray = responseNode.get("recommendations");
+            } else if (responseNode.has("results")) {
+                responseArray = responseNode.get("results");
+            } else if (responseNode.has("data")) {
+                responseArray = responseNode.get("data");
+            } else if (responseNode.fields().hasNext()) {
+                // Try to find the first array field
+                responseArray = responseNode.fields().next().getValue();
+            }
+        }
+
+        if (!responseArray.isArray()) {
+            logger.warn("AI response does not contain a JSON array as expected");
+            return issues;
+        }
+
+        // Process each optimization recommendation
+        List<RepositoryQuery> queries = batch.getQueries();
+        for (int i = 0; i < responseArray.size() && i < queries.size(); i++) {
+            JsonNode recommendation = responseArray.get(i);
+            RepositoryQuery originalQuery = queries.get(i);
+
+            OptimizationIssue issue = parseOptimizationRecommendation(recommendation, originalQuery);
+            issues.add(issue);
+        }
+
+        return issues;
     }
 }

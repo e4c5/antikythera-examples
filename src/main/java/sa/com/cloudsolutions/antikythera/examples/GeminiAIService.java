@@ -1,33 +1,19 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.github.javaparser.ParserConfiguration;
-import com.github.javaparser.StaticJavaParser;
-import com.github.javaparser.ast.CompilationUnit;
-import com.github.javaparser.ast.ImportDeclaration;
-import com.github.javaparser.ast.Node;
-import com.github.javaparser.ast.NodeList;
-import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+
 
 import org.jspecify.annotations.NonNull;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.generator.QueryType;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
-import sa.com.cloudsolutions.antikythera.parser.BaseRepositoryParser;
-import com.github.javaparser.ast.body.MethodDeclaration;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.net.URI;
-import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -83,21 +69,8 @@ public class GeminiAIService extends AbstractAIService {
      */
     @Override
     protected String buildRequestPayload(QueryBatch batch) throws IOException {
-        ArrayNode queries = objectMapper.createArrayNode();
-
-        for (RepositoryQuery query : batch.getQueries()) {
-            ObjectNode queryNode = queries.addObject();
-
-            String tableSchemaAndCardinality = buildTableSchemaString(batch, query);
-            String fullMethodSignature = query.getMethodDeclaration().getCallableDeclaration().toString();
-            String queryText = getQueryText(query);
-
-            queryNode.put("method", fullMethodSignature);
-            queryNode.put("queryType", query.getQueryType().toString());
-            queryNode.put("queryText", queryText);
-            queryNode.put("tableSchemaAndCardinality", tableSchemaAndCardinality);
-        }
-        return buildGeminiApiRequest(objectMapper.writeValueAsString(queries));
+        String userQueryData = buildQueryDataArray(batch);
+        return buildGeminiApiRequest(userQueryData);
     }
 
     /**
@@ -145,40 +118,6 @@ public class GeminiAIService extends AbstractAIService {
         return objectMapper.writeValueAsString(root);
     }
 
-    /**
-     * Gets the appropriate query text based on the query type.
-     */
-    String getQueryText(RepositoryQuery query) {
-        if (QueryType.DERIVED.equals(query.getQueryType())) {
-            return query.getMethodName();
-        }
-        return query.getOriginalQuery();
-    }
-
-    /**
-     * Builds the table schema and cardinality string for the AI prompt.
-     */
-    String buildTableSchemaString(QueryBatch batch, RepositoryQuery query) {
-        StringBuilder schema = new StringBuilder();
-        String tableName = query.getPrimaryTable();
-        if (tableName == null || tableName.isEmpty()) {
-            tableName = "UnknownTable";
-        }
-
-        schema.append(tableName).append(" (");
-
-        boolean first = true;
-        for (var entry : batch.getColumnCardinalities().entrySet()) {
-            if (!first) {
-                schema.append(", ");
-            }
-            schema.append(entry.getKey()).append(":").append(entry.getValue());
-            first = false;
-        }
-
-        schema.append(")");
-        return schema.toString();
-    }
 
     /**
      * Escapes a string for JSON format.

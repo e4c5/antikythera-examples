@@ -42,25 +42,19 @@ public class OpenAIService extends AbstractAIService {
      */
     @Override
     protected String buildRequestPayload(QueryBatch batch) throws IOException {
-        // Build user message content with query data
-        ArrayNode queries = objectMapper.createArrayNode();
-        
-        for (RepositoryQuery query : batch.getQueries()) {
-            ObjectNode queryNode = queries.addObject();
-            
-            String tableSchemaAndCardinality = buildTableSchemaString(batch, query);
-            String fullMethodSignature = query.getMethodDeclaration().getCallableDeclaration().toString();
-            String queryText = getQueryText(query);
-            
-            queryNode.put("method", fullMethodSignature);
-            queryNode.put("queryType", query.getQueryType().toString());
-            queryNode.put("queryText", queryText);
-            queryNode.put("tableSchemaAndCardinality", tableSchemaAndCardinality);
-        }
-        
-        String userContent = objectMapper.writeValueAsString(queries);
-        
-        // Build OpenAI Chat Completions request
+        String userContent = buildQueryDataArray(batch);
+        return buildOpenAIRequest(userContent);
+    }
+
+    /**
+     * Builds the OpenAI Chat Completions API request structure.
+     * Separated from buildRequestPayload to follow Single Responsibility Principle.
+     *
+     * @param userContent The query data as JSON string
+     * @return Complete OpenAI API request as JSON string
+     * @throws IOException if JSON serialization fails
+     */
+    private String buildOpenAIRequest(String userContent) throws IOException {
         ObjectNode root = objectMapper.createObjectNode();
         
         String model = getConfigString("model", "gpt-4o");
@@ -250,40 +244,7 @@ public class OpenAIService extends AbstractAIService {
         }
     }
 
-    /**
-     * Gets the appropriate query text based on the query type.
-     */
-    private String getQueryText(RepositoryQuery query) {
-        if (QueryType.DERIVED.equals(query.getQueryType())) {
-            return query.getMethodName();
-        }
-        return query.getOriginalQuery();
-    }
 
-    /**
-     * Builds the table schema and cardinality string for the AI prompt.
-     */
-    private String buildTableSchemaString(QueryBatch batch, RepositoryQuery query) {
-        StringBuilder schema = new StringBuilder();
-        String tableName = query.getPrimaryTable();
-        if (tableName == null || tableName.isEmpty()) {
-            tableName = "UnknownTable";
-        }
-
-        schema.append(tableName).append(" (");
-
-        boolean first = true;
-        for (var entry : batch.getColumnCardinalities().entrySet()) {
-            if (!first) {
-                schema.append(", ");
-            }
-            schema.append(entry.getKey()).append(":").append(entry.getValue());
-            first = false;
-        }
-
-        schema.append(")");
-        return schema.toString();
-    }
 
     /**
      * Extracts JSON content from the AI response, handling markdown code blocks.
