@@ -80,7 +80,7 @@ public class GraphStoreFactory {
 
     @SuppressWarnings("unchecked")
     private static GraphStore createNeo4jStore(Map<String, Object> graphConfig, int batchSize) {
-        Map<String, Object> neo4jConfig = (Map<String, Object>) graphConfig.getOrDefault("neo4j", Map.of());
+        Map<String, Object> neo4jConfig = (Map<String, Object>) graphConfig.getOrDefault(DEFAULT_TYPE, Map.of());
 
         String uri = getString(neo4jConfig, "uri", DEFAULT_NEO4J_URI);
         String username = getString(neo4jConfig, "username", DEFAULT_NEO4J_USERNAME);

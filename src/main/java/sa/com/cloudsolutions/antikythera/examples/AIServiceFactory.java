@@ -7,7 +7,11 @@ import java.util.Map;
  * Factory class for creating AI service instances based on configuration.
  */
 public class AIServiceFactory {
-    
+
+    private AIServiceFactory() {
+        // Private constructor to prevent instantiation
+    }
+
     /**
      * Creates an AI service instance based on the provider specified in the configuration.
      * 

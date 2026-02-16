@@ -179,7 +179,7 @@ public abstract class AbstractAIService {
      * Can be overridden by subclasses for provider-specific validation.
      */
     protected void validateConfig() {
-        String apiKey = getConfigString("api_key", null);
+        String apiKey = getConfigString(API_KEY, null);
         if (apiKey == null || apiKey.trim().isEmpty()) {
             throw new IllegalStateException(
                     "AI service API key is required. Configure ai_service.api_key in generator.yml or set the appropriate environment variable");
