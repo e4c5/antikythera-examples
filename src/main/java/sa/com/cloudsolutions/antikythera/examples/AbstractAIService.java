@@ -575,10 +575,8 @@ public abstract class AbstractAIService {
         for (String line : lines) {
             if (line.trim().startsWith("```")) {
                 inCodeBlock = !inCodeBlock;
-                continue;
             }
-
-            if (inCodeBlock || line.trim().startsWith("{") || line.trim().startsWith("[") || foundJson) {
+            else if (inCodeBlock || line.trim().startsWith("{") || line.trim().startsWith("[") || foundJson) {
                 jsonBuilder.append(line).append("\n");
                 foundJson = true;
                 if (line.trim().endsWith("}") || line.trim().endsWith("]")) {
