@@ -309,4 +309,84 @@ class QueryOptimizerArgumentReorderTest {
         assertEquals("\"valY\"", call.getArgument(0).toString());
         assertEquals("\"valX\"", call.getArgument(1).toString());
     }
+
+    @Test
+    void testReorderArguments_FallsBackToColumnOrderWhenNamesDiffer() {
+        // Reproduces a bug where old params have abbreviated names like "wallet"/"chain"
+        // but the AI-generated new params have "walletId"/"blockchainId".
+        // Type+name matching fails, so column order mapping must be used.
+
+        // Old: existsByTxHashAndIsConfirmedAndWalletIdAndBlockchainIdAndUtxoCodeIn(
+        //          Long txHash, boolean isConfirmed, Long wallet, Long chain, List<String> utxoCodes)
+        MethodDeclaration oldMethod = new MethodDeclaration();
+        oldMethod.addParameter(new Parameter(new ClassOrInterfaceType(null, "Long"), "txHash"));
+        oldMethod.addParameter(new Parameter(new ClassOrInterfaceType(null, "boolean"), "isConfirmed"));
+        oldMethod.addParameter(new Parameter(new ClassOrInterfaceType(null, "Long"), "wallet"));
+        oldMethod.addParameter(new Parameter(new ClassOrInterfaceType(null, "Long"), "chain"));
+        oldMethod.addParameter(new Parameter(new ClassOrInterfaceType(null, "List"), "utxoCodes"));
+        when(mockOldCallable.asMethodDeclaration()).thenReturn(oldMethod);
+
+        // New: existsByTxHashAndBlockchainIdAndUtxoCodeInAndIsConfirmedAndWalletId(
+        //          Long txHash, Long blockchainId, List<String> utxoCodes, boolean isConfirmed, Long walletId)
+        MethodDeclaration newMethod = new MethodDeclaration();
+        newMethod.addParameter(new Parameter(new ClassOrInterfaceType(null, "Long"), "txHash"));
+        newMethod.addParameter(new Parameter(new ClassOrInterfaceType(null, "Long"), "blockchainId"));
+        newMethod.addParameter(new Parameter(new ClassOrInterfaceType(null, "List"), "utxoCodes"));
+        newMethod.addParameter(new Parameter(new ClassOrInterfaceType(null, "boolean"), "isConfirmed"));
+        newMethod.addParameter(new Parameter(new ClassOrInterfaceType(null, "Long"), "walletId"));
+        when(mockNewCallable.asMethodDeclaration()).thenReturn(newMethod);
+
+        // Column orders encode the positional permutation
+        when(mockIssue.currentColumnOrder()).thenReturn(
+                List.of("tx_hash", "is_confirmed", "wallet_id", "blockchain_id", "utxo_code"));
+        when(mockIssue.recommendedColumnOrder()).thenReturn(
+                List.of("tx_hash", "blockchain_id", "utxo_code", "is_confirmed", "wallet_id"));
+
+        // Call: existsBy...(txHash, false, walletId, chainId, spentUtxoCodes)
+        MethodCallExpr call = new MethodCallExpr();
+        call.addArgument(new NameExpr("txHash"));
+        call.addArgument(new NameExpr("false"));
+        call.addArgument(new NameExpr("walletId"));
+        call.addArgument(new NameExpr("chainId"));
+        call.addArgument(new NameExpr("spentUtxoCodes"));
+
+        boolean result = QueryOptimizer.reorderMethodArguments(call, mockIssue);
+
+        assertTrue(result, "Should succeed using column order fallback");
+        assertEquals(5, call.getArguments().size());
+        // Expected: txHash, chainId, spentUtxoCodes, false, walletId
+        assertEquals("txHash", call.getArgument(0).toString());
+        assertEquals("chainId", call.getArgument(1).toString());
+        assertEquals("spentUtxoCodes", call.getArgument(2).toString());
+        assertEquals("false", call.getArgument(3).toString());
+        assertEquals("walletId", call.getArgument(4).toString());
+    }
+
+    @Test
+    void testReorderArguments_ReturnsFalseWhenNoMappingPossible() {
+        // When both type+name and column order mapping fail, should return false
+        MethodDeclaration oldMethod = new MethodDeclaration();
+        oldMethod.addParameter(new Parameter(new ClassOrInterfaceType(null, "Long"), "a"));
+        oldMethod.addParameter(new Parameter(new ClassOrInterfaceType(null, "Long"), "b"));
+        when(mockOldCallable.asMethodDeclaration()).thenReturn(oldMethod);
+
+        MethodDeclaration newMethod = new MethodDeclaration();
+        newMethod.addParameter(new Parameter(new ClassOrInterfaceType(null, "Long"), "x"));
+        newMethod.addParameter(new Parameter(new ClassOrInterfaceType(null, "Long"), "y"));
+        when(mockNewCallable.asMethodDeclaration()).thenReturn(newMethod);
+
+        // No column orders available
+        when(mockIssue.currentColumnOrder()).thenReturn(null);
+        when(mockIssue.recommendedColumnOrder()).thenReturn(null);
+
+        MethodCallExpr call = new MethodCallExpr();
+        call.addArgument(new NameExpr("val1"));
+        call.addArgument(new NameExpr("val2"));
+
+        boolean result = QueryOptimizer.reorderMethodArguments(call, mockIssue);
+        assertFalse(result, "Should fail when no mapping can be built");
+        // Arguments should remain unchanged
+        assertEquals("val1", call.getArgument(0).toString());
+        assertEquals("val2", call.getArgument(1).toString());
+    }
 }
