@@ -34,7 +34,7 @@ public class QueryOptimizationChecker {
     protected RepositoryParser repositoryParser;
     protected QueryAnalysisEngine analysisEngine;
     protected final File liquibaseXmlPath;
-    protected GeminiAIService aiService;
+    protected AbstractAIService aiService;
     protected LiquibaseGenerator liquibaseGenerator;
 
     protected int totalRecommendations = 0;
@@ -85,11 +85,11 @@ public class QueryOptimizationChecker {
         this.repositoryParser = new RepositoryParser();
 
         // Initialize AI service components
-        this.aiService = new GeminiAIService();
         Map<String, Object> aiConfig = (Map<String, Object>) Settings.getProperty("ai_service");
         if (aiConfig == null) {
             aiConfig = new HashMap<>();
         }
+        this.aiService = AIServiceFactory.create(aiConfig);
         this.aiService.configure(aiConfig);
         this.liquibaseGenerator = new LiquibaseGenerator(LiquibaseGenerator.ChangesetConfig.fromConfiguration());
 
@@ -1285,7 +1285,7 @@ public class QueryOptimizationChecker {
         this.analysisEngine = analysisEngine;
     }
 
-    public void setAiService(GeminiAIService aiService) {
+    public void setAiService(AbstractAIService aiService) {
         this.aiService = aiService;
     }
 
@@ -1301,7 +1301,7 @@ public class QueryOptimizationChecker {
         return analysisEngine;
     }
 
-    public GeminiAIService getAiService() {
+    public AbstractAIService getAiService() {
         return aiService;
     }
 

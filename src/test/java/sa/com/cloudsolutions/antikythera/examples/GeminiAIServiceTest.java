@@ -199,7 +199,7 @@ class GeminiAIServiceTest {
     void testGetCacheEfficiency_WithTokens() throws Exception {
         // Use reflection to set token usage for testing
         TokenUsage tokenUsage = new TokenUsage(100, 50, 150, 0.15, 30);
-        java.lang.reflect.Field field = GeminiAIService.class.getDeclaredField("lastTokenUsage");
+        java.lang.reflect.Field field = AbstractAIService.class.getDeclaredField("lastTokenUsage");
         field.setAccessible(true);
         field.set(geminiAIService, tokenUsage);
 
