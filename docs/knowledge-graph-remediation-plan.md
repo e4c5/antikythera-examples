@@ -13,7 +13,7 @@ This plan revises the previous remediation steps based on the current implementa
 7. `EdgeType` lacks `REFERENCES`, while the design includes it.
 8. Verification referenced `KnowledgeGraphBuilderBugReproductionTest`, which does not exist.
 9. Test compilation currently fails because `KnowledgeGraphIntegrationTest` imports `org.testcontainers.containers.Neo4jContainer`, but no Testcontainers dependency is declared in `antikythera-examples/pom.xml`.
-10. Config model is inconsistent: design shows `antikythera.graph.neo4j.batchSize`, while runtime code reads `neo4j.batch_size`.
+10. ~~Config model is inconsistent~~ — **Resolved**: unified under `graph:` section in YAML, read by `GraphStoreFactory` via `Settings`. `Neo4jConfig` removed.
 
 ## 2. Corrected Remediation Plan
 
@@ -53,12 +53,9 @@ This plan revises the previous remediation steps based on the current implementa
 1. Collect `CompilationUnit`s from `AntikytheraRunTime.getResolvedCompilationUnits().values()`.
 2. Invoke `builder.build(units)` as the default path.
 
-#### [MODIFY] `src/main/java/com/raditha/graph/Neo4jConfig.java`
+#### [DELETED] `src/main/java/com/raditha/graph/Neo4jConfig.java`
 
-1. Normalize config schema support:
-   - Accept current `neo4j.batch_size`.
-   - Optionally accept `neo4j.batchSize`.
-2. Document the accepted format in `graph.yml.example` to avoid drift.
+Removed. All graph configuration is now read by `GraphStoreFactory` from the `graph:` section of the YAML config via `Settings`. Sample files: `graph-neo4j.yml.example`, `graph-age.yml.example`.
 
 #### [MODIFY] `src/main/java/com/raditha/graph/Neo4jGraphStore.java` (optional but recommended)
 

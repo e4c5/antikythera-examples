@@ -55,6 +55,10 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
 
     private static final Logger logger = LoggerFactory.getLogger(KnowledgeGraphBuilder.class);
     private static final ObjectMapper objectMapper = new ObjectMapper();
+    public static final String RESOLUTION = "resolution";
+    public static final String LAMBDA = "lambda";
+    public static final String EXACT = "exact";
+    public static final String PARTIAL = "partial";
 
     private final GraphStore graphStore;
     private boolean autoClose = true;
@@ -63,8 +67,8 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
         this.graphStore = graphStore;
     }
 
-    public static KnowledgeGraphBuilder fromSettings(File configFile) throws IOException {
-        Neo4jGraphStore store = Neo4jGraphStore.fromSettings(configFile);
+    public static KnowledgeGraphBuilder fromSettings(File configFile) throws IOException, java.sql.SQLException {
+        GraphStore store = GraphStoreFactory.createGraphStore(configFile);
         return new KnowledgeGraphBuilder(store);
     }
 
@@ -179,13 +183,13 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
         }
 
         String lambdaId = SignatureUtils.getLambdaSignature(sourceId, lambda, 0);
-        persistNode(lambdaId, "Lambda", "lambda", node.getEnclosingType() == null ? sourceId : SignatureUtils.getTypeSignature(node.getEnclosingType()));
+        persistNode(lambdaId, "Lambda", LAMBDA, node.getEnclosingType() == null ? sourceId : SignatureUtils.getTypeSignature(node.getEnclosingType()));
 
         KnowledgeGraphEdge edge = KnowledgeGraphEdge.builder()
                 .source(sourceId)
                 .target(lambdaId)
                 .type(EdgeType.ENCLOSES)
-                .attribute("kind", "lambda")
+                .attribute("kind", LAMBDA)
                 .build();
 
         graphStore.persistEdge(edge);
@@ -329,11 +333,11 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
         }
 
         if (member instanceof FieldDeclaration fd) {
-            for (VariableDeclarator var : fd.getVariables()) {
-                String fieldSignature = SignatureUtils.getFieldSignature(ownerSignature, var.getNameAsString());
-                persistNode(fieldSignature, "Field", var.getNameAsString(), ownerSignature);
+            for (VariableDeclarator v : fd.getVariables()) {
+                String fieldSignature = SignatureUtils.getFieldSignature(ownerSignature, v.getNameAsString());
+                persistNode(fieldSignature, "Field", v.getNameAsString(), ownerSignature);
 
-                var.getInitializer().ifPresent(init -> {
+                v.getInitializer().ifPresent(init -> {
                     ScopeContext context = new ScopeContext(ownerSignature, ownerSignature, cu, new HashMap<>(), new AtomicInteger());
                     context.symbolTypes().put("this", ownerSignature);
                     init.accept(new GraphVisitor(), context);
@@ -406,7 +410,7 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
 
     private void emitMethodCall(ScopeContext context, MethodCallExpr mce) {
         String targetId;
-        String resolution = "exact";
+        String resolution = EXACT;
 
         if (mce.getScope().isPresent()) {
             Expression scope = mce.getScope().orElseThrow();
@@ -415,7 +419,7 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
                 targetId = resolvedScopeType + "#" + mce.getNameAsString() + "()";
             } else {
                 targetId = scope + "#" + mce.getNameAsString() + "()";
-                resolution = "partial";
+                resolution = PARTIAL;
             }
         } else {
             targetId = context.enclosingTypeSignature() + "#" + mce.getNameAsString() + "()";
@@ -430,8 +434,8 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
                 .target(targetId)
                 .type(EdgeType.CALLS);
 
-        if (!"exact".equals(resolution)) {
-            edgeBuilder.attribute("resolution", resolution);
+        if (!EXACT.equals(resolution)) {
+            edgeBuilder.attribute(RESOLUTION, resolution);
         }
 
         if (!args.isEmpty()) {
@@ -446,41 +450,17 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
         logger.trace("Edge: {} --CALLS--> {}", context.sourceId(), targetId);
     }
 
-    private void emitMethodReference(ScopeContext context, MethodReferenceExpr mre) {
-        String scopeType = resolveExpressionType(context, mre.getScope());
-        String targetId;
-        String resolution = "exact";
-
-        if (scopeType != null) {
-            targetId = scopeType + "#" + mre.getIdentifier() + "()";
-        } else {
-            targetId = mre.getScope() + "#" + mre.getIdentifier() + "()";
-            resolution = "partial";
-        }
-
-        KnowledgeGraphEdge.Builder edgeBuilder = KnowledgeGraphEdge.builder()
-                .source(context.sourceId())
-                .target(targetId)
-                .type(EdgeType.REFERENCES);
-
-        if (!"exact".equals(resolution)) {
-            edgeBuilder.attribute("resolution", resolution);
-        }
-
-        graphStore.persistEdge(edgeBuilder.build());
-        logger.trace("Edge: {} --REFERENCES--> {}", context.sourceId(), targetId);
-    }
 
     private void emitFieldAccess(ScopeContext context, FieldAccessExpr fae) {
         String targetId;
-        String resolution = "exact";
+        String resolution = EXACT;
 
         String scopeType = resolveExpressionType(context, fae.getScope());
         if (scopeType != null) {
             targetId = scopeType + "#" + fae.getNameAsString();
         } else {
             targetId = fae.getScope() + "#" + fae.getNameAsString();
-            resolution = "partial";
+            resolution = PARTIAL;
         }
 
         KnowledgeGraphEdge.Builder edgeBuilder = KnowledgeGraphEdge.builder()
@@ -489,8 +469,8 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
                 .type(EdgeType.ACCESSES)
                 .accessType("READ");
 
-        if (!"exact".equals(resolution)) {
-            edgeBuilder.attribute("resolution", resolution);
+        if (!EXACT.equals(resolution)) {
+            edgeBuilder.attribute(RESOLUTION, resolution);
         }
 
         graphStore.persistEdge(edgeBuilder.build());
@@ -505,11 +485,7 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
                 return fromSymbols;
             }
 
-            String fqn = AbstractCompiler.findFullyQualifiedName(context.compilationUnit(), name);
-            if (fqn != null) {
-                return fqn;
-            }
-            return null;
+            return AbstractCompiler.findFullyQualifiedName(context.compilationUnit(), name);
         }
 
         if (expression instanceof ThisExpr) {
@@ -517,11 +493,7 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
         }
 
         if (expression instanceof FieldAccessExpr fieldAccessExpr) {
-            String scopeType = resolveExpressionType(context, fieldAccessExpr.getScope());
-            if (scopeType != null) {
-                return scopeType;
-            }
-            return null;
+            return resolveExpressionType(context, fieldAccessExpr.getScope());
         }
 
         if (expression instanceof ObjectCreationExpr objectCreationExpr) {
@@ -542,8 +514,36 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
             if (fqn != null) {
                 return fqn;
             }
+            // Local class inside a method body — use the Java compiler naming convention
+            TypeDeclaration<?> localType = wrapper.getType();
+            if (localType != null) {
+                return buildLocalClassName(localType);
+            }
         }
         return type.asString();
+    }
+
+    /**
+     * Builds a name for a local class using the Java compiler convention: OuterClass$NLocalName
+     * where N is a 1-based index among local classes with the same name in the enclosing type.
+     */
+    private String buildLocalClassName(TypeDeclaration<?> localType) {
+        String localName = localType.getNameAsString();
+        TypeDeclaration<?> enclosing = AbstractCompiler.getEnclosingType(localType.getParentNode().orElse(null));
+        if (enclosing != null) {
+            String enclosingFqn = enclosing.getFullyQualifiedName().orElse(enclosing.getNameAsString());
+            int index = 1;
+            for (TypeDeclaration<?> t : enclosing.findAll(TypeDeclaration.class)) {
+                if (t == localType) {
+                    break;
+                }
+                if (t.getNameAsString().equals(localName) && t.getFullyQualifiedName().isEmpty()) {
+                    index++;
+                }
+            }
+            return enclosingFqn + "$" + index + localName;
+        }
+        return localName;
     }
 
     private ScopeContext fromGraphNode(GraphNode node, String sourceId) {
@@ -598,6 +598,31 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
     }
 
     private class GraphVisitor extends VoidVisitorAdapter<ScopeContext> {
+        private void emitMethodReference(ScopeContext context, MethodReferenceExpr mre) {
+            String scopeType = resolveExpressionType(context, mre.getScope());
+            String targetId;
+            String resolution = EXACT;
+
+            if (scopeType != null) {
+                targetId = scopeType + "#" + mre.getIdentifier() + "()";
+            } else {
+                targetId = mre.getScope() + "#" + mre.getIdentifier() + "()";
+                resolution = PARTIAL;
+            }
+
+            KnowledgeGraphEdge.Builder edgeBuilder = KnowledgeGraphEdge.builder()
+                    .source(context.sourceId())
+                    .target(targetId)
+                    .type(EdgeType.REFERENCES);
+
+            if (!EXACT.equals(resolution)) {
+                edgeBuilder.attribute(RESOLUTION, resolution);
+            }
+
+            graphStore.persistEdge(edgeBuilder.build());
+            logger.trace("Edge: {} --REFERENCES--> {}", context.sourceId(), targetId);
+        }
+
         @Override
         public void visit(MethodCallExpr n, ScopeContext context) {
             emitMethodCall(context, n);
@@ -638,13 +663,13 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
         public void visit(LambdaExpr n, ScopeContext context) {
             int index = context.nextLambdaIndex();
             String lambdaSignature = SignatureUtils.getLambdaSignature(context.sourceId(), n, index);
-            persistNode(lambdaSignature, "Lambda", "lambda", context.enclosingTypeSignature());
+            persistNode(lambdaSignature, "Lambda", LAMBDA, context.enclosingTypeSignature());
 
             graphStore.persistEdge(KnowledgeGraphEdge.builder()
                     .source(context.sourceId())
                     .target(lambdaSignature)
                     .type(EdgeType.ENCLOSES)
-                    .attribute("kind", "lambda")
+                    .attribute("kind", LAMBDA)
                     .build());
 
             Map<String, String> lambdaSymbols = new HashMap<>(context.symbolTypes());

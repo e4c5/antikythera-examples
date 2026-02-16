@@ -10,6 +10,7 @@ import sa.com.cloudsolutions.antikythera.parser.MavenHelper;
 
 import java.io.File;
 import java.io.IOException;
+import java.sql.SQLException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
@@ -91,7 +92,7 @@ public class KnowledgeGraphCLI {
                 .findFirst();
     }
 
-    public void run(String projectPath, String configPath) throws IOException {
+    public void run(String projectPath, String configPath) throws IOException, SQLException {
         logger.info("Initializing Knowledge Graph Builder...");
         logger.info("Target Project: {}", projectPath);
         logger.info("Configuration: {}", configPath);
@@ -117,7 +118,7 @@ public class KnowledgeGraphCLI {
             logger.warn("Could not load Maven dependencies (pom.xml not found or invalid). Proceeding with limited resolution.", e);
         }
 
-        logger.info("Pre-processing project sources via Antikythera...");
+        new AbstractCompiler();
         AbstractCompiler.preProcess();
 
         // 4. Collect resolved compilation units from runtime
@@ -129,8 +130,9 @@ public class KnowledgeGraphCLI {
             return;
         }
 
-        // 5. Build Graph
-        GraphStore store = GraphStoreFactory.createGraphStore(configFile);
+        // 5. Build Graph (Settings already loaded above, use the no-arg variant
+        //    so the base_path override from step 2 is preserved)
+        GraphStore store = GraphStoreFactory.createGraphStore();
         KnowledgeGraphBuilder builder = new KnowledgeGraphBuilder(store);
         builder.build(units);
     }
