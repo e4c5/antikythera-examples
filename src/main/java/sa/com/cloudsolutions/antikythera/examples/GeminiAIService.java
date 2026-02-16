@@ -4,11 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
-
-import org.jspecify.annotations.NonNull;
-import sa.com.cloudsolutions.antikythera.generator.QueryType;
-import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
-
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpRequest;
@@ -269,79 +264,8 @@ public class GeminiAIService extends AbstractAIService {
      * Expects a JSON array response format as defined in the new prompt.
      */
     List<OptimizationIssue> parseRecommendations(String textResponse, QueryBatch batch) throws IOException {
-        List<OptimizationIssue> issues = new ArrayList<>();
-
-        // Extract JSON from the response (it might be wrapped in markdown code blocks)
         String jsonResponse = extractJsonFromResponse(textResponse);
-
-        if (jsonResponse.trim().isEmpty()) {
-            logger.warn("No valid JSON found in AI response");
-            return issues;
-        }
-
-        // Parse the JSON array
-        JsonNode responseArray = objectMapper.readTree(jsonResponse);
-
-        if (!responseArray.isArray()) {
-            logger.warn("AI response is not a JSON array as expected");
-            return issues;
-        }
-
-        // Process each optimization recommendation
-        List<RepositoryQuery> queries = batch.getQueries();
-        for (int i = 0; i < responseArray.size() && i < queries.size(); i++) {
-            JsonNode recommendation = responseArray.get(i);
-            RepositoryQuery originalQuery = queries.get(i);
-
-            OptimizationIssue issue = parseOptimizationRecommendation(recommendation, originalQuery);
-            issues.add(issue);
-        }
-
-        return issues;
-    }
-
-    /**
-     * Extracts JSON content from the AI response, handling markdown code blocks.
-     */
-    String extractJsonFromResponse(String response) {
-        if (response == null) {
-            return null;
-        }
-
-        // Look for JSON array patterns
-        int jsonStart = response.indexOf('[');
-        int jsonEnd = response.lastIndexOf(']');
-
-        if (jsonStart >= 0 && jsonEnd > jsonStart) {
-            return response.substring(jsonStart, jsonEnd + 1);
-        }
-
-        return extractJsonFromCodeBlocks(response);
-    }
-
-    private static @NonNull String extractJsonFromCodeBlocks(String response) {
-        // If no array found, try to find JSON in code blocks
-        String[] lines = response.split("\n");
-        StringBuilder jsonBuilder = new StringBuilder();
-        boolean inCodeBlock = false;
-        boolean foundJson = false;
-
-        for (String line : lines) {
-            if (line.trim().startsWith("```")) {
-                inCodeBlock = !inCodeBlock;
-                continue;
-            }
-
-            if (inCodeBlock || line.trim().startsWith("[") || foundJson) {
-                jsonBuilder.append(line).append("\n");
-                foundJson = true;
-                if (line.trim().endsWith("]")) {
-                    break;
-                }
-            }
-        }
-
-        return jsonBuilder.toString().trim();
+        return parseRecommendationsFromJson(jsonResponse, batch);
     }
 
 

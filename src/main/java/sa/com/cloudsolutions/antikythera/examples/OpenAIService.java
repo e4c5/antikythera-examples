@@ -154,51 +154,8 @@ public class OpenAIService extends AbstractAIService {
      * Parses the text response from OpenAI to extract optimization recommendations.
      */
     private List<OptimizationIssue> parseRecommendations(String textResponse, QueryBatch batch) throws IOException {
-        List<OptimizationIssue> issues = new ArrayList<>();
-
-        // Extract JSON from the response
         String jsonResponse = extractJsonFromResponse(textResponse);
-
-        if (jsonResponse.trim().isEmpty()) {
-            logger.warn("No valid JSON found in OpenAI response");
-            return issues;
-        }
-
-        // Parse the JSON - OpenAI returns an object with an array, not a direct array
-        JsonNode responseNode = objectMapper.readTree(jsonResponse);
-        JsonNode responseArray = responseNode;
-        
-        // If the response is wrapped in an object, try to find the array
-        if (responseNode.isObject()) {
-            // Look for common array field names
-            if (responseNode.has("recommendations")) {
-                responseArray = responseNode.get("recommendations");
-            } else if (responseNode.has("results")) {
-                responseArray = responseNode.get("results");
-            } else if (responseNode.has("data")) {
-                responseArray = responseNode.get("data");
-            } else {
-                // Try to find the first array field
-                responseArray = responseNode.fields().next().getValue();
-            }
-        }
-
-        if (!responseArray.isArray()) {
-            logger.warn("OpenAI response does not contain a JSON array as expected");
-            return issues;
-        }
-
-        // Process each optimization recommendation
-        List<RepositoryQuery> queries = batch.getQueries();
-        for (int i = 0; i < responseArray.size() && i < queries.size(); i++) {
-            JsonNode recommendation = responseArray.get(i);
-            RepositoryQuery originalQuery = queries.get(i);
-
-            OptimizationIssue issue = parseOptimizationRecommendation(recommendation, originalQuery);
-            issues.add(issue);
-        }
-
-        return issues;
+        return parseRecommendationsFromJson(jsonResponse, batch);
     }
 
     /**
@@ -242,52 +199,6 @@ public class OpenAIService extends AbstractAIService {
         } else {
             lastTokenUsage = new TokenUsage();
         }
-    }
-
-
-
-    /**
-     * Extracts JSON content from the AI response, handling markdown code blocks.
-     */
-    private String extractJsonFromResponse(String response) {
-        if (response == null) {
-            return "";
-        }
-
-        // Look for JSON object or array patterns
-        int jsonStart = Math.max(response.indexOf('{'), response.indexOf('['));
-        int jsonEnd = Math.max(response.lastIndexOf('}'), response.lastIndexOf(']'));
-
-        if (jsonStart >= 0 && jsonEnd > jsonStart) {
-            return response.substring(jsonStart, jsonEnd + 1);
-        }
-
-        return extractJsonFromCodeBlocks(response);
-    }
-
-    private static @NonNull String extractJsonFromCodeBlocks(String response) {
-        // If no JSON found, try to find JSON in code blocks
-        String[] lines = response.split("\n");
-        StringBuilder jsonBuilder = new StringBuilder();
-        boolean inCodeBlock = false;
-        boolean foundJson = false;
-
-        for (String line : lines) {
-            if (line.trim().startsWith("```")) {
-                inCodeBlock = !inCodeBlock;
-                continue;
-            }
-
-            if (inCodeBlock || line.trim().startsWith("{") || line.trim().startsWith("[") || foundJson) {
-                jsonBuilder.append(line).append("\n");
-                foundJson = true;
-                if (line.trim().endsWith("}") || line.trim().endsWith("]")) {
-                    break;
-                }
-            }
-        }
-
-        return jsonBuilder.toString().trim();
     }
 
     /**

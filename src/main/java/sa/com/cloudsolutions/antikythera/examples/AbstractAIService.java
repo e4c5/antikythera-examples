@@ -463,19 +463,32 @@ public abstract class AbstractAIService {
 
     /**
      * Extracts JSON content from the AI response, handling markdown code blocks.
-     * Looks for both JSON objects and arrays.
+     * Looks for both JSON objects and arrays, preferring the outermost complete structure.
      */
     protected String extractJsonFromResponse(String response) {
         if (response == null) {
-            return "";
+            return null;
         }
 
-        // Look for JSON object or array patterns
-        int jsonStart = Math.max(response.indexOf('{'), response.indexOf('['));
-        int jsonEnd = Math.max(response.lastIndexOf('}'), response.lastIndexOf(']'));
+        // Look for JSON array first (most common case for our responses)
+        int arrayStart = response.indexOf('[');
+        int arrayEnd = response.lastIndexOf(']');
+        
+        // Look for JSON object
+        int objectStart = response.indexOf('{');
+        int objectEnd = response.lastIndexOf('}');
 
-        if (jsonStart >= 0 && jsonEnd > jsonStart) {
-            return response.substring(jsonStart, jsonEnd + 1);
+        // Prefer array if both exist and array is the outermost structure
+        if (arrayStart >= 0 && arrayEnd > arrayStart) {
+            // Check if the array contains the object or vice versa
+            if (objectStart < 0 || arrayStart < objectStart) {
+                return response.substring(arrayStart, arrayEnd + 1);
+            }
+        }
+        
+        // Fall back to object if no valid array found
+        if (objectStart >= 0 && objectEnd > objectStart) {
+            return response.substring(objectStart, objectEnd + 1);
         }
 
         return extractJsonFromCodeBlocks(response);
