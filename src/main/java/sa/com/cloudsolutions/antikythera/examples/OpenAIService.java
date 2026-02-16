@@ -9,6 +9,7 @@ import java.net.URI;
 import java.net.http.HttpRequest;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -25,13 +26,17 @@ public class OpenAIService extends AbstractAIService {
      * OpenAI model pricing (per 1M tokens).
      * Prices verified as of February 2026.
      * Note: gpt-4o-mini is the recommended budget option.
+     * 
+     * IMPORTANT: Using LinkedHashMap to ensure deterministic iteration order.
+     * Entries are ordered from most specific to least specific (longest keys first)
+     * to ensure correct matching with model.contains() logic.
      */
-    private static final Map<String, ModelPricing> MODEL_PRICING = Map.ofEntries(
-        Map.entry(GPT_4_O, new ModelPricing(2.50, 10.00, 0.25)),              // Current flagship model
-        Map.entry("gpt-4o-mini", new ModelPricing(0.150, 0.600, 0.25)),       // Recommended budget option
-        Map.entry("gpt-4-turbo", new ModelPricing(10.00, 30.00, 0.25)),       // Legacy model
-        Map.entry("gpt-4", new ModelPricing(30.00, 60.00, 0.25))              // Legacy model
-    );
+    private static final Map<String, ModelPricing> MODEL_PRICING = new LinkedHashMap<>() {{
+        put("gpt-4o-mini", new ModelPricing(0.150, 0.600, 0.25));       // Most specific - check first
+        put("gpt-4-turbo", new ModelPricing(10.00, 30.00, 0.25));       // More specific than gpt-4
+        put(GPT_4_O, new ModelPricing(2.50, 10.00, 0.25));              // Current flagship model
+        put("gpt-4", new ModelPricing(30.00, 60.00, 0.25));             // Least specific - check last
+    }};
 
 
     public OpenAIService() throws IOException {

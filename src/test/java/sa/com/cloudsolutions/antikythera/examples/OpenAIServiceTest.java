@@ -341,10 +341,8 @@ class OpenAIServiceTest {
         assertEquals(1000000, tokenUsage.getInputTokens());
         assertEquals(1000000, tokenUsage.getOutputTokens());
         assertEquals(2000000, tokenUsage.getTotalTokens());
-        // NOTE: Pricing assertion removed due to non-deterministic model matching.
-        // OpenAIService uses .contains() with Map.ofEntries() which doesn't guarantee iteration order.
-        // This causes the pricing to vary between runs (sometimes matches gpt-4o, sometimes gpt-4).
-        // TODO: Fix OpenAIService to use LinkedHashMap with specific ordering for MODEL_PRICING.
+        // Default model is gpt-4o, pricing: $2.50/1M input, $10.00/1M output
+        assertEquals(2.50 + 10.00, tokenUsage.getEstimatedCost(), 0.000001);
     }
 
     @Test
@@ -366,8 +364,11 @@ class OpenAIServiceTest {
 
         TokenUsage tokenUsage = openAIService.getLastTokenUsage();
         assertEquals(50000, tokenUsage.getCachedContentTokenCount());
-        // NOTE: Pricing assertion removed due to non-deterministic model matching.
-        // See testExtractTokenUsage_ValidResponse for explanation.
+        // Default model is gpt-4o, pricing: $2.50/1M input, cache ratio 0.25
+        // inputCost = (50000/1M)*2.50 + (50000/1M)*0.625 = 0.125 + 0.03125 = 0.15625
+        // outputCost = (100000/1M)*10.00 = 1.0
+        // total = 1.15625
+        assertEquals(1.15625, tokenUsage.getEstimatedCost(), 0.000001);
     }
 
     @Test
@@ -443,8 +444,8 @@ class OpenAIServiceTest {
                 """;
         openAIService.extractTokenUsage(responseBody);
         TokenUsage tokenUsage = openAIService.getLastTokenUsage();
-        // NOTE: Pricing assertion removed due to non-deterministic model matching.
-        // See testExtractTokenUsage_ValidResponse for explanation.
+        // gpt-4o-mini: $0.150/1M input, $0.600/1M output
+        assertEquals(0.150 + 0.600, tokenUsage.getEstimatedCost(), 0.000001);
     }
 
     @Test
@@ -461,8 +462,8 @@ class OpenAIServiceTest {
                 """;
         openAIService.extractTokenUsage(responseBody);
         TokenUsage tokenUsage = openAIService.getLastTokenUsage();
-        // NOTE: Pricing assertion removed due to non-deterministic model matching.
-        // See testExtractTokenUsage_ValidResponse for explanation.
+        // gpt-4-turbo: $10.00/1M input, $30.00/1M output
+        assertEquals(10.00 + 30.00, tokenUsage.getEstimatedCost(), 0.000001);
     }
 
     @Test
