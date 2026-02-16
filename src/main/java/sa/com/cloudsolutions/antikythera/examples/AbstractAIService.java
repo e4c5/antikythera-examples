@@ -21,6 +21,9 @@ import sa.com.cloudsolutions.antikythera.parser.BaseRepositoryParser;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -43,6 +46,11 @@ public abstract class AbstractAIService {
 
     public static final String OPTIMIZED_CODE_ELEMENT = "optimizedCodeElement";
     public static final String NOTES = "notes";
+    public static final String API_KEY = "api_key";
+    public static final String CONTENT = "content";
+    public static final String MODEL = "model";
+    public static final String STRING = "string";
+    public static final String PARTS = "parts";
 
     /**
      * Constructor initializes common components.
@@ -99,6 +107,37 @@ public abstract class AbstractAIService {
     }
 
     /**
+     * Executes an HTTP request with retry logic on timeout.
+     * Common logic for sending requests and handling responses.
+     * 
+     * @param request The HTTP request to send
+     * @param payload The original payload (for retry)
+     * @param retryCount The current retry attempt number
+     * @return The response body
+     */
+    protected String executeHttpRequest(HttpRequest request, String payload, int retryCount) 
+            throws IOException, InterruptedException {
+        try {
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+            if (response.statusCode() != 200) {
+                throw new IOException(
+                        "API request failed with status: " + response.statusCode() + ", body: " + response.body());
+            }
+
+            // Extract token usage if available
+            extractTokenUsage(response.body());
+
+            return response.body();
+        } catch (HttpTimeoutException e) {
+            if (retryCount == 0) {
+                return sendApiRequest(payload, 1);
+            }
+            throw e;
+        }
+    }
+
+    /**
      * Public method for sending raw API requests.
      * This is for external callers like AICodeGenerationHelper.
      */
@@ -126,6 +165,14 @@ public abstract class AbstractAIService {
      * Provider-specific implementation required.
      */
     protected abstract List<OptimizationIssue> parseResponse(String responseBody, QueryBatch batch) throws IOException;
+
+    /**
+     * Extracts token usage information from the API response.
+     * Provider-specific implementation required.
+     * 
+     * @param responseBody The API response body
+     */
+    protected abstract void extractTokenUsage(String responseBody) throws IOException;
 
     /**
      * Validates the configuration to ensure required settings are present.

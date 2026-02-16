@@ -7,8 +7,6 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.net.http.HttpTimeoutException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -35,9 +33,7 @@ public class GeminiAIService extends AbstractAIService {
         Map.entry(GEMINI_3_FLASH, new ModelPricing(0.50, 1.00, 3.00, 4.50, 0.10, 200000)),
         Map.entry("gemini-1.0-pro", new ModelPricing(0.50, 1.50, 0.25))
     );
-    public static final String STRING = "string";
-    public static final String PARTS = "parts";
-    public static final String API_KEY = "api_key";
+
 
     public GeminiAIService() throws IOException {
         super();
@@ -141,11 +137,6 @@ public class GeminiAIService extends AbstractAIService {
             logger.info("Retrying API request with extra 30 seconds timeout (total: {}s)", timeoutSeconds);
         }
 
-        if (apiKey == null || apiKey.trim().isEmpty()) {
-            throw new IllegalStateException(
-                    "AI service API key is required. Set GEMINI_API_KEY environment variable or configure ai_service.api_key in generator.yml");
-        }
-
         String url = apiEndpoint.replace("{model}", model) + "?key=" + apiKey;
 
         HttpRequest request = HttpRequest.newBuilder()
@@ -155,30 +146,14 @@ public class GeminiAIService extends AbstractAIService {
                 .timeout(Duration.ofSeconds(timeoutSeconds))
                 .build();
 
-        try {
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-
-            if (response.statusCode() != 200) {
-                throw new IOException(
-                        "API request failed with status: " + response.statusCode() + ", body: " + response.body());
-            }
-
-            // Extract token usage if available
-            extractTokenUsage(response.body());
-
-            return response.body();
-        } catch (HttpTimeoutException e) {
-            if (retryCount == 0) {
-                return sendApiRequest(payload, 1);
-            }
-            throw e;
-        }
+        return executeHttpRequest(request, payload, retryCount);
     }
 
     /**
      * Extracts token usage information from the API response.
      */
-    void extractTokenUsage(String responseBody) throws IOException {
+    @Override
+    protected void extractTokenUsage(String responseBody) throws IOException {
         JsonNode root = objectMapper.readTree(responseBody);
         JsonNode usageMetadata = root.path("usageMetadata");
 

@@ -3,15 +3,10 @@ package sa.com.cloudsolutions.antikythera.examples;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import org.jspecify.annotations.NonNull;
-import sa.com.cloudsolutions.antikythera.generator.QueryType;
-import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
 
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.net.http.HttpTimeoutException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -22,16 +17,15 @@ import java.util.Map;
  * Uses OpenAI's Chat Completions API with GPT models.
  */
 public class OpenAIService extends AbstractAIService {
-    
+
+    public static final String GPT_4_O = "gpt-4o";
     private static final Map<String, ModelPricing> MODEL_PRICING = Map.ofEntries(
-        Map.entry("gpt-4o", new ModelPricing(2.50, 10.00, 0.25)),
+        Map.entry(GPT_4_O, new ModelPricing(2.50, 10.00, 0.25)),
         Map.entry("gpt-4o-mini", new ModelPricing(0.150, 0.600, 0.25)),
         Map.entry("gpt-4-turbo", new ModelPricing(10.00, 30.00, 0.25)),
         Map.entry("gpt-4", new ModelPricing(30.00, 60.00, 0.25)),
         Map.entry("gpt-3.5-turbo", new ModelPricing(0.50, 1.50, 0.25))
     );
-    
-    public static final String API_KEY = "api_key";
 
     public OpenAIService() throws IOException {
         super();
@@ -57,8 +51,8 @@ public class OpenAIService extends AbstractAIService {
     private String buildOpenAIRequest(String userContent) throws IOException {
         ObjectNode root = objectMapper.createObjectNode();
         
-        String model = getConfigString("model", "gpt-4o");
-        root.put("model", model);
+        String model = getConfigString(MODEL, GPT_4_O);
+        root.put(MODEL, model);
         
         // Messages array
         ArrayNode messages = root.putArray("messages");
@@ -66,12 +60,12 @@ public class OpenAIService extends AbstractAIService {
         // System message
         ObjectNode systemMessage = messages.addObject();
         systemMessage.put("role", "system");
-        systemMessage.put("content", systemPrompt);
+        systemMessage.put(CONTENT, systemPrompt);
         
         // User message
         ObjectNode userMessage = messages.addObject();
         userMessage.put("role", "user");
-        userMessage.put("content", userContent);
+        userMessage.put(CONTENT, userContent);
         
         // Response format - request JSON mode
         ObjectNode responseFormat = root.putObject("response_format");
@@ -92,10 +86,6 @@ public class OpenAIService extends AbstractAIService {
             logger.info("Retrying API request with extra 30 seconds timeout (total: {}s)", timeoutSeconds);
         }
 
-        if (apiKey == null || apiKey.trim().isEmpty()) {
-            throw new IllegalStateException(
-                    "OpenAI API key is required. Set OPENAI_API_KEY environment variable or configure ai_service.api_key in generator.yml");
-        }
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(apiEndpoint))
@@ -105,24 +95,7 @@ public class OpenAIService extends AbstractAIService {
                 .timeout(Duration.ofSeconds(timeoutSeconds))
                 .build();
 
-        try {
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-
-            if (response.statusCode() != 200) {
-                throw new IOException(
-                        "API request failed with status: " + response.statusCode() + ", body: " + response.body());
-            }
-
-            // Extract token usage if available
-            extractTokenUsage(response.body());
-
-            return response.body();
-        } catch (HttpTimeoutException e) {
-            if (retryCount == 0) {
-                return sendApiRequest(payload, 1);
-            }
-            throw e;
-        }
+        return executeHttpRequest(request, payload, retryCount);
     }
 
     /**
@@ -136,7 +109,7 @@ public class OpenAIService extends AbstractAIService {
         if (choices.isArray() && !choices.isEmpty()) {
             JsonNode firstChoice = choices.get(0);
             JsonNode message = firstChoice.path("message");
-            String content = message.path("content").asText();
+            String content = message.path(CONTENT).asText();
             
             return parseRecommendations(content, batch);
         }
@@ -155,7 +128,8 @@ public class OpenAIService extends AbstractAIService {
     /**
      * Extracts token usage information from the OpenAI API response.
      */
-    private void extractTokenUsage(String responseBody) throws IOException {
+    @Override
+    protected void extractTokenUsage(String responseBody) throws IOException {
         JsonNode root = objectMapper.readTree(responseBody);
         JsonNode usage = root.path("usage");
 
@@ -164,7 +138,7 @@ public class OpenAIService extends AbstractAIService {
             int outputTokens = usage.path("completion_tokens").asInt(0);
             int totalTokens = usage.path("total_tokens").asInt(inputTokens + outputTokens);
 
-            String model = getConfigString("model", "gpt-4o");
+            String model = getConfigString(MODEL, GPT_4_O);
             double inputCost = 0;
             double outputCost = 0;
 
