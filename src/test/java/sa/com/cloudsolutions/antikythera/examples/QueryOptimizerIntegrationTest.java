@@ -180,8 +180,9 @@ class QueryOptimizerIntegrationTest {
         when(result.getOptimizationIssue()).thenReturn(issue);
         when(result.getMethodName()).thenReturn("findByFirstNameAndLastName");
 
+        java.util.Map<Integer, Integer> positionMap = issue.buildPositionMapping(2);
         QueryOptimizer.MethodRename rename = new QueryOptimizer.MethodRename(
-                "findByFirstNameAndLastName", "findByLastNameAndFirstName", result, issue);
+                "findByFirstNameAndLastName", "findByLastNameAndFirstName", result, issue, positionMap);
 
         optimizer.batchUpdateMethodSignatures(List.of(rename), USER_REPO_FQN);
 
@@ -256,8 +257,9 @@ class QueryOptimizerIntegrationTest {
         when(result.getOptimizationIssue()).thenReturn(issue);
         when(result.getMethodName()).thenReturn("findByAge");
 
+        java.util.Map<Integer, Integer> positionMap = issue.buildPositionMapping(1);
         QueryOptimizer.MethodRename rename = new QueryOptimizer.MethodRename(
-                "findByAge", "findByAgeRenamed", result, issue);
+                "findByAge", "findByAgeRenamed", result, issue, positionMap);
 
         optimizer.batchUpdateMethodSignatures(List.of(rename), USER_REPO_FQN);
 

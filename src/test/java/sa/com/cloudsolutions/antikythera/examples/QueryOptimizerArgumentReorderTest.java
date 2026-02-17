@@ -39,7 +39,6 @@ import static org.mockito.Mockito.when;
 class QueryOptimizerArgumentReorderTest {
 
     private QueryAnalysisResult mockResult;
-    private OptimizationIssue mockIssue;
     private RepositoryQuery mockOriginalQuery;
     private RepositoryQuery mockOptimizedQuery;
     private sa.com.cloudsolutions.antikythera.parser.Callable mockOldCallable;
@@ -48,17 +47,21 @@ class QueryOptimizerArgumentReorderTest {
     @BeforeEach
     void setUp() {
         mockResult = mock(QueryAnalysisResult.class);
-        mockIssue = mock(OptimizationIssue.class);
         mockOriginalQuery = mock(RepositoryQuery.class);
         mockOptimizedQuery = mock(RepositoryQuery.class);
         mockOldCallable = mock(sa.com.cloudsolutions.antikythera.parser.Callable.class);
         mockNewCallable = mock(sa.com.cloudsolutions.antikythera.parser.Callable.class);
 
-        when(mockResult.getOptimizationIssue()).thenReturn(mockIssue);
-        when(mockIssue.query()).thenReturn(mockOriginalQuery);
-        when(mockIssue.optimizedQuery()).thenReturn(mockOptimizedQuery);
         when(mockOriginalQuery.getMethodDeclaration()).thenReturn(mockOldCallable);
         when(mockOptimizedQuery.getMethodDeclaration()).thenReturn(mockNewCallable);
+    }
+
+    /**
+     * Creates a real OptimizationIssue (not a mock) so that buildPositionMapping() works.
+     */
+    private OptimizationIssue createIssue(List<String> currentCols, List<String> recommendedCols) {
+        return new OptimizationIssue(mockOriginalQuery, currentCols, recommendedCols,
+                "test", "test", mockOptimizedQuery);
     }
 
     @Test
@@ -77,10 +80,9 @@ class QueryOptimizerArgumentReorderTest {
 
         when(mockResult.getMethodName()).thenReturn("findByAAndB");
         when(mockOptimizedQuery.getMethodName()).thenReturn("findByBAndA");
-        
-        // Setup column orders: a and b -> b and a (reordered)
-        when(mockIssue.currentColumnOrder()).thenReturn(List.of("a", "b"));
-        when(mockIssue.recommendedColumnOrder()).thenReturn(List.of("b", "a"));
+
+        OptimizationIssue issue = createIssue(List.of("a", "b"), List.of("b", "a"));
+        when(mockResult.getOptimizationIssue()).thenReturn(issue);
 
         // Setup method call: repo.findByAAndB("valA", 123)
         MethodCallExpr call = new MethodCallExpr(new NameExpr("repo"), "findByAAndB");
@@ -119,6 +121,10 @@ class QueryOptimizerArgumentReorderTest {
 
         when(mockResult.getMethodName()).thenReturn("findByAAndB");
         when(mockOptimizedQuery.getMethodName()).thenReturn("findByBAndA");
+
+        // Column orders provide the authoritative mapping even when param names have modifier diffs
+        OptimizationIssue issue = createIssue(List.of("a", "b"), List.of("b", "a"));
+        when(mockResult.getOptimizationIssue()).thenReturn(issue);
 
         // Setup method call: repo.findByAAndB(tenantId, true)
         MethodCallExpr call = new MethodCallExpr(new NameExpr("repo"), "findByAAndB");
@@ -206,17 +212,19 @@ class QueryOptimizerArgumentReorderTest {
         newMethod.addParameter(new Parameter(new ClassOrInterfaceType(null, "String"), "y"));
         newMethod.addParameter(new Parameter(new ClassOrInterfaceType(null, "String"), "x"));
         when(mockNewCallable.asMethodDeclaration()).thenReturn(newMethod);
-        
-        // Setup column orders: x and y -> y and x (reordered)
-        when(mockIssue.currentColumnOrder()).thenReturn(List.of("x", "y"));
-        when(mockIssue.recommendedColumnOrder()).thenReturn(List.of("y", "x"));
-        
-        // Setup MethodRename
+
+        // Create real issue with column orders
+        OptimizationIssue issue = createIssue(List.of("x", "y"), List.of("y", "x"));
+        when(mockResult.getOptimizationIssue()).thenReturn(issue);
+
+        // Setup MethodRename with precomputed position map
+        java.util.Map<Integer, Integer> positionMap = issue.buildPositionMapping(2);
         QueryOptimizer.MethodRename rename = new QueryOptimizer.MethodRename(
-            "findByXAndY", 
-            "findByYAndX", 
-            mockResult, 
-            mockIssue
+            "findByXAndY",
+            "findByYAndX",
+            mockResult,
+            issue,
+            positionMap
         );
         List<QueryOptimizer.MethodRename> renames = Collections.singletonList(rename);
         Set<String> fields = new HashSet<>();
@@ -254,8 +262,8 @@ class QueryOptimizerArgumentReorderTest {
         when(mockResult.getMethodName()).thenReturn("findByAAndB");
         when(mockOptimizedQuery.getMethodName()).thenReturn("findByBAndA");
 
-        when(mockIssue.currentColumnOrder()).thenReturn(List.of("a", "b"));
-        when(mockIssue.recommendedColumnOrder()).thenReturn(List.of("b", "a"));
+        OptimizationIssue issue = createIssue(List.of("a", "b"), List.of("b", "a"));
+        when(mockResult.getOptimizationIssue()).thenReturn(issue);
 
         // Simulate doReturn(val).when(repo).findByAAndB("valA", 123)
         // AST: findByAAndB has scope = when(repo)
@@ -291,14 +299,16 @@ class QueryOptimizerArgumentReorderTest {
         newMethod.addParameter(new Parameter(new ClassOrInterfaceType(null, "String"), "x"));
         when(mockNewCallable.asMethodDeclaration()).thenReturn(newMethod);
 
-        when(mockIssue.currentColumnOrder()).thenReturn(List.of("x", "y"));
-        when(mockIssue.recommendedColumnOrder()).thenReturn(List.of("y", "x"));
+        OptimizationIssue issue = createIssue(List.of("x", "y"), List.of("y", "x"));
+        when(mockResult.getOptimizationIssue()).thenReturn(issue);
 
+        java.util.Map<Integer, Integer> positionMap = issue.buildPositionMapping(2);
         QueryOptimizer.MethodRename rename = new QueryOptimizer.MethodRename(
             "findByXAndY",
             "findByYAndX",
             mockResult,
-            mockIssue
+            issue,
+            positionMap
         );
         List<QueryOptimizer.MethodRename> renames = Collections.singletonList(rename);
         Set<String> fields = new HashSet<>();
@@ -349,9 +359,8 @@ class QueryOptimizerArgumentReorderTest {
         when(mockNewCallable.asMethodDeclaration()).thenReturn(newMethod);
 
         // Column orders encode the positional permutation
-        when(mockIssue.currentColumnOrder()).thenReturn(
-                List.of("tx_hash", "is_confirmed", "wallet_id", "blockchain_id", "utxo_code"));
-        when(mockIssue.recommendedColumnOrder()).thenReturn(
+        OptimizationIssue issue = createIssue(
+                List.of("tx_hash", "is_confirmed", "wallet_id", "blockchain_id", "utxo_code"),
                 List.of("tx_hash", "blockchain_id", "utxo_code", "is_confirmed", "wallet_id"));
 
         // Call: existsBy...(txHash, false, walletId, chainId, spentUtxoCodes)
@@ -362,9 +371,9 @@ class QueryOptimizerArgumentReorderTest {
         call.addArgument(new NameExpr("chainId"));
         call.addArgument(new NameExpr("spentUtxoCodes"));
 
-        boolean result = QueryOptimizer.reorderMethodArguments(call, mockIssue);
+        boolean result = QueryOptimizer.reorderMethodArguments(call, issue);
 
-        assertTrue(result, "Should succeed using column order fallback");
+        assertTrue(result, "Should succeed using column order mapping");
         assertEquals(5, call.getArguments().size());
         // Expected: txHash, chainId, spentUtxoCodes, false, walletId
         assertEquals("txHash", call.getArgument(0).toString());
@@ -376,7 +385,7 @@ class QueryOptimizerArgumentReorderTest {
 
     @Test
     void testReorderArguments_ReturnsFalseWhenNoMappingPossible() {
-        // When both type+name and column order mapping fail, should return false
+        // When both column order and type+name mapping fail, should return false
         MethodDeclaration oldMethod = new MethodDeclaration();
         oldMethod.addParameter(new Parameter(new ClassOrInterfaceType(null, "Long"), "a"));
         oldMethod.addParameter(new Parameter(new ClassOrInterfaceType(null, "Long"), "b"));
@@ -387,15 +396,14 @@ class QueryOptimizerArgumentReorderTest {
         newMethod.addParameter(new Parameter(new ClassOrInterfaceType(null, "Long"), "y"));
         when(mockNewCallable.asMethodDeclaration()).thenReturn(newMethod);
 
-        // No column orders available
-        when(mockIssue.currentColumnOrder()).thenReturn(null);
-        when(mockIssue.recommendedColumnOrder()).thenReturn(null);
+        // No column orders available and type+name won't match (a/b vs x/y)
+        OptimizationIssue issue = createIssue(null, null);
 
         MethodCallExpr call = new MethodCallExpr();
         call.addArgument(new NameExpr("val1"));
         call.addArgument(new NameExpr("val2"));
 
-        boolean result = QueryOptimizer.reorderMethodArguments(call, mockIssue);
+        boolean result = QueryOptimizer.reorderMethodArguments(call, issue);
         assertFalse(result, "Should fail when no mapping can be built");
         // Arguments should remain unchanged
         assertEquals("val1", call.getArgument(0).toString());
