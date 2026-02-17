@@ -326,6 +326,7 @@ public abstract class AbstractAIService {
             RepositoryQuery rq = queries.stream().findFirst().orElseThrow();
             return new OptimizedQueryResult(rq, extractColumnOrderFromRepositoryQuery(rq));
         } catch (Exception e) {
+            logger.warn(optimizedCodeElement);
             logger.warn("Error parsing optimized code element, falling back to original: {}", e.getMessage());
             return new OptimizedQueryResult(originalQuery, extractColumnOrderFromRepositoryQuery(originalQuery));
         }
