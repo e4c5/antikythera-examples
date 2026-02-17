@@ -16,6 +16,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
+import sa.com.cloudsolutions.antikythera.parser.converter.EntityMappingResolver;
 
 import java.io.File;
 import java.io.FileWriter;
@@ -460,6 +461,8 @@ class QueryOptimizerArgumentReorderTest {
         tempFile.deleteOnExit();
 
         OptimizationStatsLogger.initialize("test");
+        EntityMappingResolver.reset();
+        Fields.clearFieldDependencies();
         QueryOptimizer optimizer = new QueryOptimizer(tempFile);
         CompilationUnit cu = StaticJavaParser.parse(
                 "import org.springframework.data.jpa.repository.Query;\n" +
@@ -492,6 +495,8 @@ class QueryOptimizerArgumentReorderTest {
         tempFile.deleteOnExit();
 
         OptimizationStatsLogger.initialize("test");
+        EntityMappingResolver.reset();
+        Fields.clearFieldDependencies();
         QueryOptimizer optimizer = new QueryOptimizer(tempFile);
         CompilationUnit cu = StaticJavaParser.parse(
                 "import org.springframework.data.jpa.repository.Query;\n" +
