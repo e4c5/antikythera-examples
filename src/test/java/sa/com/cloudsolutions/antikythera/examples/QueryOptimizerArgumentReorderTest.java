@@ -1,5 +1,7 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
+import com.github.javaparser.StaticJavaParser;
+import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Modifier;
 import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.body.MethodDeclaration;
@@ -8,9 +10,17 @@ import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
+import liquibase.exception.LiquibaseException;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
+
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.nio.file.Files;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -20,6 +30,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -388,5 +399,109 @@ class QueryOptimizerArgumentReorderTest {
         // Arguments should remain unchanged
         assertEquals("val1", call.getArgument(0).toString());
         assertEquals("val2", call.getArgument(1).toString());
+    }
+
+    // ---------------------------------------------------------------
+    // formatQueryForTextBlock tests
+    // ---------------------------------------------------------------
+
+    @Test
+    void testFormatQueryForTextBlock_ShortQuery() {
+        String query = "SELECT u FROM User u WHERE u.id = ?1";
+        String result = QueryOptimizer.formatQueryForTextBlock(query, 80, "        ");
+        assertEquals(query, result, "Short query should be returned unchanged");
+    }
+
+    @Test
+    void testFormatQueryForTextBlock_NullQuery() {
+        assertNull(QueryOptimizer.formatQueryForTextBlock(null, 80, "        "));
+    }
+
+    @Test
+    void testFormatQueryForTextBlock_BreaksAtWhitespace() {
+        String query = "SELECT u FROM User u WHERE u.username = ?1 AND u.age = ?2 AND u.firstName = ?3 AND u.lastName = ?4";
+        String result = QueryOptimizer.formatQueryForTextBlock(query, 40, "    ");
+        // Should contain newlines since it's longer than 40 chars
+        assertTrue(result.contains("\n"), "Long query should be broken into multiple lines");
+        // Each line (ignoring indent) should not exceed target width significantly
+        String[] lines = result.split("\n");
+        assertTrue(lines.length > 1, "Should have multiple lines");
+    }
+
+    @Test
+    void testFormatQueryForTextBlock_NoWhitespace() {
+        // A very long word with no spaces — can't break at whitespace
+        String query = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        String result = QueryOptimizer.formatQueryForTextBlock(query, 40, "    ");
+        // Should return the whole string since there's no whitespace to break at
+        assertEquals(query, result);
+    }
+
+    // ---------------------------------------------------------------
+    // updateAnnotationValue tests
+    // ---------------------------------------------------------------
+
+    @Test
+    void testUpdateAnnotationValue_SingleMember() throws Exception {
+        File settingsFile = new File("src/test/resources/generator.yml");
+        if (settingsFile.exists()) {
+            Settings.loadConfigMap(settingsFile);
+        }
+
+        File tempFile = Files.createTempFile("db-changelog", ".xml").toFile();
+        try (FileWriter fw = new FileWriter(tempFile)) {
+            fw.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+            fw.write("<databaseChangeLog xmlns=\"http://www.liquibase.org/xml/ns/dbchangelog\"");
+            fw.write(" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"");
+            fw.write(" xsi:schemaLocation=\"http://www.liquibase.org/xml/ns/dbchangelog");
+            fw.write(" http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.0.xsd\">");
+            fw.write("</databaseChangeLog>");
+        }
+        tempFile.deleteOnExit();
+
+        OptimizationStatsLogger.initialize("test");
+        QueryOptimizer optimizer = new QueryOptimizer(tempFile);
+        CompilationUnit cu = StaticJavaParser.parse(
+                "import org.springframework.data.jpa.repository.Query;\n" +
+                "interface Repo { @Query(\"SELECT u FROM User u\") void findAll(); }");
+        MethodDeclaration method = cu.findFirst(MethodDeclaration.class).orElseThrow();
+
+        optimizer.updateAnnotationValue(method, "Query", "SELECT u FROM User u WHERE u.active = true", false);
+
+        String annotation = method.getAnnotationByName("Query").orElseThrow().toString();
+        assertTrue(annotation.contains("u.active = true"),
+                "Annotation should contain updated query: " + annotation);
+    }
+
+    @Test
+    void testUpdateAnnotationValue_NormalAnnotation() throws Exception {
+        File settingsFile = new File("src/test/resources/generator.yml");
+        if (settingsFile.exists()) {
+            Settings.loadConfigMap(settingsFile);
+        }
+
+        File tempFile = Files.createTempFile("db-changelog", ".xml").toFile();
+        try (FileWriter fw = new FileWriter(tempFile)) {
+            fw.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+            fw.write("<databaseChangeLog xmlns=\"http://www.liquibase.org/xml/ns/dbchangelog\"");
+            fw.write(" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"");
+            fw.write(" xsi:schemaLocation=\"http://www.liquibase.org/xml/ns/dbchangelog");
+            fw.write(" http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.0.xsd\">");
+            fw.write("</databaseChangeLog>");
+        }
+        tempFile.deleteOnExit();
+
+        OptimizationStatsLogger.initialize("test");
+        QueryOptimizer optimizer = new QueryOptimizer(tempFile);
+        CompilationUnit cu = StaticJavaParser.parse(
+                "import org.springframework.data.jpa.repository.Query;\n" +
+                "interface Repo { @Query(value = \"SELECT u FROM User u\") void findAll(); }");
+        MethodDeclaration method = cu.findFirst(MethodDeclaration.class).orElseThrow();
+
+        optimizer.updateAnnotationValue(method, "Query", "SELECT u FROM User u ORDER BY u.id", false);
+
+        String annotation = method.getAnnotationByName("Query").orElseThrow().toString();
+        assertTrue(annotation.contains("ORDER BY u.id"),
+                "Normal annotation should contain updated query: " + annotation);
     }
 }
