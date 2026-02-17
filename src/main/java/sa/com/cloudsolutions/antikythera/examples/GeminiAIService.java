@@ -222,17 +222,6 @@ public class GeminiAIService extends AbstractAIService {
     }
 
     /**
-     * Parses the text response from AI to extract optimization recommendations.
-     * Expects a JSON array response format as defined in the new prompt.
-     */
-    List<OptimizationIssue> parseRecommendations(String textResponse, QueryBatch batch) throws IOException {
-        String jsonResponse = extractJsonFromResponse(textResponse);
-        return parseRecommendationsFromJson(jsonResponse, batch);
-    }
-
-
-
-    /**
      * Validates the configuration to ensure required settings are present.
      */
     @Override

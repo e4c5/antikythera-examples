@@ -231,17 +231,7 @@ class GeminiAIServiceTest {
         assertEquals("", result);
     }
 
-    @ParameterizedTest
-    @CsvSource({
-            "'Here is the JSON response:\n[{\"test\": \"value\"}]\nEnd of response.', '[{\"test\": \"value\"}]'",
-            "'```json\n[{\"test\": \"value\"}]\n```', '[{\"test\": \"value\"}]'",
-            "'No JSON here, just plain text.', ''"
-    })
-    void testExtractJsonFromResponse(String input, String expected) {
-        String result = geminiAIService.extractJsonFromResponse(input);
 
-        assertEquals(expected, result);
-    }
 
     @Test
     void testParseRecommendations_InvalidJson() throws Exception {
@@ -564,27 +554,7 @@ class GeminiAIServiceTest {
         assertEquals(2.25, tokenUsage.getEstimatedCost(), 0.000001);
     }
 
-    @Test
-    void testExtractJsonFromResponse_MultipleFormats() {
-        // Test with markdown code block
-        String codeBlockResponse = "```json\n[{\"test\": \"value\"}]\n```";
-        String result1 = geminiAIService.extractJsonFromResponse(codeBlockResponse);
-        assertEquals("[{\"test\": \"value\"}]", result1);
 
-        // Test with plain JSON
-        String plainResponse = "Here is the result: [{\"test\": \"value\"}] end";
-        String result2 = geminiAIService.extractJsonFromResponse(plainResponse);
-        assertEquals("[{\"test\": \"value\"}]", result2);
-
-        // Test with no JSON
-        String noJsonResponse = "No JSON content here";
-        String result3 = geminiAIService.extractJsonFromResponse(noJsonResponse);
-        assertEquals("", result3);
-
-        // Test with null input
-        String result4 = geminiAIService.extractJsonFromResponse(null);
-        assertNull(result4);
-    }
 
     @Test
     void testExtractRecommendedColumnOrder_NestedClass() throws Exception {

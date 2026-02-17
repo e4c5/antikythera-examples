@@ -196,37 +196,9 @@ class OpenAIServiceTest {
         assertEquals(0, tokenUsage.getTotalTokens());
     }
 
-    /**
-     * Provides test cases for extractJsonFromResponse with realistic AI response formats.
-     * Returns a stream of Arguments containing input strings with actual newlines and quotes,
-     * and the expected JSON outputs.
-     */
-    private static Stream<Arguments> provideExtractJsonFromResponseCases() {
-        return Stream.of(
-            // Test case 1: JSON embedded in plain text with actual newlines
-            Arguments.of(
-                "Here is the JSON response:\n[{\"test\": \"value\"}]\nEnd of response.",
-                "[{\"test\": \"value\"}]"
-            ),
-            // Test case 2: JSON in markdown code block with actual newlines
-            Arguments.of(
-                "```json\n[{\"test\": \"value\"}]\n```",
-                "[{\"test\": \"value\"}]"
-            ),
-            // Test case 3: No JSON content
-            Arguments.of(
-                "No JSON here, just plain text.",
-                ""
-            )
-        );
-    }
 
-    @ParameterizedTest
-    @MethodSource("provideExtractJsonFromResponseCases")
-    void testExtractJsonFromResponse(String input, String expected) {
-        String result = openAIService.extractJsonFromResponse(input);
-        assertEquals(expected, result);
-    }
+
+
 
     @Test
     void testAnalyzeQueryBatch_TimeoutRetrySuccess() throws Exception {
@@ -490,27 +462,7 @@ class OpenAIServiceTest {
         assertEquals(10.00 + 30.00, tokenUsage.getEstimatedCost(), 0.000001);
     }
 
-    @Test
-    void testExtractJsonFromResponse_MultipleFormats() {
-        // Test with markdown code block
-        String codeBlockResponse = "```json\n[{\"test\": \"value\"}]\n```";
-        String result1 = openAIService.extractJsonFromResponse(codeBlockResponse);
-        assertEquals("[{\"test\": \"value\"}]", result1);
 
-        // Test with plain JSON
-        String plainResponse = "Here is the result: [{\"test\": \"value\"}] end";
-        String result2 = openAIService.extractJsonFromResponse(plainResponse);
-        assertEquals("[{\"test\": \"value\"}]", result2);
-
-        // Test with no JSON
-        String noJsonResponse = "No JSON content here";
-        String result3 = openAIService.extractJsonFromResponse(noJsonResponse);
-        assertEquals("", result3);
-
-        // Test with null input
-        String result4 = openAIService.extractJsonFromResponse(null);
-        assertNull(result4);
-    }
 
     @Test
     void testExtractRecommendedColumnOrder_NestedClass() throws Exception {

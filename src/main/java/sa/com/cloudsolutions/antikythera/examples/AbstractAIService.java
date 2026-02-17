@@ -37,7 +37,7 @@ import java.util.Map;
  */
 public abstract class AbstractAIService {
     protected static final Logger logger = LoggerFactory.getLogger(AbstractAIService.class);
-    
+
     protected Map<String, Object> config;
     protected HttpClient httpClient;
     protected final ObjectMapper objectMapper;
@@ -109,13 +109,13 @@ public abstract class AbstractAIService {
     /**
      * Executes an HTTP request with retry logic on timeout.
      * Common logic for sending requests and handling responses.
-     * 
-     * @param request The HTTP request to send
-     * @param payload The original payload (for retry)
+     *
+     * @param request    The HTTP request to send
+     * @param payload    The original payload (for retry)
      * @param retryCount The number of remaining retry attempts
      * @return The response body
      */
-    protected String executeHttpRequest(HttpRequest request, String payload, int retryCount) 
+    protected String executeHttpRequest(HttpRequest request, String payload, int retryCount)
             throws IOException, InterruptedException {
         try {
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
@@ -155,8 +155,8 @@ public abstract class AbstractAIService {
     /**
      * Sends the API request to the AI service with retry support.
      * Provider-specific implementation required.
-     * 
-     * @param payload The request payload
+     *
+     * @param payload    The request payload
      * @param retryCount The number of remaining retry attempts
      */
     protected abstract String sendApiRequest(String payload, int retryCount) throws IOException, InterruptedException;
@@ -170,7 +170,7 @@ public abstract class AbstractAIService {
     /**
      * Extracts token usage information from the API response.
      * Provider-specific implementation required.
-     * 
+     *
      * @param responseBody The API response body
      */
     protected abstract void extractTokenUsage(String responseBody) throws IOException;
@@ -532,77 +532,6 @@ public abstract class AbstractAIService {
         return schema.toString();
     }
 
-    /**
-     * Extracts JSON content from the AI response, handling markdown code blocks.
-     * Looks for both JSON objects and arrays, preferring the outermost complete structure.
-     */
-    @SuppressWarnings("java:S1066")
-    protected String extractJsonFromResponse(String response) {
-        if (response == null) {
-            return null;
-        }
-
-        // Look for JSON array first (most common case for our responses)
-        int arrayStart = response.indexOf('[');
-        int arrayEnd = response.lastIndexOf(']');
-        
-        // Look for JSON object
-        int objectStart = response.indexOf('{');
-        int objectEnd = response.lastIndexOf('}');
-
-        // Prefer array if both exist and array is the outermost structure
-        if (arrayStart >= 0 && arrayEnd > arrayStart) {
-            // Check if the array contains the object or vice versa
-            if (objectStart < 0 || arrayStart < objectStart) {
-                return response.substring(arrayStart, arrayEnd + 1);
-            }
-        }
-        
-        // Fall back to object if no valid array found
-        if (objectStart >= 0 && objectEnd > objectStart) {
-            return response.substring(objectStart, objectEnd + 1);
-        }
-
-        return extractJsonFromCodeBlocks(response);
-    }
-
-    /**
-     * Extracts JSON from markdown code blocks.
-     */
-    protected static String extractJsonFromCodeBlocks(String response) {
-        // If no JSON found, try to find JSON in code blocks
-        String[] lines = response.split("\\n");
-        StringBuilder jsonBuilder = new StringBuilder();
-        boolean inCodeBlock = false;
-        boolean foundJson = false;
-        int braceDepth = 0;
-        int bracketDepth = 0;
-
-        for (String line : lines) {
-            if (line.trim().startsWith("```")) {
-                inCodeBlock = !inCodeBlock;
-            }
-            else if (inCodeBlock || line.trim().startsWith("{") || line.trim().startsWith("[") || foundJson) {
-                jsonBuilder.append(line).append("\n");
-                foundJson = true;
-                
-                // Count braces and brackets to handle nested structures
-                for (char c : line.toCharArray()) {
-                    if (c == '{') braceDepth++;
-                    else if (c == '}') braceDepth--;
-                    else if (c == '[') bracketDepth++;
-                    else if (c == ']') bracketDepth--;
-                }
-                
-                // Break when we've closed all opened braces/brackets
-                if (braceDepth == 0 && bracketDepth == 0) {
-                    break;
-                }
-            }
-        }
-
-        return jsonBuilder.toString().trim();
-    }
 
     /**
      * Common method to parse recommendations from JSON response.
@@ -650,5 +579,24 @@ public abstract class AbstractAIService {
         }
 
         return issues;
+    }
+
+    /**
+     * Parses the text response from AI to extract optimization recommendations.
+     * Since Gemini is configured with JSON mode, the response should already be valid JSON.
+     */
+    List<OptimizationIssue> parseRecommendations(String textResponse, QueryBatch batch) throws IOException {
+        if (textResponse == null || textResponse.trim().isEmpty()) {
+            logger.warn("Empty response from AI service");
+            return new ArrayList<>();
+        }
+
+        try {
+            return parseRecommendationsFromJson(textResponse, batch);
+        } catch (Exception e) {
+            logger.error("Failed to parse AI response as JSON. Response: {}",
+                    textResponse.substring(0, Math.min(200, textResponse.length())), e);
+            return new ArrayList<>();
+        }
     }
 }

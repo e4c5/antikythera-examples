@@ -135,14 +135,6 @@ public class OpenAIService extends AbstractAIService {
     }
 
     /**
-     * Parses the text response from OpenAI to extract optimization recommendations.
-     */
-    private List<OptimizationIssue> parseRecommendations(String textResponse, QueryBatch batch) throws IOException {
-        String jsonResponse = extractJsonFromResponse(textResponse);
-        return parseRecommendationsFromJson(jsonResponse, batch);
-    }
-
-    /**
      * Extracts token usage information from the OpenAI API response.
      */
     @Override
