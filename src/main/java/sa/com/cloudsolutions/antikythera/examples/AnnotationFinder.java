@@ -1,5 +1,6 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
+import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.AnnotationExpr;
@@ -39,7 +40,69 @@ import java.util.stream.Collectors;
 @SuppressWarnings("java:S106")
 public class AnnotationFinder {
 
+    private static String finalSearchTerm;
+    private static boolean isSimpleMode;
+
     public static void main(String[] args) throws IOException {
+        validate(args);
+
+        // Parse arguments
+        for (String arg : args) {
+            if (arg.equals("--simple") || arg.equals("-s")) {
+                isSimpleMode = true;
+            } else if (!arg.startsWith("-") && finalSearchTerm == null) {
+                finalSearchTerm = arg;
+            }
+        }
+        
+        if (finalSearchTerm == null) {
+            System.err.println("Error: Annotation name is required");
+            System.exit(1);
+        }
+
+        final String simpleName = extractSimpleName(finalSearchTerm);
+
+        
+        File yamlFile = new File(Settings.class.getClassLoader().getResource("graph.yml").getFile());
+        Settings.loadConfigMap(yamlFile);
+        AbstractCompiler.preProcess();
+
+        final Set<String> seen = isSimpleMode ? new HashSet<>() : null;
+
+        AntikytheraRunTime.getResolvedCompilationUnits().forEach((cls, cu) ->
+                findAnnotations(cu, simpleName, seen)
+        );
+    }
+
+    private static void findAnnotations(CompilationUnit cu, String simpleName, Set<String> seen) {
+        cu.findAll(ClassOrInterfaceDeclaration.class).forEach(classDecl -> {
+            final String className = classDecl.getFullyQualifiedName().orElse(classDecl.getNameAsString());
+
+            if (hasAnnotation(classDecl.getAnnotations(), finalSearchTerm, simpleName)) {
+                System.out.println(className);
+            }
+
+            findMethodAnnotation(simpleName, seen, classDecl, className);
+        });
+    }
+
+    private static void findMethodAnnotation(String simpleName, Set<String> seen, ClassOrInterfaceDeclaration classDecl, String className) {
+        classDecl.getMethods().forEach(method -> {
+            if (hasAnnotation(method.getAnnotations(), finalSearchTerm, simpleName)) {
+                if (isSimpleMode && seen != null) {
+                    final String output = className + "#" + method.getNameAsString();
+                    if (seen.add(output)) {
+                        System.out.println(output);
+                    }
+                } else {
+                    final String output = className + "#" + buildMethodSignature(method);
+                    System.out.println(output);
+                }
+            }
+        });
+    }
+
+    private static void validate(String[] args) {
         if (args.length == 0) {
             System.err.println("Usage: AnnotationFinder <annotation-name> [--simple|-s]");
             System.err.println("Example: AnnotationFinder Service");
@@ -49,57 +112,6 @@ public class AnnotationFinder {
             System.err.println("  --simple, -s    Simple output mode: method name only (no parameters), duplicates eliminated");
             System.exit(1);
         }
-
-        String searchTerm = null;
-        boolean simpleMode = false;
-        
-        // Parse arguments
-        for (String arg : args) {
-            if (arg.equals("--simple") || arg.equals("-s")) {
-                simpleMode = true;
-            } else if (!arg.startsWith("-") && searchTerm == null) {
-                searchTerm = arg;
-            }
-        }
-        
-        if (searchTerm == null) {
-            System.err.println("Error: Annotation name is required");
-            System.exit(1);
-        }
-
-        final String finalSearchTerm = searchTerm;
-        final String simpleName = extractSimpleName(finalSearchTerm);
-        final boolean isSimpleMode = simpleMode;
-        
-        File yamlFile = new File(Settings.class.getClassLoader().getResource("graph.yml").getFile());
-        Settings.loadConfigMap(yamlFile);
-        AbstractCompiler.preProcess();
-
-        final Set<String> seen = isSimpleMode ? new HashSet<>() : null;
-
-        AntikytheraRunTime.getResolvedCompilationUnits().forEach((cls, cu) -> 
-            cu.findAll(ClassOrInterfaceDeclaration.class).forEach(classDecl -> {
-                final String className = classDecl.getFullyQualifiedName().orElse(classDecl.getNameAsString());
-                
-                if (hasAnnotation(classDecl.getAnnotations(), finalSearchTerm, simpleName)) {
-                    System.out.println(className);
-                }
-                
-                classDecl.getMethods().forEach(method -> {
-                    if (hasAnnotation(method.getAnnotations(), finalSearchTerm, simpleName)) {
-                        if (isSimpleMode && seen != null) {
-                            final String output = className + "#" + method.getNameAsString();
-                            if (seen.add(output)) {
-                                System.out.println(output);
-                            }
-                        } else {
-                            final String output = className + "#" + buildMethodSignature(method);
-                            System.out.println(output);
-                        }
-                    }
-                });
-            })
-        );
     }
 
     /**

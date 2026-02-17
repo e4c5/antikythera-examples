@@ -19,6 +19,7 @@ import java.util.Properties;
  * Apache AGE implementation of GraphStore.
  * Uses PostgreSQL JDBC driver and Apache AGE extension.
  */
+@SuppressWarnings("java:S2077")
 public class ApacheAgeGraphStore implements GraphStore {
 
     private static final Logger logger = LoggerFactory.getLogger(ApacheAgeGraphStore.class);
@@ -186,24 +187,24 @@ public class ApacheAgeGraphStore implements GraphStore {
     public List<String> findCallers(String signature) {
         return executeQuery("""
             MATCH (n)-[:CALLS]->(m:%s {signature: $sig}) RETURN n.signature
-            """.formatted(BASE_LABEL), signature, "n.signature");
+            """.formatted(BASE_LABEL), signature);
     }
 
     @Override
     public List<String> findCallees(String signature) {
         return executeQuery("""
             MATCH (n:%s {signature: $sig})-[:CALLS]->(m) RETURN m.signature
-            """.formatted(BASE_LABEL), signature, "m.signature");
+            """.formatted(BASE_LABEL), signature);
     }
 
     @Override
     public List<String> findUsages(String signature) {
         return executeQuery("""
             MATCH (n)-[:USES]->(m:%s {signature: $sig}) RETURN n.signature
-            """.formatted(BASE_LABEL), signature, "n.signature");
+            """.formatted(BASE_LABEL), signature);
     }
     
-    private List<String> executeQuery(String cypherFragment, String signatureParam, String returnField) {
+    private List<String> executeQuery(String cypherFragment, String signatureParam) {
         List<String> results = new ArrayList<>();
         try {
             ensureConnection();

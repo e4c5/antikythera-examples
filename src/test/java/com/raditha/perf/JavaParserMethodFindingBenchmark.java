@@ -19,7 +19,7 @@ import java.util.Optional;
  */
 public class JavaParserMethodFindingBenchmark {
 
-    private static final String FILE_PATH = "/home/raditha/csi/Antikythera/antikythera/src/main/java/sa/com/cloudsolutions/antikythera/parser/AbstractCompiler.java";
+    private static final String FILE_PATH = "../antikythera/src/main/java/sa/com/cloudsolutions/antikythera/parser/AbstractCompiler.java";
     private static final String TARGET_METHOD_NAME = "camelToSnakeCase";
     private static final int ITERATIONS = 1000;
 

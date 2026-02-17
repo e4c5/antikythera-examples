@@ -131,8 +131,10 @@ public class GeminiAIService extends AbstractAIService {
         String model = getConfigString("model", GEMINI_3_FLASH);
         String apiKey = getConfigString(API_KEY, null);
         int timeoutSeconds = getConfigInt("timeout_seconds", 90);
+        int initialRetryCount = getConfigInt("initial_retry_count", 0);
 
-        if (retryCount > 0) {
+        // If retryCount is less than initial, we're on a retry attempt
+        if (retryCount < initialRetryCount) {
             timeoutSeconds += 30;
             logger.info("Retrying API request with extra 30 seconds timeout (total: {}s)", timeoutSeconds);
         }
@@ -218,17 +220,6 @@ public class GeminiAIService extends AbstractAIService {
 
         return new ArrayList<>();
     }
-
-    /**
-     * Parses the text response from AI to extract optimization recommendations.
-     * Expects a JSON array response format as defined in the new prompt.
-     */
-    List<OptimizationIssue> parseRecommendations(String textResponse, QueryBatch batch) throws IOException {
-        String jsonResponse = extractJsonFromResponse(textResponse);
-        return parseRecommendationsFromJson(jsonResponse, batch);
-    }
-
-
 
     /**
      * Validates the configuration to ensure required settings are present.
