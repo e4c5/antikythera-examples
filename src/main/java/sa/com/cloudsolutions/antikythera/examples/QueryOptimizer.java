@@ -27,6 +27,7 @@ import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
 import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 import sa.com.cloudsolutions.antikythera.parser.Callable;
+import sa.com.cloudsolutions.antikythera.parser.MavenHelper;
 import sa.com.cloudsolutions.antikythera.parser.converter.EntityMappingResolver;
 
 import java.io.File;
@@ -46,6 +47,7 @@ import java.util.Set;
 public class QueryOptimizer extends QueryOptimizationChecker {
     private static final Logger logger = LoggerFactory.getLogger(QueryOptimizer.class);
     private boolean repositoryFileModified;
+    private final boolean supportsTextBlocks;
     private static final Set<String> modifiedFiles = new java.util.HashSet<>();
     private static final  Set<String> writtenFiles = new java.util.HashSet<>();
 
@@ -65,6 +67,23 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         super(liquibaseXmlPath);
         Fields.buildDependencies();
         EntityMappingResolver.build();
+
+        int javaVersion = detectJavaVersion();
+        supportsTextBlocks = javaVersion >= 15;
+        if (!supportsTextBlocks) {
+            logger.info("Java version {} detected — text blocks will not be used in @Query annotations", javaVersion);
+        }
+    }
+
+    private static int detectJavaVersion() {
+        try {
+            MavenHelper helper = new MavenHelper();
+            helper.readPomFile();
+            return helper.getJavaVersion();
+        } catch (Exception e) {
+            logger.warn("Could not detect Java version from pom.xml: {}. Defaulting to 21.", e.getMessage());
+            return 21;
+        }
     }
 
     /**
@@ -340,16 +359,20 @@ public class QueryOptimizer extends QueryOptimizationChecker {
      * @param newStringValue the new query value
      */
     private void updateAnnotationValueWithTextBlockSupport(MethodDeclaration method, String newStringValue) {
-        // Format long queries for readability using text blocks (break at ~80 chars at
-        // whitespace)
-        // Use 8 spaces for indentation to align with typical method annotation
-        // indentation
-        String indent = "        ";
-        String formattedQuery = formatQueryForTextBlock(newStringValue, 80, indent);
-        // Prepend indent to first line and append newline + indent for closing
-        // delimiter alignment
-        String textBlockContent = indent + formattedQuery + "\n" + indent;
-        updateAnnotationValue(method, "Query", textBlockContent, true);
+        if (supportsTextBlocks) {
+            // Format long queries for readability using text blocks (break at ~80 chars at
+            // whitespace)
+            // Use 8 spaces for indentation to align with typical method annotation
+            // indentation
+            String indent = "        ";
+            String formattedQuery = formatQueryForTextBlock(newStringValue, 80, indent);
+            // Prepend indent to first line and append newline + indent for closing
+            // delimiter alignment
+            String textBlockContent = indent + formattedQuery + "\n" + indent;
+            updateAnnotationValue(method, "Query", textBlockContent, true);
+        } else {
+            updateAnnotationValue(method, "Query", newStringValue, false);
+        }
     }
 
     /**
@@ -734,13 +757,17 @@ public class QueryOptimizer extends QueryOptimizationChecker {
      * Uses direct parameter matching (type + name) which is more reliable than
      * column order mapping, as it handles cases like Pageable parameters correctly.
      */
-    static void reorderMethodArguments(MethodCallExpr mce, OptimizationIssue issue) {
+    /**
+     * @return true if arguments were successfully reordered, false if mapping
+     *         could not be built (caller should not rename the method in that case).
+     */
+    static boolean reorderMethodArguments(MethodCallExpr mce, OptimizationIssue issue) {
         MethodDeclaration oldMethod = issue.query().getMethodDeclaration().asMethodDeclaration();
         MethodDeclaration newMethod = issue.optimizedQuery().getMethodDeclaration().asMethodDeclaration();
 
         NodeList<Expression> args = mce.getArguments();
         if (args.size() != newMethod.getParameters().size()) {
-            return;
+            return false;
         }
 
         // Build parameter mapping: newIndex -> oldIndex by matching parameter type+name
@@ -757,9 +784,14 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             }
         }
 
-        // If mapping is incomplete, don't reorder
+        // If type+name mapping is incomplete, fall back to column order mapping.
+        // This handles derived queries where the optimizer generates new parameter
+        // names that differ from the original (e.g., "hospital" vs "hospitalId").
         if (map.size() != args.size()) {
-            return;
+            map = buildColumnOrderMapping(issue, args.size());
+            if (map == null) {
+                return false;
+            }
         }
 
         // Reorder arguments in-place using array to avoid expensive NodeList operations
@@ -776,6 +808,42 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                 args.add(argsArray[oldIdx]);
             }
         }
+        return true;
+    }
+
+    /**
+     * Builds a newIndex→oldIndex mapping from the column order lists in the
+     * OptimizationIssue.  Each entry in currentColumnOrder at position i maps
+     * to its position in recommendedColumnOrder, giving us the permutation
+     * without relying on parameter names.
+     *
+     * @return the mapping, or null if it cannot be built
+     */
+    private static Map<Integer, Integer> buildColumnOrderMapping(OptimizationIssue issue, int argCount) {
+        List<String> currentCols = issue.currentColumnOrder();
+        List<String> recommendedCols = issue.recommendedColumnOrder();
+
+        if (currentCols == null || recommendedCols == null
+                || currentCols.size() != recommendedCols.size()
+                || currentCols.size() > argCount) {
+            return null;
+        }
+
+        Map<Integer, Integer> map = new HashMap<>();
+        for (int i = 0; i < currentCols.size(); i++) {
+            int newIdx = recommendedCols.indexOf(currentCols.get(i));
+            if (newIdx < 0) {
+                return null;
+            }
+            map.put(newIdx, i);
+        }
+
+        // Extra parameters (e.g. Pageable) stay in their original positions
+        for (int i = currentCols.size(); i < argCount; i++) {
+            map.put(i, i);
+        }
+
+        return map;
     }
 
     static class NameChangeVisitor extends ModifierVisitor<QueryAnalysisResult> {
@@ -817,16 +885,16 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                 // Only count as an update if something actually changes
                 boolean methodNameChanged = !originalMethodName.equals(newMethodName);
 
-                // Update method name if it changed
+                // Update method name and reorder arguments if changed
                 if (methodNameChanged) {
                     mce.setName(newMethodName);
-                    reorderMethodArguments(mce, issue);
-                }
-
-                // Only mark as modified and increment counter if actual changes were made
-                if (methodNameChanged) {
-                    modified = true;
-                    methodCallsUpdated++;
+                    if (!reorderMethodArguments(mce, issue)) {
+                        // Rollback — can't safely rename without reordering
+                        mce.setName(originalMethodName);
+                    } else {
+                        modified = true;
+                        methodCallsUpdated++;
+                    }
                 }
             }
 
@@ -980,10 +1048,18 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                         .getMethodDeclaration().asMethodDeclaration();
 
                 if (callArity == newMethod.getParameters().size()) {
+                    String originalName = mce.getNameAsString();
                     mce.setName(matchingRename.newMethodName());
-                    reorderMethodArguments(mce, matchingRename.issue());
-                    modified = true;
-                    methodCallsUpdated++;
+                    if (!reorderMethodArguments(mce, matchingRename.issue())) {
+                        // Rollback the name change — we can't safely rename
+                        // without also reordering the arguments
+                        mce.setName(originalName);
+                        logger.warn("Skipping rename of call {} — could not build argument mapping",
+                                originalName);
+                    } else {
+                        modified = true;
+                        methodCallsUpdated++;
+                    }
                 }
             }
         }

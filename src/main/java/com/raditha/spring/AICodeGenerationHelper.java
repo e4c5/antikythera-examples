@@ -128,7 +128,7 @@ public class AICodeGenerationHelper {
     public static String generateCode(String prompt) throws IOException, InterruptedException {
         GeminiAIService aiService = createConfiguredService();
         String request = buildAIRequest(prompt);
-        String response = aiService.sendApiRequest(request);
+        String response = aiService.sendRawRequest(request);
         return extractGeneratedCode(response);
     }
 }

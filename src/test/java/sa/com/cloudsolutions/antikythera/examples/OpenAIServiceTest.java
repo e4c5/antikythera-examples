@@ -10,7 +10,8 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mock;
 import org.mockito.MockedStatic;
 import org.mockito.MockitoAnnotations;
@@ -30,18 +31,20 @@ import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
 import java.time.Duration;
 import java.util.*;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Comprehensive tests for GeminiAIService with mocked HTTP calls.
+ * Comprehensive tests for OpenAIService with mocked HTTP calls.
+ * Adapted from GeminiAIServiceTest to ensure consistent test coverage.
  */
-class GeminiAIServiceTest {
+class OpenAIServiceTest {
     public static final String USER_REPO = "sa.com.cloudsolutions.antikythera.testhelper.repository.UserRepository";
 
-    private GeminiAIService geminiAIService;
+    private OpenAIService openAIService;
     private Map<String, Object> config;
     private static BaseRepositoryParser bp;
 
@@ -70,7 +73,7 @@ class GeminiAIServiceTest {
     void setUp() throws IOException {
         MockitoAnnotations.openMocks(this);
 
-        geminiAIService = new GeminiAIService();
+        openAIService = new OpenAIService();
 
         // Create a test configuration
         config = new HashMap<>();
@@ -81,12 +84,12 @@ class GeminiAIServiceTest {
         config.put("initial_retry_count", 1);
 
         // Configure the service
-        geminiAIService.configure(config);
+        openAIService.configure(config);
     }
 
     @Test
     void testConstructor() throws IOException {
-        GeminiAIService service = new GeminiAIService();
+        OpenAIService service = new OpenAIService();
         assertNotNull(service);
         assertNotNull(service.getLastTokenUsage());
         assertEquals(0, service.getLastTokenUsage().getTotalTokens());
@@ -98,7 +101,7 @@ class GeminiAIServiceTest {
         testConfig.put("api_key", "test-key");
         testConfig.put("timeout_seconds", 60);
 
-        GeminiAIService service = new GeminiAIService();
+        OpenAIService service = new OpenAIService();
         assertDoesNotThrow(() -> service.configure(testConfig));
     }
 
@@ -112,28 +115,27 @@ class GeminiAIServiceTest {
             httpClientMock.when(HttpClient::newBuilder).thenReturn(mockBuilder);
 
             // Create a new service instance to use the mocked HttpClient
-            GeminiAIService testService = new GeminiAIService();
+            OpenAIService testService = new OpenAIService();
             testService.configure(config);
 
-            // Mock successful HTTP response
+            // Mock successful HTTP response with OpenAI format
             String mockResponseBody = """
                     {
-                      "candidates": [
+                      "choices": [
                         {
-                          "content": {
-                            "parts": [
-                              {
-                                "text": "[{\\"optimizedCodeElement\\": \\"User findByUsername(String username);\\", \\"notes\\": \\"Reordered parameters for better performance\\"}]"
-                              }
-                            ]
+                          "message": {
+                            "role": "assistant",
+                            "content": "[{\\"optimizedCodeElement\\": \\"User findByUsername(String username);\\", \\"notes\\": \\"Reordered parameters for better performance\\"}]"
                           }
                         }
                       ],
-                      "usageMetadata": {
-                        "promptTokenCount": 100,
-                        "candidatesTokenCount": 50,
-                        "totalTokenCount": 150,
-                        "cachedContentTokenCount": 20
+                      "usage": {
+                        "prompt_tokens": 100,
+                        "completion_tokens": 50,
+                        "total_tokens": 150,
+                        "prompt_tokens_details": {
+                          "cached_tokens": 20
+                        }
                       }
                     }
                     """;
@@ -157,10 +159,6 @@ class GeminiAIServiceTest {
             assertEquals(50, tokenUsage.getOutputTokens());
             assertEquals(150, tokenUsage.getTotalTokens());
             assertEquals(20, tokenUsage.getCachedContentTokenCount());
-
-            // Verify cache efficiency calculation
-            double expectedEfficiency = (20.0 / 150.0) * 100.0;
-            assertEquals(expectedEfficiency, testService.getCacheEfficiency(), 0.01);
         }
     }
 
@@ -172,7 +170,7 @@ class GeminiAIServiceTest {
             when(mockBuilder.build()).thenReturn(mockHttpClient);
             httpClientMock.when(HttpClient::newBuilder).thenReturn(mockBuilder);
 
-            GeminiAIService testService = new GeminiAIService();
+            OpenAIService testService = new OpenAIService();
             testService.configure(config);
 
             // Mock HTTP error response
@@ -192,72 +190,15 @@ class GeminiAIServiceTest {
     }
 
     @Test
-    void testGetCacheEfficiency_NoTokens() {
-        assertEquals(0.0, geminiAIService.getCacheEfficiency());
-    }
-
-    @Test
-    void testGetCacheEfficiency_WithTokens() throws Exception {
-        // Use reflection to set token usage for testing
-        TokenUsage tokenUsage = new TokenUsage(100, 50, 150, 0.15, 30);
-        java.lang.reflect.Field field = AbstractAIService.class.getDeclaredField("lastTokenUsage");
-        field.setAccessible(true);
-        field.set(geminiAIService, tokenUsage);
-
-        double expectedEfficiency = (30.0 / 150.0) * 100.0;
-        assertEquals(expectedEfficiency, geminiAIService.getCacheEfficiency(), 0.01);
-    }
-
-    @Test
     void testGetLastTokenUsage() {
-        TokenUsage tokenUsage = geminiAIService.getLastTokenUsage();
+        TokenUsage tokenUsage = openAIService.getLastTokenUsage();
         assertNotNull(tokenUsage);
         assertEquals(0, tokenUsage.getTotalTokens());
     }
 
 
-    @Test
-    void testEscapeJsonString() {
-        String input = "Test \"string\" with\nnewlines\tand\\backslashes";
-        String result = geminiAIService.escapeJsonString(input);
-
-        assertEquals("Test \\\"string\\\" with\\nnewlines\\tand\\\\backslashes", result);
-    }
-
-    @Test
-    void testEscapeJsonString_Null() {
-        String result = geminiAIService.escapeJsonString(null);
-
-        assertEquals("", result);
-    }
 
 
-
-    @Test
-    void testParseRecommendations_InvalidJson() throws Exception {
-        String invalidJson = "This is not valid JSON";
-        QueryBatch batch = createTestQueryBatch();
-
-        List<OptimizationIssue> result = geminiAIService.parseRecommendations(invalidJson, batch);
-
-        assertNotNull(result);
-        assertTrue(result.isEmpty());
-    }
-
-    @Test
-    void testParseRecommendations_ValidJson() throws Exception {
-        String validJson = "[{\"optimizedCodeElement\": \"User findByNameAndEmail(String name, String email);\", \"notes\": \"Reordered for better performance\"}]";
-        QueryBatch batch = createTestQueryBatch();
-
-        List<OptimizationIssue> result = geminiAIService.parseRecommendations(validJson, batch);
-
-        assertNotNull(result);
-        assertEquals(1, result.size());
-
-        OptimizationIssue issue = result.get(0);
-        assertNotNull(issue);
-        assertTrue(issue.aiExplanation().contains("Reordered for better performance"));
-    }
 
     @Test
     void testAnalyzeQueryBatch_TimeoutRetrySuccess() throws Exception {
@@ -267,7 +208,7 @@ class GeminiAIServiceTest {
             when(mockBuilder.build()).thenReturn(mockHttpClient);
             httpClientMock.when(HttpClient::newBuilder).thenReturn(mockBuilder);
 
-            GeminiAIService testService = new GeminiAIService();
+            OpenAIService testService = new OpenAIService();
             testService.configure(config);
 
             // Mock timeout on first call, success on second
@@ -276,7 +217,7 @@ class GeminiAIServiceTest {
                     .thenReturn(mockHttpResponse);
 
             when(mockHttpResponse.statusCode()).thenReturn(200);
-            when(mockHttpResponse.body()).thenReturn("{\"candidates\": []}");
+            when(mockHttpResponse.body()).thenReturn("{\"choices\": []}");
 
             QueryBatch batch = createTestQueryBatch();
             
@@ -301,7 +242,7 @@ class GeminiAIServiceTest {
             when(mockBuilder.build()).thenReturn(mockHttpClient);
             httpClientMock.when(HttpClient::newBuilder).thenReturn(mockBuilder);
 
-            GeminiAIService testService = new GeminiAIService();
+            OpenAIService testService = new OpenAIService();
             testService.configure(config);
 
             // Mock timeout on both calls
@@ -349,7 +290,7 @@ class GeminiAIServiceTest {
 
         RepositoryQuery query = bp.getQueryFromRepositoryMethod(new Callable(md, null));
 
-        String result = geminiAIService.buildTableSchemaString(batch, query);
+        String result = openAIService.buildTableSchemaString(batch, query);
 
         assertNotNull(result);
         // The table name should be "users" from the User entity @Table annotation
@@ -368,7 +309,7 @@ class GeminiAIServiceTest {
         RepositoryQuery mockQuery = mock(RepositoryQuery.class);
         when(mockQuery.getPrimaryTable()).thenReturn(null);
 
-        String result = geminiAIService.buildTableSchemaString(batch, mockQuery);
+        String result = openAIService.buildTableSchemaString(batch, mockQuery);
 
         assertNotNull(result);
         assertTrue(result.contains("UnknownTable"));
@@ -376,83 +317,73 @@ class GeminiAIServiceTest {
     }
 
     @Test
-    void testBuildGeminiApiRequest() throws IOException {
-        String userQueryData = "[{\"method\": \"findByName\", \"queryType\": \"DERIVED\"}]";
-
-        String result = geminiAIService.buildGeminiApiRequest(userQueryData);
-
-        assertNotNull(result);
-        assertTrue(result.contains("system_instruction"));
-        assertTrue(result.contains("contents"));
-        assertTrue(result.contains("findByName"));
-        assertTrue(result.contains("DERIVED"));
-    }
-
-    @Test
     void testExtractTokenUsage_ValidResponse() throws IOException {
         String responseBody = """
                 {
-                  "usageMetadata": {
-                    "promptTokenCount": 1000000,
-                    "candidatesTokenCount": 1000000,
-                    "totalTokenCount": 2000000,
-                    "cachedContentTokenCount": 0
+                  "usage": {
+                    "prompt_tokens": 1000000,
+                    "completion_tokens": 1000000,
+                    "total_tokens": 2000000,
+                    "prompt_tokens_details": {
+                      "cached_tokens": 0
+                    }
                   }
                 }
                 """;
 
-        geminiAIService.extractTokenUsage(responseBody);
+        openAIService.extractTokenUsage(responseBody);
 
-        TokenUsage tokenUsage = geminiAIService.getLastTokenUsage();
+        TokenUsage tokenUsage = openAIService.getLastTokenUsage();
         assertEquals(1000000, tokenUsage.getInputTokens());
         assertEquals(1000000, tokenUsage.getOutputTokens());
         assertEquals(2000000, tokenUsage.getTotalTokens());
-        // Gemini 1.5 Flash (<= 128k prompt): $0.075/1M input, $0.30/1M output
-        // Wait, my test use 1M prompt, so it should use the higher tier (> 128k)
-        // > 128k: $0.15/1M input, $0.60/1M output
-        assertEquals(0.15 + 0.60, tokenUsage.getEstimatedCost(), 0.000001);
+        // Default model is gpt-4o, pricing: $2.50/1M input, $10.00/1M output
+        assertEquals(2.50 + 10.00, tokenUsage.getEstimatedCost(), 0.000001);
     }
 
     @Test
     void testExtractTokenUsage_WithCaching() throws IOException {
         String responseBody = """
                 {
-                  "usageMetadata": {
-                    "promptTokenCount": 100000,
-                    "candidatesTokenCount": 100000,
-                    "totalTokenCount": 200000,
-                    "cachedContentTokenCount": 50000
+                  "usage": {
+                    "prompt_tokens": 100000,
+                    "completion_tokens": 100000,
+                    "total_tokens": 200000,
+                    "prompt_tokens_details": {
+                      "cached_tokens": 50000
+                    }
                   }
                 }
                 """;
 
-        geminiAIService.extractTokenUsage(responseBody);
+        openAIService.extractTokenUsage(responseBody);
 
-        TokenUsage tokenUsage = geminiAIService.getLastTokenUsage();
-        // <= 128k: $0.075/1M input, $0.30/1M output. Cached: $0.01875/1M
-        // inputCost = (50000/1M)*0.075 + (50000/1M)*0.01875 = 0.00375 + 0.0009375 = 0.0046875
-        // outputCost = (100000/1M)*0.30 = 0.03
-        // total = 0.0346875
-        assertEquals(0.0346875, tokenUsage.getEstimatedCost(), 0.000001);
+        TokenUsage tokenUsage = openAIService.getLastTokenUsage();
+        assertEquals(50000, tokenUsage.getCachedContentTokenCount());
+        // Default model is gpt-4o, pricing: $2.50/1M input, cache ratio 0.25
+        // inputCost = (50000/1M)*2.50 + (50000/1M)*0.625 = 0.125 + 0.03125 = 0.15625
+        // outputCost = (100000/1M)*10.00 = 1.0
+        // total = 1.15625
+        assertEquals(1.15625, tokenUsage.getEstimatedCost(), 0.000001);
     }
 
     @Test
     void testExtractTokenUsage_NoMetadata() throws IOException {
         String responseBody = """
                 {
-                  "candidates": [
+                  "choices": [
                     {
-                      "content": {
-                        "parts": [{"text": "response"}]
+                      "message": {
+                        "content": "response"
                       }
                     }
                   ]
                 }
                 """;
 
-        geminiAIService.extractTokenUsage(responseBody);
+        openAIService.extractTokenUsage(responseBody);
 
-        TokenUsage tokenUsage = geminiAIService.getLastTokenUsage();
+        TokenUsage tokenUsage = openAIService.getLastTokenUsage();
         assertEquals(0, tokenUsage.getTotalTokens());
     }
 
@@ -460,14 +391,11 @@ class GeminiAIServiceTest {
     void testParseResponse_ValidResponse() throws Exception {
         String responseBody = """
                 {
-                  "candidates": [
+                  "choices": [
                     {
-                      "content": {
-                        "parts": [
-                          {
-                            "text": "[{\\"optimizedCodeElement\\": \\"User findByUsername(String username);\\", \\"notes\\": \\"Reordered parameters\\"}]"
-                          }
-                        ]
+                      "message": {
+                        "role": "assistant",
+                        "content": "[{\\"optimizedCodeElement\\": \\"User findByUsername(String username);\\", \\"notes\\": \\"Reordered parameters\\"}]"
                       }
                     }
                   ]
@@ -476,7 +404,7 @@ class GeminiAIServiceTest {
 
         QueryBatch batch = createTestQueryBatch();
 
-        List<OptimizationIssue> result = geminiAIService.parseResponse(responseBody, batch);
+        List<OptimizationIssue> result = openAIService.parseResponse(responseBody, batch);
 
         assertNotNull(result);
         assertEquals(1, result.size());
@@ -486,72 +414,52 @@ class GeminiAIServiceTest {
     void testParseResponse_EmptyResponse() throws Exception {
         String responseBody = """
                 {
-                  "candidates": []
+                  "choices": []
                 }
                 """;
 
         QueryBatch batch = createTestQueryBatch();
 
-        List<OptimizationIssue> result = geminiAIService.parseResponse(responseBody, batch);
+        List<OptimizationIssue> result = openAIService.parseResponse(responseBody, batch);
 
         assertNotNull(result);
         assertTrue(result.isEmpty());
     }
 
     @Test
-    void testExtractTokenUsage_Gemini2_0_Flash() throws IOException {
-        geminiAIService.configure(Map.of("api_key", "test-key", "model", "gemini-2.0-flash"));
+    void testExtractTokenUsage_GPT4oMini() throws IOException {
+        openAIService.configure(Map.of("api_key", "test-key", "model", "gpt-4o-mini"));
         String responseBody = """
                 {
-                  "usageMetadata": {
-                    "promptTokenCount": 1000000,
-                    "candidatesTokenCount": 1000000,
-                    "totalTokenCount": 2000000
+                  "usage": {
+                    "prompt_tokens": 1000000,
+                    "completion_tokens": 1000000,
+                    "total_tokens": 2000000
                   }
                 }
                 """;
-        geminiAIService.extractTokenUsage(responseBody);
-        TokenUsage tokenUsage = geminiAIService.getLastTokenUsage();
-        // $0.10/1M input, $0.40/1M output
-        assertEquals(0.10 + 0.40, tokenUsage.getEstimatedCost(), 0.000001);
+        openAIService.extractTokenUsage(responseBody);
+        TokenUsage tokenUsage = openAIService.getLastTokenUsage();
+        // gpt-4o-mini: $0.150/1M input, $0.600/1M output
+        assertEquals(0.150 + 0.600, tokenUsage.getEstimatedCost(), 0.000001);
     }
 
     @Test
-    void testExtractTokenUsage_Gemini2_5_Pro_LowTier() throws IOException {
-        geminiAIService.configure(Map.of("api_key", "test-key", "model", "gemini-2.5-pro"));
+    void testExtractTokenUsage_GPT4Turbo() throws IOException {
+        openAIService.configure(Map.of("api_key", "test-key", "model", "gpt-4-turbo"));
         String responseBody = """
                 {
-                  "usageMetadata": {
-                    "promptTokenCount": 100000,
-                    "candidatesTokenCount": 100000,
-                    "totalTokenCount": 200000
+                  "usage": {
+                    "prompt_tokens": 1000000,
+                    "completion_tokens": 1000000,
+                    "total_tokens": 2000000
                   }
                 }
                 """;
-        geminiAIService.extractTokenUsage(responseBody);
-        TokenUsage tokenUsage = geminiAIService.getLastTokenUsage();
-        // <= 200k: $1.25/1M input, $10.00/1M output
-        // (100k/1M)*1.25 + (100k/1M)*10.00 = 0.125 + 1.0 = 1.125
-        assertEquals(1.125, tokenUsage.getEstimatedCost(), 0.000001);
-    }
-
-    @Test
-    void testExtractTokenUsage_Gemini2_5_Pro_HighTier() throws IOException {
-        geminiAIService.configure(Map.of("api_key", "test-key", "model", "gemini-2.5-pro"));
-        String responseBody = """
-                {
-                  "usageMetadata": {
-                    "promptTokenCount": 300000,
-                    "candidatesTokenCount": 100000,
-                    "totalTokenCount": 400000
-                  }
-                }
-                """;
-        geminiAIService.extractTokenUsage(responseBody);
-        TokenUsage tokenUsage = geminiAIService.getLastTokenUsage();
-        // > 200k: $2.50/1M input, $15.00/1M output
-        // (300k/1M)*2.50 + (100k/1M)*15.00 = 0.75 + 1.5 = 2.25
-        assertEquals(2.25, tokenUsage.getEstimatedCost(), 0.000001);
+        openAIService.extractTokenUsage(responseBody);
+        TokenUsage tokenUsage = openAIService.getLastTokenUsage();
+        // gpt-4-turbo: $10.00/1M input, $30.00/1M output
+        assertEquals(10.00 + 30.00, tokenUsage.getEstimatedCost(), 0.000001);
     }
 
 
@@ -579,16 +487,55 @@ class GeminiAIServiceTest {
         Statement stmt = CCJSqlParserUtil.parse("SELECT * FROM users WHERE username = ?");
         when(mockQuery.getStatement()).thenReturn(stmt);
         
-        // This should not throw Exception and should correctly find the ancestor
-        // It will fail later in BaseRepositoryParser.create(cu) if we don't handle it,
-        // but here we just want to verify the findAncestor logic works.
-        // Actually, extractRecommendedColumnOrder will call BaseRepositoryParser.create(cu)
-        // with the CLONED signature and the NEW method.
-        
         String optimizedCode = "User findByUsername(String username);";
         
         // We expect it to fallback to original if parsing fails, which is fine for this test
         // as long as it doesn't throw because of the missing ancestor.
-        assertDoesNotThrow(() -> geminiAIService.extractRecommendedColumnOrder(optimizedCode, mockQuery));
+        assertDoesNotThrow(() -> openAIService.extractRecommendedColumnOrder(optimizedCode, mockQuery));
+    }
+
+    @Test
+    void testExtractTokenUsage_MissingCachedTokensField() throws IOException {
+        // Test when prompt_tokens_details exists but cached_tokens is missing
+        String responseBody = """
+                {
+                  "usage": {
+                    "prompt_tokens": 100000,
+                    "completion_tokens": 50000,
+                    "total_tokens": 150000,
+                    "prompt_tokens_details": {}
+                  }
+                }
+                """;
+
+        openAIService.extractTokenUsage(responseBody);
+
+        TokenUsage tokenUsage = openAIService.getLastTokenUsage();
+        assertEquals(100000, tokenUsage.getInputTokens());
+        assertEquals(50000, tokenUsage.getOutputTokens());
+        assertEquals(150000, tokenUsage.getTotalTokens());
+        assertEquals(0, tokenUsage.getCachedContentTokenCount());
+    }
+
+    @Test
+    void testExtractTokenUsage_MissingPromptTokensDetails() throws IOException {
+        // Test when prompt_tokens_details is completely missing
+        String responseBody = """
+                {
+                  "usage": {
+                    "prompt_tokens": 100000,
+                    "completion_tokens": 50000,
+                    "total_tokens": 150000
+                  }
+                }
+                """;
+
+        openAIService.extractTokenUsage(responseBody);
+
+        TokenUsage tokenUsage = openAIService.getLastTokenUsage();
+        assertEquals(100000, tokenUsage.getInputTokens());
+        assertEquals(50000, tokenUsage.getOutputTokens());
+        assertEquals(150000, tokenUsage.getTotalTokens());
+        assertEquals(0, tokenUsage.getCachedContentTokenCount());
     }
 }

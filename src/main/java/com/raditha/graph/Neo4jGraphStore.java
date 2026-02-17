@@ -8,8 +8,6 @@ import org.neo4j.driver.Values;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -17,7 +15,7 @@ import java.util.List;
  * Neo4j graph store for persisting Knowledge Graph nodes and edges.
  * Supports streaming persistence with configurable batch sizes.
  */
-public class Neo4jGraphStore implements AutoCloseable {
+public class Neo4jGraphStore implements GraphStore {
 
     private static final Logger logger = LoggerFactory.getLogger(Neo4jGraphStore.class);
 
@@ -31,33 +29,6 @@ public class Neo4jGraphStore implements AutoCloseable {
 
     private final List<KnowledgeGraphEdge> pendingEdges = new ArrayList<>();
     private int edgeCount = 0;
-
-    /**
-     * Create a Neo4jGraphStore from graph.yml configuration.
-     *
-     * @param configFile path to graph.yml
-     * @return configured Neo4jGraphStore instance
-     * @throws IOException if config file cannot be read
-     */
-    public static Neo4jGraphStore fromSettings(File configFile) throws IOException {
-        Neo4jConfig.load(configFile);
-        return fromSettings();
-    }
-
-    /**
-     * Create a Neo4jGraphStore from already-loaded Settings.
-     *
-     * @return configured Neo4jGraphStore instance
-     */
-    public static Neo4jGraphStore fromSettings() {
-        return new Neo4jGraphStore(
-                Neo4jConfig.getUri(),
-                Neo4jConfig.getUsername(),
-                Neo4jConfig.getPassword(),
-                Neo4jConfig.getDatabase(),
-                Neo4jConfig.getBatchSize()
-        );
-    }
 
     /**
      * Create a Neo4jGraphStore with an existing driver.

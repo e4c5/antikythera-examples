@@ -1,76 +1,87 @@
 package com.raditha.graph;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.body.BodyDeclaration;
+import com.github.javaparser.ast.body.CallableDeclaration;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.ConstructorDeclaration;
+import com.github.javaparser.ast.body.EnumConstantDeclaration;
+import com.github.javaparser.ast.body.EnumDeclaration;
+import com.github.javaparser.ast.body.FieldDeclaration;
+import com.github.javaparser.ast.body.InitializerDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.Parameter;
+import com.github.javaparser.ast.body.TypeDeclaration;
+import com.github.javaparser.ast.body.VariableDeclarator;
+import com.github.javaparser.ast.expr.CastExpr;
+import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.FieldAccessExpr;
 import com.github.javaparser.ast.expr.LambdaExpr;
 import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.ast.expr.MethodReferenceExpr;
+import com.github.javaparser.ast.expr.NameExpr;
+import com.github.javaparser.ast.expr.ObjectCreationExpr;
+import com.github.javaparser.ast.expr.ThisExpr;
+import com.github.javaparser.ast.expr.VariableDeclarationExpr;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.ast.type.Type;
+import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import sa.com.cloudsolutions.antikythera.depsolver.DependencyAnalyzer;
 import sa.com.cloudsolutions.antikythera.depsolver.Graph;
 import sa.com.cloudsolutions.antikythera.depsolver.GraphNode;
+import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
+import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
- * Knowledge Graph Builder that extends DependencyAnalyzer.
- * Overrides hook methods to stream edges directly to Neo4j during AST traversal.
- * 
- * Note: The hook methods (onFieldAccessed, onTypeUsed, etc.) were added in Phase 1.
- * Until that version is published, these methods will not be called automatically
- * during DFS traversal but can be called manually for testing.
+ * Knowledge Graph Builder that streams structural and behavioral relationships to Neo4j.
  */
 public class KnowledgeGraphBuilder extends DependencyAnalyzer {
 
     private static final Logger logger = LoggerFactory.getLogger(KnowledgeGraphBuilder.class);
     private static final ObjectMapper objectMapper = new ObjectMapper();
+    public static final String RESOLUTION = "resolution";
+    public static final String LAMBDA = "lambda";
+    public static final String EXACT = "exact";
+    public static final String PARTIAL = "partial";
 
-    private final Neo4jGraphStore graphStore;
+    private final GraphStore graphStore;
     private boolean autoClose = true;
 
-    /**
-     * Create a builder with an existing Neo4jGraphStore.
-     */
-    public KnowledgeGraphBuilder(Neo4jGraphStore graphStore) {
+    public KnowledgeGraphBuilder(GraphStore graphStore) {
         this.graphStore = graphStore;
     }
 
-    /**
-     * Create a builder from graph.yml configuration file.
-     *
-     * @param configFile path to graph.yml
-     * @throws IOException if config cannot be read
-     */
-    public static KnowledgeGraphBuilder fromSettings(File configFile) throws IOException {
-        Neo4jGraphStore store = Neo4jGraphStore.fromSettings(configFile);
+    public static KnowledgeGraphBuilder fromSettings(File configFile) throws IOException, java.sql.SQLException {
+        GraphStore store = GraphStoreFactory.createGraphStore(configFile);
         return new KnowledgeGraphBuilder(store);
     }
 
     /**
-     * Build the knowledge graph from a collection of methods.
-     * This is the main entry point for graph construction.
-     *
-     * @param methods collection of methods to analyze
+     * Primary entry point: build graph from compilation units.
      */
-    public void build(Collection<MethodDeclaration> methods) {
-        logger.info("Starting knowledge graph build for {} methods", methods.size());
+    public void build(List<CompilationUnit> units) {
+        logger.info("Starting knowledge graph build for {} compilation units", units.size());
         try {
-            // Manually traverse AST to ensure hooks are called (bypass DependencyAnalyzer mismatch)
-            GraphVisitor visitor = new GraphVisitor();
-            for (MethodDeclaration method : methods) {
-                // Ensure GraphNode is created and tracked
-                GraphNode node = Graph.createGraphNode(method);
-                method.accept(visitor, node);
+            for (CompilationUnit cu : units) {
+                for (TypeDeclaration<?> type : cu.getTypes()) {
+                    traverseType(type, null);
+                }
             }
             graphStore.flushEdges();
             logger.info("Knowledge graph build complete. Total edges: {}", graphStore.getEdgeCount());
@@ -82,66 +93,78 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
     }
 
     /**
-     * Set whether to automatically close the graph store after build.
+     * Compatibility wrapper for existing method-based callers.
      */
+    public void build(Collection<MethodDeclaration> methods) {
+        Set<CompilationUnit> units = methods.stream()
+                .map(MethodDeclaration::findCompilationUnit)
+                .filter(java.util.Optional::isPresent)
+                .map(java.util.Optional::get)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
+        if (!units.isEmpty()) {
+            build(new ArrayList<>(units));
+            return;
+        }
+
+        logger.info("No compilation units found for compatibility mode. Falling back to method traversal.");
+        try {
+            for (MethodDeclaration method : methods) {
+                GraphNode node = Graph.createGraphNode(method);
+                String sourceId = SignatureUtils.getSignature(node);
+                if (sourceId == null) {
+                    continue;
+                }
+                persistNode(sourceId, "Method", method.getNameAsString(), sourceId);
+
+                ScopeContext context = fromGraphNode(node, sourceId);
+                method.accept(new GraphVisitor(), context);
+            }
+            graphStore.flushEdges();
+        } finally {
+            if (autoClose) {
+                close();
+            }
+        }
+    }
+
     public void setAutoClose(boolean autoClose) {
         this.autoClose = autoClose;
     }
 
-    /**
-     * Close the graph store connection.
-     */
     public void close() {
         if (graphStore != null) {
-            graphStore.close();
+            try {
+                graphStore.close();
+            } catch (Exception e) {
+                logger.warn("Error closing graph store", e);
+            }
         }
     }
 
-    /**
-     * Get the underlying graph store for direct access.
-     */
-    public Neo4jGraphStore getGraphStore() {
+    public GraphStore getGraphStore() {
         return graphStore;
     }
 
-    // ========================
-    // Hook Methods (called by DependencyAnalyzer during DFS)
-    // These override protected methods in DependencyAnalyzer
-    // ========================
-
-    /**
-     * Called when a field is accessed during traversal.
-     * Creates an ACCESSES edge in the knowledge graph.
-     */
     @Override
     protected void onFieldAccessed(GraphNode node, FieldAccessExpr fae) {
         String sourceId = SignatureUtils.getSignature(node);
-        if (sourceId == null) return;
+        if (sourceId == null) {
+            return;
+        }
 
-        String targetId = resolveFieldSignature(node, fae);
-
-        KnowledgeGraphEdge edge = KnowledgeGraphEdge.builder()
-                .source(sourceId)
-                .target(targetId)
-                .type(EdgeType.ACCESSES)
-                .accessType("READ")
-                .build();
-
-        graphStore.persistEdge(edge);
-        logger.trace("Edge: {} --ACCESSES--> {}", sourceId, targetId);
+        ScopeContext context = fromGraphNode(node, sourceId);
+        emitFieldAccess(context, fae);
     }
 
-    /**
-     * Called when a type is explicitly used (e.g., in casts, catch clauses).
-     * Creates a USES edge in the knowledge graph.
-     */
     @Override
     protected void onTypeUsed(GraphNode node, Type type) {
         String sourceId = SignatureUtils.getSignature(node);
-        if (sourceId == null) return;
+        if (sourceId == null) {
+            return;
+        }
 
-        String targetId = type.asString();
-
+        String targetId = resolveTypeSignature(node.getCompilationUnit(), type);
         KnowledgeGraphEdge edge = KnowledgeGraphEdge.builder()
                 .source(sourceId)
                 .target(targetId)
@@ -152,40 +175,36 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
         logger.trace("Edge: {} --USES--> {}", sourceId, targetId);
     }
 
-    /**
-     * Called when a lambda expression is discovered.
-     * Creates an ENCLOSES edge in the knowledge graph.
-     */
     @Override
     protected void onLambdaDiscovered(GraphNode node, LambdaExpr lambda) {
         String sourceId = SignatureUtils.getSignature(node);
-        if (sourceId == null) return;
+        if (sourceId == null) {
+            return;
+        }
 
-        int line = lambda.getBegin().map(p -> p.line).orElse(0);
-        String lambdaId = sourceId + "$lambda_L" + line;
+        String lambdaId = SignatureUtils.getLambdaSignature(sourceId, lambda, 0);
+        persistNode(lambdaId, "Lambda", LAMBDA, node.getEnclosingType() == null ? sourceId : SignatureUtils.getTypeSignature(node.getEnclosingType()));
 
         KnowledgeGraphEdge edge = KnowledgeGraphEdge.builder()
                 .source(sourceId)
                 .target(lambdaId)
                 .type(EdgeType.ENCLOSES)
-                .attribute("kind", "lambda")
+                .attribute("kind", LAMBDA)
                 .build();
 
         graphStore.persistEdge(edge);
         logger.trace("Edge: {} --ENCLOSES--> {} (lambda)", sourceId, lambdaId);
     }
 
-    /**
-     * Called when a nested type (inner class) is discovered.
-     * Creates an ENCLOSES edge in the knowledge graph.
-     */
     @Override
     protected void onNestedTypeDiscovered(GraphNode node, ClassOrInterfaceDeclaration nestedType) {
         String sourceId = SignatureUtils.getSignature(node);
-        if (sourceId == null) return;
+        if (sourceId == null) {
+            return;
+        }
 
-        String targetId = nestedType.getFullyQualifiedName()
-                .orElse(nestedType.getNameAsString());
+        String targetId = SignatureUtils.getTypeSignature(nestedType);
+        persistNode(targetId, nestedType.isInterface() ? "Interface" : "Class", nestedType.getNameAsString(), targetId);
 
         KnowledgeGraphEdge edge = KnowledgeGraphEdge.builder()
                 .source(sourceId)
@@ -198,74 +217,19 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
         logger.trace("Edge: {} --ENCLOSES--> {} (nested type)", sourceId, targetId);
     }
 
-    // ========================
-    // Helper Methods
-    // ========================
-
-    private String resolveFieldSignature(GraphNode node, FieldAccessExpr fae) {
-        String scopeType = fae.getScope().toString();
-        return scopeType + "#" + fae.getNameAsString();
-    }
-
-    // ========================
-    // Phase 4: Additional Hook Methods
-    // ========================
-
-    /**
-     * Called when a method call is discovered.
-     * Creates a CALLS edge in the knowledge graph.
-     */
     public void onMethodCalled(GraphNode node, MethodCallExpr mce) {
         String sourceId = SignatureUtils.getSignature(node);
-        if (sourceId == null) return;
-
-        String targetId;
-        if (mce.getScope().isPresent()) {
-            targetId = mce.getScope().get().toString() + "#" + mce.getNameAsString() + "()";
-        } else if (node.getEnclosingType() != null) {
-            targetId = node.getEnclosingType().getFullyQualifiedName()
-                    .orElse(node.getEnclosingType().getNameAsString()) + "#" + mce.getNameAsString() + "()";
-        } else {
-            targetId = mce.getNameAsString() + "()";
+        if (sourceId == null) {
+            return;
         }
 
-        List<String> args = mce.getArguments().stream()
-                .map(com.github.javaparser.ast.expr.Expression::toString)
-                .collect(Collectors.toList());
-
-        KnowledgeGraphEdge.Builder edgeBuilder = KnowledgeGraphEdge.builder()
-                .source(sourceId)
-                .target(targetId)
-                .type(EdgeType.CALLS);
-
-        if (!args.isEmpty()) {
-            try {
-                String paramsJson = objectMapper.writeValueAsString(args);
-                edgeBuilder.attribute("parameterValues", paramsJson);
-            } catch (Exception e) {
-                logger.warn("Failed to serialize arguments for call: {}", targetId, e);
-            }
-        }
-
-        KnowledgeGraphEdge edge = edgeBuilder.build();
-
-        graphStore.persistEdge(edge);
-        logger.trace("Edge: {} --CALLS--> {}", sourceId, targetId);
+        ScopeContext context = fromGraphNode(node, sourceId);
+        emitMethodCall(context, mce);
     }
 
-    /**
-     * Called when a class member (method, field, etc.) is discovered.
-     * Creates a CONTAINS edge in the knowledge graph.
-     */
     public void onMemberDiscovered(ClassOrInterfaceDeclaration clazz, BodyDeclaration<?> member) {
-        String sourceId = clazz.getFullyQualifiedName().orElse(clazz.getNameAsString());
-
-        String targetId;
-        if (member instanceof MethodDeclaration md) {
-            targetId = SignatureUtils.getMethodSignature(sourceId, md);
-        } else {
-            targetId = sourceId + "#member";
-        }
+        String sourceId = SignatureUtils.getTypeSignature(clazz);
+        String targetId = SignatureUtils.getMemberSignature(sourceId, member);
 
         KnowledgeGraphEdge edge = KnowledgeGraphEdge.builder()
                 .source(sourceId)
@@ -277,13 +241,10 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
         logger.trace("Edge: {} --CONTAINS--> {}", sourceId, targetId);
     }
 
-    /**
-     * Called when a class extends another class.
-     * Creates an EXTENDS edge in the knowledge graph.
-     */
     public void onExtendsDiscovered(ClassOrInterfaceDeclaration clazz, ClassOrInterfaceType extendedType) {
-        String sourceId = clazz.getFullyQualifiedName().orElse(clazz.getNameAsString());
-        String targetId = extendedType.getNameAsString();
+        CompilationUnit cu = clazz.findCompilationUnit().orElse(null);
+        String sourceId = SignatureUtils.getTypeSignature(clazz);
+        String targetId = resolveTypeSignature(cu, extendedType);
 
         KnowledgeGraphEdge edge = KnowledgeGraphEdge.builder()
                 .source(sourceId)
@@ -295,13 +256,10 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
         logger.trace("Edge: {} --EXTENDS--> {}", sourceId, targetId);
     }
 
-    /**
-     * Called when a class implements an interface.
-     * Creates an IMPLEMENTS edge in the knowledge graph.
-     */
     public void onImplementsDiscovered(ClassOrInterfaceDeclaration clazz, ClassOrInterfaceType implementedType) {
-        String sourceId = clazz.getFullyQualifiedName().orElse(clazz.getNameAsString());
-        String targetId = implementedType.getNameAsString();
+        CompilationUnit cu = clazz.findCompilationUnit().orElse(null);
+        String sourceId = SignatureUtils.getTypeSignature(clazz);
+        String targetId = resolveTypeSignature(cu, implementedType);
 
         KnowledgeGraphEdge edge = KnowledgeGraphEdge.builder()
                 .source(sourceId)
@@ -312,35 +270,417 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
         graphStore.persistEdge(edge);
         logger.trace("Edge: {} --IMPLEMENTS--> {}", sourceId, targetId);
     }
+
+    private void traverseType(TypeDeclaration<?> type, String enclosingSignature) {
+        String typeSignature = SignatureUtils.getTypeSignature(type);
+        persistNode(typeSignature, nodeTypeLabel(type), type.getNameAsString(), typeSignature);
+
+        if (enclosingSignature != null) {
+            graphStore.persistEdge(KnowledgeGraphEdge.builder()
+                    .source(enclosingSignature)
+                    .target(typeSignature)
+                    .type(EdgeType.ENCLOSES)
+                    .attribute("kind", "inner_class")
+                    .build());
+        }
+
+        if (type instanceof ClassOrInterfaceDeclaration coid) {
+            for (ClassOrInterfaceType extendedType : coid.getExtendedTypes()) {
+                onExtendsDiscovered(coid, extendedType);
+            }
+            for (ClassOrInterfaceType implementedType : coid.getImplementedTypes()) {
+                onImplementsDiscovered(coid, implementedType);
+            }
+        }
+
+        for (BodyDeclaration<?> member : type.getMembers()) {
+            emitContains(typeSignature, member);
+            processMember(type, typeSignature, member);
+            if (member instanceof TypeDeclaration<?> nestedType) {
+                traverseType(nestedType, typeSignature);
+            }
+        }
+
+        if (type instanceof EnumDeclaration enumDeclaration) {
+            for (EnumConstantDeclaration constant : enumDeclaration.getEntries()) {
+                String constantSignature = SignatureUtils.getEnumConstantSignature(typeSignature, constant);
+                persistNode(constantSignature, "EnumConstant", constant.getNameAsString(), typeSignature);
+
+                graphStore.persistEdge(KnowledgeGraphEdge.builder()
+                        .source(typeSignature)
+                        .target(constantSignature)
+                        .type(EdgeType.CONTAINS)
+                        .build());
+            }
+        }
+    }
+
+    private void processMember(TypeDeclaration<?> ownerType, String ownerSignature, BodyDeclaration<?> member) {
+        CompilationUnit cu = ownerType.findCompilationUnit().orElse(null);
+
+        if (member instanceof MethodDeclaration md) {
+            String methodSignature = SignatureUtils.getMethodSignature(ownerSignature, md);
+            persistNode(methodSignature, "Method", md.getNameAsString(), ownerSignature);
+            processCallableBody(cu, ownerSignature, methodSignature, md, md.getParameters(), md.getBody().orElse(null));
+            return;
+        }
+
+        if (member instanceof ConstructorDeclaration cd) {
+            String constructorSignature = SignatureUtils.getMethodSignature(ownerSignature, cd);
+            persistNode(constructorSignature, "Constructor", cd.getNameAsString(), ownerSignature);
+            processCallableBody(cu, ownerSignature, constructorSignature, cd, cd.getParameters(), cd.getBody());
+            return;
+        }
+
+        if (member instanceof FieldDeclaration fd) {
+            for (VariableDeclarator v : fd.getVariables()) {
+                String fieldSignature = SignatureUtils.getFieldSignature(ownerSignature, v.getNameAsString());
+                persistNode(fieldSignature, "Field", v.getNameAsString(), ownerSignature);
+
+                v.getInitializer().ifPresent(init -> {
+                    ScopeContext context = new ScopeContext(ownerSignature, ownerSignature, cu, new HashMap<>(), new AtomicInteger());
+                    context.symbolTypes().put("this", ownerSignature);
+                    init.accept(new GraphVisitor(), context);
+                });
+            }
+            return;
+        }
+
+        if (member instanceof InitializerDeclaration initializer) {
+            String initSignature = SignatureUtils.getInitializerSignature(ownerSignature, initializer, ownerType);
+            persistNode(initSignature, "StaticBlock", "<clinit>", ownerSignature);
+            ScopeContext context = new ScopeContext(initSignature, ownerSignature, cu, new HashMap<>(), new AtomicInteger());
+            context.symbolTypes().put("this", ownerSignature);
+            initializer.accept(new GraphVisitor(), context);
+        }
+    }
+
+    private void processCallableBody(
+            CompilationUnit cu,
+            String ownerTypeSignature,
+            String callableSignature,
+            CallableDeclaration<?> callable,
+            List<Parameter> parameters,
+            Node bodyNode
+    ) {
+        Map<String, String> symbols = new HashMap<>();
+        symbols.put("this", ownerTypeSignature);
+
+        for (Parameter parameter : parameters) {
+            symbols.put(parameter.getNameAsString(), resolveTypeSignature(cu, parameter.getType()));
+        }
+
+        ScopeContext context = new ScopeContext(callableSignature, ownerTypeSignature, cu, symbols, new AtomicInteger());
+
+        if (bodyNode != null) {
+            bodyNode.accept(new GraphVisitor(), context);
+        }
+
+        if (callable instanceof MethodDeclaration methodDeclaration) {
+            String returnType = methodDeclaration.getType().asString();
+            if (!"void".equals(returnType)) {
+                graphStore.persistEdge(KnowledgeGraphEdge.builder()
+                        .source(callableSignature)
+                        .target(resolveTypeSignature(cu, methodDeclaration.getType()))
+                        .type(EdgeType.USES)
+                        .build());
+            }
+        }
+    }
+
+    private void emitContains(String ownerSignature, BodyDeclaration<?> member) {
+        if (member instanceof FieldDeclaration fd) {
+            for (String fieldSignature : SignatureUtils.getFieldSignatures(ownerSignature, fd)) {
+                graphStore.persistEdge(KnowledgeGraphEdge.builder()
+                        .source(ownerSignature)
+                        .target(fieldSignature)
+                        .type(EdgeType.CONTAINS)
+                        .build());
+            }
+            return;
+        }
+
+        String memberSignature = SignatureUtils.getMemberSignature(ownerSignature, member);
+        graphStore.persistEdge(KnowledgeGraphEdge.builder()
+                .source(ownerSignature)
+                .target(memberSignature)
+                .type(EdgeType.CONTAINS)
+                .build());
+    }
+
+    private void emitMethodCall(ScopeContext context, MethodCallExpr mce) {
+        String targetId;
+        String resolution = EXACT;
+
+        if (mce.getScope().isPresent()) {
+            Expression scope = mce.getScope().orElseThrow();
+            String resolvedScopeType = resolveExpressionType(context, scope);
+            if (resolvedScopeType != null) {
+                targetId = resolvedScopeType + "#" + mce.getNameAsString() + "()";
+            } else {
+                targetId = scope + "#" + mce.getNameAsString() + "()";
+                resolution = PARTIAL;
+            }
+        } else {
+            targetId = context.enclosingTypeSignature() + "#" + mce.getNameAsString() + "()";
+        }
+
+        List<String> args = mce.getArguments().stream()
+                .map(Expression::toString)
+                .collect(Collectors.toList());
+
+        KnowledgeGraphEdge.Builder edgeBuilder = KnowledgeGraphEdge.builder()
+                .source(context.sourceId())
+                .target(targetId)
+                .type(EdgeType.CALLS);
+
+        if (!EXACT.equals(resolution)) {
+            edgeBuilder.attribute(RESOLUTION, resolution);
+        }
+
+        if (!args.isEmpty()) {
+            try {
+                edgeBuilder.attribute("parameterValues", objectMapper.writeValueAsString(args));
+            } catch (Exception e) {
+                logger.warn("Failed to serialize arguments for call: {}", targetId, e);
+            }
+        }
+
+        graphStore.persistEdge(edgeBuilder.build());
+        logger.trace("Edge: {} --CALLS--> {}", context.sourceId(), targetId);
+    }
+
+
+    private void emitFieldAccess(ScopeContext context, FieldAccessExpr fae) {
+        String targetId;
+        String resolution = EXACT;
+
+        String scopeType = resolveExpressionType(context, fae.getScope());
+        if (scopeType != null) {
+            targetId = scopeType + "#" + fae.getNameAsString();
+        } else {
+            targetId = fae.getScope() + "#" + fae.getNameAsString();
+            resolution = PARTIAL;
+        }
+
+        KnowledgeGraphEdge.Builder edgeBuilder = KnowledgeGraphEdge.builder()
+                .source(context.sourceId())
+                .target(targetId)
+                .type(EdgeType.ACCESSES)
+                .accessType("READ");
+
+        if (!EXACT.equals(resolution)) {
+            edgeBuilder.attribute(RESOLUTION, resolution);
+        }
+
+        graphStore.persistEdge(edgeBuilder.build());
+        logger.trace("Edge: {} --ACCESSES--> {}", context.sourceId(), targetId);
+    }
+
+    private String resolveExpressionType(ScopeContext context, Expression expression) {
+        if (expression instanceof NameExpr nameExpr) {
+            String name = nameExpr.getNameAsString();
+            String fromSymbols = context.symbolTypes().get(name);
+            if (fromSymbols != null) {
+                return fromSymbols;
+            }
+
+            return AbstractCompiler.findFullyQualifiedName(context.compilationUnit(), name);
+        }
+
+        if (expression instanceof ThisExpr) {
+            return context.enclosingTypeSignature();
+        }
+
+        if (expression instanceof FieldAccessExpr fieldAccessExpr) {
+            return resolveExpressionType(context, fieldAccessExpr.getScope());
+        }
+
+        if (expression instanceof ObjectCreationExpr objectCreationExpr) {
+            return resolveTypeSignature(context.compilationUnit(), objectCreationExpr.getType());
+        }
+
+        if (expression instanceof CastExpr castExpr) {
+            return resolveTypeSignature(context.compilationUnit(), castExpr.getType());
+        }
+
+        return null;
+    }
+
+    private String resolveTypeSignature(CompilationUnit compilationUnit, Type type) {
+        TypeWrapper wrapper = AbstractCompiler.findType(compilationUnit, type);
+        if (wrapper != null) {
+            String fqn = wrapper.getFullyQualifiedName();
+            if (fqn != null) {
+                return fqn;
+            }
+            // Local class inside a method body — use the Java compiler naming convention
+            TypeDeclaration<?> localType = wrapper.getType();
+            if (localType != null) {
+                return buildLocalClassName(localType);
+            }
+        }
+        return type.asString();
+    }
+
     /**
-     * Internal Visitor to traverse AST and trigger hooks.
-     * This ensures our hooks are called regardless of the parent DependencyAnalyzer version.
+     * Builds a name for a local class using the Java compiler convention: OuterClass$NLocalName
+     * where N is a 1-based index among local classes with the same name in the enclosing type.
      */
-    private class GraphVisitor extends VoidVisitorAdapter<GraphNode> {
-        @Override
-        public void visit(MethodCallExpr n, GraphNode scope) {
-            onMethodCalled(scope, n);
-            super.visit(n, scope);
+    private String buildLocalClassName(TypeDeclaration<?> localType) {
+        String localName = localType.getNameAsString();
+        TypeDeclaration<?> enclosing = AbstractCompiler.getEnclosingType(localType.getParentNode().orElse(null));
+        if (enclosing != null) {
+            String enclosingFqn = enclosing.getFullyQualifiedName().orElse(enclosing.getNameAsString());
+            int index = 1;
+            for (TypeDeclaration<?> t : enclosing.findAll(TypeDeclaration.class)) {
+                if (t == localType) {
+                    break;
+                }
+                if (t.getNameAsString().equals(localName) && t.getFullyQualifiedName().isEmpty()) {
+                    index++;
+                }
+            }
+            return enclosingFqn + "$" + index + localName;
+        }
+        return localName;
+    }
+
+    private ScopeContext fromGraphNode(GraphNode node, String sourceId) {
+        CompilationUnit cu = node.getCompilationUnit();
+        String ownerType = node.getEnclosingType() == null ? sourceId : SignatureUtils.getTypeSignature(node.getEnclosingType());
+
+        Map<String, String> symbols = new HashMap<>();
+        symbols.put("this", ownerType);
+
+        Node astNode = node.getNode();
+        if (astNode instanceof CallableDeclaration<?> callable) {
+            for (Parameter parameter : callable.getParameters()) {
+                symbols.put(parameter.getNameAsString(), resolveTypeSignature(cu, parameter.getType()));
+            }
+        }
+
+        return new ScopeContext(sourceId, ownerType, cu, symbols, new AtomicInteger());
+    }
+
+    private String nodeTypeLabel(TypeDeclaration<?> typeDeclaration) {
+        if (typeDeclaration instanceof EnumDeclaration) {
+            return "Enum";
+        }
+        if (typeDeclaration instanceof ClassOrInterfaceDeclaration coid && coid.isInterface()) {
+            return "Interface";
+        }
+        return "Class";
+    }
+
+    private void persistNode(String signature, String nodeType, String name, String fqn) {
+        try {
+            graphStore.persistNode(signature, nodeType, name, fqn);
+        } catch (Exception e) {
+            logger.debug("Node upsert skipped for {} due to store implementation: {}", signature, e.getMessage());
+        }
+    }
+
+    private record ScopeContext(
+            String sourceId,
+            String enclosingTypeSignature,
+            CompilationUnit compilationUnit,
+            Map<String, String> symbolTypes,
+            AtomicInteger lambdaCounter
+    ) {
+        ScopeContext child(String childSource, Map<String, String> childSymbols) {
+            return new ScopeContext(childSource, enclosingTypeSignature, compilationUnit, childSymbols, new AtomicInteger());
+        }
+
+        int nextLambdaIndex() {
+            return lambdaCounter.incrementAndGet();
+        }
+    }
+
+    private class GraphVisitor extends VoidVisitorAdapter<ScopeContext> {
+        private void emitMethodReference(ScopeContext context, MethodReferenceExpr mre) {
+            String scopeType = resolveExpressionType(context, mre.getScope());
+            String targetId;
+            String resolution = EXACT;
+
+            if (scopeType != null) {
+                targetId = scopeType + "#" + mre.getIdentifier() + "()";
+            } else {
+                targetId = mre.getScope() + "#" + mre.getIdentifier() + "()";
+                resolution = PARTIAL;
+            }
+
+            KnowledgeGraphEdge.Builder edgeBuilder = KnowledgeGraphEdge.builder()
+                    .source(context.sourceId())
+                    .target(targetId)
+                    .type(EdgeType.REFERENCES);
+
+            if (!EXACT.equals(resolution)) {
+                edgeBuilder.attribute(RESOLUTION, resolution);
+            }
+
+            graphStore.persistEdge(edgeBuilder.build());
+            logger.trace("Edge: {} --REFERENCES--> {}", context.sourceId(), targetId);
         }
 
         @Override
-        public void visit(FieldAccessExpr n, GraphNode scope) {
-            onFieldAccessed(scope, n);
-            super.visit(n, scope);
+        public void visit(MethodCallExpr n, ScopeContext context) {
+            emitMethodCall(context, n);
+            super.visit(n, context);
         }
 
         @Override
-        public void visit(LambdaExpr n, GraphNode scope) {
-            onLambdaDiscovered(scope, n);
-            // Continue traversal with same scope for now
-            super.visit(n, scope);
+        public void visit(FieldAccessExpr n, ScopeContext context) {
+            emitFieldAccess(context, n);
+            super.visit(n, context);
         }
-        
+
         @Override
-        public void visit(ClassOrInterfaceType n, GraphNode scope) {
-            // USES edges for types
-            onTypeUsed(scope, n);
-            super.visit(n, scope);
+        public void visit(MethodReferenceExpr n, ScopeContext context) {
+            emitMethodReference(context, n);
+            super.visit(n, context);
+        }
+
+        @Override
+        public void visit(ClassOrInterfaceType n, ScopeContext context) {
+            graphStore.persistEdge(KnowledgeGraphEdge.builder()
+                    .source(context.sourceId())
+                    .target(resolveTypeSignature(context.compilationUnit(), n))
+                    .type(EdgeType.USES)
+                    .build());
+            super.visit(n, context);
+        }
+
+        @Override
+        public void visit(VariableDeclarationExpr n, ScopeContext context) {
+            for (VariableDeclarator variable : n.getVariables()) {
+                context.symbolTypes().put(variable.getNameAsString(), resolveTypeSignature(context.compilationUnit(), variable.getType()));
+            }
+            super.visit(n, context);
+        }
+
+        @Override
+        public void visit(LambdaExpr n, ScopeContext context) {
+            int index = context.nextLambdaIndex();
+            String lambdaSignature = SignatureUtils.getLambdaSignature(context.sourceId(), n, index);
+            persistNode(lambdaSignature, "Lambda", LAMBDA, context.enclosingTypeSignature());
+
+            graphStore.persistEdge(KnowledgeGraphEdge.builder()
+                    .source(context.sourceId())
+                    .target(lambdaSignature)
+                    .type(EdgeType.ENCLOSES)
+                    .attribute("kind", LAMBDA)
+                    .build());
+
+            Map<String, String> lambdaSymbols = new HashMap<>(context.symbolTypes());
+            for (Parameter parameter : n.getParameters()) {
+                if (!parameter.getType().isUnknownType()) {
+                    lambdaSymbols.put(parameter.getNameAsString(), resolveTypeSignature(context.compilationUnit(), parameter.getType()));
+                }
+            }
+
+            ScopeContext lambdaContext = context.child(lambdaSignature, lambdaSymbols);
+            n.getBody().accept(this, lambdaContext);
         }
     }
 }
