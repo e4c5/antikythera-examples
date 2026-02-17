@@ -10,7 +10,8 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mock;
 import org.mockito.MockedStatic;
 import org.mockito.MockitoAnnotations;
@@ -30,6 +31,7 @@ import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
 import java.time.Duration;
 import java.util.*;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -194,12 +196,33 @@ class OpenAIServiceTest {
         assertEquals(0, tokenUsage.getTotalTokens());
     }
 
+    /**
+     * Provides test cases for extractJsonFromResponse with realistic AI response formats.
+     * Returns a stream of Arguments containing input strings with actual newlines and quotes,
+     * and the expected JSON outputs.
+     */
+    private static Stream<Arguments> provideExtractJsonFromResponseCases() {
+        return Stream.of(
+            // Test case 1: JSON embedded in plain text with actual newlines
+            Arguments.of(
+                "Here is the JSON response:\n[{\"test\": \"value\"}]\nEnd of response.",
+                "[{\"test\": \"value\"}]"
+            ),
+            // Test case 2: JSON in markdown code block with actual newlines
+            Arguments.of(
+                "```json\n[{\"test\": \"value\"}]\n```",
+                "[{\"test\": \"value\"}]"
+            ),
+            // Test case 3: No JSON content
+            Arguments.of(
+                "No JSON here, just plain text.",
+                ""
+            )
+        );
+    }
+
     @ParameterizedTest
-    @CsvSource({
-            "'Here is the JSON response:\\n[{\\\"test\\\": \\\"value\\\"}]\\nEnd of response.', '[{\\\"test\\\": \\\"value\\\"}]'",
-            "'```json\\n[{\\\"test\\\": \\\"value\\\"}]\\n```', '[{\\\"test\\\": \\\"value\\\"}]'",
-            "'No JSON here, just plain text.', ''"
-    })
+    @MethodSource("provideExtractJsonFromResponseCases")
     void testExtractJsonFromResponse(String input, String expected) {
         String result = openAIService.extractJsonFromResponse(input);
         assertEquals(expected, result);
@@ -470,14 +493,14 @@ class OpenAIServiceTest {
     @Test
     void testExtractJsonFromResponse_MultipleFormats() {
         // Test with markdown code block
-        String codeBlockResponse = "```json\\n[{\\\"test\\\": \\\"value\\\"}]\\n```";
+        String codeBlockResponse = "```json\n[{\"test\": \"value\"}]\n```";
         String result1 = openAIService.extractJsonFromResponse(codeBlockResponse);
-        assertEquals("[{\\\"test\\\": \\\"value\\\"}]", result1);
+        assertEquals("[{\"test\": \"value\"}]", result1);
 
         // Test with plain JSON
-        String plainResponse = "Here is the result: [{\\\"test\\\": \\\"value\\\"}] end";
+        String plainResponse = "Here is the result: [{\"test\": \"value\"}] end";
         String result2 = openAIService.extractJsonFromResponse(plainResponse);
-        assertEquals("[{\\\"test\\\": \\\"value\\\"}]", result2);
+        assertEquals("[{\"test\": \"value\"}]", result2);
 
         // Test with no JSON
         String noJsonResponse = "No JSON content here";

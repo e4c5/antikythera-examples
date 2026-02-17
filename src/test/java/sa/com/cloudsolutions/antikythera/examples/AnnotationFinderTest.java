@@ -184,9 +184,11 @@ class AnnotationFinderTest {
         
         String signature = AnnotationFinder.buildMethodSignature(method);
         assertTrue(signature.contains("process"));
-        // Type might be resolved to fully qualified name or simple name depending on imports
-        assertTrue(signature.contains("items") || signature.contains("List"));
-        assertTrue(signature.contains("counts") || signature.contains("Map"));
+        // Verify both parameter name and type are present together
+        assertTrue(signature.contains("items") && signature.contains("List"), 
+                "Expected signature to contain both 'List' and 'items', got: " + signature);
+        assertTrue(signature.contains("counts") && signature.contains("Map"), 
+                "Expected signature to contain both 'Map' and 'counts', got: " + signature);
         // Verify it has the method name and parameters
         assertTrue(signature.startsWith("process("));
         assertTrue(signature.endsWith(")"));

@@ -570,10 +570,12 @@ public abstract class AbstractAIService {
      */
     protected static String extractJsonFromCodeBlocks(String response) {
         // If no JSON found, try to find JSON in code blocks
-        String[] lines = response.split("\n");
+        String[] lines = response.split("\\n");
         StringBuilder jsonBuilder = new StringBuilder();
         boolean inCodeBlock = false;
         boolean foundJson = false;
+        int braceDepth = 0;
+        int bracketDepth = 0;
 
         for (String line : lines) {
             if (line.trim().startsWith("```")) {
@@ -582,7 +584,17 @@ public abstract class AbstractAIService {
             else if (inCodeBlock || line.trim().startsWith("{") || line.trim().startsWith("[") || foundJson) {
                 jsonBuilder.append(line).append("\n");
                 foundJson = true;
-                if (line.trim().endsWith("}") || line.trim().endsWith("]")) {
+                
+                // Count braces and brackets to handle nested structures
+                for (char c : line.toCharArray()) {
+                    if (c == '{') braceDepth++;
+                    else if (c == '}') braceDepth--;
+                    else if (c == '[') bracketDepth++;
+                    else if (c == ']') bracketDepth--;
+                }
+                
+                // Break when we've closed all opened braces/brackets
+                if (foundJson && braceDepth == 0 && bracketDepth == 0) {
                     break;
                 }
             }
