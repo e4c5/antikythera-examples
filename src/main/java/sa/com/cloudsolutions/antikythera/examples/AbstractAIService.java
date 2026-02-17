@@ -536,6 +536,7 @@ public abstract class AbstractAIService {
      * Extracts JSON content from the AI response, handling markdown code blocks.
      * Looks for both JSON objects and arrays, preferring the outermost complete structure.
      */
+    @SuppressWarnings("java:S1066")
     protected String extractJsonFromResponse(String response) {
         if (response == null) {
             return null;
@@ -594,7 +595,7 @@ public abstract class AbstractAIService {
                 }
                 
                 // Break when we've closed all opened braces/brackets
-                if (foundJson && braceDepth == 0 && bracketDepth == 0) {
+                if (braceDepth == 0 && bracketDepth == 0) {
                     break;
                 }
             }
