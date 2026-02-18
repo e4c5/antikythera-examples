@@ -333,11 +333,10 @@ class QueryOptimizerArgumentReorderTest {
     }
 
     @Test
-    void testReorderArguments_SkipsWhenParameterNamesDiffer() {
-        // When old params have abbreviated names like "wallet"/"chain" but the
-        // AI-generated new params use "walletId"/"blockchainId", name matching
-        // can't build a mapping. Reordering should be skipped (return false)
-        // rather than attempting a potentially wrong column-order-based mapping.
+    void testReorderArguments_SkipsWhenAIRenamesParameters() {
+        // When the AI renames parameters (wallet→walletId, chain→blockchainId),
+        // we can't build a reliable position mapping. This indicates an AI mistake —
+        // skip the refactoring entirely rather than risking a wrong reordering.
 
         // Old: existsByTxHashAndIsConfirmedAndWalletIdAndBlockchainIdAndUtxoCodeIn(
         //          Long txHash, boolean isConfirmed, Long wallet, Long chain, List<String> utxoCodes)
@@ -349,8 +348,7 @@ class QueryOptimizerArgumentReorderTest {
         oldMethod.addParameter(new Parameter(new ClassOrInterfaceType(null, "List"), "utxoCodes"));
         when(mockOldCallable.asMethodDeclaration()).thenReturn(oldMethod);
 
-        // New: existsByTxHashAndBlockchainIdAndUtxoCodeInAndIsConfirmedAndWalletId(
-        //          Long txHash, Long blockchainId, List<String> utxoCodes, boolean isConfirmed, Long walletId)
+        // New: AI renamed wallet→walletId, chain→blockchainId
         MethodDeclaration newMethod = new MethodDeclaration();
         newMethod.addParameter(new Parameter(new ClassOrInterfaceType(null, "Long"), "txHash"));
         newMethod.addParameter(new Parameter(new ClassOrInterfaceType(null, "Long"), "blockchainId"));
@@ -363,7 +361,6 @@ class QueryOptimizerArgumentReorderTest {
                 List.of("tx_hash", "is_confirmed", "wallet_id", "blockchain_id", "utxo_code"),
                 List.of("tx_hash", "blockchain_id", "utxo_code", "is_confirmed", "wallet_id"));
 
-        // Call: existsBy...(txHash, false, walletId, chainId, spentUtxoCodes)
         MethodCallExpr call = new MethodCallExpr();
         call.addArgument(new NameExpr("txHash"));
         call.addArgument(new NameExpr("false"));
@@ -373,7 +370,7 @@ class QueryOptimizerArgumentReorderTest {
 
         boolean result = QueryOptimizer.reorderMethodArguments(call, issue);
 
-        assertFalse(result, "Should fail when parameter names don't match between old and new declarations");
+        assertFalse(result, "Should skip when AI renamed parameters");
         // Arguments should remain unchanged
         assertEquals("txHash", call.getArgument(0).toString());
         assertEquals("false", call.getArgument(1).toString());

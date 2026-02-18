@@ -43,16 +43,16 @@ public record OptimizationIssue(RepositoryQuery query, List<String> currentColum
     /**
      * Builds a position mapping (newIndex to oldIndex) for argument reordering.
      *
-     * Uses the old and new method declarations as the source of truth.
-     * For each parameter in the new declaration, finds its original position
-     * in the old declaration by matching parameter name. This is deterministic —
-     * both declarations are known from the AI analysis.
+     * For each parameter name in the original method declaration, finds the
+     * position it occupies in the refactored declaration. If the argument counts
+     * differ or any original name cannot be found in the refactored output,
+     * the AI has made a mistake and we return null to skip this refactoring.
      *
      * Extra arguments beyond the parameter count (e.g., Pageable) are
      * identity-mapped.
      *
      * @param argCount the number of arguments at the call site
-     * @return the mapping, or null if declarations are unavailable or names don't match
+     * @return the mapping, or null if the refactored output is inconsistent
      */
     public Map<Integer, Integer> buildPositionMapping(int argCount) {
         if (query == null || optimizedQuery == null
@@ -65,6 +65,10 @@ public record OptimizationIssue(RepositoryQuery query, List<String> currentColum
                 query.getMethodDeclaration().asMethodDeclaration();
         com.github.javaparser.ast.body.MethodDeclaration newMd =
                 optimizedQuery.getMethodDeclaration().asMethodDeclaration();
+
+        if (oldMd == null || newMd == null) {
+            return null;
+        }
 
         int paramCount = oldMd.getParameters().size();
         if (paramCount != newMd.getParameters().size() || paramCount > argCount) {

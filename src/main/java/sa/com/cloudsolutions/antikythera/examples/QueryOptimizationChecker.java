@@ -306,8 +306,17 @@ public class QueryOptimizationChecker {
 
         // Add all raw queries to the batch
         for (RepositoryQuery query : rawQueries) {
-            if (!"save".equals(query.getMethodDeclaration().getNameAsString())) {
-                String methodName = query.getMethodDeclaration().getNameAsString();
+            String methodName = query.getMethodDeclaration().getNameAsString();
+
+            // Skip methods that have a body (default methods in the interface).
+            // These are convenience wrappers, not query methods.
+            var md = query.getMethodDeclaration().asMethodDeclaration();
+            if (md != null && md.getBody().isPresent()) {
+                logger.debug("Skipping default method with body: {}.{}", repositoryName, methodName);
+                continue;
+            }
+
+            if (!"save".equals(methodName)) {
                 if (!quietMode) {
                     System.out.printf("  📝 Processing method: %s.%s%n", repositoryName, methodName);
                 }
