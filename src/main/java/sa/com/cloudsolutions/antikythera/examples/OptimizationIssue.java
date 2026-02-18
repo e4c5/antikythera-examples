@@ -1,6 +1,7 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -52,13 +53,13 @@ public record OptimizationIssue(RepositoryQuery query, List<String> currentColum
      * identity-mapped.
      *
      * @param argCount the number of arguments at the call site
-     * @return the mapping, or null if the refactored output is inconsistent
+     * @return the mapping, or an empty map if the refactored output is inconsistent
      */
     public Map<Integer, Integer> buildPositionMapping(int argCount) {
         if (query == null || optimizedQuery == null
                 || query.getMethodDeclaration() == null
                 || optimizedQuery.getMethodDeclaration() == null) {
-            return null;
+            return Collections.emptyMap();
         }
 
         com.github.javaparser.ast.body.MethodDeclaration oldMd =
@@ -67,12 +68,12 @@ public record OptimizationIssue(RepositoryQuery query, List<String> currentColum
                 optimizedQuery.getMethodDeclaration().asMethodDeclaration();
 
         if (oldMd == null || newMd == null) {
-            return null;
+            return Collections.emptyMap();
         }
 
         int paramCount = oldMd.getParameters().size();
         if (paramCount != newMd.getParameters().size() || paramCount > argCount) {
-            return null;
+            return Collections.emptyMap();
         }
 
         Map<Integer, Integer> map = new HashMap<>();
@@ -86,7 +87,7 @@ public record OptimizationIssue(RepositoryQuery query, List<String> currentColum
                 }
             }
             if (oldIdx < 0) {
-                return null;
+                return Collections.emptyMap();
             }
             map.put(newIdx, oldIdx);
         }

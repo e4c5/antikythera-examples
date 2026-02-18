@@ -197,7 +197,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
 
             int paramCount = issue.query().getMethodDeclaration().asMethodDeclaration().getParameters().size();
             Map<Integer, Integer> positionMap = issue.buildPositionMapping(paramCount);
-            if (positionMap == null) {
+            if (positionMap.isEmpty()) {
                 logger.error("Could not build position mapping for rename {} → {}. "
                         + "The old and new method declarations have mismatched parameter names. "
                         + "Skipping this rename.", originalName, newName);
@@ -675,12 +675,8 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         for (MethodCallExpr mce : cu.findAll(MethodCallExpr.class)) {
             String name = mce.getNameAsString();
             MethodRename rename = renameByOldName.get(name);
-            if (rename == null) {
-                continue;
-            }
-
-            // Only match unscoped calls or this-scoped calls
-            if (mce.getScope().isPresent() && !mce.getScope().get().isThisExpr()) {
+            if (rename == null || (mce.getScope().isPresent() && !mce.getScope().get().isThisExpr())) {
+                // Only match unscoped calls or this-scoped calls
                 continue;
             }
 
@@ -814,12 +810,8 @@ public class QueryOptimizer extends QueryOptimizationChecker {
      * @return true if arguments were successfully reordered
      */
     static boolean reorderMethodArguments(MethodCallExpr mce, Map<Integer, Integer> positionMap) {
-        if (positionMap == null) {
-            return false;
-        }
-
         NodeList<Expression> args = mce.getArguments();
-        if (positionMap.size() != args.size()) {
+        if (positionMap.isEmpty() || positionMap.size() != args.size()) {
             return false;
         }
 
