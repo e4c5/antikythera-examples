@@ -197,6 +197,11 @@ public class QueryOptimizer extends QueryOptimizationChecker {
 
             int paramCount = issue.query().getMethodDeclaration().asMethodDeclaration().getParameters().size();
             Map<Integer, Integer> positionMap = issue.buildPositionMapping(paramCount);
+            if (positionMap == null) {
+                throw new IllegalStateException(
+                        "Could not build position mapping for rename " + originalName + " → " + newName
+                        + ". The old and new method declarations have mismatched parameter names.");
+            }
             methodRenames.add(new MethodRename(originalName, newName, result, issue, positionMap));
             reservedMethodNames.add(newName);
         }

@@ -43,34 +43,52 @@ public record OptimizationIssue(RepositoryQuery query, List<String> currentColum
     /**
      * Builds a position mapping (newIndex to oldIndex) for argument reordering.
      *
-     * Uses the column order lists as the single source of truth. These come
-     * directly from WHERE clause analysis and represent exactly which parameter
-     * positions moved where.
+     * Uses the old and new method declarations as the source of truth.
+     * For each parameter in the new declaration, finds its original position
+     * in the old declaration by matching parameter name. This is deterministic —
+     * both declarations are known from the AI analysis.
      *
-     * Extra parameters beyond the column count (e.g., Pageable) are
+     * Extra arguments beyond the parameter count (e.g., Pageable) are
      * identity-mapped.
      *
      * @param argCount the number of arguments at the call site
-     * @return the mapping, or null if column orders are unavailable
+     * @return the mapping, or null if declarations are unavailable or names don't match
      */
     public Map<Integer, Integer> buildPositionMapping(int argCount) {
-        if (currentColumnOrder == null || recommendedColumnOrder == null
-                || currentColumnOrder.size() != recommendedColumnOrder.size()
-                || currentColumnOrder.size() > argCount) {
+        if (query == null || optimizedQuery == null
+                || query.getMethodDeclaration() == null
+                || optimizedQuery.getMethodDeclaration() == null) {
+            return null;
+        }
+
+        com.github.javaparser.ast.body.MethodDeclaration oldMd =
+                query.getMethodDeclaration().asMethodDeclaration();
+        com.github.javaparser.ast.body.MethodDeclaration newMd =
+                optimizedQuery.getMethodDeclaration().asMethodDeclaration();
+
+        int paramCount = oldMd.getParameters().size();
+        if (paramCount != newMd.getParameters().size() || paramCount > argCount) {
             return null;
         }
 
         Map<Integer, Integer> map = new HashMap<>();
-        for (int i = 0; i < currentColumnOrder.size(); i++) {
-            int newIdx = recommendedColumnOrder.indexOf(currentColumnOrder.get(i));
-            if (newIdx < 0) {
+        for (int newIdx = 0; newIdx < paramCount; newIdx++) {
+            String newParamName = newMd.getParameter(newIdx).getNameAsString();
+            int oldIdx = -1;
+            for (int j = 0; j < paramCount; j++) {
+                if (oldMd.getParameter(j).getNameAsString().equals(newParamName)) {
+                    oldIdx = j;
+                    break;
+                }
+            }
+            if (oldIdx < 0) {
                 return null;
             }
-            map.put(newIdx, i);
+            map.put(newIdx, oldIdx);
         }
 
-        // Identity-map extra parameters (e.g., Pageable) beyond column count
-        for (int i = currentColumnOrder.size(); i < argCount; i++) {
+        // Identity-map extra arguments (e.g., Pageable) beyond parameter count
+        for (int i = paramCount; i < argCount; i++) {
             map.put(i, i);
         }
         return map;

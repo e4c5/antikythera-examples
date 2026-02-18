@@ -333,10 +333,11 @@ class QueryOptimizerArgumentReorderTest {
     }
 
     @Test
-    void testReorderArguments_FallsBackToColumnOrderWhenNamesDiffer() {
-        // Reproduces a bug where old params have abbreviated names like "wallet"/"chain"
-        // but the AI-generated new params have "walletId"/"blockchainId".
-        // Type+name matching fails, so column order mapping must be used.
+    void testReorderArguments_SkipsWhenParameterNamesDiffer() {
+        // When old params have abbreviated names like "wallet"/"chain" but the
+        // AI-generated new params use "walletId"/"blockchainId", name matching
+        // can't build a mapping. Reordering should be skipped (return false)
+        // rather than attempting a potentially wrong column-order-based mapping.
 
         // Old: existsByTxHashAndIsConfirmedAndWalletIdAndBlockchainIdAndUtxoCodeIn(
         //          Long txHash, boolean isConfirmed, Long wallet, Long chain, List<String> utxoCodes)
@@ -358,7 +359,6 @@ class QueryOptimizerArgumentReorderTest {
         newMethod.addParameter(new Parameter(new ClassOrInterfaceType(null, "Long"), "walletId"));
         when(mockNewCallable.asMethodDeclaration()).thenReturn(newMethod);
 
-        // Column orders encode the positional permutation
         OptimizationIssue issue = createIssue(
                 List.of("tx_hash", "is_confirmed", "wallet_id", "blockchain_id", "utxo_code"),
                 List.of("tx_hash", "blockchain_id", "utxo_code", "is_confirmed", "wallet_id"));
@@ -373,14 +373,13 @@ class QueryOptimizerArgumentReorderTest {
 
         boolean result = QueryOptimizer.reorderMethodArguments(call, issue);
 
-        assertTrue(result, "Should succeed using column order mapping");
-        assertEquals(5, call.getArguments().size());
-        // Expected: txHash, chainId, spentUtxoCodes, false, walletId
+        assertFalse(result, "Should fail when parameter names don't match between old and new declarations");
+        // Arguments should remain unchanged
         assertEquals("txHash", call.getArgument(0).toString());
-        assertEquals("chainId", call.getArgument(1).toString());
-        assertEquals("spentUtxoCodes", call.getArgument(2).toString());
-        assertEquals("false", call.getArgument(3).toString());
-        assertEquals("walletId", call.getArgument(4).toString());
+        assertEquals("false", call.getArgument(1).toString());
+        assertEquals("walletId", call.getArgument(2).toString());
+        assertEquals("chainId", call.getArgument(3).toString());
+        assertEquals("spentUtxoCodes", call.getArgument(4).toString());
     }
 
     @Test
