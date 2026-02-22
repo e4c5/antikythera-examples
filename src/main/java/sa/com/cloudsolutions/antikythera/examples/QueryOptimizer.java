@@ -93,7 +93,8 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             String oldMethodName,
             String newMethodName,
             QueryAnalysisResult result,
-            OptimizationIssue issue
+            OptimizationIssue issue,
+            Map<Integer, Integer> positionMap
     ) {}
 
     @Override
@@ -135,6 +136,12 @@ public class QueryOptimizer extends QueryOptimizationChecker {
             }
 
             OptimizationStatsLogger.updateMethodSignaturesChanged(methodRenames.size());
+
+            // Update self-references within the repository interface itself.
+            // Default methods in the repository may call other derived query methods
+            // that were renamed. These calls won't be found by Fields.getMethodCallers()
+            // because the repository doesn't have a field referencing itself.
+            updateSelfReferences(methodRenames, this.repositoryParser.getCompilationUnit());
 
             // NOW reorder repository method parameters — this must happen AFTER the
             // batched caller update because reorderMethodArguments reads the old method's
@@ -188,7 +195,15 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                 }
             }
 
-            methodRenames.add(new MethodRename(originalName, newName, result, issue));
+            int paramCount = issue.query().getMethodDeclaration().asMethodDeclaration().getParameters().size();
+            Map<Integer, Integer> positionMap = issue.buildPositionMapping(paramCount);
+            if (positionMap.isEmpty()) {
+                logger.error("Could not build position mapping for rename {} → {}. "
+                        + "The old and new method declarations have mismatched parameter names. "
+                        + "Skipping this rename.", originalName, newName);
+                return;
+            }
+            methodRenames.add(new MethodRename(originalName, newName, result, issue, positionMap));
             reservedMethodNames.add(newName);
         }
     }
@@ -640,6 +655,46 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         OptimizationStatsLogger.updateMethodCallsChanged(totalMethodCallsUpdated);
     }
 
+    /**
+     * Updates self-references within the repository interface itself.
+     * Default methods in a repository may call other derived query methods that were
+     * renamed. These calls are not found by Fields.getMethodCallers() because the
+     * repository does not have a field referencing itself.
+     *
+     * Self-calls appear as either unscoped (findByFoo(...)) or this-scoped
+     * (this.findByFoo(...)). We find all MethodCallExpr nodes whose name matches
+     * an old method name and whose scope is either absent or 'this'.
+     */
+    private void updateSelfReferences(List<MethodRename> methodRenames, CompilationUnit cu) {
+        Map<String, MethodRename> renameByOldName = new HashMap<>();
+        for (MethodRename rename : methodRenames) {
+            renameByOldName.put(rename.oldMethodName(), rename);
+        }
+
+        int updated = 0;
+        for (MethodCallExpr mce : cu.findAll(MethodCallExpr.class)) {
+            String name = mce.getNameAsString();
+            MethodRename rename = renameByOldName.get(name);
+            if (rename == null || (mce.getScope().isPresent() && !mce.getScope().get().isThisExpr())) {
+                // Only match unscoped calls or this-scoped calls
+                continue;
+            }
+
+            mce.setName(rename.newMethodName());
+            if (!reorderMethodArguments(mce, rename.positionMap())) {
+                mce.setName(name); // rollback
+                logger.warn("Could not reorder self-reference call to {} in repository", name);
+            } else {
+                updated++;
+            }
+        }
+
+        if (updated > 0) {
+            logger.info("Updated {} self-reference calls within the repository interface", updated);
+            repositoryFileModified = true;
+        }
+    }
+
     private static @NonNull Map<String, Set<String>> findClassesWithDependency(List<MethodRename> methodRenames, String fullyQualifiedName) {
         Map<String, Set<String>> classesToProcess = new HashMap<>();
 
@@ -748,53 +803,18 @@ public class QueryOptimizer extends QueryOptimizationChecker {
     }
 
     /**
-     * Reorders method call arguments based on parameter matching between old and new
-     * method declarations.
-     * This ensures that when parameter order changes (e.g., findByEmailAndStatus ->
-     * findByStatusAndEmail),
-     * the method call arguments are also reordered to match.
+     * Reorders method call arguments using a precomputed position map.
      *
-     * Uses direct parameter matching (type + name) which is more reliable than
-     * column order mapping, as it handles cases like Pageable parameters correctly.
+     * @param mce         the method call expression to reorder
+     * @param positionMap newIndex to oldIndex mapping (precomputed)
+     * @return true if arguments were successfully reordered
      */
-    /**
-     * @return true if arguments were successfully reordered, false if mapping
-     *         could not be built (caller should not rename the method in that case).
-     */
-    static boolean reorderMethodArguments(MethodCallExpr mce, OptimizationIssue issue) {
-        MethodDeclaration oldMethod = issue.query().getMethodDeclaration().asMethodDeclaration();
-        MethodDeclaration newMethod = issue.optimizedQuery().getMethodDeclaration().asMethodDeclaration();
-
+    static boolean reorderMethodArguments(MethodCallExpr mce, Map<Integer, Integer> positionMap) {
         NodeList<Expression> args = mce.getArguments();
-        if (args.size() != newMethod.getParameters().size()) {
+        if (positionMap.isEmpty() || positionMap.size() != args.size()) {
             return false;
         }
 
-        // Build parameter mapping: newIndex -> oldIndex by matching parameter type+name
-        // Compare by type and name only (ignoring modifiers like 'final' and annotations
-        // like @Param) because reorderMethodParameters may clone parameters that drop
-        // modifiers present in the original declaration.
-        Map<Integer, Integer> map = new HashMap<>();
-        for (int i = 0; i < oldMethod.getParameters().size(); i++) {
-            for (int j = 0; j < newMethod.getParameters().size(); j++) {
-                if (oldMethod.getParameter(i).getTypeAsString().equals(newMethod.getParameter(j).getTypeAsString())
-                        && oldMethod.getParameter(i).getNameAsString().equals(newMethod.getParameter(j).getNameAsString())) {
-                    map.put(j, i);
-                }
-            }
-        }
-
-        // If type+name mapping is incomplete, fall back to column order mapping.
-        // This handles derived queries where the optimizer generates new parameter
-        // names that differ from the original (e.g., "hospital" vs "hospitalId").
-        if (map.size() != args.size()) {
-            map = buildColumnOrderMapping(issue, args.size());
-            if (map == null) {
-                return false;
-            }
-        }
-
-        // Reorder arguments in-place using array to avoid expensive NodeList operations
         Expression[] argsArray = new Expression[args.size()];
         for (int i = 0; i < args.size(); i++) {
             argsArray[i] = args.get(i);
@@ -803,7 +823,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
         args.clear();
 
         for (int i = 0; i < argsArray.length; i++) {
-            Integer oldIdx = map.get(i);
+            Integer oldIdx = positionMap.get(i);
             if (oldIdx != null && oldIdx < argsArray.length) {
                 args.add(argsArray[oldIdx]);
             }
@@ -812,38 +832,13 @@ public class QueryOptimizer extends QueryOptimizationChecker {
     }
 
     /**
-     * Builds a newIndex→oldIndex mapping from the column order lists in the
-     * OptimizationIssue.  Each entry in currentColumnOrder at position i maps
-     * to its position in recommendedColumnOrder, giving us the permutation
-     * without relying on parameter names.
-     *
-     * @return the mapping, or null if it cannot be built
+     * Convenience overload that computes the position map on the fly from the
+     * OptimizationIssue. Used by NameChangeVisitor where we don't have a
+     * precomputed map.
      */
-    private static Map<Integer, Integer> buildColumnOrderMapping(OptimizationIssue issue, int argCount) {
-        List<String> currentCols = issue.currentColumnOrder();
-        List<String> recommendedCols = issue.recommendedColumnOrder();
-
-        if (currentCols == null || recommendedCols == null
-                || currentCols.size() != recommendedCols.size()
-                || currentCols.size() > argCount) {
-            return null;
-        }
-
-        Map<Integer, Integer> map = new HashMap<>();
-        for (int i = 0; i < currentCols.size(); i++) {
-            int newIdx = recommendedCols.indexOf(currentCols.get(i));
-            if (newIdx < 0) {
-                return null;
-            }
-            map.put(newIdx, i);
-        }
-
-        // Extra parameters (e.g. Pageable) stay in their original positions
-        for (int i = currentCols.size(); i < argCount; i++) {
-            map.put(i, i);
-        }
-
-        return map;
+    static boolean reorderMethodArguments(MethodCallExpr mce, OptimizationIssue issue) {
+        Map<Integer, Integer> positionMap = issue.buildPositionMapping(mce.getArguments().size());
+        return reorderMethodArguments(mce, positionMap);
     }
 
     static class NameChangeVisitor extends ModifierVisitor<QueryAnalysisResult> {
@@ -1050,7 +1045,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
                 if (callArity == newMethod.getParameters().size()) {
                     String originalName = mce.getNameAsString();
                     mce.setName(matchingRename.newMethodName());
-                    if (!reorderMethodArguments(mce, matchingRename.issue())) {
+                    if (!reorderMethodArguments(mce, matchingRename.positionMap())) {
                         // Rollback the name change — we can't safely rename
                         // without also reordering the arguments
                         mce.setName(originalName);

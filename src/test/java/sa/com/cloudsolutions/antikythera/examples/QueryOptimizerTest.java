@@ -26,7 +26,6 @@ import static org.mockito.Mockito.*;
 
 class QueryOptimizerTest {
     private QueryAnalysisResult mockResult;
-    private OptimizationIssue mockIssue;
     private RepositoryQuery mockOriginalQuery;
     private RepositoryQuery mockOptimizedQuery;
     private static File tempLiquibaseFile;
@@ -55,13 +54,9 @@ class QueryOptimizerTest {
     @BeforeEach
     void setUp() throws Exception {
         mockResult = mock(QueryAnalysisResult.class);
-        mockIssue = mock(OptimizationIssue.class);
         mockOriginalQuery = mock(RepositoryQuery.class);
         mockOptimizedQuery = mock(RepositoryQuery.class);
 
-        when(mockResult.getOptimizationIssue()).thenReturn(mockIssue);
-        when(mockIssue.query()).thenReturn(mockOriginalQuery);
-        when(mockIssue.optimizedQuery()).thenReturn(mockOptimizedQuery);
         when(mockResult.getMethodName()).thenReturn("oldMethod");
         when(mockOptimizedQuery.getMethodName()).thenReturn("newMethod");
 
@@ -83,9 +78,10 @@ class QueryOptimizerTest {
         when(mockNewCallable.asMethodDeclaration()).thenReturn(newMd);
         when(mockOptimizedQuery.getMethodDeclaration()).thenReturn(mockNewCallable);
 
-        // Stub column orders so the fallback mapping can also succeed
-        when(mockIssue.currentColumnOrder()).thenReturn(List.of("arg1"));
-        when(mockIssue.recommendedColumnOrder()).thenReturn(List.of("arg1"));
+        // Use a real OptimizationIssue so buildPositionMapping() works
+        OptimizationIssue issue = new OptimizationIssue(mockOriginalQuery, List.of("arg1"),
+                List.of("arg1"), "test", "test", mockOptimizedQuery);
+        when(mockResult.getOptimizationIssue()).thenReturn(issue);
     }
 
     @ParameterizedTest(name = "{0}")

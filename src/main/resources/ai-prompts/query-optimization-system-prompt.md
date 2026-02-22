@@ -52,8 +52,14 @@ Action: Reorder the By... parts of the method name to match the cardinality (HIG
 
 Critical: The method's parameter order must be changed to match the new method name.
 
+Critical: You MUST preserve the exact original parameter names when reordering. Only the ORDER of parameters
+changes — never rename, abbreviate, or expand any parameter name. The parameter names in the optimized output must
+be exactly the same set of names as in the original input, just in a different order.
+
 Example: findByStatusAndCustomerId(String status, Long customerId) with status:LOW, customerId:HIGH becomes
 findByCustomerIdAndStatus(Long customerId, String status).
+
+Note how the parameter names `customerId` and `status` are preserved exactly — only their order changed.
 
 2. For queryType: 'HQL' or queryType: 'NATIVE_SQL'
 

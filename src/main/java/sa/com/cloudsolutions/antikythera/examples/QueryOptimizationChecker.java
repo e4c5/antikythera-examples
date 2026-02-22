@@ -56,6 +56,9 @@ public class QueryOptimizationChecker {
     // Target class - if set, only analyze this specific repository
     protected static String targetClass = null;
 
+    // Target method - if set (via ClassName#methodName), only analyze this specific method
+    protected static String targetMethod = null;
+
     // Skip class - if set, do not analyze this repository
     protected static String skipClass = null;
 
@@ -227,6 +230,18 @@ public class QueryOptimizationChecker {
             // Step 1: Collect raw methods for LLM analysis (no programmatic analysis yet)
             Collection<RepositoryQuery> rawQueries = repositoryParser.getAllQueries();
 
+            // Filter to a single method if target_class contained a '#methodName' suffix
+            if (targetMethod != null) {
+                rawQueries = rawQueries.stream()
+                        .filter(q -> targetMethod.equals(q.getMethodDeclaration().getNameAsString()))
+                        .toList();
+                if (rawQueries.isEmpty()) {
+                    logger.warn("Target method '{}' not found in {}", targetMethod, fullyQualifiedName);
+                    return;
+                }
+                logger.info("Filtered to target method: {}", targetMethod);
+            }
+
             // Step 2: Send raw methods to LLM first
             List<OptimizationIssue> llmRecommendations = sendRawQueriesToLLM(fullyQualifiedName, rawQueries);
 
@@ -291,8 +306,17 @@ public class QueryOptimizationChecker {
 
         // Add all raw queries to the batch
         for (RepositoryQuery query : rawQueries) {
-            if (!"save".equals(query.getMethodDeclaration().getNameAsString())) {
-                String methodName = query.getMethodDeclaration().getNameAsString();
+            String methodName = query.getMethodDeclaration().getNameAsString();
+
+            // Skip methods that have a body (default methods in the interface).
+            // These are convenience wrappers, not query methods.
+            var md = query.getMethodDeclaration().asMethodDeclaration();
+            if (md != null && md.getBody().isPresent()) {
+                logger.debug("Skipping default method with body: {}.{}", repositoryName, methodName);
+                continue;
+            }
+
+            if (!"save".equals(methodName)) {
                 if (!quietMode) {
                     System.out.printf("  📝 Processing method: %s.%s%n", repositoryName, methodName);
                 }
@@ -670,11 +694,20 @@ public class QueryOptimizationChecker {
 
     /**
      * Set the target class to analyze. If set, only this repository will be analyzed.
+     * Supports the '#methodName' suffix to filter to a single method within the class,
+     * following the same convention used in Antikythera.java.
      *
-     * @param className fully qualified class name, or null to analyze all repositories
+     * @param className fully qualified class name (optionally with #methodName), or null to analyze all
      */
     public static void setTargetClass(String className) {
-        targetClass = className;
+        if (className != null) {
+            String[] parts = className.split("#");
+            targetClass = parts[0];
+            targetMethod = parts.length == 2 ? parts[1] : null;
+        } else {
+            targetClass = null;
+            targetMethod = null;
+        }
     }
 
     /**
@@ -684,6 +717,15 @@ public class QueryOptimizationChecker {
      */
     public static String getTargetClass() {
         return targetClass;
+    }
+
+    /**
+     * Get the current target method filter.
+     *
+     * @return the target method name, or null if not set
+     */
+    public static String getTargetMethod() {
+        return targetMethod;
     }
 
     /**
@@ -1370,8 +1412,14 @@ public class QueryOptimizationChecker {
         if (queryOptimizer != null) {
             Object targetClassValue = queryOptimizer.get("target_class");
                 if (targetClassValue instanceof String s && !s.isBlank()) {
-                    targetClass = s;
-                    System.out.printf("🎯 Target class filter: %s%n", s);
+                    String[] parts = s.split("#");
+                    targetClass = parts[0];
+                    if (parts.length == 2) {
+                        targetMethod = parts[1];
+                        System.out.printf("🎯 Target class filter: %s, method: %s%n", targetClass, targetMethod);
+                    } else {
+                        System.out.printf("🎯 Target class filter: %s%n", targetClass);
+                    }
                 } else {
                     System.out.println("ℹ️ No target_class filter specified (processing all repositories)");
                 }

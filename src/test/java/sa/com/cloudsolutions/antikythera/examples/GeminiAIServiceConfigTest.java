@@ -154,7 +154,8 @@ class GeminiAIServiceConfigTest {
         Map<String, Object> config = new HashMap<>();
         service.setConfig(config);
 
-        // No environment variable set
+        // Explicitly clear the environment variable so real env doesn't leak through
+        environmentVariables.set("GEMINI_API_KEY", "");
 
         String result = service.getConfigString("api_key", "default-key");
 
@@ -204,6 +205,9 @@ class GeminiAIServiceConfigTest {
         Map<String, Object> config = new HashMap<>();
         config.put("api_key", 12345); // Integer instead of String
         service.setConfig(config);
+
+        // Explicitly clear the environment variable so real env doesn't leak through
+        environmentVariables.set("GEMINI_API_KEY", "");
 
         String result = service.getConfigString("api_key", "default-key");
 
