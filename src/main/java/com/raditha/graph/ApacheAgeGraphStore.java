@@ -1,5 +1,6 @@
 package com.raditha.graph;
 
+import org.postgresql.util.PGobject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -35,6 +36,15 @@ public class ApacheAgeGraphStore implements GraphStore {
     private int edgeCount = 0;
 
     private static final String BASE_LABEL = "CodeElement";
+    private static final String AGTYPE = "agtype";
+
+    /** Wrap JSON parameter map as agtype for cypher() so the server receives proper agtype (not text). */
+    private static PGobject toAgTypeParam(String jsonParams) throws SQLException {
+        PGobject obj = new PGobject();
+        obj.setType(AGTYPE);
+        obj.setValue(jsonParams);
+        return obj;
+    }
 
     public ApacheAgeGraphStore(String url, String user, String password, String graphName, int batchSize) throws SQLException {
         this.url = url;
@@ -66,6 +76,7 @@ public class ApacheAgeGraphStore implements GraphStore {
                      }
                 }
             }
+            logger.info("Query this graph with: SELECT * FROM ag_catalog.cypher('{}', $$ MATCH (n) RETURN n LIMIT 10 $$) AS (result agtype)", graphName);
         }
     }
 
@@ -75,6 +86,7 @@ public class ApacheAgeGraphStore implements GraphStore {
             props.setProperty("user", user);
             props.setProperty("password", password);
             connection = DriverManager.getConnection(url, props);
+            connection.setAutoCommit(true);
         }
     }
 
@@ -98,6 +110,7 @@ public class ApacheAgeGraphStore implements GraphStore {
             params.put("nodeType", nodeType);
 
             // AGE does not support SET n:Label — store the type as a property instead
+            // Pass params as PGobject(agtype) so the server receives an agtype map
             String cypher = """
                 SELECT * FROM cypher('%s', $$
                     MERGE (n:%s {signature: $signature})
@@ -108,7 +121,7 @@ public class ApacheAgeGraphStore implements GraphStore {
             String jsonParams = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(params);
 
             try (PreparedStatement stmt = connection.prepareStatement(cypher)) {
-                stmt.setObject(1, jsonParams, java.sql.Types.OTHER);
+                stmt.setObject(1, toAgTypeParam(jsonParams));
                 stmt.execute();
             }
 
@@ -152,7 +165,7 @@ public class ApacheAgeGraphStore implements GraphStore {
                  String jsonParams = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(params);
 
                  try (PreparedStatement stmt = connection.prepareStatement(cypher)) {
-                     stmt.setObject(1, jsonParams, java.sql.Types.OTHER);
+                     stmt.setObject(1, toAgTypeParam(jsonParams));
                      stmt.execute();
                  }
             }
@@ -219,7 +232,7 @@ public class ApacheAgeGraphStore implements GraphStore {
             String jsonParams = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(params);
 
             try (PreparedStatement stmt = connection.prepareStatement(query)) {
-                stmt.setObject(1, jsonParams, java.sql.Types.OTHER);
+                stmt.setObject(1, toAgTypeParam(jsonParams));
                 try (ResultSet rs = stmt.executeQuery()) {
                     while (rs.next()) {
                         // AGE returns results as PG objects, often need parsing if complex.
@@ -249,9 +262,14 @@ public class ApacheAgeGraphStore implements GraphStore {
         flushEdges();
         if (connection != null) {
             try {
+                if (!connection.getAutoCommit()) {
+                    connection.commit();
+                }
                 connection.close();
             } catch (SQLException e) {
                 logger.warn("Error closing connection", e);
+            } finally {
+                connection = null;
             }
         }
     }

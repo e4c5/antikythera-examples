@@ -7,3 +7,13 @@ base_package: org.springframework.samples.petclinic
 # Required by Settings/AbstractCompiler but not strictly used for parsing in this test
 output_path: /tmp/graph-test-output
 log_level: INFO
+
+# GraphStoreFactory expects a graph: section (test uses mock or live container; this satisfies the shape)
+graph:
+  type: neo4j
+  batch_size: 1000
+  neo4j:
+    uri: bolt://localhost:7687
+    username: neo4j
+    password: password
+    database: neo4j
