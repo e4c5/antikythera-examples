@@ -44,13 +44,13 @@ public record OptimizationIssue(RepositoryQuery query, List<String> currentColum
     /**
      * Builds a position mapping (newIndex to oldIndex) for argument reordering.
      *
-     * For each parameter name in the original method declaration, finds the
-     * position it occupies in the refactored declaration. If the argument counts
-     * differ or any original name cannot be found in the refactored output,
+     * For each parameter name in the refactored method declaration, finds the
+     * position it occupied in the original declaration. If the argument counts
+     * differ or any new parameter name cannot be found in the original method,
      * the AI has made a mistake and we return null to skip this refactoring.
      *
-     * Extra arguments beyond the parameter count (e.g., Pageable) are
-     * identity-mapped.
+     * Extra arguments beyond the parameter count (e.g., Pageable) are mapped
+     * to themselves (newIndex == oldIndex).
      *
      * @param argCount the number of arguments at the call site
      * @return the mapping, or an empty map if the refactored output is inconsistent
