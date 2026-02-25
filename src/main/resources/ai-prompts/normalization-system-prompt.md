@@ -102,16 +102,15 @@ Each element must conform to:
       "suggestedEntities": [
         "Address { street, city, zipCode, country } — extract from Customer"
       ],
-      "liquibaseMigrationHint": "CREATE TABLE address (...); ALTER TABLE customer ADD COLUMN address_id BIGINT REFERENCES address(id); ..."
+      "liquibaseMigrationHint": "CREATE TABLE address (...); ALTER TABLE customer ADD COLUMN address_id BIGINT REFERENCES address(id); ...",
+      "dataMigrationPlan": { }
     }
   ]
 }
 ```
 
-When an entity has no violations, include it with an empty `issues` array:
-```json
-{ "entityName": "OrderLine", "issues": [] }
-```
+**Omit entities that have no violations** — do **not** emit `{ "entityName": "...", "issues": [] }` entries.
+Only include an entity in the output array if it has at least one issue.
 
 ### Issue field semantics
 
@@ -122,10 +121,78 @@ When an entity has no violations, include it with an empty `issues` array:
 | `affectedFields` | Yes | Java field names involved in the violation |
 | `proposal` | Yes | Human-readable refactoring proposal |
 | `suggestedEntities` | No | Sketch(es) of new/extracted entity structure(s) |
-| `liquibaseMigrationHint` | No | Minimal SQL/Liquibase guidance for the migration |
+| `liquibaseMigrationHint` | No | Minimal DDL/Liquibase guidance (free text, human-readable) |
+| `dataMigrationPlan` | No | **Structured** migration plan (see below); include whenever the fix involves splitting or extracting a table |
 
 Use `"CrossEntity"` as the `normalizationForm` when the violation can only be seen
 by comparing two or more entities in the batch.
+
+---
+
+## Data Migration Plan
+
+Whenever an issue requires moving data from the current (denormalized) table into one
+or more new normalized tables, populate `dataMigrationPlan` with the following structure.
+This object is consumed directly by code generators that produce:
+
+1. **Data migration SQL** — `INSERT INTO new_table (...) SELECT ... FROM old_table`
+2. **Compatibility view** — a view named after the old table that SELECTs from all new tables
+3. **INSTEAD OF triggers** — INSERT / UPDATE / DELETE triggers on the view so that existing
+   application code continues to work without modification
+
+```json
+"dataMigrationPlan": {
+  "sourceTable": "customer",
+  "baseTable":   "customer",
+  "newTables":   ["customer", "address"],
+  "columnMappings": [
+    { "viewColumn": "id",      "targetTable": "customer", "targetColumn": "id"      },
+    { "viewColumn": "name",    "targetTable": "customer", "targetColumn": "name"    },
+    { "viewColumn": "street",  "targetTable": "address",  "targetColumn": "street"  },
+    { "viewColumn": "city",    "targetTable": "address",  "targetColumn": "city"    },
+    { "viewColumn": "zip",     "targetTable": "address",  "targetColumn": "zip"     }
+  ],
+  "foreignKeys": [
+    { "fromTable": "address", "fromColumn": "customer_id", "toTable": "customer", "toColumn": "id" }
+  ]
+}
+```
+
+### `dataMigrationPlan` field rules
+
+| Field | Required | Description |
+|---|---|---|
+| `sourceTable` | Yes | The **existing** denormalized table name (= `tableName` of the entity being split) |
+| `baseTable` | Yes | Which of the `newTables` owns the primary key; this table is inserted **first** |
+| `newTables` | Yes | All target tables (unordered — the generator derives insert order from `foreignKeys`) |
+| `columnMappings` | Yes | One entry per column that must be migrated; covers every column from the old table that is preserved in the new schema |
+| `foreignKeys` | Yes | Every FK edge between the new tables; the generator uses these to sort tables in dependency order and to build WHERE clauses in triggers |
+
+### `columnMappings` entry
+
+| Sub-field | Description |
+|---|---|
+| `viewColumn` | Column name **as it exists in the old (source) table** |
+| `targetTable` | One of the `newTables` that will own this column after normalization |
+| `targetColumn` | Column name in the target table (may differ from `viewColumn` if renamed) |
+
+### `foreignKeys` entry
+
+| Sub-field | Description |
+|---|---|
+| `fromTable` | The **child** table that holds the FK column |
+| `fromColumn` | The FK column in the child table |
+| `toTable` | The **parent** table being referenced |
+| `toColumn` | The referenced column in the parent (usually its PK) |
+
+### When to omit `dataMigrationPlan`
+
+Omit this field (or set it to `null`) when the violation does **not** require moving rows
+between tables — for example:
+- Adding a missing `@ManyToOne` mapping to an existing FK scalar field
+- Renaming a column
+- Adding a NOT NULL constraint
+- Flagging a design concern without a structural change
 
 ---
 
@@ -135,5 +202,5 @@ by comparing two or more entities in the batch.
 - **Do not** flag JPA relationship fields (`@ManyToOne`, etc.) themselves as violations —
   focus on the scalar fields.
 - **Do not** hallucinate violations; base findings strictly on the provided entity structures.
-- Every input entity **must** appear in the output array exactly once.
+- **Only include** entities that have at least one violation. Omit clean entities entirely to keep the response compact.
 - Keep `violation` and `proposal` concise (≤ 2 sentences each).

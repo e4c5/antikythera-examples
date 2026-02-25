@@ -24,9 +24,11 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * AI-powered analyzer that inspects {@code @Entity} classes for database
@@ -57,6 +59,9 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
     /** Phase-2 accumulator: reports returned from the LLM. */
     private final List<EntityNormalizationReport> allReports = new ArrayList<>();
 
+    /** Set by parseBatchResponse; true when the last response contained malformed/truncated JSON. */
+    private boolean lastResponseTruncated = false;
+
     // -------------------------------------------------------------------------
     // Profile records — serialised as JSON and sent to the LLM
     // -------------------------------------------------------------------------
@@ -78,13 +83,32 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
     // Result records — deserialised from the LLM response
     // -------------------------------------------------------------------------
 
+    /**
+     * Structured data migration plan returned by the LLM for issues that involve
+     * splitting or extracting a table.  Maps directly to {@link InsteadOfTriggerGenerator.ViewDescriptor}.
+     */
+    record DataMigrationPlan(
+            String sourceTable,
+            String baseTable,
+            List<String> newTables,
+            List<ColumnMappingEntry> columnMappings,
+            List<ForeignKeyEntry> foreignKeys) {
+
+        /** Maps a column in the old (source) table to a column in one of the new tables. */
+        record ColumnMappingEntry(String viewColumn, String targetTable, String targetColumn) {}
+
+        /** FK edge between two of the new normalized tables. */
+        record ForeignKeyEntry(String fromTable, String fromColumn, String toTable, String toColumn) {}
+    }
+
     record NormalizationIssue(
             String normalizationForm,
             String violation,
             List<String> affectedFields,
             String proposal,
             List<String> suggestedEntities,
-            String liquibaseMigrationHint) {}
+            String liquibaseMigrationHint,
+            DataMigrationPlan dataMigrationPlan) {}
 
     record EntityNormalizationReport(String entityName, List<NormalizationIssue> issues) {}
 
@@ -156,8 +180,13 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
     }
 
     /**
-     * Phase 2: send all collected profiles to the LLM in a single call, then report.
-     * Called by the base-class template method after the entity loop finishes.
+     * Phase 2: send all collected profiles to the LLM in a single request.
+     *
+     * <p>If the response is malformed (e.g. the model wrapped the JSON in markdown fences
+     * that were not stripped, or a genuine network/format error occurred), the same full
+     * set of profiles is retried up to {@code max_continuations} times. Entities absent
+     * from a well-formed response are treated as clean (no violations), as the system
+     * prompt instructs the model to omit them.</p>
      */
     @Override
     protected void afterAnalysisLoop() throws IOException, InterruptedException {
@@ -166,28 +195,64 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
             return;
         }
 
-        System.out.printf("%n🤖 Sending all %d entity profiles to LLM in a single request…%n",
-                allProfiles.size());
+        int maxAttempts = getMaxContinuations();
+        int attempt = 0;
 
-        List<EntityNormalizationReport> reports = sendBatchToLLM(allProfiles);
-        allReports.addAll(reports);
+        System.out.printf("%n🤖 Sending all %d entity profiles to LLM…%n", allProfiles.size());
 
-        TokenUsage tokenUsage = aiService.getLastTokenUsage();
-        cumulativeTokenUsage.add(tokenUsage);
-        if (!quietMode) {
-            System.out.printf("  🤖 AI analysis: %s%n", tokenUsage.getFormattedReport());
+        while (attempt < maxAttempts) {
+            if (attempt > 0) {
+                System.out.printf("  ↩ Retry %d/%d…%n", attempt, maxAttempts - 1);
+            }
+
+            List<EntityNormalizationReport> reports = sendBatchToLLM(allProfiles);
+
+            TokenUsage tokenUsage = aiService.getLastTokenUsage();
+            cumulativeTokenUsage.add(tokenUsage);
+            if (!quietMode) {
+                System.out.printf("  🤖 AI analysis (attempt %d): %s%n",
+                        attempt + 1, tokenUsage.getFormattedReport());
+            }
+
+            if (!lastResponseTruncated) {
+                allReports.addAll(reports);
+                break;
+            }
+
+            logger.warn("Response malformed on attempt {}; retrying full request", attempt + 1);
+            attempt++;
         }
 
-        // Print per-entity results
+        if (lastResponseTruncated) {
+            logger.warn("LLM response was malformed after {} attempts — no results recorded", maxAttempts);
+        }
+
+        // Report only entities that had violations (clean entities are omitted per prompt)
         for (EntityNormalizationReport report : allReports) {
-            String fqn = allProfiles.stream()
+            String tableName = allProfiles.stream()
                     .filter(p -> p.entityName().equals(report.entityName()))
                     .findFirst()
-                    .map(p -> p.tableName())
+                    .map(EntityProfile::tableName)
                     .orElse("?");
-            reportEntityResults(report.entityName(), fqn, report.issues());
+            reportEntityResults(report.entityName(), tableName, report.issues());
             totalRecommendations += report.issues().size();
         }
+    }
+
+    /**
+     * Reads {@code schema_normalization.max_continuations} from settings.
+     * Defaults to 3 if not configured.
+     */
+    @SuppressWarnings("unchecked")
+    private int getMaxContinuations() {
+        Map<String, Object> normConfig =
+                (Map<String, Object>) Settings.getProperty("schema_normalization");
+        if (normConfig != null) {
+            Object v = normConfig.get("max_continuations");
+            if (v instanceof Integer i) return i;
+            if (v instanceof String s) return Integer.parseInt(s);
+        }
+        return 10; // enough for several binary splits of a large entity set
     }
 
     /**
@@ -335,76 +400,79 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
 
     private String buildOpenAIRequest(String userContent) throws IOException {
         ObjectNode root = objectMapper.createObjectNode();
-        root.put("model", "gpt-4o");
+
+        // Use the model from config; fall back to a sensible default
+        String model = aiService.getConfigString("model", "gpt-4o");
+        root.put("model", model);
 
         ArrayNode messages = root.putArray("messages");
         messages.addObject().put("role", "system").put("content", normalizationSystemPrompt);
         messages.addObject().put("role", "user").put("content", userContent);
 
-        root.putObject("response_format").put("type", "json_object");
+        // response_format json_object is added only for native OpenAI.
+        // It ensures strict JSON output but forbids top-level arrays, so GPT models
+        // wrap the result in an object — which we unwrap below.
+        // OpenRouter (and other compatible providers) must NOT receive this flag:
+        // their models may wrap the array with an unpredictable key that breaks parsing.
+        if (aiService instanceof OpenAIService && !(aiService instanceof OpenRouterService)) {
+            root.putObject("response_format").put("type", "json_object");
+        }
 
         return objectMapper.writeValueAsString(root);
     }
 
     /**
-     * Parses the LLM response into a list of per-entity reports.
-     * Falls back to empty issues for any entity not found in the response.
+     * Parses the LLM response and returns a report for every entity that appeared in it.
+     *
+     * <p>Entities absent from the response are <em>not</em> added here — the caller's
+     * continuation loop handles them. If the JSON is malformed (truncated output), an
+     * empty list is returned so the caller knows the entire batch must be retried.</p>
      */
     private List<EntityNormalizationReport> parseBatchResponse(
             String responseBody, List<EntityProfile> batch) throws IOException {
 
         List<EntityNormalizationReport> reports = new ArrayList<>();
-        if (responseBody == null || responseBody.isBlank()) {
-            batch.forEach(p -> reports.add(new EntityNormalizationReport(p.entityName(), List.of())));
-            return reports;
+        if (responseBody == null || responseBody.isBlank()) return reports;
+
+        String jsonText = extractJsonText(responseBody);
+        if (jsonText == null || jsonText.isBlank()) return reports;
+
+        JsonNode parsed;
+        try {
+            parsed = objectMapper.readTree(jsonText);
+            lastResponseTruncated = false;
+        } catch (Exception e) {
+            lastResponseTruncated = true;
+            logger.warn("LLM response appears truncated (malformed JSON); {} entities will be retried",
+                    batch.size());
+            logger.debug("Truncated content prefix: {}",
+                    jsonText.substring(0, Math.min(200, jsonText.length())));
+            return reports; // empty — signals all in this batch are uncovered
         }
 
-        JsonNode root = objectMapper.readTree(responseBody);
-        String jsonText;
-
-        if (aiService instanceof GeminiAIService) {
-            JsonNode candidates = root.path("candidates");
-            if (!candidates.isArray() || candidates.isEmpty()) {
-                batch.forEach(p -> reports.add(new EntityNormalizationReport(p.entityName(), List.of())));
-                return reports;
-            }
-            jsonText = candidates.get(0).path("content").path("parts").get(0).path("text").asText();
-        } else {
-            // OpenAI / fallback
-            JsonNode choices = root.path("choices");
-            if (!choices.isArray() || choices.isEmpty()) {
-                batch.forEach(p -> reports.add(new EntityNormalizationReport(p.entityName(), List.of())));
-                return reports;
-            }
-            jsonText = choices.get(0).path("message").path("content").asText();
-        }
-
-        if (jsonText == null || jsonText.isBlank()) {
-            batch.forEach(p -> reports.add(new EntityNormalizationReport(p.entityName(), List.of())));
-            return reports;
-        }
-
-        JsonNode parsed = objectMapper.readTree(jsonText);
-        // Unwrap {"results": [...]} or similar wrapper if present
+        // Unwrap a single-key object wrapper (e.g. {"results":[...]} or {"analyses":[...]})
+        // that json_object mode forces GPT models to emit. Try any field that is an array.
         if (parsed.isObject()) {
-            for (String key : List.of("results", "entities", "data")) {
-                if (parsed.has(key) && parsed.get(key).isArray()) {
-                    parsed = parsed.get(key);
+            java.util.Iterator<JsonNode> values = parsed.elements();
+            while (values.hasNext()) {
+                JsonNode candidate = values.next();
+                if (candidate.isArray()) {
+                    parsed = candidate;
                     break;
                 }
             }
         }
 
         if (!parsed.isArray()) {
-            logger.warn("Unexpected normalization batch response structure; expected JSON array");
-            batch.forEach(p -> reports.add(new EntityNormalizationReport(p.entityName(), List.of())));
+            lastResponseTruncated = true;
+            logger.warn("Unexpected normalization response structure; expected JSON array — batch will be retried");
             return reports;
         }
+        lastResponseTruncated = false;
 
-        // Build a map from entityName → issues so we can match by name
-        Map<String, List<NormalizationIssue>> issuesByEntity = new HashMap<>();
         for (JsonNode entityNode : parsed) {
             String entityName = entityNode.path("entityName").asText("");
+            if (entityName.isBlank()) continue;
             List<NormalizationIssue> issues = new ArrayList<>();
             JsonNode issuesNode = entityNode.path("issues");
             if (issuesNode.isArray()) {
@@ -412,20 +480,56 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
                     issues.add(parseIssue(issueNode));
                 }
             }
-            issuesByEntity.put(entityName, issues);
-        }
-
-        // Preserve batch order; fall back to empty issues if entity is missing from response
-        for (EntityProfile profile : batch) {
-            List<NormalizationIssue> issues = issuesByEntity.getOrDefault(
-                    profile.entityName(), List.of());
-            if (!issuesByEntity.containsKey(profile.entityName())) {
-                logger.warn("LLM response did not include entity: {}", profile.entityName());
-            }
-            reports.add(new EntityNormalizationReport(profile.entityName(), issues));
+            reports.add(new EntityNormalizationReport(entityName, issues));
         }
 
         return reports;
+    }
+
+    /**
+     * Extracts the inner JSON text from the provider envelope (Gemini candidates array
+     * or OpenAI choices array), then strips any markdown code fences the model may have
+     * added around the JSON (e.g. {@code ```json ... ```}).
+     * Returns {@code null} if the envelope is empty.
+     */
+    private String extractJsonText(String responseBody) throws IOException {
+        JsonNode root = objectMapper.readTree(responseBody);
+        String jsonText;
+        if (aiService instanceof GeminiAIService) {
+            JsonNode candidates = root.path("candidates");
+            if (!candidates.isArray() || candidates.isEmpty()) return null;
+            jsonText = candidates.get(0).path("content").path("parts").get(0).path("text").asText();
+        } else {
+            JsonNode choices = root.path("choices");
+            if (!choices.isArray() || choices.isEmpty()) return null;
+            jsonText = choices.get(0).path("message").path("content").asText();
+        }
+        jsonText = stripMarkdownFences(jsonText);
+        logger.debug("LLM content (first 500 chars): {}",
+                jsonText == null ? "null" : jsonText.substring(0, Math.min(500, jsonText.length())));
+        return jsonText;
+    }
+
+    /**
+     * Removes markdown code fences that some models wrap around JSON output,
+     * e.g. {@code ```json\n[...]\n```} → {@code [...]}.
+     * Also trims any leading/trailing whitespace or prose outside the JSON block.
+     */
+    private String stripMarkdownFences(String text) {
+        if (text == null || text.isBlank()) return text;
+        String trimmed = text.strip();
+        // Remove opening fence (```json or ```)
+        if (trimmed.startsWith("```")) {
+            int newline = trimmed.indexOf('\n');
+            if (newline != -1) {
+                trimmed = trimmed.substring(newline + 1).strip();
+            }
+        }
+        // Remove closing fence
+        if (trimmed.endsWith("```")) {
+            trimmed = trimmed.substring(0, trimmed.lastIndexOf("```")).strip();
+        }
+        return trimmed;
     }
 
     private NormalizationIssue parseIssue(JsonNode node) {
@@ -440,8 +544,45 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
         List<String> suggestedEntities = new ArrayList<>();
         node.path("suggestedEntities").forEach(n -> suggestedEntities.add(n.asText()));
 
+        DataMigrationPlan plan = parseDataMigrationPlan(node.path("dataMigrationPlan"));
+
         return new NormalizationIssue(form, violation, affectedFields, proposal,
-                suggestedEntities, migrationHint);
+                suggestedEntities, migrationHint, plan);
+    }
+
+    /**
+     * Deserialises the optional {@code dataMigrationPlan} node from the LLM response.
+     * Returns {@code null} when the node is absent or not a JSON object.
+     */
+    private DataMigrationPlan parseDataMigrationPlan(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull() || !node.isObject()) {
+            return null;
+        }
+
+        String sourceTable = node.path("sourceTable").asText("");
+        String baseTable   = node.path("baseTable").asText("");
+
+        List<String> newTables = new ArrayList<>();
+        node.path("newTables").forEach(n -> newTables.add(n.asText()));
+
+        List<DataMigrationPlan.ColumnMappingEntry> columnMappings = new ArrayList<>();
+        for (JsonNode cm : node.path("columnMappings")) {
+            columnMappings.add(new DataMigrationPlan.ColumnMappingEntry(
+                    cm.path("viewColumn").asText(""),
+                    cm.path("targetTable").asText(""),
+                    cm.path("targetColumn").asText("")));
+        }
+
+        List<DataMigrationPlan.ForeignKeyEntry> foreignKeys = new ArrayList<>();
+        for (JsonNode fk : node.path("foreignKeys")) {
+            foreignKeys.add(new DataMigrationPlan.ForeignKeyEntry(
+                    fk.path("fromTable").asText(""),
+                    fk.path("fromColumn").asText(""),
+                    fk.path("toTable").asText(""),
+                    fk.path("toColumn").asText("")));
+        }
+
+        return new DataMigrationPlan(sourceTable, baseTable, newTables, columnMappings, foreignKeys);
     }
 
     // -------------------------------------------------------------------------
@@ -472,6 +613,12 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
             if (issue.liquibaseMigrationHint() != null
                     && !issue.liquibaseMigrationHint().isBlank()) {
                 System.out.printf("      Migration hint  : %s%n", issue.liquibaseMigrationHint());
+            }
+            if (issue.dataMigrationPlan() != null) {
+                DataMigrationPlan plan = issue.dataMigrationPlan();
+                System.out.printf("      Migration plan  : %s → %s (tables: %s)%n",
+                        plan.sourceTable(), plan.baseTable(),
+                        String.join(", ", plan.newTables()));
             }
         }
     }
