@@ -4,9 +4,7 @@ import liquibase.exception.LiquibaseException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
-import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.examples.util.LiquibaseGenerator;
-import sa.com.cloudsolutions.antikythera.exception.AntikytheraException;
 import sa.com.cloudsolutions.antikythera.generator.RepositoryQuery;
 import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
@@ -16,7 +14,6 @@ import sa.com.cloudsolutions.liquibase.Indexes;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashSet;
@@ -27,17 +24,14 @@ import java.util.HashSet;
 import java.util.Set;
 
 @SuppressWarnings({ "java:S3457", "java:S106" })
-public class QueryOptimizationChecker {
+public class QueryOptimizationChecker extends AbstractRepositoryAnalyzer {
 
     protected static final Logger logger = LoggerFactory.getLogger(QueryOptimizationChecker.class);
 
     protected RepositoryParser repositoryParser;
     protected QueryAnalysisEngine analysisEngine;
     protected final File liquibaseXmlPath;
-    protected AbstractAIService aiService;
     protected LiquibaseGenerator liquibaseGenerator;
-
-    protected int totalRecommendations = 0;
 
     // Aggregated, de-duplicated suggestions for new indexes (key format:
     // table|column)
@@ -47,28 +41,8 @@ public class QueryOptimizationChecker {
 
     protected final List<QueryAnalysisResult> results = new ArrayList<>();
 
-    // Token usage tracking for AI service
-    protected final TokenUsage cumulativeTokenUsage = new TokenUsage();
-
-    // Quiet mode flag - suppresses detailed output, shows only changes
-    protected static boolean quietMode = false;
-
-    // Target class - if set, only analyze this specific repository
-    protected static String targetClass = null;
-
-    // Target method - if set (via ClassName#methodName), only analyze this specific method
-    protected static String targetMethod = null;
-
-    // Skip class - if set, do not analyze this repository
-    protected static String skipClass = null;
-
     // Maximum number of columns allowed in a multi-column index (configurable)
     protected final int maxIndexColumns;
-
-    // Checkpoint manager for resume capability
-    protected CheckpointManager checkpointManager;
-    private int repositoriesSkippedByFilter;
-    private int repositoriesResumed;
 
     /**
      * Creates a new QueryOptimizationChecker that uses RepositoryParser for
@@ -103,109 +77,32 @@ public class QueryOptimizationChecker {
         this.checkpointManager = new CheckpointManager();
     }
 
-    /**
-     * Analyzes all JPA repositories using RepositoryParser to extract and analyze
-     * queries.
-     *
-     * @return the number of repositories that were actually analyzed (not skipped)
-     */
-    public int analyze() throws IOException, ReflectiveOperationException, InterruptedException {
-        // Load checkpoint for resume capability
-        checkResumptionState();
+    @Override
+    protected boolean shouldProcess(TypeWrapper typeWrapper) {
+        return BaseRepositoryParser.isJpaRepository(typeWrapper);
+    }
 
-        Map<String, TypeWrapper> resolvedTypes = AntikytheraRunTime.getResolvedTypes();
-        int totalRepositories = 0;
-        int repositoriesProcessed = 0;
-        repositoriesResumed = 0;
-        repositoriesSkippedByFilter = 0;
+    @Override
+    protected void analyzeType(TypeWrapper typeWrapper)
+            throws IOException, ReflectiveOperationException, InterruptedException {
+        results.clear();
+        analyzeRepository(typeWrapper);
+    }
 
-        logger.debug("targetClass filter value: {}", targetClass);
-        logger.debug("skipClass filter value: {}", skipClass);
+    @Override
+    protected void restoreCheckpointState() {
+        suggestedNewIndexes.addAll(checkpointManager.getSuggestedNewIndexes());
+        suggestedMultiColumnIndexes.addAll(checkpointManager.getSuggestedMultiColumnIndexes());
+    }
 
-        for (Map.Entry<String, TypeWrapper> entry : resolvedTypes.entrySet()) {
-            String fullyQualifiedName = entry.getKey();
-            TypeWrapper typeWrapper = entry.getValue();
+    @Override
+    protected void onBeforeCheckpointSave() {
+        checkpointManager.setIndexSuggestions(suggestedNewIndexes, suggestedMultiColumnIndexes);
+    }
 
-            if (BaseRepositoryParser.isJpaRepository(typeWrapper)) {
-                totalRepositories++;
-
-                if (shouldSkipRepository(fullyQualifiedName)) continue;
-
-                results.clear(); // Clear results for each repository
-
-                System.out.println("\n" + "=".repeat(80));
-                System.out.printf("Analyzing Repository: %s%n", fullyQualifiedName);
-                System.out.println("=".repeat(80));
-                try {
-                    analyzeRepository(typeWrapper);
-                    repositoriesProcessed++;
-
-                    // Save checkpoint after successful repository analysis
-                    checkpointManager.markProcessed(fullyQualifiedName);
-                    checkpointManager.setIndexSuggestions(suggestedNewIndexes, suggestedMultiColumnIndexes);
-                    checkpointManager.save();
-                } catch (AntikytheraException ae) {
-                    logger.error("Error analyzing repository {}: {}", fullyQualifiedName, ae.getMessage());
-                    // Save checkpoint even on error so we don't lose progress
-                    checkpointManager.setIndexSuggestions(suggestedNewIndexes, suggestedMultiColumnIndexes);
-                    checkpointManager.save();
-                }
-            }
-        }
+    @Override
+    protected void afterAnalysisLoop() {
         OptimizationStatsLogger.flush();
-
-        // Print summary
-        if (repositoriesSkippedByFilter > 0) {
-            System.out.printf("\n✅ Analyzed %d repositories, skipped %d by target_class filter (total: %d)%n",
-                    repositoriesProcessed, repositoriesSkippedByFilter, totalRepositories);
-        } else if (repositoriesResumed > 0) {
-            System.out.printf("\n✅ Analyzed %d repositories, skipped %d from checkpoint (total: %d)%n",
-                    repositoriesProcessed, repositoriesResumed, totalRepositories);
-        } else {
-            System.out.printf("\n✅ Successfully analyzed %d repositories%n", repositoriesProcessed);
-        }
-
-        // Clear checkpoint on successful completion (all repos processed without error)
-        checkpointManager.clear();
-
-        return repositoriesProcessed;
-    }
-
-    private boolean shouldSkipRepository(String fullyQualifiedName) {
-        // Filter by target_class if specified
-        if (targetClass != null && !targetClass.equals(fullyQualifiedName)) {
-            repositoriesSkippedByFilter++;
-            logger.debug("Skipping repository (target_class filter): {}", fullyQualifiedName);
-            return true;
-        }
-
-        // Filter by skip_class if specified
-        if (skipClass != null && skipClass.equals(fullyQualifiedName)) {
-            repositoriesSkippedByFilter++;
-            logger.debug("Skipping repository (skip_class filter): {}", fullyQualifiedName);
-            return true;
-        }
-
-        // Check checkpoint for resume after crash/interruption
-        if (checkpointManager.isProcessed(fullyQualifiedName)) {
-            if (!quietMode) {
-                System.out.printf("⏭️ Skipping (checkpoint): %s%n", fullyQualifiedName);
-            }
-            repositoriesResumed++;
-            return true;
-        }
-        return false;
-    }
-
-    private void checkResumptionState() {
-        boolean resumed = checkpointManager.load();
-        if (resumed) {
-            // Restore accumulated state from checkpoint
-            suggestedNewIndexes.addAll(checkpointManager.getSuggestedNewIndexes());
-            suggestedMultiColumnIndexes.addAll(checkpointManager.getSuggestedMultiColumnIndexes());
-            System.out.printf("🔄 Resuming from checkpoint: %d repositories already processed%n",
-                    checkpointManager.getProcessedCount());
-        }
     }
 
     /**
@@ -684,60 +581,6 @@ public class QueryOptimizationChecker {
     }
 
     /**
-     * Enables or disables quiet mode.
-     *
-     * @param enabled true to enable quiet mode, false for normal output
-     */
-    public static void setQuietMode(boolean enabled) {
-        quietMode = enabled;
-    }
-
-    /**
-     * Set the target class to analyze. If set, only this repository will be analyzed.
-     * Supports the '#methodName' suffix to filter to a single method within the class,
-     * following the same convention used in Antikythera.java.
-     *
-     * @param className fully qualified class name (optionally with #methodName), or null to analyze all
-     */
-    public static void setTargetClass(String className) {
-        if (className != null) {
-            String[] parts = className.split("#");
-            targetClass = parts[0];
-            targetMethod = parts.length == 2 ? parts[1] : null;
-        } else {
-            targetClass = null;
-            targetMethod = null;
-        }
-    }
-
-    /**
-     * Get the current target class filter.
-     *
-     * @return the target class name, or null if not set
-     */
-    public static String getTargetClass() {
-        return targetClass;
-    }
-
-    /**
-     * Get the current target method filter.
-     *
-     * @return the target method name, or null if not set
-     */
-    public static String getTargetMethod() {
-        return targetMethod;
-    }
-
-    /**
-     * Checks if quiet mode is enabled.
-     * 
-     * @return true if quiet mode is enabled
-     */
-    public static boolean isQuietMode() {
-        return quietMode;
-    }
-
-    /**
      * Finds a WHERE condition by column name from the analysis result.
      *
      * @param result     the analysis result
@@ -1155,10 +998,6 @@ public class QueryOptimizationChecker {
                 .orElse(pad + s);
     }
 
-    public TokenUsage getCumulativeTokenUsage() {
-        return cumulativeTokenUsage;
-    }
-
     /**
      * Generates a Liquibase changes file from consolidated suggestions and includes
      * it in the master file.
@@ -1303,22 +1142,6 @@ public class QueryOptimizationChecker {
                 .orElse(xml);
     }
 
-    protected static File getLiquibasePath() {
-        String basePath = (String) Settings.getProperty("base_path");
-        if (basePath == null) {
-            System.err.println("base_path not found in generator.yml");
-            System.exit(1);
-        }
-
-        String liquibaseXml = Paths.get(basePath, "src/main/resources/db/changelog/db.changelog-master.xml").toString();
-        File liquibaseFile = new File(liquibaseXml);
-        if (!liquibaseFile.exists()) {
-            System.err.println("Liquibase file not found: " + liquibaseXml);
-            System.exit(1);
-        }
-        return liquibaseFile;
-    }
-
     public void setRepositoryParser(RepositoryParser repositoryParser) {
         this.repositoryParser = repositoryParser;
     }
@@ -1432,22 +1255,6 @@ public class QueryOptimizationChecker {
         } else {
             System.out.println("ℹ️ No query_optimizer section in settings (processing all repositories)");
         }
-    }
-
-    protected static Set<String> parseListArg(String[] args, String prefix) {
-        HashSet<String> set = new HashSet<>();
-
-        for (String arg : args) {
-            if (arg.startsWith(prefix)) {
-                String value = arg.substring(prefix.length());
-                for (String token : value.split(",")) {
-                    String t = token.trim().toLowerCase();
-                    if (!t.isEmpty())
-                        set.add(t);
-                }
-            }
-        }
-        return set;
     }
 
     // Package-private getters for testing
