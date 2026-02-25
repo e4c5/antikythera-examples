@@ -48,12 +48,8 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
 
     private static final Logger logger = LoggerFactory.getLogger(SchemaNormalizationAnalyzer.class);
 
-    /** Default number of entity profiles to include per LLM request. */
-    private static final int DEFAULT_BATCH_SIZE = 20;
-
     private final String normalizationSystemPrompt;
     private final ObjectMapper objectMapper = new ObjectMapper();
-    private int batchSize = DEFAULT_BATCH_SIZE;
 
     /** Phase-1 accumulator: profiles built from source code, no LLM call yet. */
     private final List<EntityProfile> allProfiles = new ArrayList<>();
@@ -100,12 +96,9 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
      * Creates a new analyzer. The Liquibase path parameter is accepted for
      * consistency with {@link QueryOptimizationChecker} but is not required for
      * pure normalization analysis.
-     *
-     * @param liquibaseXmlPath path to the Liquibase master changelog (may be
-     *                         {@code null} if Liquibase output is not needed)
      */
     @SuppressWarnings("unchecked")
-    public SchemaNormalizationAnalyzer(File liquibaseXmlPath) throws IOException {
+    public SchemaNormalizationAnalyzer() throws IOException {
         Map<String, Object> aiConfig = (Map<String, Object>) Settings.getProperty("ai_service");
         if (aiConfig == null) {
             aiConfig = new HashMap<>();
@@ -163,7 +156,7 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
     }
 
     /**
-     * Phase 2: send all collected profiles to the LLM in batches, then report.
+     * Phase 2: send all collected profiles to the LLM in a single call, then report.
      * Called by the base-class template method after the entity loop finishes.
      */
     @Override
@@ -173,26 +166,16 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
             return;
         }
 
-        System.out.printf("%n🤖 Sending %d entity profiles to LLM (batch size: %d)…%n",
-                allProfiles.size(), batchSize);
+        System.out.printf("%n🤖 Sending all %d entity profiles to LLM in a single request…%n",
+                allProfiles.size());
 
-        for (int i = 0; i < allProfiles.size(); i += batchSize) {
-            int end = Math.min(allProfiles.size(), i + batchSize);
-            List<EntityProfile> batch = allProfiles.subList(i, end);
-            int batchNum = (i / batchSize) + 1;
-            int totalBatches = (int) Math.ceil((double) allProfiles.size() / batchSize);
+        List<EntityNormalizationReport> reports = sendBatchToLLM(allProfiles);
+        allReports.addAll(reports);
 
-            System.out.printf("  Batch %d/%d: %d entities%n", batchNum, totalBatches, batch.size());
-
-            List<EntityNormalizationReport> batchReports = sendBatchToLLM(batch);
-            allReports.addAll(batchReports);
-
-            TokenUsage tokenUsage = aiService.getLastTokenUsage();
-            cumulativeTokenUsage.add(tokenUsage);
-            if (!quietMode) {
-                System.out.printf("  🤖 AI analysis (batch %d/%d): %s%n",
-                        batchNum, totalBatches, tokenUsage.getFormattedReport());
-            }
+        TokenUsage tokenUsage = aiService.getLastTokenUsage();
+        cumulativeTokenUsage.add(tokenUsage);
+        if (!quietMode) {
+            System.out.printf("  🤖 AI analysis: %s%n", tokenUsage.getFormattedReport());
         }
 
         // Print per-entity results
@@ -569,7 +552,7 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
         AbstractCompiler.preProcess();
         configureFromSettings();
 
-        SchemaNormalizationAnalyzer analyzer = new SchemaNormalizationAnalyzer(getLiquibasePath());
+        SchemaNormalizationAnalyzer analyzer = new SchemaNormalizationAnalyzer();
         analyzer.analyze();
         analyzer.generateReport();
 
