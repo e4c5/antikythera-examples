@@ -24,10 +24,11 @@ public class AIServiceFactory {
         String provider = (String) config.getOrDefault("provider", "gemini");
         
         return switch (provider.toLowerCase()) {
-            case "gemini" -> new GeminiAIService();
-            case "openai" -> new OpenAIService();
+            case "gemini"      -> new GeminiAIService();
+            case "openai"      -> new OpenAIService();
+            case "openrouter"  -> new OpenRouterService();
             default -> throw new IllegalArgumentException(
-                "Unknown AI provider: " + provider + ". Supported providers: gemini, openai");
+                "Unknown AI provider: " + provider + ". Supported providers: gemini, openai, openrouter");
         };
     }
 }
