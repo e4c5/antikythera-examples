@@ -18,17 +18,25 @@ import sa.com.cloudsolutions.antikythera.parser.converter.EntityMappingResolver;
 import sa.com.cloudsolutions.antikythera.parser.converter.EntityMetadata;
 import com.raditha.hql.converter.JoinMapping;
 
+import sa.com.cloudsolutions.antikythera.examples.util.DataMigrationGenerator;
+import sa.com.cloudsolutions.antikythera.examples.util.InsteadOfTriggerGenerator;
+import sa.com.cloudsolutions.antikythera.examples.util.LiquibaseGenerator;
+
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * AI-powered analyzer that inspects {@code @Entity} classes for database
@@ -61,6 +69,16 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
 
     /** Set by parseBatchResponse; true when the last response contained malformed/truncated JSON. */
     private boolean lastResponseTruncated = false;
+
+    /** Maps entity simple name → Java package name, populated during analyzeType(). */
+    private final Map<String, String> entityPackageMap = new HashMap<>();
+
+    /**
+     * Persistence import package detected from the source entities.
+     * Defaults to {@code javax.persistence}; updated to {@code jakarta.persistence}
+     * if any scanned entity imports from that namespace.
+     */
+    private String persistencePackage = "javax.persistence";
 
     // -------------------------------------------------------------------------
     // Profile records — serialised as JSON and sent to the LLM
@@ -172,6 +190,21 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
         EntityProfile profile = buildEntityProfile(typeWrapper, metadata);
         allProfiles.add(profile);
 
+        // Store package for entity generation (derived from FQN)
+        if (fqn.contains(".")) {
+            entityPackageMap.put(profile.entityName(), fqn.substring(0, fqn.lastIndexOf('.')));
+        }
+
+        // Detect javax vs jakarta persistence from the compilation unit (check once)
+        if ("javax.persistence".equals(persistencePackage)) {
+            typeWrapper.getType().findCompilationUnit().ifPresent(cu ->
+                cu.getImports().stream()
+                    .map(id -> id.getNameAsString())
+                    .filter(name -> name.startsWith("jakarta") && name.contains("persistence"))
+                    .findFirst()
+                    .ifPresent(ignored -> persistencePackage = "jakarta.persistence"));
+        }
+
         if (!quietMode) {
             System.out.printf("  📊 Profiling entity: %s (table: %s, %d fields, %d relationships)%n",
                     profile.entityName(), profile.tableName(),
@@ -237,6 +270,8 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
             reportEntityResults(report.entityName(), tableName, report.issues());
             totalRecommendations += report.issues().size();
         }
+
+        generateMigrationArtifacts();
     }
 
     /**
@@ -366,6 +401,7 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
         String userContent = objectMapper.writeValueAsString(batch);
         String payload = buildLLMRequest(userContent);
         String response = aiService.sendRawRequest(payload);
+        logger.info("=== LLM RAW RESPONSE ===\n{}", response);
         return parseBatchResponse(response, batch);
     }
 
@@ -505,8 +541,7 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
             jsonText = choices.get(0).path("message").path("content").asText();
         }
         jsonText = stripMarkdownFences(jsonText);
-        logger.debug("LLM content (first 500 chars): {}",
-                jsonText == null ? "null" : jsonText.substring(0, Math.min(500, jsonText.length())));
+        logger.info("=== LLM EXTRACTED JSON ===\n{}", jsonText == null ? "null" : jsonText);
         return jsonText;
     }
 
@@ -583,6 +618,333 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
         }
 
         return new DataMigrationPlan(sourceTable, baseTable, newTables, columnMappings, foreignKeys);
+    }
+
+    // -------------------------------------------------------------------------
+    // Migration artifact generation
+    // -------------------------------------------------------------------------
+
+    /**
+     * Converts a {@link DataMigrationPlan} from the LLM response into an
+     * {@link InsteadOfTriggerGenerator.ViewDescriptor} suitable for the code generators.
+     */
+    private InsteadOfTriggerGenerator.ViewDescriptor toViewDescriptor(DataMigrationPlan plan) {
+        List<InsteadOfTriggerGenerator.ColumnMapping> mappings = plan.columnMappings().stream()
+                .map(cm -> new InsteadOfTriggerGenerator.ColumnMapping(
+                        cm.viewColumn(), cm.targetTable(), cm.targetColumn()))
+                .toList();
+
+        List<InsteadOfTriggerGenerator.ForeignKey> fks = plan.foreignKeys().stream()
+                .map(fk -> new InsteadOfTriggerGenerator.ForeignKey(
+                        fk.fromTable(), fk.fromColumn(), fk.toTable(), fk.toColumn()))
+                .toList();
+
+        return new InsteadOfTriggerGenerator.ViewDescriptor(
+                plan.sourceTable(),
+                plan.baseTable(),
+                plan.newTables(),
+                mappings,
+                fks);
+    }
+
+    /**
+     * Generates a SELECT statement for a compatibility view that re-exposes all original
+     * columns by joining the new normalized tables, preserving backward compatibility.
+     */
+    private String buildCompatibilityViewSql(InsteadOfTriggerGenerator.ViewDescriptor view) {
+        List<String> selects = view.columnMappings().stream()
+                .map(cm -> cm.sourceTable() + "." + cm.sourceColumn() + " AS " + cm.viewColumn())
+                .toList();
+
+        StringBuilder sb = new StringBuilder("SELECT ");
+        sb.append(String.join(", ", selects));
+        sb.append(" FROM ").append(view.baseTable());
+
+        for (InsteadOfTriggerGenerator.ForeignKey fk : view.foreignKeys()) {
+            sb.append(" JOIN ").append(fk.fromTable())
+              .append(" ON ").append(fk.fromTable()).append(".").append(fk.fromColumn())
+              .append(" = ").append(fk.toTable()).append(".").append(fk.toColumn());
+        }
+        return sb.toString();
+    }
+
+    /**
+     * For each normalization issue with a structured {@link DataMigrationPlan}, generates
+     * and writes Liquibase changesets containing:
+     * <ol>
+     *   <li>Data migration INSERT-SELECT statements (one per normalized table)</li>
+     *   <li>A compatibility view named after the original table</li>
+     *   <li>INSTEAD OF triggers for INSERT, UPDATE, and DELETE on the view</li>
+     * </ol>
+     * <p>If {@code liquibase_master_file} is not configured, the changeset XML is printed
+     * to stdout instead.</p>
+     */
+    private void generateMigrationArtifacts() throws IOException {
+        Set<String> processedSourceTables = new HashSet<>();
+        List<DataMigrationPlan> plans = new ArrayList<>();
+
+        for (EntityNormalizationReport report : allReports) {
+            for (NormalizationIssue issue : report.issues()) {
+                DataMigrationPlan plan = issue.dataMigrationPlan();
+                if (plan == null || plan.newTables().isEmpty() || plan.columnMappings().isEmpty()) {
+                    continue;
+                }
+                // Deduplicate — multiple issues on the same entity may share the same plan
+                if (processedSourceTables.add(plan.sourceTable())) {
+                    plans.add(plan);
+                }
+            }
+        }
+
+        if (plans.isEmpty()) {
+            System.out.println("  ℹ️  No structured migration plans found — skipping artifact generation.");
+            return;
+        }
+
+        System.out.printf("%n🔧 Generating migration artifacts for %d plan(s)…%n", plans.size());
+
+        LiquibaseGenerator liquibaseGenerator =
+                new LiquibaseGenerator(LiquibaseGenerator.ChangesetConfig.fromConfiguration());
+        DataMigrationGenerator dataMigrationGenerator = new DataMigrationGenerator();
+        InsteadOfTriggerGenerator triggerGenerator = new InsteadOfTriggerGenerator();
+
+        List<String> allChangesets = new ArrayList<>();
+
+        for (DataMigrationPlan plan : plans) {
+            InsteadOfTriggerGenerator.ViewDescriptor view = toViewDescriptor(plan);
+            System.out.printf("  📦 %s → [%s]%n", plan.sourceTable(),
+                    String.join(", ", plan.newTables()));
+
+            // 1. Data migration INSERT-SELECT statements (one per new table)
+            List<String> migrationSqls = dataMigrationGenerator.generateMigrationSql(view);
+            for (int i = 0; i < migrationSqls.size(); i++) {
+                allChangesets.add(liquibaseGenerator.createRawSqlChangeset(
+                        "migrate_data_" + plan.sourceTable() + "_" + i,
+                        migrationSqls.get(i)));
+            }
+
+            // 2. Compatibility view (old table name → SELECT joining all new tables)
+            String viewSql = buildCompatibilityViewSql(view);
+            allChangesets.add(liquibaseGenerator.createViewChangeset(view.viewName(), viewSql));
+
+            // 3. INSTEAD OF triggers so existing DML through the view still works
+            allChangesets.add(liquibaseGenerator.createDialectSqlChangeset(
+                    "trigger_insert_" + view.viewName(), triggerGenerator.generateInsert(view)));
+            allChangesets.add(liquibaseGenerator.createDialectSqlChangeset(
+                    "trigger_update_" + view.viewName(), triggerGenerator.generateUpdate(view)));
+            allChangesets.add(liquibaseGenerator.createDialectSqlChangeset(
+                    "trigger_delete_" + view.viewName(), triggerGenerator.generateDelete(view)));
+        }
+
+        String composite = liquibaseGenerator.createCompositeChangeset(allChangesets);
+        try {
+            LiquibaseGenerator.WriteResult result =
+                    liquibaseGenerator.writeChangesetToConfiguredFile(composite);
+            if (result.wasWritten()) {
+                System.out.printf("  ✅ Changesets written to: %s%n",
+                        result.getChangesFile().getAbsolutePath());
+            }
+        } catch (IllegalStateException e) {
+            System.out.println("  ⚠️  liquibase_master_file not configured — printing changeset to stdout:");
+            System.out.println(composite);
+        }
+
+        generateNewEntities(plans);
+    }
+
+    // -------------------------------------------------------------------------
+    // New entity generation
+    // -------------------------------------------------------------------------
+
+    /**
+     * For each normalized table in each migration plan, generates a JPA {@code @Entity}
+     * source file and writes it to {@code <base_path>/src/main/java/<package>/normalized/}.
+     * A {@code normalized} subpackage is used to avoid name collisions with the original entities.
+     * Files that already exist are skipped with a warning.
+     */
+    private void generateNewEntities(List<DataMigrationPlan> plans) throws IOException {
+        Object basePathProp = Settings.getProperty("base_path");
+        if (basePathProp == null) {
+            System.out.println("  ⚠️  base_path not configured — cannot write new entity files.");
+            return;
+        }
+        Path sourceRoot = Path.of(basePathProp.toString(), "src", "main", "java");
+
+        System.out.printf("%n📝 Generating new entity classes (persistence: %s)…%n", persistencePackage);
+
+        for (DataMigrationPlan plan : plans) {
+            // Locate the source entity profile by its table name
+            EntityProfile sourceProfile = allProfiles.stream()
+                    .filter(p -> p.tableName().equals(plan.sourceTable()))
+                    .findFirst()
+                    .orElse(null);
+            if (sourceProfile == null) {
+                logger.warn("No EntityProfile found for source table '{}' — skipping entity generation",
+                        plan.sourceTable());
+                continue;
+            }
+
+            // Place generated entities in a `normalized` subpackage to avoid collisions
+            String originalPackage = entityPackageMap.getOrDefault(sourceProfile.entityName(), "");
+            String targetPackage = originalPackage.isBlank()
+                    ? "normalized"
+                    : originalPackage + ".normalized";
+
+            // Index outgoing FKs by child table name for quick lookup
+            Map<String, List<DataMigrationPlan.ForeignKeyEntry>> fksByTable = new HashMap<>();
+            for (DataMigrationPlan.ForeignKeyEntry fk : plan.foreignKeys()) {
+                fksByTable.computeIfAbsent(fk.fromTable(), k -> new ArrayList<>()).add(fk);
+            }
+
+            for (String newTable : plan.newTables()) {
+                List<DataMigrationPlan.ColumnMappingEntry> tableMappings = plan.columnMappings().stream()
+                        .filter(cm -> cm.targetTable().equals(newTable))
+                        .toList();
+                if (tableMappings.isEmpty()) {
+                    logger.warn("No column mappings returned by LLM for table '{}' (plan source: '{}') " +
+                            "— entity will not be generated. Check the LLM response log for details.",
+                            newTable, plan.sourceTable());
+                    continue;
+                }
+
+                List<DataMigrationPlan.ForeignKeyEntry> outgoingFks =
+                        fksByTable.getOrDefault(newTable, List.of());
+
+                String entityName = toPascalCase(newTable);
+                String source = buildEntitySource(targetPackage, entityName, newTable,
+                        tableMappings, outgoingFks, sourceProfile);
+
+                Path packageDir = sourceRoot.resolve(targetPackage.replace('.', File.separatorChar));
+                Files.createDirectories(packageDir);
+                Path entityFile = packageDir.resolve(entityName + ".java");
+
+                if (Files.exists(entityFile)) {
+                    System.out.printf("  ⚠️  Skipping %s — already exists: %s%n", entityName, entityFile);
+                } else {
+                    Files.writeString(entityFile, source, StandardCharsets.UTF_8);
+                    System.out.printf("  ✅ Generated: %s%n", entityFile);
+                }
+            }
+        }
+    }
+
+    /**
+     * Generates a Java source file for a single normalized entity.
+     * FK columns are emitted as {@code @ManyToOne} relationships; all other columns
+     * become {@code @Column} scalar fields. The first {@code @Id} field in the source
+     * profile is annotated with {@code @Id @GeneratedValue}.
+     */
+    private String buildEntitySource(String packageName,
+                                     String entityName,
+                                     String tableName,
+                                     List<DataMigrationPlan.ColumnMappingEntry> tableMappings,
+                                     List<DataMigrationPlan.ForeignKeyEntry> outgoingFks,
+                                     EntityProfile sourceProfile) {
+        // Column names in this table that are FK columns (become @ManyToOne, not scalars)
+        Set<String> fkTargetColumns = outgoingFks.stream()
+                .map(DataMigrationPlan.ForeignKeyEntry::fromColumn)
+                .collect(Collectors.toSet());
+
+        // Build fields into a separate buffer so we can prepend a synthetic PK if needed
+        StringBuilder fields = new StringBuilder();
+        boolean idEmitted = false;
+
+        for (DataMigrationPlan.ColumnMappingEntry cm : tableMappings) {
+            if (fkTargetColumns.contains(cm.targetColumn())) {
+                // FK column → @ManyToOne relationship
+                DataMigrationPlan.ForeignKeyEntry fk = outgoingFks.stream()
+                        .filter(f -> f.fromColumn().equals(cm.targetColumn()))
+                        .findFirst()
+                        .orElse(null);
+                if (fk != null) {
+                    String parentEntityName = toPascalCase(fk.toTable());
+                    String fieldName = toCamelCase(fk.toTable());
+                    fields.append("    @ManyToOne\n");
+                    fields.append("    @JoinColumn(name = \"").append(cm.targetColumn()).append("\")\n");
+                    fields.append("    private ").append(parentEntityName).append(" ")
+                          .append(fieldName).append(";\n\n");
+                }
+            } else {
+                boolean isId = isIdColumn(cm.viewColumn(), sourceProfile);
+                boolean nullable = isNullableColumn(cm.viewColumn(), sourceProfile);
+                String javaType = findJavaType(cm.viewColumn(), sourceProfile);
+                String fieldName = toCamelCase(cm.targetColumn());
+
+                if (isId) {
+                    idEmitted = true;
+                    fields.append("    @Id\n");
+                    fields.append("    @GeneratedValue(strategy = GenerationType.IDENTITY)\n");
+                    fields.append("    @Column(name = \"").append(cm.targetColumn()).append("\")\n");
+                } else {
+                    fields.append("    @Column(name = \"").append(cm.targetColumn()).append("\"");
+                    if (!nullable) fields.append(", nullable = false");
+                    fields.append(")\n");
+                }
+                fields.append("    private ").append(javaType).append(" ").append(fieldName).append(";\n\n");
+            }
+        }
+
+        // If no mapped column carried @Id (e.g. a child table whose PK is new),
+        // prepend a synthetic surrogate key so the entity is valid JPA.
+        if (!idEmitted) {
+            logger.warn("No @Id column found for table '{}' — inserting synthetic surrogate key 'id'", tableName);
+            String syntheticPk =
+                    "    @Id\n" +
+                    "    @GeneratedValue(strategy = GenerationType.IDENTITY)\n" +
+                    "    @Column(name = \"id\")\n" +
+                    "    private Long id;\n\n";
+            fields.insert(0, syntheticPk);
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("package ").append(packageName).append(";\n\n");
+        sb.append("import ").append(persistencePackage).append(".*;\n\n");
+        sb.append("@Entity\n");
+        sb.append("@Table(name = \"").append(tableName).append("\")\n");
+        sb.append("public class ").append(entityName).append(" {\n\n");
+        sb.append(fields);
+        sb.append("}\n");
+        return sb.toString();
+    }
+
+    /** Returns the Java type of the field whose DB column name matches {@code viewColumn}. */
+    private String findJavaType(String viewColumn, EntityProfile sourceProfile) {
+        return sourceProfile.fields().stream()
+                .filter(f -> f.columnName().equals(viewColumn))
+                .map(FieldProfile::columnType)
+                .findFirst()
+                .orElse("Object");
+    }
+
+    /** Returns true if the field whose DB column is {@code viewColumn} carries {@code @Id}. */
+    private boolean isIdColumn(String viewColumn, EntityProfile sourceProfile) {
+        return sourceProfile.fields().stream()
+                .anyMatch(f -> f.columnName().equals(viewColumn) && f.isId());
+    }
+
+    /** Returns the nullable flag of the field whose DB column is {@code viewColumn}. */
+    private boolean isNullableColumn(String viewColumn, EntityProfile sourceProfile) {
+        return sourceProfile.fields().stream()
+                .filter(f -> f.columnName().equals(viewColumn))
+                .map(FieldProfile::isNullable)
+                .findFirst()
+                .orElse(true);
+    }
+
+    /** Converts a snake_case table/column name to PascalCase (e.g. {@code patient_address → PatientAddress}). */
+    private String toPascalCase(String snakeCase) {
+        if (snakeCase == null || snakeCase.isBlank()) return snakeCase;
+        return Arrays.stream(snakeCase.split("[_\\s]+"))
+                .filter(w -> !w.isEmpty())
+                .map(w -> Character.toUpperCase(w.charAt(0)) + w.substring(1).toLowerCase())
+                .collect(Collectors.joining());
+    }
+
+    /** Converts a snake_case name to camelCase (e.g. {@code patient_address → patientAddress}). */
+    private String toCamelCase(String snakeCase) {
+        String pascal = toPascalCase(snakeCase);
+        if (pascal == null || pascal.isEmpty()) return pascal;
+        return Character.toLowerCase(pascal.charAt(0)) + pascal.substring(1);
     }
 
     // -------------------------------------------------------------------------
