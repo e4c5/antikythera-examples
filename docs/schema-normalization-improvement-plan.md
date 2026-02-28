@@ -10,7 +10,7 @@ This document describes the current entity refactoring implementation, confirms 
 
 - **Phase 1:** `SchemaNormalizationAnalyzer` scans for JPA `@Entity` types, builds an `EntityProfile` per entity via `EntityMappingResolver`, collects them in `allProfiles`.
 - **Phase 2:** All profiles are sent to the LLM in one batch. The LLM returns `EntityNormalizationReport` entries with optional `DataMigrationPlan`.
-- **Artifact generation:** For each plan, the analyzer currently generates: (1) data migration INSERT-SELECT SQL, (2) compatibility view SQL, (3) INSTEAD OF triggers, (4) new JPA entity classes. It does **not** generate CREATE TABLE for new tables, nor drop/rename of the old table.
+- **Artifact generation:** For each plan, the analyzer currently generates: (1) data migration INSERT-SELECT SQL, (2) compatibility view SQL, (3) INSTEAD OF triggers, (4) new JPA entity classes. It does **not** generate CREATE TABLE for new tables, nor drop FKs / rename of the old table.
 
 ### 1.2 Data Structures
 
@@ -164,7 +164,7 @@ Configuration will choose the mode (e.g. `schema_normalization.ddl_mode: "raw_sq
 **Step 4.2.1 — Config**
 
 - **File:** `generator.yml` (or wherever `schema_normalization` is read).
-- **Add:** Under `schema_normalization`, add key `ddl_mode` with values `raw_sql` or `liquibase` (default e.g. `liquibase`). Optionally `drop_old_table: true` (default true) and `rename_old_table_to` (e.g. `customer_backup`) if you prefer rename instead of drop.
+- **Add:** Under `schema_normalization`, add key `ddl_mode` with values `raw_sql` or `liquibase` (default e.g. `liquibase`). For the old table: **always rename** (do not drop initially); add `rename_old_table_to` (e.g. `customer_backup`) as the suffix or full name for the renamed table. Optionally support `drop_old_table_after_rename: false` (default) so we keep the backup; if set true, a later step could drop the renamed table (out of scope for initial implementation).
 
 **Step 4.2.2 — New class: `NormalizedTableDDLGenerator`**
 
@@ -191,12 +191,12 @@ Configuration will choose the mode (e.g. `schema_normalization.ddl_mode: "raw_sq
   - For each plan, build `ViewDescriptor view = toViewDescriptor(plan)` and get `EntityProfile sourceProfile` (same as for entity generation).
   - Call `NormalizedTableDDLGenerator.generateCreateTableArtifacts(view, sourceProfile, ddlMode)` (or similar) to get a list of changesets in topological order.
   - Append these changesets to `allChangesets` **first** (so CREATE TABLE runs before any INSERT).
-- **Then** add a single changeset to **drop or rename the old table:** e.g. `DROP TABLE &lt;sourceTable&gt;` or `RENAME TABLE &lt;sourceTable&gt; TO &lt;backupName&gt;`. Use `LiquibaseGenerator.createRawSqlChangeset` for drop/rename. Add this changeset **after** the data migration INSERTs and **before** the createView changeset, so the view is created only after the old table is gone.
-- **Order of changesets per plan:** (1) CREATE TABLE for each new table (topological order), (2) INSERT-SELECT for each new table (topological order), (3) DROP TABLE or RENAME TABLE old table, (4) CREATE VIEW, (5) INSTEAD OF triggers.
+- **Then** add changesets to **drop foreign keys that reference the old table**, then **rename the old table** (never drop it initially). Renaming a table would break any foreign key constraints in *other* tables that reference it, so we must drop those FKs first. Add these changesets **after** the data migration INSERTs and **before** the createView changeset.
+- **Order of changesets per plan:** (1) CREATE TABLE for each new table (topological order), (2) INSERT-SELECT for each new table (topological order), (3) Drop all FK constraints that reference the old table, (4) RENAME TABLE old table TO backup name, (5) CREATE VIEW, (6) INSTEAD OF triggers.
 
 **Step 4.2.6 — Composite changeset ordering**
 
-- Currently the loop adds: migration SQL, view, triggers. Change to: DDL changesets (create tables), then migration SQL, then drop/rename old table, then view, then triggers. Ensure `allChangesets` is built in that order (e.g. collect per-plan lists and add in sequence).
+- Currently the loop adds: migration SQL, view, triggers. Change to: DDL changesets (create tables), then migration SQL, then drop FKs referencing old table, then rename old table, then view, then triggers. Ensure `allChangesets` is built in that order (e.g. collect per-plan lists and add in sequence).
 
 ---
 
@@ -210,9 +210,10 @@ Configuration will choose the mode (e.g. `schema_normalization.ddl_mode: "raw_sq
 
 1. **CREATE TABLE** for each new table (topological order) — from `NormalizedTableDDLGenerator` (raw_sql or liquibase).
 2. **Data migration** — existing `DataMigrationGenerator.generateMigrationSql(view)` (already in topological order).
-3. **Drop or rename old table** — one new changeset: `DROP TABLE &lt;sourceTable&gt;` or `RENAME TABLE &lt;sourceTable&gt; TO &lt;backupName&gt;`.
-4. **Create compatibility view** — existing `createViewChangeset(viewName, viewSql)`.
-5. **INSTEAD OF triggers** — existing trigger changesets.
+3. **Drop foreign keys that reference the old table** — one or more changesets: for each table that has a FK constraint pointing to `sourceTable`, emit `ALTER TABLE &lt;referencing_table&gt; DROP CONSTRAINT &lt;fk_name&gt;` (or dialect-equivalent). This must happen before rename, because renaming the old table would invalidate those constraints.
+4. **Rename old table** — one changeset: `ALTER TABLE &lt;sourceTable&gt; RENAME TO &lt;backupName&gt;` (e.g. `&lt;sourceTable&gt;_backup`). We **always rename**, never drop, so the old data is preserved as a backup.
+5. **Create compatibility view** — existing `createViewChangeset(viewName, viewSql)`.
+6. **INSTEAD OF triggers** — existing trigger changesets.
 
 **Concrete change:** In the loop over `plans`, build a **per-plan** list of changesets in the order above, then add that list to `allChangesets`. Use a helper method e.g. `buildChangesetsForPlan(DataMigrationPlan plan, ViewDescriptor view, EntityProfile sourceProfile, LiquibaseGenerator liquibaseGenerator, ...)` that returns `List<String>` in the correct order.
 
@@ -262,24 +263,93 @@ Configuration will choose the mode (e.g. `schema_normalization.ddl_mode: "raw_sq
 
 ---
 
-## 8. Drop/Rename Old Table — Concrete Steps
+## 8. Rename Old Table (Never Drop First) — Concrete Steps
 
-**Requirement:** The compatibility view uses the old table name. The old table must be removed or renamed before creating the view.
+**Requirement:** The compatibility view uses the old table name. The old table must be **renamed** (not dropped) before creating the view, so that the old data is preserved as a backup. **Renaming would break foreign keys:** any other table that has a FK constraint referencing the old table must have that constraint dropped before the rename.
 
-**Config:** Under `schema_normalization`, add (if not already):  
-- `drop_old_table: true` (default true).  
-- If false, optionally `rename_old_table_to: "customer_backup"` to rename instead of drop.
+**Strategy:** Always rename. Do not drop the old table in the initial migration.
 
-**Generation:** In `generateMigrationArtifacts()`, after the data migration changesets for a plan and before the view changeset, add one changeset:
+**Step 1 — Discover FKs that reference the old table:**  
+We need the set of (referencing_table, constraint_name) or (referencing_table, fk_column) for every FK that points to `sourceTable`. Options:
 
-- If `drop_old_table`: SQL `DROP TABLE &lt;plan.sourceTable()&gt;` (or `DROP TABLE IF EXISTS` for idempotency). Use `LiquibaseGenerator.createRawSqlChangeset("drop_old_table_" + plan.sourceTable(), sql)`.
-- If rename: SQL `ALTER TABLE &lt;sourceTable&gt; RENAME TO &lt;rename_old_table_to&gt;` (syntax may differ by DB; use Liquibase’s `renameTable` or raw SQL with `dbms` if needed).
+- **From entity model:** Scan all `EntityProfile` / `EntityMetadata` for relationships whose `targetEntity` (or resolved table name) is the entity that maps to `sourceTable`. For each such relationship, the *other* entity’s table is the referencing table, and its `joinColumn` is the FK column. Constraint names may be generated (e.g. `fk_&lt;referencing_table&gt;_&lt;sourceTable&gt;`) or read from annotations if available.
+- **From LLM or schema:** Optionally extend `DataMigrationPlan` (or a separate discovery step) to include `externalForeignKeys`: list of { referencingTable, constraintName } or { referencingTable, fkColumn } that reference the source table. The LLM could infer this from the full entity set; or we derive it from the entity model as above.
 
-**Precondition (optional):** Add a precondition that the view does not exist yet (or that the old table exists) so the changeset is safe to run.
+**Step 2 — Generate changesets:**
+
+1. **Drop FKs:** For each FK that references the old table, emit a changeset: `ALTER TABLE &lt;referencing_table&gt; DROP CONSTRAINT &lt;constraint_name&gt;`. Dialect-specific: PostgreSQL uses constraint names; Oracle/MySQL may differ. Use Liquibase’s `dropForeignKeyConstraint` or raw SQL with `dbms` if needed. Add preconditions so the changeset is skipped if the constraint is already gone.
+2. **Rename old table:** One changeset: `ALTER TABLE &lt;sourceTable&gt; RENAME TO &lt;backupName&gt;`. Use a configurable backup name, e.g. `rename_old_table_to: "<sourceTable>_backup"` or a literal like `customer_backup`. Liquibase’s `renameTable` or raw SQL per dialect.
+
+**Config:** Under `schema_normalization`:  
+- `rename_old_table_to`: string. Either a literal name (e.g. `customer_backup`) or a pattern (e.g. `{sourceTable}_backup`) so the generator substitutes the source table name. **Required** (we always rename).  
+- Optionally `drop_old_table_after_rename: false` (default) for documentation; if true in future, a separate step could drop the renamed table (out of scope for now).
+
+**Order:** Drop FKs first, then rename. Both after data migration and before createView.
 
 ---
 
-## 9. Data Migration Script Improvements — Concrete Steps
+## 9. Trigger Creation (INSTEAD OF) — Concrete Steps
+
+**Purpose:** The compatibility view has the old table name and shape, but it is read-only unless we attach **INSTEAD OF** triggers. So when application code (or legacy queries) issues INSERT, UPDATE, or DELETE against the view, the database runs our trigger logic instead and writes to the underlying normalized tables. Without triggers, DML on the view would fail.
+
+**Current implementation:** `InsteadOfTriggerGenerator` produces dialect-specific DDL for:
+
+- **INSERT:** One INSERT into each normalized table (in topological order), using `NEW.<viewColumn>` for values. Columns are grouped by target table from `ViewDescriptor.columnMappings`.
+- **UPDATE:** One UPDATE per normalized table; SET clause uses only columns that map to that table; WHERE uses base PK (for base table) or FK to base (for child tables). Order is topological.
+- **DELETE:** DELETE from each normalized table in **reverse** topological order (child tables first, then base), so FK constraints are satisfied. WHERE uses base PK value from `OLD.<pkViewColumn>` (and for child tables, the FK column = OLD.pkViewColumn).
+
+PostgreSQL: trigger functions (`CREATE OR REPLACE FUNCTION fn_<view>_insert() RETURNS TRIGGER`) plus `CREATE TRIGGER ... INSTEAD OF ... FOR EACH ROW EXECUTE FUNCTION fn_...`. Oracle: inline trigger body with `:NEW`/`:OLD`, no separate function. Both use the same `ViewDescriptor` (view name, base table, column mappings, foreign keys).
+
+**What the plan must cover:**
+
+### 9.1 Order and placement
+
+- Triggers are created **after** the view exists. One changeset per trigger type (insert, update, delete) per view, or one changeset per view that contains all three (dialect-specific). Current code uses `createDialectSqlChangeset` once per trigger type, so we get three changesets per view (insert, update, delete), each with `<sql dbms="postgresql">` and `<sql dbms="oracle">` blocks.
+- **Order of creation:** No dependency between the three trigger types; order is arbitrary. Convention: insert, then update, then delete (as in current code).
+
+### 9.2 Dialect support
+
+- **PostgreSQL:** Supported. Uses `CREATE OR REPLACE FUNCTION` + `CREATE OR REPLACE TRIGGER` with `EXECUTE FUNCTION` (PG 11+).
+- **Oracle:** Supported. Uses `CREATE OR REPLACE TRIGGER` with inline PL/SQL and `:NEW`/`:OLD`.
+- **MySQL:** **Not supported.** MySQL does not support INSTEAD OF triggers on views. Document this clearly. Workarounds: application-layer compatibility (e.g. DAO that writes to new tables when the old “logical” entity is updated) or avoid view-based compatibility on MySQL.
+- **H2:** Support is possible (H2 supports INSTEAD OF triggers) but not currently implemented in `InsteadOfTriggerGenerator`. Add H2 if needed; syntax differs slightly from PostgreSQL.
+
+**Concrete step:** In the plan and in user-facing docs, state that INSTEAD OF triggers are generated for **PostgreSQL and Oracle only**; for MySQL, the compatibility view is read-only unless the application implements DML in code.
+
+### 9.3 Naming and idempotency
+
+- **Trigger names:** Current generator uses e.g. `trig_<viewName>_insert`, `trig_<viewName>_update`, `trig_<viewName>_delete`. Function names (PostgreSQL): `fn_<viewName>_insert`, etc. These must be unique per view and stable across runs.
+- **Idempotency:** PostgreSQL uses `CREATE OR REPLACE FUNCTION` and `CREATE OR REPLACE TRIGGER`, so re-running the changeset is safe. Oracle uses `CREATE OR REPLACE TRIGGER`, so also idempotent. If a dialect requires DROP then CREATE, add a precondition (trigger exists) and generate DROP in rollback.
+
+### 9.4 Rollback
+
+- **Rollback of trigger changesets:** For each trigger, the rollback must drop the trigger (and on PostgreSQL, the function). Current Liquibase changesets have `<rollback><!-- manual rollback required --></rollback>`. **Concrete step:** Generate explicit rollback: PostgreSQL — `DROP TRIGGER IF EXISTS trig_<view>_insert ON <view>; DROP FUNCTION IF EXISTS fn_<view>_insert();` (and similarly for update/delete). Oracle — `DROP TRIGGER trig_<view>_insert;` etc. Add these to the changeset rollback block so Liquibase can roll back cleanly.
+
+### 9.5 Semantics and limitations
+
+- **1:1 vs 1:N:** The generated triggers assume one row in the view corresponds to one row in each underlying table (1:1 or single-child). If the view is built with JOINs that produce multiple rows per base row (1:N), INSERT/UPDATE/DELETE semantics are ambiguous; the current design does not define behavior for that case. Document that the view+triggers are intended for **1:1** (or single child row per base row) normalization only.
+- **Nulls and optional child:** If the view uses LEFT JOIN and the child row is missing, UPDATE/DELETE still run the child-table statements (WHERE fk = OLD.pk); no row will match, so it is a no-op. INSERT always inserts into all tables; if the model has an optional child, the trigger does not currently skip child insert when certain columns are null—could be an enhancement (e.g. only INSERT into child if NEW.<childFk> IS NOT NULL).
+- **Error handling:** Trigger bodies do not currently include exception handling. If an INSERT/UPDATE/DELETE fails (e.g. constraint violation), the whole statement fails. Optional: add BEGIN/EXCEPTION/END in Oracle or EXCEPTION block in PostgreSQL to log or re-raise.
+
+### 9.6 Validation and testing
+
+- **ViewDescriptor consistency:** Trigger generation assumes `findBasePk` returns the PK column mapping; if the base table has no mappings, update/delete triggers return empty string. Validator (Section 7) should ensure base table has at least one column mapping. For each child table, `deriveWhereSourceCol` requires an FK from that table to the base table; validator should ensure every child appears in `foreignKeys` with `toTable = baseTable`.
+- **Testing:** Add or extend tests (e.g. `InsteadOfTriggerGeneratorTest`) to assert: (1) INSERT trigger contains INSERTs for each table in topological order; (2) UPDATE trigger contains UPDATEs with correct WHERE; (3) DELETE trigger contains DELETEs in reverse topological order. Optionally, integration test against a real DB (e.g. Testcontainers): create view, create triggers, run INSERT/UPDATE/DELETE against the view, then SELECT from the underlying tables and assert correct rows.
+
+### 9.7 Summary of trigger-related changes
+
+| Item | Action |
+|------|--------|
+| Document dialect support | State PostgreSQL + Oracle only; MySQL not supported (view read-only). |
+| Rollback | Generate explicit DROP TRIGGER (and DROP FUNCTION for PostgreSQL) in each trigger changeset’s rollback block. |
+| Optional: H2 | Add H2 trigger generation if the project needs it. |
+| Optional: null-safe child INSERT | If view has optional child, consider skipping child INSERT when FK or key columns are null. |
+| Validation | Ensure ViewDescriptor has base PK and every child has FK to base; document 1:1 assumption. |
+| Tests | Unit tests for trigger DDL shape; optional integration test with real DB. |
+
+---
+
+## 10. Data Migration Script Improvements — Concrete Steps
 
 **Idempotency:**
 
@@ -290,11 +360,11 @@ Configuration will choose the mode (e.g. `schema_normalization.ddl_mode: "raw_sq
 
 **Identity/surrogate columns:** If a new table has an `id` column that is GENERATED BY DEFAULT AS IDENTITY, the INSERT…SELECT must either omit `id` (so the DB generates it) or include it. Currently the generator includes all columns from columnMappings. If the plan says the child table has a new `id`, the LLM should include it in columnMappings with a value from the source (e.g. a new sequence or the old table’s id). Document this in the prompt. Optionally, add a flag per column in the plan like `generated: true` so the DDL generator and INSERT generator skip or handle it differently.
 
-**Rollback:** For the "drop old table" and "create view" and "triggers" changesets, add a short comment or a separate rollback changeSet file that documents: drop view, drop triggers, drop new tables, restore old table from backup. No code change required for "document"; for actual rollback changeSet, add optional generation of a rollback changeSet that drops view and new tables (and does not restore old table automatically).
+**Rollback:** For the "drop FKs", "rename old table", "create view", and "triggers" changesets, add a short comment or a separate rollback changeSet file that documents: drop view, drop triggers, drop new tables, rename backup table back to original name, re-add dropped FKs. No code change required for "document"; for actual rollback changeSet, add optional generation that drops view and new tables and restores the old table name from the backup (and optionally re-creates the dropped FKs).
 
 ---
 
-## 10. Configuration — Concrete Steps
+## 11. Configuration — Concrete Steps
 
 **File:** Wherever `schema_normalization` is read (e.g. `SchemaNormalizationAnalyzer` and `LiquibaseGenerator`).
 
@@ -303,15 +373,15 @@ Configuration will choose the mode (e.g. `schema_normalization.ddl_mode: "raw_sq
 - `ddl_mode`: `"raw_sql"` | `"liquibase"` (default `"liquibase"`).
 - `liquibase_master_file`: path to master changelog (override; if absent, fall back to `query_optimizer.liquibase_master_file`).
 - `supported_dialects`: list of dialects for normalization (if absent, fall back to query_optimizer).
-- `drop_old_table`: boolean (default true).
-- `rename_old_table_to`: string (optional; used when drop_old_table is false).
+- `rename_old_table_to`: string (required). Backup name for the old table, e.g. `customer_backup` or pattern `{sourceTable}_backup`.
+- Optionally `drop_old_table_after_rename`: boolean (default false); reserved for future use.
 - `base_path`: for entity and mapping output (if absent, use existing base_path).
 
 **File:** `LiquibaseGenerator.java` — `ChangesetConfig.fromConfiguration(String configSection)` is already parameterized. In `SchemaNormalizationAnalyzer.generateMigrationArtifacts()`, call `ChangesetConfig.fromConfiguration("schema_normalization")` and use that config when creating `LiquibaseGenerator`. If `schema_normalization` has no `liquibase_master_file`, then fall back to `fromConfiguration("query_optimizer")` for that value only, or document that users must set `schema_normalization.liquibase_master_file` for normalization.
 
 ---
 
-## 11. Old–New Mapping Artifact — Concrete Steps
+## 12. Old–New Mapping Artifact — Concrete Steps
 
 **Goal:** Provide a **single, explicit mapping** between the old schema and the new one so that developers (and tooling) can answer: “What view replaces the old table?”, “Which new tables/entities did this old entity become?”, and “Where did each old column go?”. The current implementation does not emit this; the plan includes it here.
 
@@ -357,23 +427,27 @@ Configuration will choose the mode (e.g. `schema_normalization.ddl_mode: "raw_sq
 
 | File / New file | Change |
 |-----------------|--------|
-| **SchemaNormalizationAnalyzer.java** | (1) Call validator for each plan; (2) Build changesets in order: DDL → migration → drop/rename → view → triggers; (3) Use NormalizedTableDDLGenerator for CREATE TABLE; (4) Add drop/rename old table changeset; (5) Fix buildCompatibilityViewSql to use topological order for JOINs; (6) Use ChangesetConfig.fromConfiguration("schema_normalization"); (7) Write mapping artifact. |
+| **SchemaNormalizationAnalyzer.java** | (1) Call validator for each plan; (2) Build changesets in order: DDL → migration → drop FKs referencing old table → rename old table → view → triggers; (3) Use NormalizedTableDDLGenerator for CREATE TABLE; (4) Add changesets to drop FKs that reference old table, then rename old table (never drop); (5) Fix buildCompatibilityViewSql to use topological order for JOINs; (6) Use ChangesetConfig.fromConfiguration("schema_normalization"); (7) Write mapping artifact. |
 | **NormalizedTableDDLGenerator.java** (new) | Generate CREATE TABLE (raw SQL or Liquibase XML) from ViewDescriptor + EntityProfile in topological order; type mapping. |
 | **DataMigrationPlanValidator.java** (new) | Validate column coverage, table consistency, base in newTables, DAG. |
 | **LiquibaseGenerator.java** | Optional: add createCreateTableChangeset(...) for Liquibase createTable XML. Or not if DDL generator outputs full changeSet. |
 | **DataMigrationGenerator.java** | No change for dependency order (already correct). Add unit test for 3-level dependency order. |
-| **generator.yml** | Add schema_normalization.ddl_mode, drop_old_table, rename_old_table_to, liquibase_master_file, supported_dialects, base_path. |
+| **InsteadOfTriggerGenerator.java** | (1) Add explicit rollback DDL: DROP TRIGGER + DROP FUNCTION (PostgreSQL), DROP TRIGGER (Oracle); (2) Optional: H2 support; (3) Document 1:1 assumption. Extend tests for trigger DDL shape and (optional) integration test. |
+| **LiquibaseGenerator.java** | When creating trigger changesets, support rollback content from generator (or generator emits full changeSet including rollback). |
+| **generator.yml** | Add schema_normalization.ddl_mode, rename_old_table_to (required), liquibase_master_file, supported_dialects, base_path. |
 
 ---
 
-## 13. Execution Order Checklist (Final)
+## 14. Execution Order Checklist (Final)
 
 For each `DataMigrationPlan`, the changesets must run in this order:
 
 1. **CREATE TABLE** for each of `newTables` in **topological order** (parents first) — so referenced tables exist before tables that reference them.
 2. **INSERT INTO new_table ... SELECT ... FROM old_table** for each of `newTables` in **topological order** — so referenced rows exist before inserting child rows (already implemented).
-3. **DROP TABLE old_table** (or RENAME TABLE old_table TO backup).
-4. **CREATE VIEW old_table AS SELECT ...** (compatibility view).
-5. **CREATE TRIGGER** (INSTEAD OF INSERT/UPDATE/DELETE) on the view.
+3. **Drop foreign key constraints** that reference the old table (from any other table in the schema). Renaming the old table would break these; they must be dropped first.
+4. **RENAME TABLE old_table TO backup_name** (e.g. `old_table_backup`). Always rename; do not drop the old table initially, so data is preserved.
+5. **CREATE VIEW old_table AS SELECT ...** (compatibility view).
+6. **CREATE TRIGGER** (INSTEAD OF INSERT/UPDATE/DELETE) on the view.
 
-Data migration dependency handling is already correct; the remaining work is DDL generation, pipeline order (DDL + drop/rename), view JOIN order, validation, configuration, and mapping artifact.
+Data migration dependency handling is already correct; the remaining work is DDL generation, pipeline order (DDL → migration → drop FKs → rename → view → triggers), discovery of FKs referencing the old table, view JOIN order, validation, configuration, and mapping artifact.
+t
