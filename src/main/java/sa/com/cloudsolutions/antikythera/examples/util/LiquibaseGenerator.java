@@ -70,27 +70,42 @@ public class LiquibaseGenerator {
          * Configuration for changeset generation.
          */
         public record ChangesetConfig(String author, Set<DatabaseDialect> supportedDialects, boolean includePreconditions,
-                                      boolean includeRollback, String liquibaseMasterFile) {
+                                      boolean includeRollback, String liquibaseMasterFile, String filePrefix) {
+
+            public ChangesetConfig {
+                if (filePrefix == null || filePrefix.isBlank()) filePrefix = "changes";
+            }
 
         public static ChangesetConfig defaultConfig() {
                 return new ChangesetConfig("antikythera",
                         Set.of(DatabaseDialect.POSTGRESQL, DatabaseDialect.ORACLE),
-                        true, true, null);
+                        true, true, null, "changes");
             }
 
             /**
              * Creates a ChangesetConfig by reading supported dialects from the generator.yml configuration.
-             * Looks for the property: query_optimizer.supported_dialects
-             * Falls back to defaultConfig() if not configured.
+             * Reads from the "query_optimizer" section. Falls back to defaultConfig() if not configured.
              *
              * @return ChangesetConfig with dialects from configuration
              */
-            @SuppressWarnings("unchecked")
             public static ChangesetConfig fromConfiguration() {
-                Map<String, Object> queryOptimizer = (Map<String, Object>) Settings.getProperty("query_optimizer");
-                if (queryOptimizer != null) {
-                    List<String> dialectNames = (List<String>) queryOptimizer.get("supported_dialects");
-                    String masterFile = (String) queryOptimizer.get("liquibase_master_file");
+                return fromConfiguration("query_optimizer");
+            }
+
+            /**
+             * Creates a ChangesetConfig by reading from the named YAML configuration section.
+             * Falls back to defaultConfig() if the section is not present.
+             *
+             * @param configSection the top-level YAML key to read from (e.g., "query_optimizer", "schema_normalizer")
+             * @return ChangesetConfig with settings from the specified section
+             */
+            @SuppressWarnings("unchecked")
+            public static ChangesetConfig fromConfiguration(String configSection) {
+                Map<String, Object> section = (Map<String, Object>) Settings.getProperty(configSection);
+                if (section != null) {
+                    List<String> dialectNames = (List<String>) section.get("supported_dialects");
+                    String masterFile = (String) section.get("liquibase_master_file");
+                    String filePrefix = (String) section.getOrDefault("file_prefix", "changes");
 
                     Set<DatabaseDialect> dialects = Set.of(DatabaseDialect.POSTGRESQL, DatabaseDialect.ORACLE);
                     if (dialectNames != null && !dialectNames.isEmpty()) {
@@ -104,7 +119,7 @@ public class LiquibaseGenerator {
                         }
                     }
 
-                    return new ChangesetConfig("antikythera", dialects, true, true, masterFile);
+                    return new ChangesetConfig("antikythera", dialects, true, true, masterFile, filePrefix);
                 }
                 return defaultConfig();
             }
@@ -275,7 +290,7 @@ public class LiquibaseGenerator {
         Path dir = masterPath.getParent();
         String timestamp = new SimpleDateFormat("yyyyMMddHHmmss", Locale.ROOT).format(new Date());
         long nanos = System.nanoTime() % 1000000; // Get microsecond precision
-        String fileName = "antikythera-indexes-" + timestamp + "-" + nanos + ".xml";
+        String fileName = "antikythera-" + config.filePrefix() + "-" + timestamp + "-" + nanos + ".xml";
         Path outputFile = dir.resolve(fileName);
         
         String content = createLiquibaseDocument(changesets);
@@ -369,8 +384,86 @@ public class LiquibaseGenerator {
         generatedChangesetIds.clear();
     }
     
+    /**
+     * Creates a dialect-agnostic raw SQL changeset. Suitable for CREATE TABLE and similar
+     * ANSI SQL statements that work across supported databases.
+     *
+     * @param id  a descriptive base identifier for the changeset
+     * @param sql the SQL statement to embed
+     * @return XML changeset string
+     */
+    public String createRawSqlChangeset(String id, String sql) {
+        String changesetId = generateChangesetId(sanitize(id));
+        StringBuilder sb = new StringBuilder();
+
+        sb.append("<changeSet id=\"").append(changesetId).append("\" author=\"").append(config.author()).append("\">\n");
+        sb.append("    <sql>").append(sql).append("</sql>\n");
+
+        if (config.includeRollback()) {
+            sb.append("    <rollback><!-- manual rollback required --></rollback>\n");
+        }
+
+        sb.append("</changeSet>");
+        return sb.toString();
+    }
+
+    /**
+     * Creates a Liquibase {@code <createView>} changeset using the built-in Liquibase tag.
+     * Supported by Liquibase on both PostgreSQL and Oracle without dialect-specific SQL.
+     * Rollback uses {@code <dropView>}.
+     *
+     * @param viewName  the name of the view to create
+     * @param selectSql the SELECT statement that defines the view body
+     * @return XML changeset string
+     */
+    public String createViewChangeset(String viewName, String selectSql) {
+        String changesetId = generateChangesetId("view_" + sanitize(viewName));
+        StringBuilder sb = new StringBuilder();
+
+        sb.append("<changeSet id=\"").append(changesetId).append("\" author=\"").append(config.author()).append("\">\n");
+        sb.append("    <createView viewName=\"").append(viewName).append("\" replaceIfExists=\"true\">\n");
+        sb.append("        ").append(selectSql).append("\n");
+        sb.append("    </createView>\n");
+
+        if (config.includeRollback()) {
+            sb.append("    <rollback><dropView viewName=\"").append(viewName).append("\"/></rollback>\n");
+        }
+
+        sb.append("</changeSet>");
+        return sb.toString();
+    }
+
+    /**
+     * Creates a changeset containing one {@code <sql dbms="...">} block per dialect entry.
+     * Intended for DDL that differs between databases, such as INSTEAD OF trigger bodies.
+     * No precondition is added. Rollback is a manual comment when {@code includeRollback} is set.
+     *
+     * @param id           a descriptive base identifier for the changeset
+     * @param sqlByDialect map from dialect to the SQL body for that dialect
+     * @return XML changeset string
+     */
+    public String createDialectSqlChangeset(String id, Map<DatabaseDialect, String> sqlByDialect) {
+        String changesetId = generateChangesetId(sanitize(id));
+        StringBuilder sb = new StringBuilder();
+
+        sb.append("<changeSet id=\"").append(changesetId).append("\" author=\"").append(config.author()).append("\">\n");
+
+        for (Map.Entry<DatabaseDialect, String> entry : sqlByDialect.entrySet()) {
+            sb.append("    <sql dbms=\"").append(entry.getKey().getLiquibaseDbms()).append("\">\n");
+            sb.append("        ").append(entry.getValue()).append("\n");
+            sb.append("    </sql>\n");
+        }
+
+        if (config.includeRollback()) {
+            sb.append("    <rollback><!-- manual rollback required --></rollback>\n");
+        }
+
+        sb.append("</changeSet>");
+        return sb.toString();
+    }
+
     // Private helper methods
-    
+
     private String createIndexChangesetInternal(String tableName, List<String> columns, String indexName) {
         String changesetId = generateChangesetId(indexName);
         String columnList = String.join(", ", columns);
