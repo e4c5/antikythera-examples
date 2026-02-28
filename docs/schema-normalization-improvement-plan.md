@@ -423,7 +423,7 @@ PostgreSQL: trigger functions (`CREATE OR REPLACE FUNCTION fn_<view>_insert() RE
 
 ---
 
-## 12. Summary of Changes by File
+## 13. Summary of Changes by File
 
 | File / New file | Change |
 |-----------------|--------|
@@ -450,4 +450,3 @@ For each `DataMigrationPlan`, the changesets must run in this order:
 6. **CREATE TRIGGER** (INSTEAD OF INSERT/UPDATE/DELETE) on the view.
 
 Data migration dependency handling is already correct; the remaining work is DDL generation, pipeline order (DDL → migration → drop FKs → rename → view → triggers), discovery of FKs referencing the old table, view JOIN order, validation, configuration, and mapping artifact.
-t
