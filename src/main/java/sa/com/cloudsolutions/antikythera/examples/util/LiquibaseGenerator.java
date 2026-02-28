@@ -462,6 +462,34 @@ public class LiquibaseGenerator {
         return sb.toString();
     }
 
+    /**
+     * Creates a Liquibase {@code <renameTable>} changeset using the built-in Liquibase tag.
+     * This renames the original denormalized table before a compatibility view is created
+     * with the same name. Rollback uses {@code <renameTable>} in reverse.
+     *
+     * @param oldTableName the current (original) table name to be renamed
+     * @param newTableName the new name for the renamed table (e.g., {@code customer_legacy})
+     * @return XML changeset string
+     */
+    public String createRenameTableChangeset(String oldTableName, String newTableName) {
+        String changesetId = generateChangesetId("rename_" + sanitize(oldTableName));
+        StringBuilder sb = new StringBuilder();
+
+        sb.append("<changeSet id=\"").append(changesetId).append("\" author=\"").append(config.author()).append("\">\n");
+        sb.append("    <renameTable oldTableName=\"").append(oldTableName)
+          .append("\" newTableName=\"").append(newTableName).append("\"/>\n");
+
+        if (config.includeRollback()) {
+            sb.append("    <rollback>\n");
+            sb.append("        <renameTable oldTableName=\"").append(newTableName)
+              .append("\" newTableName=\"").append(oldTableName).append("\"/>\n");
+            sb.append("    </rollback>\n");
+        }
+
+        sb.append("</changeSet>");
+        return sb.toString();
+    }
+
     // Private helper methods
 
     private String createIndexChangesetInternal(String tableName, List<String> columns, String indexName) {

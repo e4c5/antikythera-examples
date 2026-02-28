@@ -367,4 +367,66 @@ class InsteadOfTriggerGeneratorTest {
         assertTrue(patientIdx < addressIdx,
                 "patient must be inserted before address even when tables list was in wrong order");
     }
+
+    // -------------------------------------------------------------------------
+    // Backward-compatibility: FK column auto-injected when not in columnMappings
+    // -------------------------------------------------------------------------
+
+    @Test
+    void testInsertAutoInjectsFkColumnWhenAbsentFromMappings() {
+        // Realistic scenario: old_patient (id, name, street) split into patient + address.
+        // The FK column patient_id is NOT in columnMappings — the generator must inject it.
+        ViewDescriptor realistic = new ViewDescriptor(
+                "old_patient",
+                "patient",
+                List.of("patient", "address"),
+                List.of(
+                        new ColumnMapping("id",     "patient", "id"),
+                        new ColumnMapping("name",   "patient", "name"),
+                        new ColumnMapping("street", "address", "street")
+                ),
+                List.of(new ForeignKey("address", "patient_id", "patient", "id"))
+        );
+
+        Map<DatabaseDialect, String> result = generator.generateInsert(realistic);
+
+        String pg = result.get(DatabaseDialect.POSTGRESQL);
+        // The FK column patient_id must be injected even though it's not in columnMappings
+        assertTrue(pg.contains("patient_id"),
+                "FK column patient_id must appear in the INSERT even when absent from columnMappings");
+        // Its value must come from the parent PK view column 'id', not from a non-existent 'patient_id' view col
+        assertFalse(pg.contains("NEW.patient_id"),
+                "PostgreSQL trigger must NOT use NEW.patient_id (that column doesn't exist in the view)");
+        assertTrue(pg.contains("NEW.id"),
+                "FK value must be derived from the parent PK view column NEW.id");
+    }
+
+    @Test
+    void testUpdateCorrectlyExcludesFkColumnFromSetWhenAbsent() {
+        // When FK column is absent from columnMappings, deriveSetColumns must not skip street
+        // (old behaviour would skip first column, dropping the only real column).
+        ViewDescriptor realistic = new ViewDescriptor(
+                "old_patient",
+                "patient",
+                List.of("patient", "address"),
+                List.of(
+                        new ColumnMapping("id",     "patient", "id"),
+                        new ColumnMapping("name",   "patient", "name"),
+                        new ColumnMapping("street", "address", "street")
+                ),
+                List.of(new ForeignKey("address", "patient_id", "patient", "id"))
+        );
+
+        Map<DatabaseDialect, String> result = generator.generateUpdate(realistic);
+
+        String pg = result.get(DatabaseDialect.POSTGRESQL);
+        // street must appear in the SET clause of the address UPDATE
+        assertTrue(pg.contains("UPDATE address SET"),
+                "UPDATE trigger must update address table");
+        assertTrue(pg.contains("street = NEW.street"),
+                "street column must be in SET clause for address");
+        // WHERE must use the FK column from foreignKeys
+        assertTrue(pg.contains("WHERE patient_id = NEW.id"),
+                "UPDATE WHERE clause must reference the FK column");
+    }
 }

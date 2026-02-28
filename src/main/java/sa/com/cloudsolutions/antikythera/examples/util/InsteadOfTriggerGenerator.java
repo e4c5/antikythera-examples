@@ -3,8 +3,10 @@ package sa.com.cloudsolutions.antikythera.examples.util;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -112,10 +114,7 @@ public class InsteadOfTriggerGenerator {
         for (String table : order) {
             List<ColumnMapping> cols = byTable.getOrDefault(table, List.of());
             if (cols.isEmpty()) continue;
-            String colNames = cols.stream().map(ColumnMapping::sourceColumn).collect(Collectors.joining(", "));
-            String values = cols.stream().map(cm -> "NEW." + cm.viewColumn()).collect(Collectors.joining(", "));
-            sb.append("    INSERT INTO ").append(table)
-              .append(" (").append(colNames).append(") VALUES (").append(values).append(");\n");
+            appendInsertStatement(table, cols, view, "NEW.", sb);
         }
 
         sb.append("    RETURN NEW;\n");
@@ -142,7 +141,7 @@ public class InsteadOfTriggerGenerator {
             List<ColumnMapping> cols = byTable.getOrDefault(table, List.of());
             if (cols.isEmpty()) continue;
 
-            List<ColumnMapping> setCols = deriveSetColumns(table, view.baseTable(), cols);
+            List<ColumnMapping> setCols = deriveSetColumns(table, view.baseTable(), cols, view);
             if (setCols.isEmpty()) continue;
 
             String whereCol = deriveWhereSourceCol(table, view, pkMapping);
@@ -202,10 +201,7 @@ public class InsteadOfTriggerGenerator {
         for (String table : order) {
             List<ColumnMapping> cols = byTable.getOrDefault(table, List.of());
             if (cols.isEmpty()) continue;
-            String colNames = cols.stream().map(ColumnMapping::sourceColumn).collect(Collectors.joining(", "));
-            String values = cols.stream().map(cm -> ":NEW." + cm.viewColumn()).collect(Collectors.joining(", "));
-            sb.append("    INSERT INTO ").append(table)
-              .append(" (").append(colNames).append(") VALUES (").append(values).append(");\n");
+            appendInsertStatement(table, cols, view, ":NEW.", sb);
         }
 
         sb.append("END;\n");
@@ -230,7 +226,7 @@ public class InsteadOfTriggerGenerator {
             List<ColumnMapping> cols = byTable.getOrDefault(table, List.of());
             if (cols.isEmpty()) continue;
 
-            List<ColumnMapping> setCols = deriveSetColumns(table, view.baseTable(), cols);
+            List<ColumnMapping> setCols = deriveSetColumns(table, view.baseTable(), cols, view);
             if (setCols.isEmpty()) continue;
 
             String whereCol = deriveWhereSourceCol(table, view, pkMapping);
@@ -289,13 +285,90 @@ public class InsteadOfTriggerGenerator {
     }
 
     /**
-     * Returns the SET columns for an UPDATE statement:
-     * - For the base table: all columns except the first (PK).
-     * - For child tables: all columns except the first (FK to base table).
+     * Returns the SET columns for an UPDATE statement on the given table.
+     *
+     * <ul>
+     *   <li>For the <em>base table</em>: all columns except the first (treated as PK).</li>
+     *   <li>For <em>child tables</em>: all columns except FK columns to the base table
+     *       (determined from {@code view.foreignKeys()}, not by position). This is safe even when
+     *       FK columns are absent from {@code columnMappings}.</li>
+     * </ul>
      */
-    private List<ColumnMapping> deriveSetColumns(String table, String baseTable, List<ColumnMapping> cols) {
-        // Skip the first column (PK for base table, FK for child tables)
-        return cols.size() > 1 ? cols.subList(1, cols.size()) : List.of();
+    private List<ColumnMapping> deriveSetColumns(String table, String baseTable,
+                                                  List<ColumnMapping> cols, ViewDescriptor view) {
+        if (table.equals(baseTable)) {
+            // Base table: skip the first column (PK)
+            return cols.size() > 1 ? cols.subList(1, cols.size()) : List.of();
+        }
+        // Child table: exclude any FK columns declared in foreignKeys (they appear in WHERE, not SET)
+        Set<String> fkColumns = view.foreignKeys().stream()
+                .filter(fk -> fk.fromTable().equals(table))
+                .map(ForeignKey::fromColumn)
+                .collect(Collectors.toSet());
+        return cols.stream()
+                .filter(cm -> !fkColumns.contains(cm.sourceColumn()))
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Appends a single INSERT statement for {@code table} to {@code sb}.
+     *
+     * <p>Columns and values come from {@code cols} (the mapped view columns). In addition,
+     * FK columns that are declared in {@code view.foreignKeys()} but are <em>absent</em> from
+     * {@code cols} are auto-injected: their value is taken from the view column that maps to
+     * the parent PK (e.g. {@code NEW.id} populates {@code address.customer_id}).
+     * This preserves backward compatibility when the old application code does not supply
+     * FK column values explicitly.
+     *
+     * @param table     target normalized table
+     * @param cols      column mappings for this table (from {@link #groupByTable})
+     * @param view      full view descriptor (provides foreignKeys and columnMappings)
+     * @param newPrefix {@code "NEW."} for PostgreSQL or {@code ":NEW."} for Oracle
+     * @param sb        builder to append the INSERT statement to
+     */
+    private void appendInsertStatement(String table, List<ColumnMapping> cols,
+                                        ViewDescriptor view, String newPrefix, StringBuilder sb) {
+        List<String> colNames = new ArrayList<>(
+                cols.stream().map(ColumnMapping::sourceColumn).collect(Collectors.toList()));
+        List<String> values = new ArrayList<>(
+                cols.stream().map(cm -> newPrefix + cm.viewColumn()).collect(Collectors.toList()));
+
+        // Auto-inject FK columns that are not already present in columnMappings
+        Set<String> existingCols = new HashSet<>(colNames);
+        for (ForeignKey fk : view.foreignKeys()) {
+            if (!fk.fromTable().equals(table)) continue;
+            if (existingCols.contains(fk.fromColumn())) continue; // already provided
+            String parentViewCol = findViewColumnForParentPk(view, fk);
+            if (parentViewCol != null) {
+                colNames.add(fk.fromColumn());
+                values.add(newPrefix + parentViewCol);
+            }
+        }
+
+        sb.append("    INSERT INTO ").append(table)
+          .append(" (").append(String.join(", ", colNames)).append(")")
+          .append(" VALUES (").append(String.join(", ", values)).append(");\n");
+    }
+
+    /**
+     * Finds the view-column (i.e. the column name in the view/old source table) that corresponds
+     * to the referenced PK column of the parent table in a FK relationship.
+     *
+     * <p>For example, if the FK is {@code address.customer_id → customer.id}, this looks in
+     * {@code columnMappings} for a mapping whose {@code sourceTable = "customer"} and
+     * {@code sourceColumn = "id"}, and returns its {@code viewColumn} (e.g. {@code "id"}).
+     *
+     * @param view the view descriptor containing all column mappings
+     * @param fk   the FK whose parent PK view-column is needed
+     * @return the view-column name for the parent PK, or {@code null} if not found
+     */
+    private String findViewColumnForParentPk(ViewDescriptor view, ForeignKey fk) {
+        return view.columnMappings().stream()
+                .filter(cm -> cm.sourceTable().equals(fk.toTable())
+                        && cm.sourceColumn().equals(fk.toColumn()))
+                .map(ColumnMapping::viewColumn)
+                .findFirst()
+                .orElse(null);
     }
 
     /**

@@ -135,9 +135,11 @@ Whenever an issue requires moving data from the current (denormalized) table int
 or more new normalized tables, populate `dataMigrationPlan` with the following structure.
 This object is consumed directly by code generators that produce:
 
-1. **Data migration SQL** — `INSERT INTO new_table (...) SELECT ... FROM old_table`
-2. **Compatibility view** — a view named after the old table that SELECTs from all new tables
-3. **INSTEAD OF triggers** — INSERT / UPDATE / DELETE triggers on the view so that existing
+1. **CREATE TABLE DDL** — creates each new normalized table before data is migrated
+2. **Data migration SQL** — `INSERT INTO new_table (...) SELECT ... FROM old_table`
+3. **Rename old table** — the original table is renamed to `<table>_legacy` so the view can take its name
+4. **Compatibility view** — a view named after the old table that SELECTs from all new tables
+5. **INSTEAD OF triggers** — INSERT / UPDATE / DELETE triggers on the view so that existing
    application code continues to work without modification
 
 ```json
@@ -145,6 +147,10 @@ This object is consumed directly by code generators that produce:
   "sourceTable": "customer",
   "baseTable":   "customer",
   "newTables":   ["customer", "address"],
+  "newTablesDdl": [
+    "CREATE TABLE customer (id BIGINT PRIMARY KEY, name VARCHAR(255) NOT NULL)",
+    "CREATE TABLE address (id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY, customer_id BIGINT NOT NULL REFERENCES customer(id), street VARCHAR(255), city VARCHAR(100), zip VARCHAR(20))"
+  ],
   "columnMappings": [
     { "viewColumn": "id",      "targetTable": "customer", "targetColumn": "id"      },
     { "viewColumn": "name",    "targetTable": "customer", "targetColumn": "name"    },
@@ -158,6 +164,12 @@ This object is consumed directly by code generators that produce:
 }
 ```
 
+> **Important**: Do **not** include FK columns (e.g. `customer_id`) in `columnMappings`.
+> FK column values are derived automatically from the parent PK using the `foreignKeys` list:
+> the generator reads `address.customer_id → customer.id` and automatically inserts
+> `SELECT id ... FROM customer` for `customer_id` in the `address` INSERT.
+> Adding FK columns to `columnMappings` would cause them to be inserted twice.
+
 ### `dataMigrationPlan` field rules
 
 | Field | Required | Description |
@@ -165,8 +177,9 @@ This object is consumed directly by code generators that produce:
 | `sourceTable` | Yes | The **existing** denormalized table name (= `tableName` of the entity being split) |
 | `baseTable` | Yes | Which of the `newTables` owns the primary key; this table is inserted **first** |
 | `newTables` | Yes | All target tables (unordered — the generator derives insert order from `foreignKeys`) |
-| `columnMappings` | Yes | One entry per column that must be migrated; covers every column from the old table that is preserved in the new schema |
-| `foreignKeys` | Yes | Every FK edge between the new tables; the generator uses these to sort tables in dependency order and to build WHERE clauses in triggers |
+| `newTablesDdl` | Yes | One `CREATE TABLE` SQL statement per new table, in any order. Use ANSI SQL so the same DDL works on both PostgreSQL and Oracle. Include PK, FK, and NOT NULL constraints. |
+| `columnMappings` | Yes | One entry per column that must be migrated; covers every column from the old table that is preserved in the new schema. **Do not include FK columns** — they are auto-injected from `foreignKeys`. |
+| `foreignKeys` | Yes | Every FK edge between the new tables; the generator uses these to sort tables in dependency order, to build WHERE clauses in triggers, and to auto-inject FK columns in the migration INSERT |
 
 ### `columnMappings` entry
 

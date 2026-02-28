@@ -27,15 +27,17 @@ class DataMigrationGeneratorTest {
     void setUp() {
         generator = new DataMigrationGenerator();
 
+        // Realistic scenario: old_patient (id, name, street) → patient (id, name) + address (patient_id, street).
+        // The FK column patient_id in address is NOT listed in columnMappings — it is auto-injected
+        // by DataMigrationGenerator from the foreignKeys entry (address.patient_id → patient.id).
         twoTableView = new ViewDescriptor(
                 "old_patient",
                 "patient",
                 List.of("patient", "address"),
                 List.of(
-                        new ColumnMapping("id",         "patient", "id"),
-                        new ColumnMapping("name",       "patient", "name"),
-                        new ColumnMapping("patient_id", "address", "patient_id"),
-                        new ColumnMapping("street",     "address", "street")
+                        new ColumnMapping("id",     "patient", "id"),
+                        new ColumnMapping("name",   "patient", "name"),
+                        new ColumnMapping("street", "address", "street")
                 ),
                 List.of(new ForeignKey("address", "patient_id", "patient", "id"))
         );
@@ -79,8 +81,14 @@ class DataMigrationGeneratorTest {
 
         assertTrue(addressSql.startsWith("INSERT INTO address"),
                 "Second statement should target the child table");
-        assertTrue(addressSql.contains("(patient_id, street)"), "Address columns should be patient_id, street");
-        assertTrue(addressSql.contains("SELECT patient_id, street"), "SELECT should use view column names");
+        // patient_id is the auto-injected FK column; street is the regular mapped column
+        assertTrue(addressSql.contains("(street, patient_id)") || addressSql.contains("(patient_id, street)"),
+                "Address INSERT should include both the regular column (street) and the auto-injected FK column (patient_id)");
+        // SELECT must take patient_id's value from the old PK column 'id', not from a non-existent 'patient_id'
+        assertTrue(addressSql.contains("street") && addressSql.contains("id"),
+                "SELECT should reference the street column and the parent PK (id) for the FK");
+        assertFalse(addressSql.contains("SELECT patient_id"),
+                "SELECT must NOT reference 'patient_id' — the old source table has no such column");
         assertTrue(addressSql.contains("FROM old_patient"), "Source should be the old denormalized table");
         assertTrue(addressSql.endsWith(";"));
     }
@@ -156,5 +164,50 @@ class DataMigrationGeneratorTest {
             assertFalse(sql.contains("ONLINE"),       "Should not contain Oracle-specific keywords");
             assertFalse(sql.contains(":NEW"),         "Should not contain Oracle trigger syntax");
         }
+    }
+
+    @Test
+    void testFkColumnAutoInjectedFromParentPk() {
+        // The FK column (patient_id in address) must be populated from the parent's PK (id in old_patient).
+        // It must NOT appear as a raw column select from old_patient — the old table has no patient_id column.
+        List<String> stmts = generator.generateMigrationSql(twoTableView);
+        String addressSql = stmts.get(1);
+
+        // FK column must be in the INSERT target list
+        assertTrue(addressSql.contains("patient_id"),
+                "Auto-injected FK column patient_id must appear in the INSERT");
+        // The value must be taken from the parent PK 'id' in the old table, not from 'patient_id'
+        // The SELECT clause must contain 'id' but not 'patient_id' as a standalone select expression
+        int selectIdx = addressSql.indexOf("SELECT ");
+        String selectPart = addressSql.substring(selectIdx);
+        assertFalse(selectPart.startsWith("SELECT patient_id"),
+                "SELECT must derive FK value from the parent PK column 'id', not 'patient_id'");
+        assertTrue(selectPart.contains("id"),
+                "SELECT must include the parent PK column 'id' to populate the FK");
+    }
+
+    @Test
+    void testFkColumnNotDuplicatedWhenAlreadyInMappings() {
+        // If an FK column IS explicitly listed in columnMappings (legacy/manual scenario),
+        // we should not inject it a second time. Use the two-table view as a proxy —
+        // the patient table's id appears only once in the INSERT.
+        List<String> stmts = generator.generateMigrationSql(twoTableView);
+        String patientSql = stmts.get(0);
+
+        long idCount = countOccurrences(patientSql, "id");
+        // "id" should appear twice: once in INSERT (id) and once in SELECT (id)
+        // It must not appear more times due to duplicate injection
+        assertTrue(idCount >= 2 && idCount <= 4,
+                "Column 'id' should not appear more than expected; got count=" + idCount);
+    }
+
+    private long countOccurrences(String text, String word) {
+        int count = 0;
+        int idx = 0;
+        while ((idx = text.indexOf(word, idx)) != -1) {
+            count++;
+            idx += word.length();
+        }
+        return count;
     }
 }

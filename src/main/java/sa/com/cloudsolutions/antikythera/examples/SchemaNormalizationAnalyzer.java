@@ -110,7 +110,8 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
             String baseTable,
             List<String> newTables,
             List<ColumnMappingEntry> columnMappings,
-            List<ForeignKeyEntry> foreignKeys) {
+            List<ForeignKeyEntry> foreignKeys,
+            List<String> newTablesDdl) {
 
         /** Maps a column in the old (source) table to a column in one of the new tables. */
         record ColumnMappingEntry(String viewColumn, String targetTable, String targetColumn) {}
@@ -617,7 +618,10 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
                     fk.path("toColumn").asText("")));
         }
 
-        return new DataMigrationPlan(sourceTable, baseTable, newTables, columnMappings, foreignKeys);
+        List<String> newTablesDdl = new ArrayList<>();
+        node.path("newTablesDdl").forEach(n -> newTablesDdl.add(n.asText()));
+
+        return new DataMigrationPlan(sourceTable, baseTable, newTables, columnMappings, foreignKeys, newTablesDdl);
     }
 
     // -------------------------------------------------------------------------
@@ -650,6 +654,11 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
     /**
      * Generates a SELECT statement for a compatibility view that re-exposes all original
      * columns by joining the new normalized tables, preserving backward compatibility.
+     *
+     * <p>Uses LEFT JOIN (not INNER JOIN) so that rows in the base table that have no
+     * corresponding record in a child table are still returned rather than silently dropped.
+     * This is important during incremental migrations where child rows may not yet exist
+     * for every base row.</p>
      */
     private String buildCompatibilityViewSql(InsteadOfTriggerGenerator.ViewDescriptor view) {
         List<String> selects = view.columnMappings().stream()
@@ -661,7 +670,7 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
         sb.append(" FROM ").append(view.baseTable());
 
         for (InsteadOfTriggerGenerator.ForeignKey fk : view.foreignKeys()) {
-            sb.append(" JOIN ").append(fk.fromTable())
+            sb.append(" LEFT JOIN ").append(fk.fromTable())
               .append(" ON ").append(fk.fromTable()).append(".").append(fk.fromColumn())
               .append(" = ").append(fk.toTable()).append(".").append(fk.toColumn());
         }
@@ -715,7 +724,20 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
             System.out.printf("  📦 %s → [%s]%n", plan.sourceTable(),
                     String.join(", ", plan.newTables()));
 
-            // 1. Data migration INSERT-SELECT statements (one per new table)
+            // 1. CREATE new normalized tables (from LLM-provided DDL hints)
+            List<String> ddlHints = plan.newTablesDdl();
+            if (ddlHints != null && !ddlHints.isEmpty()) {
+                for (int i = 0; i < ddlHints.size(); i++) {
+                    allChangesets.add(liquibaseGenerator.createRawSqlChangeset(
+                            "create_table_" + plan.sourceTable() + "_" + i,
+                            ddlHints.get(i)));
+                }
+            } else {
+                logger.warn("No newTablesDdl provided for plan '{}' — CREATE TABLE statements will be missing. " +
+                        "The LLM must include newTablesDdl in dataMigrationPlan.", plan.sourceTable());
+            }
+
+            // 2. Data migration INSERT-SELECT statements (one per new table, FK columns auto-injected)
             List<String> migrationSqls = dataMigrationGenerator.generateMigrationSql(view);
             for (int i = 0; i < migrationSqls.size(); i++) {
                 allChangesets.add(liquibaseGenerator.createRawSqlChangeset(
@@ -723,11 +745,16 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
                         migrationSqls.get(i)));
             }
 
-            // 2. Compatibility view (old table name → SELECT joining all new tables)
+            // 3. Rename the original table so the view can take its name
+            String legacyTableName = plan.sourceTable() + "_legacy";
+            allChangesets.add(liquibaseGenerator.createRenameTableChangeset(
+                    plan.sourceTable(), legacyTableName));
+
+            // 4. Compatibility view (old table name → SELECT joining all new tables with LEFT JOINs)
             String viewSql = buildCompatibilityViewSql(view);
             allChangesets.add(liquibaseGenerator.createViewChangeset(view.viewName(), viewSql));
 
-            // 3. INSTEAD OF triggers so existing DML through the view still works
+            // 5. INSTEAD OF triggers so existing DML through the view still works
             allChangesets.add(liquibaseGenerator.createDialectSqlChangeset(
                     "trigger_insert_" + view.viewName(), triggerGenerator.generateInsert(view)));
             allChangesets.add(liquibaseGenerator.createDialectSqlChangeset(

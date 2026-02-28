@@ -895,4 +895,47 @@ class LiquibaseGeneratorTest {
         String updatedMaster = Files.readString(masterFile);
         assertTrue(updatedMaster.contains("antikythera-normalize-"));
     }
+
+    // -------------------------------------------------------------------------
+    // createRenameTableChangeset tests
+    // -------------------------------------------------------------------------
+
+    @Test
+    void testCreateRenameTableChangeset() {
+        String changeset = generator.createRenameTableChangeset("customer", "customer_legacy");
+
+        assertNotNull(changeset);
+        assertTrue(changeset.contains("<changeSet"), "Should contain changeSet element");
+        assertTrue(changeset.contains("<renameTable"), "Should use Liquibase renameTable tag");
+        assertTrue(changeset.contains("oldTableName=\"customer\""), "Should specify old table name");
+        assertTrue(changeset.contains("newTableName=\"customer_legacy\""), "Should specify new table name");
+    }
+
+    @Test
+    void testCreateRenameTableChangesetIncludesRollback() {
+        String changeset = generator.createRenameTableChangeset("patient", "patient_legacy");
+
+        assertTrue(changeset.contains("<rollback>"), "Should include rollback block");
+        // Rollback should rename back in reverse
+        assertTrue(changeset.contains("oldTableName=\"patient_legacy\""), "Rollback should reverse rename");
+        assertTrue(changeset.contains("newTableName=\"patient\""), "Rollback should restore original name");
+    }
+
+    @Test
+    void testCreateRenameTableChangesetNoRollbackWhenDisabled() {
+        ChangesetConfig noRollback = new ChangesetConfig("antikythera",
+                Set.of(DatabaseDialect.POSTGRESQL), true, false, null, null);
+        LiquibaseGenerator gen = new LiquibaseGenerator(noRollback);
+
+        String changeset = gen.createRenameTableChangeset("orders", "orders_legacy");
+
+        assertFalse(changeset.contains("<rollback>"), "No rollback block when rollback is disabled");
+    }
+
+    @Test
+    void testCreateRenameTableChangesetHasAuthor() {
+        String changeset = generator.createRenameTableChangeset("foo", "foo_legacy");
+
+        assertTrue(changeset.contains("author=\"antikythera\""), "Should include author attribute");
+    }
 }
