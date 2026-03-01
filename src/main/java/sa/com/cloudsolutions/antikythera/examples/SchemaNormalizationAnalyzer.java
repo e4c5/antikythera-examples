@@ -19,8 +19,11 @@ import sa.com.cloudsolutions.antikythera.parser.converter.EntityMetadata;
 import com.raditha.hql.converter.JoinMapping;
 
 import sa.com.cloudsolutions.antikythera.examples.util.DataMigrationGenerator;
+import sa.com.cloudsolutions.antikythera.examples.util.DataMigrationPlanValidator;
 import sa.com.cloudsolutions.antikythera.examples.util.InsteadOfTriggerGenerator;
 import sa.com.cloudsolutions.antikythera.examples.util.LiquibaseGenerator;
+import sa.com.cloudsolutions.antikythera.examples.util.NormalizedTableDDLGenerator;
+import sa.com.cloudsolutions.antikythera.examples.util.TopologicalSorter;
 
 import java.io.File;
 import java.io.IOException;
@@ -32,6 +35,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -84,16 +88,16 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
     // Profile records — serialised as JSON and sent to the LLM
     // -------------------------------------------------------------------------
 
-    record EntityProfile(
+    public record EntityProfile(
             String entityName,
             String tableName,
             List<FieldProfile> fields,
             List<RelationshipProfile> relationships) {}
 
-    record FieldProfile(String javaName, String columnName, boolean isId,
+    public record FieldProfile(String javaName, String columnName, boolean isId,
                         boolean isNullable, String columnType) {}
 
-    record RelationshipProfile(String javaName, String annotationType,
+    public record RelationshipProfile(String javaName, String annotationType,
                                String joinColumn, String referencedColumn,
                                String targetEntity) {}
 
@@ -105,7 +109,7 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
      * Structured data migration plan returned by the LLM for issues that involve
      * splitting or extracting a table.  Maps directly to {@link InsteadOfTriggerGenerator.ViewDescriptor}.
      */
-    record DataMigrationPlan(
+    public record DataMigrationPlan(
             String sourceTable,
             String baseTable,
             List<String> newTables,
@@ -113,10 +117,10 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
             List<ForeignKeyEntry> foreignKeys) {
 
         /** Maps a column in the old (source) table to a column in one of the new tables. */
-        record ColumnMappingEntry(String viewColumn, String targetTable, String targetColumn) {}
+        public record ColumnMappingEntry(String viewColumn, String targetTable, String targetColumn) {}
 
         /** FK edge between two of the new normalized tables. */
-        record ForeignKeyEntry(String fromTable, String fromColumn, String toTable, String toColumn) {}
+        public record ForeignKeyEntry(String fromTable, String fromColumn, String toTable, String toColumn) {}
     }
 
     record NormalizationIssue(
@@ -648,6 +652,100 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
     }
 
     /**
+     * Holds a discovered reference from another table to the table being normalized.
+     *
+     * @param referencingTable table that holds the FK column pointing at the source table
+     * @param fkColumn         column in the referencing table that is the FK
+     * @param constraintName   generated constraint name for Liquibase drop changeset
+     */
+    private record ExternalFKReference(String referencingTable, String fkColumn, String constraintName) {}
+
+    /**
+     * Scans all collected {@link EntityProfile}s to discover every table that has a FK
+     * referencing {@code sourceTable}. Used to generate DROP CONSTRAINT changesets before
+     * renaming the old table.
+     *
+     * @param sourceTable the table being normalized (will be renamed)
+     * @return list of external FK references; empty if none found
+     */
+    private List<ExternalFKReference> discoverExternalFKs(String sourceTable) {
+        // Resolve sourceTable → entity name
+        String sourceEntityName = allProfiles.stream()
+                .filter(p -> p.tableName().equals(sourceTable))
+                .map(EntityProfile::entityName)
+                .findFirst()
+                .orElse(null);
+        if (sourceEntityName == null) return List.of();
+
+        List<ExternalFKReference> refs = new ArrayList<>();
+        for (EntityProfile p : allProfiles) {
+            if (p.tableName().equals(sourceTable)) continue;
+            for (RelationshipProfile r : p.relationships()) {
+                if (sourceEntityName.equals(r.targetEntity())) {
+                    String joinCol = r.joinColumn();
+                    String constraintName = "fk_" + p.tableName() + "_" + sourceTable;
+                    refs.add(new ExternalFKReference(p.tableName(), joinCol, constraintName));
+                }
+            }
+        }
+        return refs;
+    }
+
+    /**
+     * Generates Liquibase changesets to drop every FK constraint referencing the old source
+     * table, followed by one changeset to rename the old table to its backup name.
+     *
+     * @param sourceTable      the table being normalized
+     * @param renameOldTableTo backup name template; {@code {sourceTable}} is substituted
+     * @param generator        {@link LiquibaseGenerator} used to build raw-SQL changesets
+     * @return list of changeset XML strings; may be empty if no external FKs exist and rename
+     *         name is blank
+     */
+    private List<String> buildDropFkAndRenameChangesets(String sourceTable,
+                                                         String renameOldTableTo,
+                                                         LiquibaseGenerator generator) {
+        List<String> changesets = new ArrayList<>();
+
+        // Drop every external FK referencing this table
+        List<ExternalFKReference> externalFKs = discoverExternalFKs(sourceTable);
+        for (ExternalFKReference ref : externalFKs) {
+            String dropFkCs = buildDropFkChangeset(ref, generator);
+            if (dropFkCs != null) changesets.add(dropFkCs);
+        }
+
+        // Rename old table to backup name
+        if (renameOldTableTo != null && !renameOldTableTo.isBlank()) {
+            String backupName = renameOldTableTo.replace("{sourceTable}", sourceTable);
+            String renameCs = buildRenameTableChangeset(sourceTable, backupName, generator);
+            if (renameCs != null) changesets.add(renameCs);
+        }
+
+        return changesets;
+    }
+
+    /**
+     * Builds a single DROP FOREIGN KEY Liquibase changeset using the built-in
+     * {@code <dropForeignKeyConstraint>} tag (cross-database compatible).
+     */
+    private String buildDropFkChangeset(ExternalFKReference ref, LiquibaseGenerator generator) {
+        if (ref.fkColumn() == null || ref.fkColumn().isBlank()) {
+            logger.warn("Skipping drop-FK for {} — join column unknown", ref.referencingTable());
+            return null;
+        }
+        String id = "drop_fk_" + ref.referencingTable() + "_" + ref.constraintName();
+        return generator.createDropForeignKeyChangeset(id, ref.referencingTable(), ref.constraintName());
+    }
+
+    /**
+     * Builds a Liquibase {@code <renameTable>} changeset.
+     */
+    private String buildRenameTableChangeset(String oldName, String newName,
+                                              LiquibaseGenerator generator) {
+        String id = "rename_table_" + oldName + "_to_" + newName;
+        return generator.createRenameTableChangeset(id, oldName, newName);
+    }
+
+    /**
      * Generates a SELECT statement for a compatibility view that re-exposes all original
      * columns by joining the new normalized tables, preserving backward compatibility.
      */
@@ -660,25 +758,42 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
         sb.append(String.join(", ", selects));
         sb.append(" FROM ").append(view.baseTable());
 
+        // Build JOINs in topological order so each referenced parent table is already in scope.
+        // This fixes multi-level FK chains (e.g. customer → address → phone).
+        List<String> order = TopologicalSorter.sort(view.tables(), view.foreignKeys());
+        // Index FKs by fromTable for O(1) lookup
+        Map<String, InsteadOfTriggerGenerator.ForeignKey> fkByFromTable = new LinkedHashMap<>();
         for (InsteadOfTriggerGenerator.ForeignKey fk : view.foreignKeys()) {
-            sb.append(" JOIN ").append(fk.fromTable())
-              .append(" ON ").append(fk.fromTable()).append(".").append(fk.fromColumn())
-              .append(" = ").append(fk.toTable()).append(".").append(fk.toColumn());
+            fkByFromTable.put(fk.fromTable(), fk);
+        }
+        // Skip the first element (the base table, which is already in the FROM clause)
+        for (int i = 1; i < order.size(); i++) {
+            String table = order.get(i);
+            InsteadOfTriggerGenerator.ForeignKey fk = fkByFromTable.get(table);
+            if (fk != null) {
+                sb.append(" JOIN ").append(fk.fromTable())
+                  .append(" ON ").append(fk.fromTable()).append(".").append(fk.fromColumn())
+                  .append(" = ").append(fk.toTable()).append(".").append(fk.toColumn());
+            }
         }
         return sb.toString();
     }
 
     /**
-     * For each normalization issue with a structured {@link DataMigrationPlan}, generates
-     * and writes Liquibase changesets containing:
+     * For each normalization issue with a structured {@link DataMigrationPlan}, validates the
+     * plan and then generates and writes Liquibase changesets in this order per plan:
      * <ol>
+     *   <li>CREATE TABLE for each new normalized table (topological order)</li>
      *   <li>Data migration INSERT-SELECT statements (one per normalized table)</li>
+     *   <li>Drop every FK constraint referencing the old table</li>
+     *   <li>Rename old table to backup name</li>
      *   <li>A compatibility view named after the original table</li>
      *   <li>INSTEAD OF triggers for INSERT, UPDATE, and DELETE on the view</li>
      * </ol>
      * <p>If {@code liquibase_master_file} is not configured, the changeset XML is printed
      * to stdout instead.</p>
      */
+    @SuppressWarnings("unchecked")
     private void generateMigrationArtifacts() throws IOException {
         Set<String> processedSourceTables = new HashSet<>();
         List<DataMigrationPlan> plans = new ArrayList<>();
@@ -703,37 +818,69 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
 
         System.out.printf("%n🔧 Generating migration artifacts for %d plan(s)…%n", plans.size());
 
-        LiquibaseGenerator liquibaseGenerator =
-                new LiquibaseGenerator(LiquibaseGenerator.ChangesetConfig.fromConfiguration());
+        // Read schema_normalization config
+        Map<String, Object> normConfig =
+                (Map<String, Object>) Settings.getProperty("schema_normalization");
+        String ddlMode = normConfig != null
+                ? (String) normConfig.getOrDefault("ddl_mode", NormalizedTableDDLGenerator.MODE_LIQUIBASE)
+                : NormalizedTableDDLGenerator.MODE_LIQUIBASE;
+        String renameOldTableTo = normConfig != null
+                ? (String) normConfig.get("rename_old_table_to")
+                : null;
+
+        // Build LiquibaseGenerator with schema_normalization config; fall back to query_optimizer
+        // for liquibase_master_file if not overridden in schema_normalization
+        LiquibaseGenerator.ChangesetConfig csConfig =
+                LiquibaseGenerator.ChangesetConfig.fromConfiguration("schema_normalization");
+        if (csConfig.liquibaseMasterFile() == null) {
+            LiquibaseGenerator.ChangesetConfig fallback =
+                    LiquibaseGenerator.ChangesetConfig.fromConfiguration("query_optimizer");
+            if (fallback.liquibaseMasterFile() != null) {
+                csConfig = new LiquibaseGenerator.ChangesetConfig(
+                        csConfig.author(), csConfig.supportedDialects(),
+                        csConfig.includePreconditions(), csConfig.includeRollback(),
+                        fallback.liquibaseMasterFile(), csConfig.filePrefix());
+            }
+        }
+
+        LiquibaseGenerator liquibaseGenerator = new LiquibaseGenerator(csConfig);
         DataMigrationGenerator dataMigrationGenerator = new DataMigrationGenerator();
         InsteadOfTriggerGenerator triggerGenerator = new InsteadOfTriggerGenerator();
+        NormalizedTableDDLGenerator ddlGenerator = new NormalizedTableDDLGenerator();
 
         List<String> allChangesets = new ArrayList<>();
 
         for (DataMigrationPlan plan : plans) {
+            // Locate the source entity profile
+            EntityProfile sourceProfile = allProfiles.stream()
+                    .filter(p -> p.tableName().equals(plan.sourceTable()))
+                    .findFirst()
+                    .orElse(null);
+
+            // Validate the plan before generating artifacts
+            DataMigrationPlanValidator.ValidationResult validationResult =
+                    DataMigrationPlanValidator.validate(plan, sourceProfile);
+            if (!validationResult.valid()) {
+                logger.warn("Skipping plan for '{}' — validation failed: {}",
+                        plan.sourceTable(), validationResult.errors());
+                continue;
+            }
+            if (!validationResult.warnings().isEmpty()) {
+                logger.warn("Plan for '{}' has warnings: {}",
+                        plan.sourceTable(), validationResult.warnings());
+            }
+
             InsteadOfTriggerGenerator.ViewDescriptor view = toViewDescriptor(plan);
             System.out.printf("  📦 %s → [%s]%n", plan.sourceTable(),
                     String.join(", ", plan.newTables()));
 
-            // 1. Data migration INSERT-SELECT statements (one per new table)
-            List<String> migrationSqls = dataMigrationGenerator.generateMigrationSql(view);
-            for (int i = 0; i < migrationSqls.size(); i++) {
-                allChangesets.add(liquibaseGenerator.createRawSqlChangeset(
-                        "migrate_data_" + plan.sourceTable() + "_" + i,
-                        migrationSqls.get(i)));
-            }
+            List<String> planChangesets = buildChangesetsForPlan(
+                    plan, view, sourceProfile, ddlMode, renameOldTableTo,
+                    liquibaseGenerator, dataMigrationGenerator, triggerGenerator, ddlGenerator);
+            allChangesets.addAll(planChangesets);
 
-            // 2. Compatibility view (old table name → SELECT joining all new tables)
-            String viewSql = buildCompatibilityViewSql(view);
-            allChangesets.add(liquibaseGenerator.createViewChangeset(view.viewName(), viewSql));
-
-            // 3. INSTEAD OF triggers so existing DML through the view still works
-            allChangesets.add(liquibaseGenerator.createDialectSqlChangeset(
-                    "trigger_insert_" + view.viewName(), triggerGenerator.generateInsert(view)));
-            allChangesets.add(liquibaseGenerator.createDialectSqlChangeset(
-                    "trigger_update_" + view.viewName(), triggerGenerator.generateUpdate(view)));
-            allChangesets.add(liquibaseGenerator.createDialectSqlChangeset(
-                    "trigger_delete_" + view.viewName(), triggerGenerator.generateDelete(view)));
+            // Write mapping artifact JSON
+            writeMappingArtifact(plan, normConfig);
         }
 
         String composite = liquibaseGenerator.createCompositeChangeset(allChangesets);
@@ -750,6 +897,137 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
         }
 
         generateNewEntities(plans);
+    }
+
+    /**
+     * Builds the full list of changesets for a single migration plan in the correct order:
+     * <ol>
+     *   <li>CREATE TABLE changesets (topological order, from NormalizedTableDDLGenerator)</li>
+     *   <li>Data migration INSERT-SELECT changesets</li>
+     *   <li>Drop FK constraints referencing the old table</li>
+     *   <li>Rename old table to backup name</li>
+     *   <li>Compatibility view changeset</li>
+     *   <li>INSTEAD OF trigger changesets (insert, update, delete)</li>
+     * </ol>
+     */
+    private List<String> buildChangesetsForPlan(DataMigrationPlan plan,
+                                                  InsteadOfTriggerGenerator.ViewDescriptor view,
+                                                  EntityProfile sourceProfile,
+                                                  String ddlMode,
+                                                  String renameOldTableTo,
+                                                  LiquibaseGenerator liquibaseGenerator,
+                                                  DataMigrationGenerator dataMigrationGenerator,
+                                                  InsteadOfTriggerGenerator triggerGenerator,
+                                                  NormalizedTableDDLGenerator ddlGenerator) {
+        List<String> changesets = new ArrayList<>();
+
+        // 1. CREATE TABLE changesets for each new normalized table (topological order)
+        List<String> createTableDdls = ddlGenerator.generate(view, sourceProfile, ddlMode);
+        changesets.addAll(createTableDdls);
+
+        // 2. Data migration INSERT-SELECT statements
+        List<String> migrationSqls = dataMigrationGenerator.generateMigrationSql(view);
+        for (int i = 0; i < migrationSqls.size(); i++) {
+            changesets.add(liquibaseGenerator.createRawSqlChangeset(
+                    "migrate_data_" + plan.sourceTable() + "_" + i,
+                    migrationSqls.get(i)));
+        }
+
+        // 3 + 4. Drop FKs referencing old table, then rename old table to backup
+        List<String> dropFkAndRenameCs = buildDropFkAndRenameChangesets(
+                plan.sourceTable(), renameOldTableTo, liquibaseGenerator);
+        changesets.addAll(dropFkAndRenameCs);
+
+        // 5. Compatibility view
+        String viewSql = buildCompatibilityViewSql(view);
+        changesets.add(liquibaseGenerator.createViewChangeset(view.viewName(), viewSql));
+
+        // 6. INSTEAD OF triggers with rollback DDL
+        Map<LiquibaseGenerator.DatabaseDialect, String> insertRollback =
+                triggerGenerator.generateInsertRollback(view);
+        Map<LiquibaseGenerator.DatabaseDialect, String> updateRollback =
+                triggerGenerator.generateUpdateRollback(view);
+        Map<LiquibaseGenerator.DatabaseDialect, String> deleteRollback =
+                triggerGenerator.generateDeleteRollback(view);
+
+        changesets.add(liquibaseGenerator.createDialectSqlChangesetWithRollback(
+                "trigger_insert_" + view.viewName(),
+                triggerGenerator.generateInsert(view), insertRollback));
+        changesets.add(liquibaseGenerator.createDialectSqlChangesetWithRollback(
+                "trigger_update_" + view.viewName(),
+                triggerGenerator.generateUpdate(view), updateRollback));
+        changesets.add(liquibaseGenerator.createDialectSqlChangesetWithRollback(
+                "trigger_delete_" + view.viewName(),
+                triggerGenerator.generateDelete(view), deleteRollback));
+
+        return changesets;
+    }
+
+    /**
+     * Writes a normalization mapping JSON artifact for a plan to
+     * {@code <base_path>/<mapping_output_dir>/normalization-mapping-<sourceTable>.json}.
+     */
+    @SuppressWarnings("unchecked")
+    private void writeMappingArtifact(DataMigrationPlan plan,
+                                       Map<String, Object> normConfig) throws IOException {
+        String basePath = normConfig != null
+                ? (String) normConfig.get("base_path")
+                : null;
+        if (basePath == null) {
+            Object topLevel = Settings.getProperty("base_path");
+            if (topLevel != null) basePath = topLevel.toString();
+        }
+        if (basePath == null) {
+            logger.warn("base_path not configured — skipping mapping artifact for {}", plan.sourceTable());
+            return;
+        }
+
+        String mappingDir = normConfig != null
+                ? (String) normConfig.getOrDefault("mapping_output_dir", "docs")
+                : "docs";
+
+        Path outputDir = Path.of(basePath, mappingDir);
+        Files.createDirectories(outputDir);
+        Path outputFile = outputDir.resolve("normalization-mapping-" + plan.sourceTable() + ".json");
+
+        // Resolve source entity name
+        String sourceEntityName = allProfiles.stream()
+                .filter(p -> p.tableName().equals(plan.sourceTable()))
+                .map(EntityProfile::entityName)
+                .findFirst()
+                .orElse(plan.sourceTable());
+
+        // Build JSON using ObjectMapper
+        ObjectNode root = objectMapper.createObjectNode();
+        root.put("sourceTable", plan.sourceTable());
+        root.put("sourceEntity", sourceEntityName);
+        root.put("viewName", plan.sourceTable());
+
+        ArrayNode newTables = root.putArray("newTables");
+        plan.newTables().forEach(newTables::add);
+
+        ArrayNode newEntities = root.putArray("newEntities");
+        plan.newTables().forEach(t -> newEntities.add(toPascalCase(t)));
+
+        ArrayNode columnMappings = root.putArray("columnMappings");
+        for (DataMigrationPlan.ColumnMappingEntry cm : plan.columnMappings()) {
+            ObjectNode node = columnMappings.addObject();
+            node.put("viewColumn",    cm.viewColumn());
+            node.put("targetTable",   cm.targetTable());
+            node.put("targetColumn",  cm.targetColumn());
+        }
+
+        ArrayNode foreignKeys = root.putArray("foreignKeys");
+        for (DataMigrationPlan.ForeignKeyEntry fk : plan.foreignKeys()) {
+            ObjectNode node = foreignKeys.addObject();
+            node.put("fromTable",  fk.fromTable());
+            node.put("fromColumn", fk.fromColumn());
+            node.put("toTable",    fk.toTable());
+            node.put("toColumn",   fk.toColumn());
+        }
+
+        objectMapper.writerWithDefaultPrettyPrinter().writeValue(outputFile.toFile(), root);
+        System.out.printf("  📄 Mapping artifact written: %s%n", outputFile);
     }
 
     // -------------------------------------------------------------------------

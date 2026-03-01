@@ -97,6 +97,58 @@ public class InsteadOfTriggerGenerator {
     }
 
     // -------------------------------------------------------------------------
+    // Rollback DDL (Phase 7)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Generates rollback DDL for the INSERT trigger.
+     * PostgreSQL drops both the trigger and the backing function.
+     * Oracle drops only the trigger.
+     *
+     * @param view descriptor of the view
+     * @return map from dialect to rollback SQL
+     */
+    public Map<LiquibaseGenerator.DatabaseDialect, String> generateInsertRollback(ViewDescriptor view) {
+        return buildTriggerRollback(view.viewName(), "insert");
+    }
+
+    /**
+     * Generates rollback DDL for the UPDATE trigger.
+     *
+     * @param view descriptor of the view
+     * @return map from dialect to rollback SQL
+     */
+    public Map<LiquibaseGenerator.DatabaseDialect, String> generateUpdateRollback(ViewDescriptor view) {
+        return buildTriggerRollback(view.viewName(), "update");
+    }
+
+    /**
+     * Generates rollback DDL for the DELETE trigger.
+     *
+     * @param view descriptor of the view
+     * @return map from dialect to rollback SQL
+     */
+    public Map<LiquibaseGenerator.DatabaseDialect, String> generateDeleteRollback(ViewDescriptor view) {
+        return buildTriggerRollback(view.viewName(), "delete");
+    }
+
+    private Map<LiquibaseGenerator.DatabaseDialect, String> buildTriggerRollback(String viewName, String suffix) {
+        Map<LiquibaseGenerator.DatabaseDialect, String> result =
+                new EnumMap<>(LiquibaseGenerator.DatabaseDialect.class);
+
+        // PostgreSQL: drop trigger then drop function
+        result.put(LiquibaseGenerator.DatabaseDialect.POSTGRESQL,
+                "DROP TRIGGER IF EXISTS trig_" + viewName + "_" + suffix + " ON " + viewName + ";\n"
+                + "DROP FUNCTION IF EXISTS fn_" + viewName + "_" + suffix + "();");
+
+        // Oracle: drop trigger only (no separate function)
+        result.put(LiquibaseGenerator.DatabaseDialect.ORACLE,
+                "DROP TRIGGER trig_" + viewName + "_" + suffix + ";");
+
+        return result;
+    }
+
+    // -------------------------------------------------------------------------
     // PostgreSQL implementations
     // -------------------------------------------------------------------------
 

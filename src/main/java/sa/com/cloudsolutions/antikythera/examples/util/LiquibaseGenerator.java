@@ -385,6 +385,97 @@ public class LiquibaseGenerator {
     }
     
     /**
+     * Creates a Liquibase {@code <renameTable>} changeset.
+     * This is a cross-database portable operation (no dialect SQL needed).
+     *
+     * @param id       a descriptive base identifier for the changeset
+     * @param oldName  current table name
+     * @param newName  new (backup) table name
+     * @return XML changeset string
+     */
+    public String createRenameTableChangeset(String id, String oldName, String newName) {
+        String changesetId = generateChangesetId(sanitize(id));
+        StringBuilder sb = new StringBuilder();
+
+        sb.append("<changeSet id=\"").append(changesetId).append("\" author=\"").append(config.author()).append("\">\n");
+        sb.append("    <renameTable oldTableName=\"").append(oldName).append("\" newTableName=\"").append(newName).append("\"/>\n");
+
+        if (config.includeRollback()) {
+            sb.append("    <rollback><renameTable oldTableName=\"").append(newName)
+              .append("\" newTableName=\"").append(oldName).append("\"/></rollback>\n");
+        }
+
+        sb.append("</changeSet>");
+        return sb.toString();
+    }
+
+    /**
+     * Creates a Liquibase {@code <dropForeignKeyConstraint>} changeset.
+     *
+     * @param id               a descriptive base identifier for the changeset
+     * @param baseTableName    the table that holds the FK column
+     * @param constraintName   the constraint name to drop
+     * @return XML changeset string
+     */
+    public String createDropForeignKeyChangeset(String id, String baseTableName, String constraintName) {
+        String changesetId = generateChangesetId(sanitize(id));
+        StringBuilder sb = new StringBuilder();
+
+        sb.append("<changeSet id=\"").append(changesetId).append("\" author=\"").append(config.author()).append("\">\n");
+        sb.append("    <dropForeignKeyConstraint baseTableName=\"").append(baseTableName)
+          .append("\" constraintName=\"").append(constraintName).append("\"/>\n");
+
+        if (config.includeRollback()) {
+            sb.append("    <rollback><!-- manual rollback required: re-add FK constraint --></rollback>\n");
+        }
+
+        sb.append("</changeSet>");
+        return sb.toString();
+    }
+
+    /**
+     * Creates a changeset containing one {@code <sql dbms="...">} block per dialect entry,
+     * with explicit per-dialect rollback SQL.
+     *
+     * @param id               a descriptive base identifier for the changeset
+     * @param sqlByDialect     map from dialect to the SQL body for that dialect
+     * @param rollbackByDialect map from dialect to the rollback SQL for that dialect;
+     *                          if {@code null} or empty, falls back to a manual comment
+     * @return XML changeset string
+     */
+    public String createDialectSqlChangesetWithRollback(String id,
+                                                          Map<DatabaseDialect, String> sqlByDialect,
+                                                          Map<DatabaseDialect, String> rollbackByDialect) {
+        String changesetId = generateChangesetId(sanitize(id));
+        StringBuilder sb = new StringBuilder();
+
+        sb.append("<changeSet id=\"").append(changesetId).append("\" author=\"").append(config.author()).append("\">\n");
+
+        for (Map.Entry<DatabaseDialect, String> entry : sqlByDialect.entrySet()) {
+            sb.append("    <sql dbms=\"").append(entry.getKey().getLiquibaseDbms()).append("\">\n");
+            sb.append("        ").append(entry.getValue()).append("\n");
+            sb.append("    </sql>\n");
+        }
+
+        if (config.includeRollback()) {
+            if (rollbackByDialect != null && !rollbackByDialect.isEmpty()) {
+                sb.append("    <rollback>\n");
+                for (Map.Entry<DatabaseDialect, String> entry : rollbackByDialect.entrySet()) {
+                    sb.append("        <sql dbms=\"").append(entry.getKey().getLiquibaseDbms()).append("\">\n");
+                    sb.append("            ").append(entry.getValue()).append("\n");
+                    sb.append("        </sql>\n");
+                }
+                sb.append("    </rollback>\n");
+            } else {
+                sb.append("    <rollback><!-- manual rollback required --></rollback>\n");
+            }
+        }
+
+        sb.append("</changeSet>");
+        return sb.toString();
+    }
+
+    /**
      * Creates a dialect-agnostic raw SQL changeset. Suitable for CREATE TABLE and similar
      * ANSI SQL statements that work across supported databases.
      *
