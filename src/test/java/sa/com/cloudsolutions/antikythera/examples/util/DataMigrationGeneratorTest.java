@@ -157,4 +157,85 @@ class DataMigrationGeneratorTest {
             assertFalse(sql.contains(":NEW"),         "Should not contain Oracle trigger syntax");
         }
     }
+
+    // -------------------------------------------------------------------------
+    // Three-level dependency chain (Task 17)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Three-level chain: customer (root) → address (child) → phone (grandchild).
+     * Expected INSERT order: customer, address, phone.
+     */
+    @Test
+    void testThreeLevelDependencyOrderIsCustomerThenAddressThenPhone() {
+        ViewDescriptor threeTableView = new ViewDescriptor(
+                "old_customer",
+                "customer",
+                List.of("customer", "address", "phone"),
+                List.of(
+                        new ColumnMapping("id",          "customer", "id"),
+                        new ColumnMapping("name",        "customer", "name"),
+                        new ColumnMapping("customer_id", "address",  "customer_id"),
+                        new ColumnMapping("street",      "address",  "street"),
+                        new ColumnMapping("address_id",  "phone",    "address_id"),
+                        new ColumnMapping("number",      "phone",    "number")
+                ),
+                List.of(
+                        new ForeignKey("address", "customer_id", "customer", "id"),
+                        new ForeignKey("phone",   "address_id",  "address",  "id")
+                )
+        );
+
+        List<String> stmts = generator.generateMigrationSql(threeTableView);
+        assertEquals(3, stmts.size(), "Should produce one INSERT per table");
+
+        int customerIdx = -1, addressIdx = -1, phoneIdx = -1;
+        for (int i = 0; i < stmts.size(); i++) {
+            if (stmts.get(i).startsWith("INSERT INTO customer")) customerIdx = i;
+            else if (stmts.get(i).startsWith("INSERT INTO address")) addressIdx = i;
+            else if (stmts.get(i).startsWith("INSERT INTO phone"))   phoneIdx = i;
+        }
+
+        assertTrue(customerIdx >= 0, "Should have INSERT INTO customer");
+        assertTrue(addressIdx  >= 0, "Should have INSERT INTO address");
+        assertTrue(phoneIdx    >= 0, "Should have INSERT INTO phone");
+
+        assertTrue(customerIdx < addressIdx,
+                "customer (root) must be inserted before address (child)");
+        assertTrue(addressIdx < phoneIdx,
+                "address (child) must be inserted before phone (grandchild)");
+    }
+
+    @Test
+    void testThreeLevelDependencyProducesCorrectSql() {
+        ViewDescriptor threeTableView = new ViewDescriptor(
+                "old_customer",
+                "customer",
+                List.of("customer", "address", "phone"),
+                List.of(
+                        new ColumnMapping("id",          "customer", "id"),
+                        new ColumnMapping("name",        "customer", "name"),
+                        new ColumnMapping("customer_id", "address",  "customer_id"),
+                        new ColumnMapping("street",      "address",  "street"),
+                        new ColumnMapping("address_id",  "phone",    "address_id"),
+                        new ColumnMapping("number",      "phone",    "number")
+                ),
+                List.of(
+                        new ForeignKey("address", "customer_id", "customer", "id"),
+                        new ForeignKey("phone",   "address_id",  "address",  "id")
+                )
+        );
+
+        List<String> stmts = generator.generateMigrationSql(threeTableView);
+
+        // Verify each statement's FROM clause uses the original denormalized table
+        for (String sql : stmts) {
+            assertTrue(sql.contains("FROM old_customer"), "All INSERT-SELECT must read from old_customer");
+        }
+
+        // Verify phone statement references the correct columns
+        String phoneSql = stmts.stream().filter(s -> s.startsWith("INSERT INTO phone")).findFirst().orElse("");
+        assertTrue(phoneSql.contains("(address_id, number)"), "Phone should insert address_id and number");
+        assertTrue(phoneSql.contains("SELECT address_id, number"), "Phone select should use view column names");
+    }
 }

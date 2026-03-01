@@ -367,4 +367,117 @@ class InsteadOfTriggerGeneratorTest {
         assertTrue(patientIdx < addressIdx,
                 "patient must be inserted before address even when tables list was in wrong order");
     }
+
+    // -------------------------------------------------------------------------
+    // DELETE reverse order assertion (Task 18)
+    // -------------------------------------------------------------------------
+
+    @Test
+    void testDeleteReverseOrderThreeTables() {
+        // Star schema: customer (base) with two direct children — address and phone
+        // (both FK directly to customer). Topological order: customer, address, phone
+        // DELETE must be in reverse: address and phone before customer.
+        ViewDescriptor starView = new ViewDescriptor(
+                "old_customer",
+                "customer",
+                List.of("customer", "address", "phone"),
+                List.of(
+                        new ColumnMapping("id",          "customer", "id"),
+                        new ColumnMapping("name",        "customer", "name"),
+                        new ColumnMapping("customer_id", "address",  "customer_id"),
+                        new ColumnMapping("street",      "address",  "street"),
+                        new ColumnMapping("cust_id",     "phone",    "cust_id"),
+                        new ColumnMapping("number",      "phone",    "number")
+                ),
+                List.of(
+                        new ForeignKey("address", "customer_id", "customer", "id"),
+                        new ForeignKey("phone",   "cust_id",     "customer", "id")
+                )
+        );
+
+        Map<DatabaseDialect, String> result = generator.generateDelete(starView);
+        String pg = result.get(DatabaseDialect.POSTGRESQL);
+
+        int phoneIdx    = pg.indexOf("DELETE FROM phone");
+        int addressIdx  = pg.indexOf("DELETE FROM address");
+        int customerIdx = pg.indexOf("DELETE FROM customer");
+
+        assertTrue(phoneIdx    >= 0, "Should delete from phone");
+        assertTrue(addressIdx  >= 0, "Should delete from address");
+        assertTrue(customerIdx >= 0, "Should delete from customer");
+
+        // Customer (root) must be deleted LAST (after both its children)
+        assertTrue(phoneIdx    < customerIdx, "phone should be deleted before customer");
+        assertTrue(addressIdx  < customerIdx, "address should be deleted before customer");
+    }
+
+    @Test
+    void testUpdateWhereClauseUsesBaseTablePk() {
+        // The UPDATE WHERE clause for the base table should use the PK source column
+        Map<DatabaseDialect, String> result = generator.generateUpdate(twoTableView);
+        String pg = result.get(DatabaseDialect.POSTGRESQL);
+
+        // patient is the base table; PK is id; UPDATE should use WHERE id = NEW.id
+        assertTrue(pg.contains("WHERE id = NEW.id"),
+                "Update WHERE for base table should use base table PK");
+    }
+
+    @Test
+    void testUpdateWhereClauseUsesChildFk() {
+        // The UPDATE WHERE clause for a child table should use the FK column
+        Map<DatabaseDialect, String> result = generator.generateUpdate(twoTableView);
+        String pg = result.get(DatabaseDialect.POSTGRESQL);
+
+        // address is the child table; FK is patient_id; UPDATE WHERE patient_id = NEW.id
+        assertTrue(pg.contains("WHERE patient_id = NEW.id"),
+                "Update WHERE for child table should use FK column = base PK");
+    }
+
+    // -------------------------------------------------------------------------
+    // Rollback DDL (Phase 7) — Task 18
+    // -------------------------------------------------------------------------
+
+    @Test
+    void testInsertRollbackPostgresqlDropsTriggerAndFunction() {
+        Map<DatabaseDialect, String> rollback = generator.generateInsertRollback(twoTableView);
+
+        String pg = rollback.get(DatabaseDialect.POSTGRESQL);
+        assertNotNull(pg, "PostgreSQL rollback should not be null");
+        assertTrue(pg.contains("DROP TRIGGER IF EXISTS trig_old_patient_insert"),
+                "Rollback should drop the INSERT trigger");
+        assertTrue(pg.contains("DROP FUNCTION IF EXISTS fn_old_patient_insert()"),
+                "Rollback should drop the INSERT function (PostgreSQL-specific)");
+    }
+
+    @Test
+    void testInsertRollbackOracleDropsTriggerOnly() {
+        Map<DatabaseDialect, String> rollback = generator.generateInsertRollback(twoTableView);
+
+        String oracle = rollback.get(DatabaseDialect.ORACLE);
+        assertNotNull(oracle, "Oracle rollback should not be null");
+        assertTrue(oracle.contains("DROP TRIGGER trig_old_patient_insert"),
+                "Oracle rollback should drop the INSERT trigger");
+        assertFalse(oracle.contains("DROP FUNCTION"),
+                "Oracle rollback should NOT contain DROP FUNCTION");
+    }
+
+    @Test
+    void testUpdateRollbackReturnsBothDialects() {
+        Map<DatabaseDialect, String> rollback = generator.generateUpdateRollback(twoTableView);
+
+        assertNotNull(rollback.get(DatabaseDialect.POSTGRESQL));
+        assertNotNull(rollback.get(DatabaseDialect.ORACLE));
+        assertTrue(rollback.get(DatabaseDialect.POSTGRESQL).contains("trig_old_patient_update"));
+        assertTrue(rollback.get(DatabaseDialect.ORACLE).contains("trig_old_patient_update"));
+    }
+
+    @Test
+    void testDeleteRollbackReturnsBothDialects() {
+        Map<DatabaseDialect, String> rollback = generator.generateDeleteRollback(twoTableView);
+
+        assertNotNull(rollback.get(DatabaseDialect.POSTGRESQL));
+        assertNotNull(rollback.get(DatabaseDialect.ORACLE));
+        assertTrue(rollback.get(DatabaseDialect.POSTGRESQL).contains("trig_old_patient_delete"));
+        assertTrue(rollback.get(DatabaseDialect.ORACLE).contains("trig_old_patient_delete"));
+    }
 }
