@@ -565,9 +565,7 @@ public abstract class AbstractAIService {
         }
 
         if (!responseArray.isArray()) {
-            logger.warn("AI response does not contain a JSON array as expected");
-            logger.warn(jsonResponse);
-            System.exit(1);
+            throw new IOException("AI response does not contain a JSON array as expected. Full response:\n" + jsonResponse);
         }
 
         // Process each optimization recommendation
@@ -593,23 +591,17 @@ public abstract class AbstractAIService {
             return new ArrayList<>();
         }
 
-        try {
-            // Strip markdown code fences if present (e.g. ```json ... ```)
-            String json = textResponse.trim();
-            if (json.startsWith("```")) {
-                int firstNewline = json.indexOf('\n');
-                if (firstNewline != -1) {
-                    json = json.substring(firstNewline + 1);
-                }
-                if (json.endsWith("```")) {
-                    json = json.substring(0, json.lastIndexOf("```")).stripTrailing();
-                }
+        // Strip markdown code fences if present (e.g. ```json ... ```)
+        String json = textResponse.trim();
+        if (json.startsWith("```")) {
+            int firstNewline = json.indexOf('\n');
+            if (firstNewline != -1) {
+                json = json.substring(firstNewline + 1);
             }
-            return parseRecommendationsFromJson(json, batch);
-        } catch (Exception e) {
-            logger.error("Failed to parse AI response as JSON. Response: {}",
-                    textResponse.substring(0, Math.min(200, textResponse.length())), e);
-            return new ArrayList<>();
+            if (json.endsWith("```")) {
+                json = json.substring(0, json.lastIndexOf("```")).stripTrailing();
+            }
         }
+        return parseRecommendationsFromJson(json, batch);
     }
 }
