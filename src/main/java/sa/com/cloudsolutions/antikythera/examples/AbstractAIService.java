@@ -565,7 +565,7 @@ public abstract class AbstractAIService {
         }
 
         if (!responseArray.isArray()) {
-            throw new IOException("AI response does not contain a JSON array as expected. Full response:\n" + jsonResponse);
+            throw new AIResponseException("AI response does not contain a JSON array as expected. Full response:\n" + jsonResponse);
         }
 
         // Process each optimization recommendation
@@ -607,7 +607,7 @@ public abstract class AbstractAIService {
 
         int jsonStart;
         if (arrayStart == -1 && objectStart == -1) {
-            return s; // Let the caller fail with a meaningful parse error
+            throw new AIResponseException("AI response contains no JSON array or object. Full response:\n" + s);
         } else if (arrayStart == -1) {
             jsonStart = objectStart;
         } else if (objectStart == -1) {
