@@ -1,5 +1,6 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpRequest;
@@ -33,6 +34,30 @@ public class OpenRouterService extends OpenAIService {
 
     public OpenRouterService() throws IOException {
         super();
+    }
+
+    /**
+     * Extends the base OpenAI request with OpenRouter-specific parameters.
+     * Sets include_reasoning=false to suppress chain-of-thought output from
+     * reasoning/thinking models (e.g. google/gemini-*-preview, deepseek-r1)
+     * that would otherwise pollute the content field and break JSON parsing.
+     */
+    @Override
+    protected String buildRequestPayload(QueryBatch batch) throws IOException {
+        String base = super.buildRequestPayload(batch);
+        ObjectNode root = (ObjectNode) objectMapper.readTree(base);
+
+        // Suppress chain-of-thought from reasoning/thinking models
+        root.put("include_reasoning", false);
+
+        // Deterministic output — no creative hallucinations or random preamble text
+        root.put("temperature", 0);
+
+        // Only route to providers that honour all the parameters above;
+        // prevents silent fallback to a model that ignores temperature/response_format
+        root.putObject("provider").put("require_parameters", true);
+
+        return objectMapper.writeValueAsString(root);
     }
 
     /**

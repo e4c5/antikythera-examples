@@ -598,7 +598,7 @@ public abstract class AbstractAIService {
             if (s.endsWith("```")) {
                 s = s.substring(0, s.lastIndexOf("```")).stripTrailing();
             }
-            return s.trim();
+            return s.trim().replace("`", "");
         }
 
         // Find the start of the JSON array or object, skipping any preamble text
@@ -620,7 +620,7 @@ public abstract class AbstractAIService {
             logger.warn("AI response contains preamble text before JSON (skipping {} chars): {}",
                     jsonStart, s.substring(0, Math.min(jsonStart, 200)));
         }
-        return s.substring(jsonStart);
+        return s.substring(jsonStart).replace("`", "");
     }
 
     /**
@@ -633,7 +633,12 @@ public abstract class AbstractAIService {
             return new ArrayList<>();
         }
 
-        String json = extractJson(textResponse);
-        return parseRecommendationsFromJson(json, batch);
+        try {
+            String json = extractJson(textResponse);
+            return parseRecommendationsFromJson(json, batch);
+        } catch (Exception e) {
+            logger.error("Failed to parse AI response. Full raw response follows:\n{}", textResponse);
+            throw e;
+        }
     }
 }
