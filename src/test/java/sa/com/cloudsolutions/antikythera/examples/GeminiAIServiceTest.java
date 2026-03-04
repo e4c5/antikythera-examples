@@ -234,14 +234,11 @@ class GeminiAIServiceTest {
 
 
     @Test
-    void testParseRecommendations_InvalidJson() throws Exception {
+    void testParseRecommendations_InvalidJson() {
         String invalidJson = "This is not valid JSON";
         QueryBatch batch = createTestQueryBatch();
 
-        List<OptimizationIssue> result = geminiAIService.parseRecommendations(invalidJson, batch);
-
-        assertNotNull(result);
-        assertTrue(result.isEmpty());
+        assertThrows(Exception.class, () -> geminiAIService.parseRecommendations(invalidJson, batch));
     }
 
     @Test

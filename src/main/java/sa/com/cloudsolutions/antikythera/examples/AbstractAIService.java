@@ -582,6 +582,48 @@ public abstract class AbstractAIService {
     }
 
     /**
+     * Extracts the JSON payload from an AI response that may include:
+     * - Markdown code fences (```json ... ```)
+     * - Preamble text before the JSON array/object
+     */
+    static String extractJson(String textResponse) {
+        String s = textResponse.trim();
+
+        // Strip markdown code fence if present
+        if (s.startsWith("```")) {
+            int firstNewline = s.indexOf('\n');
+            if (firstNewline != -1) {
+                s = s.substring(firstNewline + 1);
+            }
+            if (s.endsWith("```")) {
+                s = s.substring(0, s.lastIndexOf("```")).stripTrailing();
+            }
+            return s.trim();
+        }
+
+        // Find the start of the JSON array or object, skipping any preamble text
+        int arrayStart = s.indexOf('[');
+        int objectStart = s.indexOf('{');
+
+        int jsonStart;
+        if (arrayStart == -1 && objectStart == -1) {
+            return s; // Let the caller fail with a meaningful parse error
+        } else if (arrayStart == -1) {
+            jsonStart = objectStart;
+        } else if (objectStart == -1) {
+            jsonStart = arrayStart;
+        } else {
+            jsonStart = Math.min(arrayStart, objectStart);
+        }
+
+        if (jsonStart > 0) {
+            logger.warn("AI response contains preamble text before JSON (skipping {} chars): {}",
+                    jsonStart, s.substring(0, Math.min(jsonStart, 200)));
+        }
+        return s.substring(jsonStart);
+    }
+
+    /**
      * Parses the text response from AI to extract optimization recommendations.
      * Since Gemini is configured with JSON mode, the response should already be valid JSON.
      */
@@ -591,17 +633,7 @@ public abstract class AbstractAIService {
             return new ArrayList<>();
         }
 
-        // Strip markdown code fences if present (e.g. ```json ... ```)
-        String json = textResponse.trim();
-        if (json.startsWith("```")) {
-            int firstNewline = json.indexOf('\n');
-            if (firstNewline != -1) {
-                json = json.substring(firstNewline + 1);
-            }
-            if (json.endsWith("```")) {
-                json = json.substring(0, json.lastIndexOf("```")).stripTrailing();
-            }
-        }
+        String json = extractJson(textResponse);
         return parseRecommendationsFromJson(json, batch);
     }
 }
