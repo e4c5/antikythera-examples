@@ -594,7 +594,18 @@ public abstract class AbstractAIService {
         }
 
         try {
-            return parseRecommendationsFromJson(textResponse, batch);
+            // Strip markdown code fences if present (e.g. ```json ... ```)
+            String json = textResponse.trim();
+            if (json.startsWith("```")) {
+                int firstNewline = json.indexOf('\n');
+                if (firstNewline != -1) {
+                    json = json.substring(firstNewline + 1);
+                }
+                if (json.endsWith("```")) {
+                    json = json.substring(0, json.lastIndexOf("```")).stripTrailing();
+                }
+            }
+            return parseRecommendationsFromJson(json, batch);
         } catch (Exception e) {
             logger.error("Failed to parse AI response as JSON. Response: {}",
                     textResponse.substring(0, Math.min(200, textResponse.length())), e);
