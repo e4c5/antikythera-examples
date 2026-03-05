@@ -585,35 +585,65 @@ public abstract class AbstractAIService {
      * Extracts the JSON payload from an AI response that may include:
      * - Markdown code fences (```json ... ```)
      * - Preamble text before the JSON array/object
+     * - Multiple attempts: a truncated first response followed by the complete one
+     *
+     * When the response contains multiple code fences (the model leaked a partial
+     * attempt before the real response), the LAST fence opening is used because
+     * it always precedes the complete JSON output.
      */
     static String extractJson(String textResponse) {
         String s = textResponse.trim();
 
-        // Strip markdown code fence if present
-        if (s.startsWith("```")) {
-            int firstNewline = s.indexOf('\n');
-            if (firstNewline != -1) {
-                s = s.substring(firstNewline + 1);
+        // Find the last code fence opening (```json or ``` followed by [ or {).
+        // When a model outputs a truncated attempt then the real response, the last
+        // fence opening is the one that introduces the complete JSON.
+        int lastFenceStart = -1;
+        int pos = 0;
+        while (pos < s.length()) {
+            int idx = s.indexOf("```", pos);
+            if (idx == -1) break;
+            String tail = s.substring(Math.min(idx + 3, s.length()));
+            // Treat as an opening fence if followed by "json", a newline with [/{, or whitespace
+            if (tail.startsWith("json") || tail.startsWith("\n[") || tail.startsWith("\n{")
+                    || tail.startsWith("\n ") || tail.startsWith("\n\n")) {
+                lastFenceStart = idx;
             }
-            if (s.endsWith("```")) {
-                s = s.substring(0, s.lastIndexOf("```")).stripTrailing();
-            }
-            return s.trim().replace("`", "");
+            pos = idx + 3;
         }
 
-        // Find the start of the JSON array or object, skipping any preamble text
-        int arrayStart = s.indexOf('[');
-        int objectStart = s.indexOf('{');
+        if (lastFenceStart != -1) {
+            int newline = s.indexOf('\n', lastFenceStart);
+            if (newline != -1) {
+                String content = s.substring(newline + 1).stripLeading();
+                int closingFence = content.lastIndexOf("```");
+                if (closingFence != -1) {
+                    content = content.substring(0, closingFence).stripTrailing();
+                }
+                if (lastFenceStart > 0) {
+                    logger.warn("AI response had {} chars of preamble/garbage before last code fence",
+                            lastFenceStart);
+                }
+                return content.replace("`", "");
+            }
+        }
+
+        // No code fence — find the last [ or { that starts on its own line,
+        // preferring the last occurrence to skip any truncated first attempt
+        int lastArrayOnLine = s.lastIndexOf("\n[");
+        int lastObjectOnLine = s.lastIndexOf("\n{");
 
         int jsonStart;
-        if (arrayStart == -1 && objectStart == -1) {
-            throw new AIResponseException("AI response contains no JSON array or object. Full response:\n" + s);
-        } else if (arrayStart == -1) {
-            jsonStart = objectStart;
-        } else if (objectStart == -1) {
-            jsonStart = arrayStart;
+        if (lastArrayOnLine != -1 || lastObjectOnLine != -1) {
+            jsonStart = Math.max(lastArrayOnLine, lastObjectOnLine) + 1; // skip the \n
         } else {
-            jsonStart = Math.min(arrayStart, objectStart);
+            // Last resort: first [ or { anywhere
+            int arrayStart = s.indexOf('[');
+            int objectStart = s.indexOf('{');
+            if (arrayStart == -1 && objectStart == -1) {
+                throw new AIResponseException("AI response contains no JSON array or object. Full response:\n" + s);
+            }
+            jsonStart = arrayStart == -1 ? objectStart
+                    : (objectStart == -1 ? arrayStart : Math.min(arrayStart, objectStart));
         }
 
         if (jsonStart > 0) {
