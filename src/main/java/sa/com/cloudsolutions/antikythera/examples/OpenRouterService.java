@@ -53,7 +53,6 @@ public class OpenRouterService extends OpenAIService {
         // Deterministic output — no creative hallucinations or random preamble text
         root.put("temperature", 0);
 
-        // Only route to providers that honour all the parameters above;
         // prevents silent fallback to a model that ignores temperature/response_format
         root.putObject("provider").put("require_parameters", true);
 

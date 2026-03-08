@@ -9,6 +9,7 @@ import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.AnnotationExpr;
 import com.github.javaparser.ast.expr.Expression;
+import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
@@ -61,6 +62,10 @@ import java.util.stream.Collectors;
 public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
 
     private static final Logger logger = LoggerFactory.getLogger(SchemaNormalizationAnalyzer.class);
+    public static final String BASE_PATH = "base_path";
+    public static final String SCHEMA_NORMALIZATION = "schema_normalization";
+    public static final String PARTS = "parts";
+    public static final String CONTENT = "content";
 
     private final String normalizationSystemPrompt;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -285,7 +290,7 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
     @SuppressWarnings("unchecked")
     private int getMaxContinuations() {
         Map<String, Object> normConfig =
-                (Map<String, Object>) Settings.getProperty("schema_normalization");
+                (Map<String, Object>) Settings.getProperty(SCHEMA_NORMALIZATION);
         if (normConfig != null) {
             Object v = normConfig.get("max_continuations");
             if (v instanceof Integer i) return i;
@@ -425,12 +430,12 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
 
         // system_instruction
         ObjectNode sysInstr = root.putObject("system_instruction");
-        sysInstr.putArray("parts").addObject().put("text", normalizationSystemPrompt);
+        sysInstr.putArray(PARTS).addObject().put("text", normalizationSystemPrompt);
 
         // contents (user message)
         ObjectNode userMsg = root.putArray("contents").addObject();
         userMsg.put("role", "user");
-        userMsg.putArray("parts").addObject().put("text", userContent);
+        userMsg.putArray(PARTS).addObject().put("text", userContent);
 
         // generationConfig — request JSON output
         root.putObject("generationConfig").put("responseMimeType", "application/json");
@@ -446,8 +451,8 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
         root.put("model", model);
 
         ArrayNode messages = root.putArray("messages");
-        messages.addObject().put("role", "system").put("content", normalizationSystemPrompt);
-        messages.addObject().put("role", "user").put("content", userContent);
+        messages.addObject().put("role", "system").put(CONTENT, normalizationSystemPrompt);
+        messages.addObject().put("role", "user").put(CONTENT, userContent);
 
         // response_format json_object is added only for native OpenAI.
         // It ensures strict JSON output but forbids top-level arrays, so GPT models
@@ -477,18 +482,8 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
         String jsonText = extractJsonText(responseBody);
         if (jsonText == null || jsonText.isBlank()) return reports;
 
-        JsonNode parsed;
-        try {
-            parsed = objectMapper.readTree(jsonText);
-            lastResponseTruncated = false;
-        } catch (Exception e) {
-            lastResponseTruncated = true;
-            logger.warn("LLM response appears truncated (malformed JSON); {} entities will be retried",
-                    batch.size());
-            logger.debug("Truncated content prefix: {}",
-                    jsonText.substring(0, Math.min(200, jsonText.length())));
-            return reports; // empty — signals all in this batch are uncovered
-        }
+        JsonNode parsed  = objectMapper.readTree(jsonText);
+        lastResponseTruncated = false;
 
         // Unwrap a single-key object wrapper (e.g. {"results":[...]} or {"analyses":[...]})
         // that json_object mode forces GPT models to emit. Try any field that is an array.
@@ -508,7 +503,6 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
             logger.warn("Unexpected normalization response structure; expected JSON array — batch will be retried");
             return reports;
         }
-        lastResponseTruncated = false;
 
         for (JsonNode entityNode : parsed) {
             String entityName = entityNode.path("entityName").asText("");
@@ -538,11 +532,11 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
         if (aiService instanceof GeminiAIService) {
             JsonNode candidates = root.path("candidates");
             if (!candidates.isArray() || candidates.isEmpty()) return null;
-            jsonText = candidates.get(0).path("content").path("parts").get(0).path("text").asText();
+            jsonText = candidates.get(0).path(CONTENT).path(PARTS).get(0).path("text").asText();
         } else {
             JsonNode choices = root.path("choices");
             if (!choices.isArray() || choices.isEmpty()) return null;
-            jsonText = choices.get(0).path("message").path("content").asText();
+            jsonText = choices.get(0).path("message").path(CONTENT).asText();
         }
         jsonText = stripMarkdownFences(jsonText);
         logger.info("=== LLM EXTRACTED JSON ===\n{}", jsonText == null ? "null" : jsonText);
@@ -795,21 +789,7 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
      */
     @SuppressWarnings("unchecked")
     private void generateMigrationArtifacts() throws IOException {
-        Set<String> processedSourceTables = new HashSet<>();
-        List<DataMigrationPlan> plans = new ArrayList<>();
-
-        for (EntityNormalizationReport report : allReports) {
-            for (NormalizationIssue issue : report.issues()) {
-                DataMigrationPlan plan = issue.dataMigrationPlan();
-                if (plan == null || plan.newTables().isEmpty() || plan.columnMappings().isEmpty()) {
-                    continue;
-                }
-                // Deduplicate — multiple issues on the same entity may share the same plan
-                if (processedSourceTables.add(plan.sourceTable())) {
-                    plans.add(plan);
-                }
-            }
-        }
+        List<DataMigrationPlan> plans = getDataMigrationPlans();
 
         if (plans.isEmpty()) {
             System.out.println("  ℹ️  No structured migration plans found — skipping artifact generation.");
@@ -820,7 +800,7 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
 
         // Read schema_normalization config
         Map<String, Object> normConfig =
-                (Map<String, Object>) Settings.getProperty("schema_normalization");
+                (Map<String, Object>) Settings.getProperty(SCHEMA_NORMALIZATION);
         String ddlMode = normConfig != null
                 ? (String) normConfig.getOrDefault("ddl_mode", NormalizedTableDDLGenerator.MODE_LIQUIBASE)
                 : NormalizedTableDDLGenerator.MODE_LIQUIBASE;
@@ -831,7 +811,7 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
         // Build LiquibaseGenerator with schema_normalization config; fall back to query_optimizer
         // for liquibase_master_file if not overridden in schema_normalization
         LiquibaseGenerator.ChangesetConfig csConfig =
-                LiquibaseGenerator.ChangesetConfig.fromConfiguration("schema_normalization");
+                LiquibaseGenerator.ChangesetConfig.fromConfiguration(SCHEMA_NORMALIZATION);
         if (csConfig.liquibaseMasterFile() == null) {
             LiquibaseGenerator.ChangesetConfig fallback =
                     LiquibaseGenerator.ChangesetConfig.fromConfiguration("query_optimizer");
@@ -897,6 +877,25 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
         }
 
         generateNewEntities(plans);
+    }
+
+    private @NonNull List<DataMigrationPlan> getDataMigrationPlans() {
+        Set<String> processedSourceTables = new HashSet<>();
+        List<DataMigrationPlan> plans = new ArrayList<>();
+
+        for (EntityNormalizationReport report : allReports) {
+            for (NormalizationIssue issue : report.issues()) {
+                DataMigrationPlan plan = issue.dataMigrationPlan();
+                if (plan == null || plan.newTables().isEmpty() || plan.columnMappings().isEmpty()) {
+                    continue;
+                }
+                // Deduplicate — multiple issues on the same entity may share the same plan
+                if (processedSourceTables.add(plan.sourceTable())) {
+                    plans.add(plan);
+                }
+            }
+        }
+        return plans;
     }
 
     /**
@@ -967,14 +966,13 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
      * Writes a normalization mapping JSON artifact for a plan to
      * {@code <base_path>/<mapping_output_dir>/normalization-mapping-<sourceTable>.json}.
      */
-    @SuppressWarnings("unchecked")
     private void writeMappingArtifact(DataMigrationPlan plan,
                                        Map<String, Object> normConfig) throws IOException {
         String basePath = normConfig != null
-                ? (String) normConfig.get("base_path")
+                ? (String) normConfig.get(BASE_PATH)
                 : null;
         if (basePath == null) {
-            Object topLevel = Settings.getProperty("base_path");
+            Object topLevel = Settings.getProperty(BASE_PATH);
             if (topLevel != null) basePath = topLevel.toString();
         }
         if (basePath == null) {
@@ -1041,11 +1039,8 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
      * Files that already exist are skipped with a warning.
      */
     private void generateNewEntities(List<DataMigrationPlan> plans) throws IOException {
-        Object basePathProp = Settings.getProperty("base_path");
-        if (basePathProp == null) {
-            System.out.println("  ⚠️  base_path not configured — cannot write new entity files.");
-            return;
-        }
+        Object basePathProp = Settings.getProperty(BASE_PATH);
+
         Path sourceRoot = Path.of(basePathProp.toString(), "src", "main", "java");
 
         System.out.printf("%n📝 Generating new entity classes (persistence: %s)…%n", persistencePackage);
@@ -1307,7 +1302,7 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
     @SuppressWarnings("unchecked")
     public static void configureFromSettings() {
         Map<String, Object> normConfig =
-                (Map<String, Object>) Settings.getProperty("schema_normalization");
+                (Map<String, Object>) Settings.getProperty(SCHEMA_NORMALIZATION);
         if (normConfig != null) {
             Object targetClassValue = normConfig.get("target_class");
             if (targetClassValue instanceof String s && !s.isBlank()) {

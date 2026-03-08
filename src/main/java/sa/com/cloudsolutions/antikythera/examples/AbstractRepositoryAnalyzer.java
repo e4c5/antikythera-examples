@@ -72,7 +72,7 @@ public abstract class AbstractRepositoryAnalyzer {
 
                 if (shouldSkipType(fullyQualifiedName)) continue;
 
-                System.out.println("\n" + "=".repeat(80));
+                System.out.println("%n" + "=".repeat(80));
                 System.out.printf("Analyzing: %s%n", fullyQualifiedName);
                 System.out.println("=".repeat(80));
                 try {
@@ -94,13 +94,13 @@ public abstract class AbstractRepositoryAnalyzer {
 
         // Print summary
         if (typesSkippedByFilter > 0) {
-            System.out.printf("\n✅ Analyzed %d types, skipped %d by target_class filter (total: %d)%n",
+            System.out.printf("%n✅ Analyzed %d types, skipped %d by target_class filter (total: %d)%n",
                     typesProcessed, typesSkippedByFilter, totalTypes);
         } else if (typesResumed > 0) {
-            System.out.printf("\n✅ Analyzed %d types, skipped %d from checkpoint (total: %d)%n",
+            System.out.printf("%n✅ Analyzed %d types, skipped %d from checkpoint (total: %d)%n",
                     typesProcessed, typesResumed, totalTypes);
         } else {
-            System.out.printf("\n✅ Successfully analyzed %d types%n", typesProcessed);
+            System.out.printf("%n✅ Successfully analyzed %d types%n", typesProcessed);
         }
 
         checkpointManager.clear();
