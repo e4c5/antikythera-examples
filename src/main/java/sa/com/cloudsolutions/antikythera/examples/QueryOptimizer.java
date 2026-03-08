@@ -1195,6 +1195,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
 
         AbstractCompiler.loadDependencies();
         AbstractCompiler.preProcess();
+        AbstractCompiler.preProcessTestSources();
 
         if (!quietMode) {
             System.out.println("Time to preprocess   " + (System.currentTimeMillis() - s) + "ms");
