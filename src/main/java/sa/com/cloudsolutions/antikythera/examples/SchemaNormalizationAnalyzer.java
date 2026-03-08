@@ -1052,6 +1052,11 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
     private void generateNewEntities(List<DataMigrationPlan> plans) throws IOException {
         Object basePathProp = Settings.getProperty(BASE_PATH);
 
+        if (basePathProp == null) {
+            logger.warn("Property '{}' is not configured. Skipping entity generation.", BASE_PATH);
+            return;
+        }
+
         Path sourceRoot = Path.of(basePathProp.toString(), "src", "main", "java");
 
         System.out.printf("%n📝 Generating new entity classes (persistence: %s)…%n", persistencePackage);

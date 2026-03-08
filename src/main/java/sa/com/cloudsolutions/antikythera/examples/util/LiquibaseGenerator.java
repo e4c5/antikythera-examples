@@ -116,9 +116,12 @@ public class LiquibaseGenerator {
 
     /**
      * Creates a Liquibase changeset for dropping an index.
+     * Note: For MySQL, this method will throw UnsupportedOperationException because
+     * MySQL requires the table name for dropping an index.
      *
      * @param indexName the name of the index to drop
      * @return XML changeset string
+     * @throws UnsupportedOperationException if MySQL is among the supported dialects
      */
     public String createDropIndexChangeset(String indexName) {
         if (indexName == null || indexName.isEmpty()) indexName = "<INDEX_NAME>";
@@ -473,7 +476,7 @@ public class LiquibaseGenerator {
             sb.append("    <rollback>\n");
             for (DatabaseDialect dialect : config.supportedDialects()) {
                 sb.append("        <sql dbms=\"").append(dialect.getLiquibaseDbms()).append("\">");
-                sb.append(getDropIndexSql(dialect, indexName));
+                sb.append(getDropIndexSql(dialect, indexName, tableName));
                 sb.append("</sql>\n");
             }
             sb.append("    </rollback>\n");
@@ -493,9 +496,19 @@ public class LiquibaseGenerator {
     }
 
     private String getDropIndexSql(DatabaseDialect dialect, String indexName) {
+        return getDropIndexSql(dialect, indexName, null);
+    }
+
+    private String getDropIndexSql(DatabaseDialect dialect, String indexName, String tableName) {
         return switch (dialect) {
             case POSTGRESQL -> "DROP INDEX CONCURRENTLY IF EXISTS " + indexName + ";";
-            case ORACLE, MYSQL -> "DROP INDEX " + indexName + ";";
+            case ORACLE -> "DROP INDEX " + indexName + ";";
+            case MYSQL -> {
+                if (tableName == null || tableName.isEmpty()) {
+                    throw new UnsupportedOperationException("MySQL requires table name for DROP INDEX. Use a dialect-specific method or handle manually.");
+                }
+                yield "DROP INDEX " + indexName + " ON " + tableName + ";";
+            }
             case H2 -> "DROP INDEX IF EXISTS " + indexName + ";";
         };
     }

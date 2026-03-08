@@ -88,6 +88,11 @@ class NormalizedTableDDLGeneratorTest {
 
         assertTrue(customerCs.contains("primaryKey=\"true\""), "ID column should have primaryKey constraint");
         assertTrue(customerCs.contains("nullable=\"false\""), "ID column should be not null");
+        // Verify autoIncrement is on the column tag, not constraints tag
+        assertTrue(customerCs.contains("<column name=\"id\" type=\"bigint\" autoIncrement=\"true\">"), 
+                "autoIncrement should be on the <column> tag. Found: " + customerCs);
+        assertFalse(customerCs.contains("<constraints primaryKey=\"true\" nullable=\"false\" autoIncrement=\"true\"/>"),
+                "autoIncrement should NOT be on the <constraints> tag. Found: " + customerCs);
     }
 
     @Test

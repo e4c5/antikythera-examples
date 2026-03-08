@@ -166,6 +166,21 @@ class LiquibaseGeneratorTest {
     }
 
     @Test
+    void testCreateDropIndexChangesetForMySQL() {
+        // MySQL requires the table name, so createDropIndexChangeset should fail fast
+        ChangesetConfig mySqlConfig = new ChangesetConfig(
+                "author", 
+                Set.of(DatabaseDialect.MYSQL),
+                true, true, "master.xml", "changes"
+        );
+        LiquibaseGenerator mySqlGenerator = new LiquibaseGenerator(mySqlConfig);
+        
+        assertThrows(UnsupportedOperationException.class, () -> {
+            mySqlGenerator.createDropIndexChangeset("idx_name");
+        });
+    }
+
+    @Test
     void testCreateDropIndexChangesetWithNullName() {
         // Test with null index name
         String changeset = generator.createDropIndexChangeset(null);
@@ -347,6 +362,11 @@ class LiquibaseGeneratorTest {
         assertTrue(changeset.contains("postgresql"));
         assertTrue(changeset.contains("oracle"));
         assertTrue(changeset.contains("mysql"));
+        assertTrue(changeset.contains("h2"));
+
+        // Verify MySQL specific DROP INDEX in rollback (requires table name)
+        assertTrue(changeset.contains("<rollback>"));
+        assertTrue(changeset.contains("DROP INDEX idx_users_email ON users;"));
     }
 
     @Test

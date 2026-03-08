@@ -172,14 +172,15 @@ public class NormalizedTableDDLGenerator {
 
             sb.append("        <column name=\"").append(cm.sourceColumn())
               .append("\" type=\"").append(lbType).append("\"");
+            if (isId) {
+                sb.append(" autoIncrement=\"true\"");
+            }
 
             if (isId || !nullable) {
                 sb.append(">\n");
                 sb.append("            <constraints");
                 if (isId) sb.append(" primaryKey=\"true\"");
-                sb.append(" nullable=\"false\"");
-                if (isId) sb.append(" autoIncrement=\"true\"");
-                sb.append("/>\n");
+                sb.append(" nullable=\"false\"/>\n");
                 sb.append("        </column>\n");
             } else {
                 sb.append("/>\n");
