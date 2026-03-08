@@ -36,20 +36,6 @@ class DataMigrationPlanValidatorTest {
         );
     }
 
-    /** Builds an EntityProfile matching the customer table. */
-    private EntityProfile customerProfile() {
-        return new EntityProfile(
-                "Customer",
-                "old_customer",
-                List.of(
-                        new FieldProfile("id",     "id",      true,  false, "Long"),
-                        new FieldProfile("name",   "name",    false, true,  "String"),
-                        new FieldProfile("street", "street",  false, true,  "String")
-                ),
-                List.of()
-        );
-    }
-
     // -------------------------------------------------------------------------
     // Valid plan
     // -------------------------------------------------------------------------

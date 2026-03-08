@@ -18,6 +18,7 @@ import java.util.Map;
  * names to profile field column names and then converting the Java type to a SQL/Liquibase type.
  * Unknown types default to {@code VARCHAR(255)} / {@code varchar(255)}.
  */
+@SuppressWarnings("java:S1192")
 public class NormalizedTableDDLGenerator {
 
     /** DDL mode: emit raw ANSI SQL CREATE TABLE statements. */

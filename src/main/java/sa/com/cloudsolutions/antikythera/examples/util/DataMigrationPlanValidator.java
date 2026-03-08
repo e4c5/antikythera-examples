@@ -69,7 +69,7 @@ public class DataMigrationPlanValidator {
 
             for (String profileCol : profileColumns) {
                 if (!mappedViewColumns.contains(profileCol)) {
-                    throw new IllegalArgumentException("WARNING: Column '" + profileCol + "' from source profile is not mapped in columnMappings");
+                    System.err.println("WARNING: Column '" + profileCol + "' from source profile is not mapped in columnMappings");
                 }
             }
         }

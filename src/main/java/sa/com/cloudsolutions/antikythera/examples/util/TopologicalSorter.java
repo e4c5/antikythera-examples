@@ -15,6 +15,10 @@ import java.util.Queue;
  */
 public class TopologicalSorter {
 
+    private TopologicalSorter () {
+        // Utility class, no instances
+    }
+
     /**
      * Returns tables in FK dependency order: parents before children.
      * Safe for INSERT and CREATE TABLE. Reverse the result for DELETE / DROP TABLE.
