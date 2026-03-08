@@ -616,7 +616,7 @@ public abstract class AbstractAIService {
                         logger.warn("AI response had {} chars of preamble/garbage before last code fence",
                                 lastFenceStart);
                 }
-                return content.replace("`", "");
+                return content;
             }
         }
 
@@ -628,7 +628,7 @@ public abstract class AbstractAIService {
                 logger.warn("AI response contains preamble text before JSON (skipping {} chars): {}",
                         jsonStart, s.substring(0, Math.min(jsonStart, 200)));
         }
-        return s.substring(jsonStart).replace("`", "");
+        return s.substring(jsonStart);
     }
 
     private static int getLastFenceStart(String s, int lastFenceStart) {

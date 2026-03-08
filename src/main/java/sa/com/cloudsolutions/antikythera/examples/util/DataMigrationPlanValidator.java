@@ -1,5 +1,8 @@
 package sa.com.cloudsolutions.antikythera.examples.util;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import sa.com.cloudsolutions.antikythera.examples.SchemaNormalizationAnalyzer;
 import sa.com.cloudsolutions.antikythera.examples.SchemaNormalizationAnalyzer.DataMigrationPlan;
 import sa.com.cloudsolutions.antikythera.examples.SchemaNormalizationAnalyzer.EntityProfile;
 import sa.com.cloudsolutions.antikythera.examples.util.InsteadOfTriggerGenerator.ForeignKey;
@@ -23,6 +26,7 @@ import java.util.stream.Collectors;
  * </ol>
  */
 public class DataMigrationPlanValidator {
+    private static final Logger logger = LoggerFactory.getLogger(DataMigrationPlanValidator.class);
 
     private DataMigrationPlanValidator() {
         // intentional private constructor to prevent instantiation
@@ -69,7 +73,7 @@ public class DataMigrationPlanValidator {
 
             for (String profileCol : profileColumns) {
                 if (!mappedViewColumns.contains(profileCol)) {
-                    System.err.println("WARNING: Column '" + profileCol + "' from source profile is not mapped in columnMappings");
+                    logger.error("Column '{}' from source profile is not mapped in columnMappings", profileCol);
                 }
             }
         }
