@@ -209,8 +209,8 @@ public class GeminiAIService extends AbstractAIService {
 
         if (candidates.isArray() && !candidates.isEmpty()) {
             JsonNode firstCandidate = candidates.get(0);
-            JsonNode content = firstCandidate.path("content");
-            JsonNode parts = content.path(PARTS);
+            JsonNode contentNode = firstCandidate.path("content");
+            JsonNode parts = contentNode.path(PARTS);
 
             if (parts.isArray() && !parts.isEmpty()) {
                 String textResponse = parts.get(0).path("text").asText();

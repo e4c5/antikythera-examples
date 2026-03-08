@@ -72,9 +72,6 @@ public class QueryOptimizationChecker extends AbstractRepositoryAnalyzer {
 
         // Read max_index_columns from configuration (default: 4)
         this.maxIndexColumns = getMaxIndexColumnsFromConfig();
-
-        // Initialize checkpoint manager
-        this.checkpointManager = new CheckpointManager();
     }
 
     @Override

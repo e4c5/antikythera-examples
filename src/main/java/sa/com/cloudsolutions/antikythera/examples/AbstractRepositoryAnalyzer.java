@@ -40,7 +40,7 @@ public abstract class AbstractRepositoryAnalyzer {
     protected int totalRecommendations = 0;
 
     // Resumability infrastructure
-    protected CheckpointManager checkpointManager;
+    protected CheckpointManager checkpointManager = new CheckpointManager();
 
     private int typesSkippedByFilter;
     private int typesResumed;

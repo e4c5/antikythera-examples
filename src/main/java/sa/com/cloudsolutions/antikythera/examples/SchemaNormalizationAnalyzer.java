@@ -546,7 +546,11 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
         if (aiService instanceof GeminiAIService) {
             JsonNode candidates = root.path("candidates");
             if (!candidates.isArray() || candidates.isEmpty()) return null;
-            jsonText = candidates.get(0).path(CONTENT).path(PARTS).get(0).path("text").asText();
+            
+            JsonNode parts = candidates.get(0).path(CONTENT).path(PARTS);
+            if (!parts.isArray() || parts.isEmpty()) return null;
+            
+            jsonText = parts.get(0).path("text").asText();
         } else {
             JsonNode choices = root.path("choices");
             if (!choices.isArray() || choices.isEmpty()) return null;
