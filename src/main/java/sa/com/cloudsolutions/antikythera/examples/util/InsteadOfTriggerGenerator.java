@@ -230,13 +230,24 @@ public class InsteadOfTriggerGenerator {
             List<ColumnMapping> cols    = byTable.getOrDefault(table, List.of());
             List<ColumnMapping> setCols = deriveSetColumns(cols);
             if (setCols.isEmpty()) continue;
-            String whereCol   = deriveWhereSourceCol(table, view, pkMapping);
+            
+            String whereCol;
+            String viewCol;
+            if (table.equals(view.baseTable())) {
+                whereCol = pkMapping.sourceColumn();
+                viewCol = pkMapping.viewColumn();
+            } else {
+                ForeignKey parentFk = findImmediateParentFk(table, view);
+                whereCol = parentFk.fromColumn();
+                viewCol = findViewColumnForParent(parentFk.toTable(), parentFk.toColumn(), view);
+            }
+
             String setClause  = setCols.stream()
                     .map(cm -> cm.sourceColumn() + " = " + newPrefix + cm.viewColumn())
                     .collect(Collectors.joining(", "));
             sb.append("    UPDATE ").append(table)
               .append(" SET ").append(setClause)
-              .append(" WHERE ").append(whereCol).append(" = ").append(newPrefix).append(pkMapping.viewColumn()).append(";\n");
+              .append(" WHERE ").append(whereCol).append(" = ").append(newPrefix).append(viewCol).append(";\n");
         }
     }
 
@@ -253,10 +264,21 @@ public class InsteadOfTriggerGenerator {
         for (String table : TopologicalSorter.sort(view.tables(), view.foreignKeys()).reversed()) {
             List<ColumnMapping> cols = byTable.getOrDefault(table, List.of());
             if (cols.isEmpty()) continue;
-            String whereCol = deriveWhereSourceCol(table, view, pkMapping);
+            
+            String whereCol;
+            String viewCol;
+            if (table.equals(view.baseTable())) {
+                whereCol = pkMapping.sourceColumn();
+                viewCol = pkMapping.viewColumn();
+            } else {
+                ForeignKey parentFk = findImmediateParentFk(table, view);
+                whereCol = parentFk.fromColumn();
+                viewCol = findViewColumnForParent(parentFk.toTable(), parentFk.toColumn(), view);
+            }
+
             sb.append("    DELETE FROM ").append(table)
               .append(" WHERE ").append(whereCol)
-              .append(" = ").append(oldPrefix).append(pkMapping.viewColumn()).append(";\n");
+              .append(" = ").append(oldPrefix).append(viewCol).append(";\n");
         }
     }
 
@@ -298,13 +320,32 @@ public class InsteadOfTriggerGenerator {
         return cols.size() > 1 ? cols.subList(1, cols.size()) : List.of();
     }
 
+    private String findViewColumnForParent(String parentTable, String parentColumn, ViewDescriptor view) {
+        return view.columnMappings().stream()
+                .filter(cm -> cm.sourceTable().equals(parentTable) && cm.sourceColumn().equals(parentColumn))
+                .map(ColumnMapping::viewColumn)
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "No view column mapping for " + parentTable + "." + parentColumn));
+    }
+
+    private ForeignKey findImmediateParentFk(String table, ViewDescriptor view) {
+        return view.foreignKeys().stream()
+                .filter(fk -> fk.fromTable().equals(table))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "No FK from " + table + " found in foreignKeys"));
+    }
+
     /**
      * Returns the source column name used in the WHERE clause of an UPDATE or DELETE statement.
      * For the base table, returns the PK source column.
      * For child tables, looks up the explicit FK mapping to the base table.
      *
+     * @deprecated Use findImmediateParentFk and findViewColumnForParent for multi-hop support.
      * @throws IllegalArgumentException if no FK from the child table to the base table is declared
      */
+    @Deprecated
     private String deriveWhereSourceCol(String table, ViewDescriptor view, ColumnMapping pkMapping) {
         if (table.equals(view.baseTable())) return pkMapping.sourceColumn();
         return view.foreignKeys().stream()

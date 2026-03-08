@@ -259,21 +259,33 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
                 System.out.printf("  ↩ Retry %d/%d…%n", attempt, maxAttempts - 1);
             }
 
-            List<EntityNormalizationReport> reports = sendBatchToLLM(allProfiles);
+            try {
+                List<EntityNormalizationReport> reports = sendBatchToLLM(allProfiles);
 
-            TokenUsage tokenUsage = aiService.getLastTokenUsage();
-            cumulativeTokenUsage.add(tokenUsage);
-            if (!quietMode) {
-                System.out.printf("  🤖 AI analysis (attempt %d): %s%n",
-                        attempt + 1, tokenUsage.getFormattedReport());
+                TokenUsage tokenUsage = aiService.getLastTokenUsage();
+                cumulativeTokenUsage.add(tokenUsage);
+                if (!quietMode) {
+                    System.out.printf("  🤖 AI analysis (attempt %d): %s%n",
+                            attempt + 1, tokenUsage.getFormattedReport());
+                }
+
+                if (!lastResponseTruncated && !reports.isEmpty()) {
+                    allReports.addAll(reports);
+                    break;
+                }
+
+                logger.warn("Response empty or malformed on attempt {}; retrying full request", attempt + 1);
+            } catch (Exception e) {
+                logger.error("LLM batch request failed on attempt {}: {}", attempt + 1, e.getMessage());
+                lastResponseTruncated = true;
+
+                // Even on failure, try to capture tokens used by the provider
+                TokenUsage tokenUsage = aiService.getLastTokenUsage();
+                if (tokenUsage != null) {
+                    cumulativeTokenUsage.add(tokenUsage);
+                }
             }
 
-            if (!lastResponseTruncated) {
-                allReports.addAll(reports);
-                break;
-            }
-
-            logger.warn("Response malformed on attempt {}; retrying full request", attempt + 1);
             attempt++;
         }
 
@@ -487,10 +499,16 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
      */
     private List<EntityNormalizationReport> parseBatchResponse(String responseBody) throws IOException {
 
-        if (responseBody == null || responseBody.isBlank()) return List.of();
+        if (responseBody == null || responseBody.isBlank()) {
+            lastResponseTruncated = true;
+            return List.of();
+        }
 
         String jsonText = extractJsonText(responseBody);
-        if (jsonText == null || jsonText.isBlank()) return List.of();
+        if (jsonText == null || jsonText.isBlank()) {
+            lastResponseTruncated = true;
+            return List.of();
+        }
 
         JsonNode parsed  = objectMapper.readTree(jsonText);
         lastResponseTruncated = false;
@@ -695,12 +713,56 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
             for (RelationshipProfile r : p.relationships()) {
                 if (sourceEntityName.equals(r.targetEntity())) {
                     String joinCol = r.joinColumn();
-                    String constraintName = "fk_" + p.tableName() + "_" + sourceTable;
+                    String constraintName = lookupConstraintName(p.tableName(), joinCol, sourceTable);
                     refs.add(new ExternalFKReference(p.tableName(), joinCol, constraintName));
                 }
             }
         }
         return refs;
+    }
+
+    /**
+     * Looks up the actual foreign key constraint name from the database metadata.
+     *
+     * @param referencingTable the table containing the foreign key
+     * @param fkColumn the column in referencingTable that is the foreign key
+     * @param sourceTable the table referenced by the foreign key
+     * @return the actual constraint name if found; otherwise a synthetic fallback
+     */
+    @SuppressWarnings("unchecked")
+    private String lookupConstraintName(String referencingTable, String fkColumn, String sourceTable) {
+        Map<String, Object> db = (Map<String, Object>) Settings.getProperty(Settings.DATABASE);
+        if (db != null) {
+            Object urlObj = db.get("url");
+            Object userObj = db.get("user");
+            Object passwordObj = db.get("password");
+
+            if (urlObj != null && userObj != null && passwordObj != null) {
+                try (java.sql.Connection conn = java.sql.DriverManager.getConnection(
+                        urlObj.toString(), userObj.toString(), passwordObj.toString())) {
+
+                    java.sql.DatabaseMetaData metaData = conn.getMetaData();
+                    try (java.sql.ResultSet rs = metaData.getImportedKeys(null, null, referencingTable)) {
+                        while (rs.next()) {
+                            String pkTable = rs.getString("PKTABLE_NAME");
+                            String fkCol = rs.getString("FKCOLUMN_NAME");
+                            if (sourceTable.equalsIgnoreCase(pkTable) && fkColumn.equalsIgnoreCase(fkCol)) {
+                                String fkName = rs.getString("FK_NAME");
+                                if (fkName != null && !fkName.isBlank()) {
+                                    return fkName;
+                                }
+                            }
+                        }
+                    }
+                } catch (java.sql.SQLException e) {
+                    logger.warn("Failed to lookup actual FK name for {}({}) -> {}: {}",
+                            referencingTable, fkColumn, sourceTable, e.getMessage());
+                }
+            }
+        }
+
+        // Fallback to synthetic name if database lookup fails or no match found
+        return "fk_" + referencingTable + "_" + sourceTable;
     }
 
     /**
@@ -773,19 +835,21 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
         // Build JOINs in topological order so each referenced parent table is already in scope.
         // This fixes multi-level FK chains (e.g. customer → address → phone).
         List<String> order = TopologicalSorter.sort(view.tables(), view.foreignKeys());
-        // Index FKs by fromTable for O(1) lookup
-        Map<String, InsteadOfTriggerGenerator.ForeignKey> fkByFromTable = new LinkedHashMap<>();
+        // Index FKs by fromTable for O(1) lookup. One table can have multiple outgoing FKs.
+        Map<String, List<InsteadOfTriggerGenerator.ForeignKey>> fksByFromTable = new LinkedHashMap<>();
         for (InsteadOfTriggerGenerator.ForeignKey fk : view.foreignKeys()) {
-            fkByFromTable.put(fk.fromTable(), fk);
+            fksByFromTable.computeIfAbsent(fk.fromTable(), k -> new ArrayList<>()).add(fk);
         }
         // Skip the first element (the base table, which is already in the FROM clause)
         for (int i = 1; i < order.size(); i++) {
             String table = order.get(i);
-            InsteadOfTriggerGenerator.ForeignKey fk = fkByFromTable.get(table);
-            if (fk != null) {
-                sb.append(" JOIN ").append(fk.fromTable())
-                  .append(" ON ").append(fk.fromTable()).append(".").append(fk.fromColumn())
-                  .append(" = ").append(fk.toTable()).append(".").append(fk.toColumn());
+            List<InsteadOfTriggerGenerator.ForeignKey> fks = fksByFromTable.get(table);
+            if (fks != null) {
+                for (InsteadOfTriggerGenerator.ForeignKey fk : fks) {
+                    sb.append(" JOIN ").append(fk.toTable())
+                      .append(" ON ").append(fk.fromTable()).append(".").append(fk.fromColumn())
+                      .append(" = ").append(fk.toTable()).append(".").append(fk.toColumn());
+                }
             }
         }
         return sb.toString();
@@ -1206,7 +1270,12 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
                 .orElse(null);
         if (fk != null) {
             String parentEntityName = toPascalCase(fk.toTable());
-            String fieldName = toCamelCase(fk.toTable());
+            String rawFieldName = cm.targetColumn();
+            if (rawFieldName.toLowerCase().endsWith("_id")) {
+                rawFieldName = rawFieldName.substring(0, rawFieldName.length() - 3);
+            }
+            String fieldName = toCamelCase(rawFieldName);
+
             fields.append("""
                         @ManyToOne
                         @JoinColumn(name = "%s")
