@@ -915,4 +915,58 @@ class LiquibaseGeneratorTest {
         String updatedMaster = Files.readString(masterFile);
         assertTrue(updatedMaster.contains("antikythera-normalize-"));
     }
+    @Test
+    void testCreateDialectSqlChangesetWithFiltering() {
+        Set<DatabaseDialect> supported = Set.of(DatabaseDialect.POSTGRESQL);
+        LiquibaseGenerator.ChangesetConfig config = new LiquibaseGenerator.ChangesetConfig(
+                "test", supported, false, true, null, "changes");
+        LiquibaseGenerator customGenerator = new LiquibaseGenerator(config);
+
+        Map<DatabaseDialect, String> sqlByDialect = new HashMap<>();
+        sqlByDialect.put(DatabaseDialect.POSTGRESQL, "CREATE TABLE pg (id INT);");
+        sqlByDialect.put(DatabaseDialect.ORACLE, "CREATE TABLE ora (id INT);");
+
+        String changeset = customGenerator.createDialectSqlChangeset("test_filter", sqlByDialect);
+
+        assertTrue(changeset.contains("dbms=\"postgresql\""));
+        assertFalse(changeset.contains("dbms=\"oracle\""));
+        assertTrue(changeset.contains("CREATE TABLE pg"));
+        assertFalse(changeset.contains("CREATE TABLE ora"));
+    }
+
+    @Test
+    void testCreateDialectSqlChangesetThrowsWhenNoSupportedDialects() {
+        Set<DatabaseDialect> supported = Set.of(DatabaseDialect.MYSQL);
+        LiquibaseGenerator.ChangesetConfig config = new LiquibaseGenerator.ChangesetConfig(
+                "test", supported, false, true, null, "changes");
+        LiquibaseGenerator customGenerator = new LiquibaseGenerator(config);
+
+        Map<DatabaseDialect, String> sqlByDialect = new HashMap<>();
+        sqlByDialect.put(DatabaseDialect.POSTGRESQL, "CREATE TABLE pg (id INT);");
+
+        assertThrows(IllegalArgumentException.class, () -> 
+            customGenerator.createDialectSqlChangeset("test_fail", sqlByDialect)
+        );
+    }
+
+    @Test
+    void testCreateDialectSqlChangesetWithRollbackFiltering() {
+        Set<DatabaseDialect> supported = Set.of(DatabaseDialect.POSTGRESQL);
+        LiquibaseGenerator.ChangesetConfig config = new LiquibaseGenerator.ChangesetConfig(
+                "test", supported, false, true, null, "changes");
+        LiquibaseGenerator customGenerator = new LiquibaseGenerator(config);
+
+        Map<DatabaseDialect, String> sqlByDialect = new HashMap<>();
+        sqlByDialect.put(DatabaseDialect.POSTGRESQL, "CREATE TABLE pg (id INT);");
+
+        Map<DatabaseDialect, String> rollbackByDialect = new HashMap<>();
+        rollbackByDialect.put(DatabaseDialect.POSTGRESQL, "DROP TABLE pg;");
+        rollbackByDialect.put(DatabaseDialect.ORACLE, "DROP TABLE ora;");
+
+        String changeset = customGenerator.createDialectSqlChangesetWithRollback("test_rb_filter", sqlByDialect, rollbackByDialect);
+
+        assertTrue(changeset.contains("<rollback>"));
+        assertTrue(changeset.contains("DROP TABLE pg;"));
+        assertFalse(changeset.contains("DROP TABLE ora;"));
+    }
 }

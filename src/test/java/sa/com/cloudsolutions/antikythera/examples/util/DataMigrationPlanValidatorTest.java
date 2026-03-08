@@ -67,9 +67,9 @@ class DataMigrationPlanValidatorTest {
                 "Customer",
                 "old_customer",
                 List.of(
-                        new FieldProfile("id",     "id",     true,  false, "Long"),
-                        new FieldProfile("name",   "name",   false, true,  "String"),
-                        new FieldProfile("street", "street", false, true,  "String")
+                        new FieldProfile("id",     "id",     true,  false, "Long", true),
+                        new FieldProfile("name",   "name",   false, true,  "String", false),
+                        new FieldProfile("street", "street", false, true,  "String", false)
                 ),
                 List.of()
         );
@@ -183,8 +183,8 @@ class DataMigrationPlanValidatorTest {
                 "Customer",
                 "old_customer",
                 List.of(
-                        new FieldProfile("id",    "id",    true,  false, "Long"),
-                        new FieldProfile("email", "email", false, true,  "String")
+                        new FieldProfile("id",    "id",    true,  false, "Long", true),
+                        new FieldProfile("email", "email", false, true,  "String", false)
                 ),
                 List.of()
         );

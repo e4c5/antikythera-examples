@@ -345,9 +345,17 @@ public class LiquibaseGenerator {
         String changesetId = generateChangesetId(sanitize(id));
         StringBuilder sb = new StringBuilder();
 
+        Map<DatabaseDialect, String> filteredSql = sqlByDialect.entrySet().stream()
+                .filter(e -> config.supportedDialects().contains(e.getKey()))
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+
+        if (filteredSql.isEmpty()) {
+            throw new IllegalArgumentException("No SQL found for supported dialects in changeset: " + id);
+        }
+
         sb.append("<changeSet id=\"").append(changesetId).append("\" author=\"").append(config.author()).append("\">\n");
 
-        for (Map.Entry<DatabaseDialect, String> entry : sqlByDialect.entrySet()) {
+        for (Map.Entry<DatabaseDialect, String> entry : filteredSql.entrySet()) {
             sb.append("    <sql dbms=\"").append(entry.getKey().getLiquibaseDbms()).append("\">\n");
             sb.append("        ").append(entry.getValue()).append("\n");
             sb.append("    </sql>\n");
@@ -355,13 +363,21 @@ public class LiquibaseGenerator {
 
         if (config.includeRollback()) {
             if (rollbackByDialect != null && !rollbackByDialect.isEmpty()) {
-                sb.append("    <rollback>\n");
-                for (Map.Entry<DatabaseDialect, String> entry : rollbackByDialect.entrySet()) {
-                    sb.append("        <sql dbms=\"").append(entry.getKey().getLiquibaseDbms()).append("\">\n");
-                    sb.append("            ").append(entry.getValue()).append("\n");
-                    sb.append("        </sql>\n");
+                Map<DatabaseDialect, String> filteredRollback = rollbackByDialect.entrySet().stream()
+                        .filter(e -> config.supportedDialects().contains(e.getKey()))
+                        .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+
+                if (!filteredRollback.isEmpty()) {
+                    sb.append("    <rollback>\n");
+                    for (Map.Entry<DatabaseDialect, String> entry : filteredRollback.entrySet()) {
+                        sb.append("        <sql dbms=\"").append(entry.getKey().getLiquibaseDbms()).append("\">\n");
+                        sb.append("            ").append(entry.getValue()).append("\n");
+                        sb.append("        </sql>\n");
+                    }
+                    sb.append("    </rollback>\n");
+                } else {
+                    sb.append("    <rollback><!-- manual rollback required --></rollback>\n");
                 }
-                sb.append("    </rollback>\n");
             } else {
                 sb.append("    <rollback><!-- manual rollback required --></rollback>\n");
             }
@@ -433,9 +449,17 @@ public class LiquibaseGenerator {
         String changesetId = generateChangesetId(sanitize(id));
         StringBuilder sb = new StringBuilder();
 
+        Map<DatabaseDialect, String> filteredSql = sqlByDialect.entrySet().stream()
+                .filter(e -> config.supportedDialects().contains(e.getKey()))
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+
+        if (filteredSql.isEmpty()) {
+            throw new IllegalArgumentException("No SQL found for supported dialects in changeset: " + id);
+        }
+
         sb.append("<changeSet id=\"").append(changesetId).append("\" author=\"").append(config.author()).append("\">\n");
 
-        for (Map.Entry<DatabaseDialect, String> entry : sqlByDialect.entrySet()) {
+        for (Map.Entry<DatabaseDialect, String> entry : filteredSql.entrySet()) {
             sb.append("    <sql dbms=\"").append(entry.getKey().getLiquibaseDbms()).append("\">\n");
             sb.append("        ").append(entry.getValue()).append("\n");
             sb.append("    </sql>\n");
