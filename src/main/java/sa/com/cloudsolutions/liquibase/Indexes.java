@@ -63,12 +63,88 @@ public class Indexes {
     }
 
     /**
+     * Parsed FK constraint metadata extracted from {@code addForeignKeyConstraint} changesets.
+     *
+     * @param constraintName     the FK constraint name as declared in the changelog
+     * @param baseTableName      the table that holds the FK column
+     * @param baseColumnName     the FK column in the base table
+     * @param referencedTableName the table being referenced
+     * @param referencedColumnName the column being referenced in the parent table
+     */
+    public record FKConstraintInfo(
+            String constraintName,
+            String baseTableName,
+            String baseColumnName,
+            String referencedTableName,
+            String referencedColumnName) {}
+
+    /**
+     * Combined result of a single Liquibase XML parse, holding both the index/constraint
+     * map and the FK constraint map so callers never need to parse the file twice.
+     *
+     * @param indexMap        table name → set of {@link IndexInfo} (PK, unique, index)
+     * @param fkConstraintMap base-table name → set of {@link FKConstraintInfo}
+     */
+    public record LoadResult(
+            Map<String, Set<IndexInfo>> indexMap,
+            Map<String, Set<FKConstraintInfo>> fkConstraintMap) {}
+
+    /**
+     * Parses the Liquibase XML once and returns both index metadata and FK constraint
+     * metadata in a single {@link LoadResult}.  Prefer this over calling {@link #load}
+     * separately when FK information is also needed.
+     */
+    public static LoadResult loadAll(File liquibaseXml) throws LiquibaseException, java.io.IOException {
+        Map<String, Set<IndexInfo>> indexMap = new LinkedHashMap<>();
+        Map<String, Set<FKConstraintInfo>> fkMap = new LinkedHashMap<>();
+        parseLiquibaseFileInto(liquibaseXml, indexMap, fkMap);
+        return new LoadResult(indexMap, fkMap);
+    }
+
+    /**
      * Load Liquibase indexes from the given XML and return a table->indexes map.
      * The map value is a set of IndexInfo entries in declaration order (after
      * includes and drops applied).
      */
     public static Map<String, Set<IndexInfo>> load(File liquibaseXml) throws LiquibaseException, java.io.IOException {
-        return parseLiquibaseFile(liquibaseXml);
+        return loadAll(liquibaseXml).indexMap();
+    }
+
+    /**
+     * Looks up the FK constraint name for a specific FK relationship in the parsed
+     * FK map.  The lookup is case-insensitive on all three identifiers.
+     *
+     * @param fkMap            the map returned by {@link LoadResult#fkConstraintMap()}
+     * @param baseTable        the table that holds the FK column
+     * @param baseColumn       the FK column name
+     * @param referencedTable  the table being referenced
+     * @return the constraint name from the changelog, or {@code null} if not found
+     */
+    public static String lookupFKConstraintName(Map<String, Set<FKConstraintInfo>> fkMap,
+                                                String baseTable,
+                                                String baseColumn,
+                                                String referencedTable) {
+        if (fkMap == null || isBlank(baseTable) || isBlank(baseColumn) || isBlank(referencedTable)) {
+            return null;
+        }
+        Set<FKConstraintInfo> fks = fkMap.get(baseTable);
+        if (fks == null) {
+            // Try case-insensitive fallback
+            for (Map.Entry<String, Set<FKConstraintInfo>> e : fkMap.entrySet()) {
+                if (e.getKey().equalsIgnoreCase(baseTable)) {
+                    fks = e.getValue();
+                    break;
+                }
+            }
+        }
+        if (fks == null) return null;
+        for (FKConstraintInfo fk : fks) {
+            if (fk.baseColumnName().equalsIgnoreCase(baseColumn)
+                    && fk.referencedTableName().equalsIgnoreCase(referencedTable)) {
+                return fk.constraintName();
+            }
+        }
+        return null;
     }
 
     public static void main(String[] args) throws Exception {
@@ -82,7 +158,7 @@ public class Indexes {
             System.exit(2);
         }
 
-        Map<String, Set<IndexInfo>> byTable = parseLiquibaseFile(file);
+        Map<String, Set<IndexInfo>> byTable = load(file);
         // Display table-based with indentation: PK, UNIQUE, and other indexes
         byTable.keySet().stream().sorted().forEach(table -> {
             System.out.println(table);
@@ -99,7 +175,9 @@ public class Indexes {
         });
     }
 
-    private static Map<String, Set<IndexInfo>> parseLiquibaseFile(File file)
+    private static void parseLiquibaseFileInto(File file,
+                                               Map<String, Set<IndexInfo>> indexResult,
+                                               Map<String, Set<FKConstraintInfo>> fkResult)
             throws LiquibaseException, java.io.IOException {
         // Determine the root path for resource resolution
         // For Spring Boot projects, includes are relative to src/main/resources or
@@ -112,25 +190,25 @@ public class Indexes {
         ChangeLogParser parser = ChangeLogParserFactory.getInstance().getParser(changelogFile, accessor);
         DatabaseChangeLog changeLog = parser.parse(changelogFile, new ChangeLogParameters(), accessor);
 
-        Map<String, Set<IndexInfo>> result = new LinkedHashMap<>();
-
         for (ChangeSet changeSet : changeLog.getChangeSets()) {
             for (Change change : changeSet.getChanges()) {
-                processChange(change, result);
+                processChange(change, indexResult, fkResult);
             }
         }
-
-        return result;
     }
 
 
-    private static void processChange(Change change, Map<String, Set<IndexInfo>> result) {
+    private static void processChange(Change change,
+                                      Map<String, Set<IndexInfo>> result,
+                                      Map<String, Set<FKConstraintInfo>> fkResult) {
         if (change instanceof CreateIndexChange cic) {
             handleCreateIndex(cic, result);
         } else if (change instanceof AddPrimaryKeyChange apk) {
             handleAddPrimaryKey(apk, result);
         } else if (change instanceof AddUniqueConstraintChange auc) {
             handleAddUniqueConstraint(auc, result);
+        } else if (change instanceof AddForeignKeyConstraintChange afk) {
+            handleAddForeignKey(afk, fkResult);
         } else if (change instanceof CreateTableChange ctc) {
             handleCreateTable(ctc, result);
         } else if (change instanceof AddColumnChange acc) {
@@ -144,6 +222,25 @@ public class Indexes {
         } else if (change instanceof AbstractSQLChange sqlChange) {
             handleRawSql(sqlChange, result);
         }
+    }
+
+    private static void handleAddForeignKey(AddForeignKeyConstraintChange afk,
+                                            Map<String, Set<FKConstraintInfo>> fkResult) {
+        String baseTable = afk.getBaseTableName();
+        String baseColumn = afk.getBaseColumnNames();
+        String refTable = afk.getReferencedTableName();
+        String refColumn = afk.getReferencedColumnNames();
+        String constraintName = afk.getConstraintName();
+
+        if (isBlank(baseTable) || isBlank(baseColumn) || isBlank(refTable)) return;
+
+        fkResult.computeIfAbsent(baseTable, k -> new LinkedHashSet<>())
+                .add(new FKConstraintInfo(
+                        orUnknown(constraintName),
+                        baseTable,
+                        baseColumn.trim(),
+                        refTable,
+                        isBlank(refColumn) ? null : refColumn.trim()));
     }
 
     private static void handleCreateIndex(CreateIndexChange cic, Map<String, Set<IndexInfo>> result) {

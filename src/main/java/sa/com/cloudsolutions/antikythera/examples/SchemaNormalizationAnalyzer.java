@@ -25,6 +25,7 @@ import sa.com.cloudsolutions.antikythera.examples.util.InsteadOfTriggerGenerator
 import sa.com.cloudsolutions.antikythera.examples.util.LiquibaseGenerator;
 import sa.com.cloudsolutions.antikythera.examples.util.NormalizedTableDDLGenerator;
 import sa.com.cloudsolutions.antikythera.examples.util.TopologicalSorter;
+import sa.com.cloudsolutions.liquibase.Indexes;
 
 import java.io.File;
 import java.io.IOException;
@@ -81,6 +82,13 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
 
     /** Maps entity simple name → Java package name, populated during analyzeType(). */
     private final Map<String, String> entityPackageMap = new HashMap<>();
+
+    /**
+     * FK constraint metadata parsed from the Liquibase changelog, keyed by base-table name.
+     * Used by {@link #lookupConstraintName} instead of a live JDBC connection.
+     * Empty when no Liquibase file is configured.
+     */
+    private final Map<String, Set<Indexes.FKConstraintInfo>> fkConstraintMap;
 
     /**
      * Persistence import package detected from the source entities.
@@ -162,6 +170,19 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
      */
     @SuppressWarnings("unchecked")
     public SchemaNormalizationAnalyzer() throws IOException {
+        this(null);
+    }
+
+    /**
+     * Creates a new analyzer.
+     *
+     * @param liquibaseXmlPath path to the Liquibase master changelog, used to look up
+     *                         FK constraint names without a live database connection.
+     *                         May be {@code null}; in that case a synthetic fallback name
+     *                         is used when dropping FK constraints.
+     */
+    @SuppressWarnings("unchecked")
+    public SchemaNormalizationAnalyzer(File liquibaseXmlPath) throws IOException {
         Map<String, Object> aiConfig = (Map<String, Object>) Settings.getProperty("ai_service");
         if (aiConfig == null) {
             aiConfig = new HashMap<>();
@@ -173,6 +194,24 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
         // checkpoint checks, and the LLM call happens as one batch at the end).
         this.checkpointManager = new CheckpointManager(new File(".normalization-checkpoint.json"));
         this.normalizationSystemPrompt = loadNormalizationSystemPrompt();
+        this.fkConstraintMap = loadFKConstraintMap(liquibaseXmlPath);
+    }
+
+    /**
+     * Parses the Liquibase changelog once and returns its FK constraint map.
+     * Returns an empty map when {@code liquibaseXmlPath} is null or unreadable.
+     */
+    private static Map<String, Set<Indexes.FKConstraintInfo>> loadFKConstraintMap(File liquibaseXmlPath) {
+        if (liquibaseXmlPath == null || !liquibaseXmlPath.exists()) {
+            return Map.of();
+        }
+        try {
+            return Indexes.loadAll(liquibaseXmlPath).fkConstraintMap();
+        } catch (Exception e) {
+            logger.warn("Could not parse Liquibase file for FK metadata ({}): {} — FK constraint names will use synthetic fallback",
+                    liquibaseXmlPath, e.getMessage());
+            return Map.of();
+        }
     }
 
     private String loadNormalizationSystemPrompt() throws IOException {
@@ -723,46 +762,24 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
     }
 
     /**
-     * Looks up the actual foreign key constraint name from the database metadata.
+     * Looks up the FK constraint name for the given relationship.
      *
-     * @param referencingTable the table containing the foreign key
-     * @param fkColumn the column in referencingTable that is the foreign key
-     * @param sourceTable the table referenced by the foreign key
-     * @return the actual constraint name if found; otherwise a synthetic fallback
+     * <p>Lookup priority:
+     * <ol>
+     *   <li>Liquibase changelog — parsed once at construction time, no DB connection required.</li>
+     *   <li>Synthetic fallback — {@code fk_<referencingTable>_<sourceTable>}.</li>
+     * </ol>
+     *
+     * @param referencingTable the table that holds the FK column
+     * @param fkColumn         the FK column in the referencing table
+     * @param sourceTable      the table being referenced (the parent)
+     * @return the constraint name, never {@code null}
      */
-    @SuppressWarnings("unchecked")
     private String lookupConstraintName(String referencingTable, String fkColumn, String sourceTable) {
-        Map<String, Object> db = (Map<String, Object>) Settings.getProperty(Settings.DATABASE);
-        if (db != null) {
-            Object urlObj = db.get("url");
-            Object userObj = db.get("user");
-            Object passwordObj = db.get("password");
-
-            if (urlObj != null && userObj != null && passwordObj != null) {
-                try (java.sql.Connection conn = java.sql.DriverManager.getConnection(
-                        urlObj.toString(), userObj.toString(), passwordObj.toString())) {
-
-                    java.sql.DatabaseMetaData metaData = conn.getMetaData();
-                    try (java.sql.ResultSet rs = metaData.getImportedKeys(null, null, referencingTable)) {
-                        while (rs.next()) {
-                            String pkTable = rs.getString("PKTABLE_NAME");
-                            String fkCol = rs.getString("FKCOLUMN_NAME");
-                            if (sourceTable.equalsIgnoreCase(pkTable) && fkColumn.equalsIgnoreCase(fkCol)) {
-                                String fkName = rs.getString("FK_NAME");
-                                if (fkName != null && !fkName.isBlank()) {
-                                    return fkName;
-                                }
-                            }
-                        }
-                    }
-                } catch (java.sql.SQLException e) {
-                    logger.warn("Failed to lookup actual FK name for {}({}) -> {}: {}",
-                            referencingTable, fkColumn, sourceTable, e.getMessage());
-                }
-            }
+        String fromLiquibase = Indexes.lookupFKConstraintName(fkConstraintMap, referencingTable, fkColumn, sourceTable);
+        if (fromLiquibase != null) {
+            return fromLiquibase;
         }
-
-        // Fallback to synthetic name if database lookup fails or no match found
         return "fk_" + referencingTable + "_" + sourceTable;
     }
 
@@ -1446,7 +1463,7 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
         AbstractCompiler.preProcess();
         configureFromSettings();
 
-        SchemaNormalizationAnalyzer analyzer = new SchemaNormalizationAnalyzer();
+        SchemaNormalizationAnalyzer analyzer = new SchemaNormalizationAnalyzer(getLiquibasePath());
         analyzer.analyze();
         analyzer.generateReport();
 

@@ -53,11 +53,11 @@ public class QueryOptimizationChecker extends AbstractRepositoryAnalyzer {
      */
     public QueryOptimizationChecker(File liquibaseXmlPath) throws LiquibaseException, IOException {
         this.liquibaseXmlPath = liquibaseXmlPath;
-        // Load database metadata for cardinality analysis
-        Map<String, Set<Indexes.IndexInfo>> indexMap = Indexes.load(liquibaseXmlPath);
+        // Parse Liquibase XML once; extract both index and FK constraint metadata
+        Indexes.LoadResult loadResult = Indexes.loadAll(liquibaseXmlPath);
 
         // Initialize components
-        CardinalityAnalyzer.setIndexMap(indexMap);
+        CardinalityAnalyzer.setIndexMap(loadResult.indexMap());
         this.analysisEngine = new QueryAnalysisEngine();
         this.repositoryParser = new RepositoryParser();
 
