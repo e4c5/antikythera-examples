@@ -423,7 +423,7 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
         String payload = buildLLMRequest(userContent);
         String response = aiService.sendRawRequest(payload);
         logger.info("=== LLM RAW RESPONSE ===\n{}", response);
-        return parseBatchResponse(response, batch);
+        return parseBatchResponse(response);
     }
 
     /**
@@ -485,14 +485,12 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
      * continuation loop handles them. If the JSON is malformed (truncated output), an
      * empty list is returned so the caller knows the entire batch must be retried.</p>
      */
-    private List<EntityNormalizationReport> parseBatchResponse(
-            String responseBody, List<EntityProfile> batch) throws IOException {
+    private List<EntityNormalizationReport> parseBatchResponse(String responseBody) throws IOException {
 
-        List<EntityNormalizationReport> reports = new ArrayList<>();
-        if (responseBody == null || responseBody.isBlank()) return reports;
+        if (responseBody == null || responseBody.isBlank()) return List.of();
 
         String jsonText = extractJsonText(responseBody);
-        if (jsonText == null || jsonText.isBlank()) return reports;
+        if (jsonText == null || jsonText.isBlank()) return List.of();
 
         JsonNode parsed  = objectMapper.readTree(jsonText);
         lastResponseTruncated = false;
@@ -513,9 +511,14 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
         if (!parsed.isArray()) {
             lastResponseTruncated = true;
             logger.warn("Unexpected normalization response structure; expected JSON array — batch will be retried");
-            return reports;
+            return  List.of();
         }
 
+        return getEntityNormalizationReports(parsed);
+    }
+
+    private @NonNull List<EntityNormalizationReport> getEntityNormalizationReports(JsonNode parsed) {
+        List<EntityNormalizationReport> reports = new ArrayList<>();
         for (JsonNode entityNode : parsed) {
             String entityName = entityNode.path("entityName").asText("");
             if (entityName.isBlank()) continue;
@@ -528,7 +531,6 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
             }
             reports.add(new EntityNormalizationReport(entityName, issues));
         }
-
         return reports;
     }
 
@@ -1051,57 +1053,61 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
         System.out.printf("%n📝 Generating new entity classes (persistence: %s)…%n", persistencePackage);
 
         for (DataMigrationPlan plan : plans) {
-            // Locate the source entity profile by its table name
-            EntityProfile sourceProfile = allProfiles.stream()
-                    .filter(p -> p.tableName().equals(plan.sourceTable()))
-                    .findFirst()
-                    .orElse(null);
-            if (sourceProfile == null) {
-                logger.warn("No EntityProfile found for source table '{}' — skipping entity generation",
-                        plan.sourceTable());
+            generateNewEntity(plan, sourceRoot);
+        }
+    }
+
+    private void generateNewEntity(DataMigrationPlan plan, Path sourceRoot) throws IOException {
+        // Locate the source entity profile by its table name
+        EntityProfile sourceProfile = allProfiles.stream()
+                .filter(p -> p.tableName().equals(plan.sourceTable()))
+                .findFirst()
+                .orElse(null);
+        if (sourceProfile == null) {
+            logger.warn("No EntityProfile found for source table '{}' — skipping entity generation",
+                    plan.sourceTable());
+            return;
+        }
+
+        // Place generated entities in a `normalized` subpackage to avoid collisions
+        String originalPackage = entityPackageMap.getOrDefault(sourceProfile.entityName(), "");
+        String targetPackage = originalPackage.isBlank()
+                ? "normalized"
+                : originalPackage + ".normalized";
+
+        // Index outgoing FKs by child table name for quick lookup
+        Map<String, List<DataMigrationPlan.ForeignKeyEntry>> fksByTable = new HashMap<>();
+        for (DataMigrationPlan.ForeignKeyEntry fk : plan.foreignKeys()) {
+            fksByTable.computeIfAbsent(fk.fromTable(), k -> new ArrayList<>()).add(fk);
+        }
+
+        for (String newTable : plan.newTables()) {
+            List<DataMigrationPlan.ColumnMappingEntry> tableMappings = plan.columnMappings().stream()
+                    .filter(cm -> cm.targetTable().equals(newTable))
+                    .toList();
+            if (tableMappings.isEmpty()) {
+                logger.warn("No column mappings returned by LLM for table '{}' (plan source: '{}') " +
+                        "— entity will not be generated. Check the LLM response log for details.",
+                        newTable, plan.sourceTable());
                 continue;
             }
 
-            // Place generated entities in a `normalized` subpackage to avoid collisions
-            String originalPackage = entityPackageMap.getOrDefault(sourceProfile.entityName(), "");
-            String targetPackage = originalPackage.isBlank()
-                    ? "normalized"
-                    : originalPackage + ".normalized";
+            List<DataMigrationPlan.ForeignKeyEntry> outgoingFks =
+                    fksByTable.getOrDefault(newTable, List.of());
 
-            // Index outgoing FKs by child table name for quick lookup
-            Map<String, List<DataMigrationPlan.ForeignKeyEntry>> fksByTable = new HashMap<>();
-            for (DataMigrationPlan.ForeignKeyEntry fk : plan.foreignKeys()) {
-                fksByTable.computeIfAbsent(fk.fromTable(), k -> new ArrayList<>()).add(fk);
-            }
+            String entityName = toPascalCase(newTable);
+            String source = buildEntitySource(targetPackage, entityName, newTable,
+                    tableMappings, outgoingFks, sourceProfile);
 
-            for (String newTable : plan.newTables()) {
-                List<DataMigrationPlan.ColumnMappingEntry> tableMappings = plan.columnMappings().stream()
-                        .filter(cm -> cm.targetTable().equals(newTable))
-                        .toList();
-                if (tableMappings.isEmpty()) {
-                    logger.warn("No column mappings returned by LLM for table '{}' (plan source: '{}') " +
-                            "— entity will not be generated. Check the LLM response log for details.",
-                            newTable, plan.sourceTable());
-                    continue;
-                }
+            Path packageDir = sourceRoot.resolve(targetPackage.replace('.', File.separatorChar));
+            Files.createDirectories(packageDir);
+            Path entityFile = packageDir.resolve(entityName + ".java");
 
-                List<DataMigrationPlan.ForeignKeyEntry> outgoingFks =
-                        fksByTable.getOrDefault(newTable, List.of());
-
-                String entityName = toPascalCase(newTable);
-                String source = buildEntitySource(targetPackage, entityName, newTable,
-                        tableMappings, outgoingFks, sourceProfile);
-
-                Path packageDir = sourceRoot.resolve(targetPackage.replace('.', File.separatorChar));
-                Files.createDirectories(packageDir);
-                Path entityFile = packageDir.resolve(entityName + ".java");
-
-                if (Files.exists(entityFile)) {
-                    System.out.printf("  ⚠️  Skipping %s — already exists: %s%n", entityName, entityFile);
-                } else {
-                    Files.writeString(entityFile, source, StandardCharsets.UTF_8);
-                    System.out.printf("  ✅ Generated: %s%n", entityFile);
-                }
+            if (Files.exists(entityFile)) {
+                System.out.printf("  ⚠️  Skipping %s — already exists: %s%n", entityName, entityFile);
+            } else {
+                Files.writeString(entityFile, source, StandardCharsets.UTF_8);
+                System.out.printf("  ✅ Generated: %s%n", entityFile);
             }
         }
     }
@@ -1129,19 +1135,7 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
 
         for (DataMigrationPlan.ColumnMappingEntry cm : tableMappings) {
             if (fkTargetColumns.contains(cm.targetColumn())) {
-                // FK column → @ManyToOne relationship
-                DataMigrationPlan.ForeignKeyEntry fk = outgoingFks.stream()
-                        .filter(f -> f.fromColumn().equals(cm.targetColumn()))
-                        .findFirst()
-                        .orElse(null);
-                if (fk != null) {
-                    String parentEntityName = toPascalCase(fk.toTable());
-                    String fieldName = toCamelCase(fk.toTable());
-                    fields.append("    @ManyToOne\n");
-                    fields.append("    @JoinColumn(name = \"").append(cm.targetColumn()).append("\")\n");
-                    fields.append("    private ").append(parentEntityName).append(" ")
-                          .append(fieldName).append(";\n\n");
-                }
+                buildManyToOne(outgoingFks, cm, fields);
             } else {
                 boolean isId = isIdColumn(cm.viewColumn(), sourceProfile);
                 boolean nullable = isNullableColumn(cm.viewColumn(), sourceProfile);
@@ -1150,15 +1144,21 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
 
                 if (isId) {
                     idEmitted = true;
-                    fields.append("    @Id\n");
-                    fields.append("    @GeneratedValue(strategy = GenerationType.IDENTITY)\n");
-                    fields.append("    @Column(name = \"").append(cm.targetColumn()).append("\")\n");
+                    fields.append("""
+                                @Id
+                                @GeneratedValue(strategy = GenerationType.IDENTITY)
+                                @Column(name = "%s")
+                                private %s %s;
+
+                            """.formatted(cm.targetColumn(), javaType, fieldName));
                 } else {
-                    fields.append("    @Column(name = \"").append(cm.targetColumn()).append("\"");
-                    if (!nullable) fields.append(", nullable = false");
-                    fields.append(")\n");
+                    String nullablePart = nullable ? "" : ", nullable = false";
+                    fields.append("""
+                                @Column(name = "%s"%s)
+                                private %s %s;
+
+                            """.formatted(cm.targetColumn(), nullablePart, javaType, fieldName));
                 }
-                fields.append("    private ").append(javaType).append(" ").append(fieldName).append(";\n\n");
             }
         }
 
@@ -1166,23 +1166,45 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
         // prepend a synthetic surrogate key so the entity is valid JPA.
         if (!idEmitted) {
             logger.warn("No @Id column found for table '{}' — inserting synthetic surrogate key 'id'", tableName);
-            String syntheticPk =
-                    "    @Id\n" +
-                    "    @GeneratedValue(strategy = GenerationType.IDENTITY)\n" +
-                    "    @Column(name = \"id\")\n" +
-                    "    private Long id;\n\n";
+            String syntheticPk = """
+                        @Id
+                        @GeneratedValue(strategy = GenerationType.IDENTITY)
+                        @Column(name = "id")
+                        private Long id;
+
+                    """;
             fields.insert(0, syntheticPk);
         }
 
-        StringBuilder sb = new StringBuilder();
-        sb.append("package ").append(packageName).append(";\n\n");
-        sb.append("import ").append(persistencePackage).append(".*;\n\n");
-        sb.append("@Entity\n");
-        sb.append("@Table(name = \"").append(tableName).append("\")\n");
-        sb.append("public class ").append(entityName).append(" {\n\n");
-        sb.append(fields);
-        sb.append("}\n");
-        return sb.toString();
+        return """
+                package %s;
+
+                import %s.*;
+
+                @Entity
+                @Table(name = "%s")
+                public class %s {
+
+                %s}
+                """.formatted(packageName, persistencePackage, tableName, entityName, fields);
+    }
+
+    private void buildManyToOne(List<DataMigrationPlan.ForeignKeyEntry> outgoingFks, DataMigrationPlan.ColumnMappingEntry cm, StringBuilder fields) {
+        // FK column → @ManyToOne relationship
+        DataMigrationPlan.ForeignKeyEntry fk = outgoingFks.stream()
+                .filter(f -> f.fromColumn().equals(cm.targetColumn()))
+                .findFirst()
+                .orElse(null);
+        if (fk != null) {
+            String parentEntityName = toPascalCase(fk.toTable());
+            String fieldName = toCamelCase(fk.toTable());
+            fields.append("""
+                        @ManyToOne
+                        @JoinColumn(name = "%s")
+                        private %s %s;
+
+                    """.formatted(cm.targetColumn(), parentEntityName, fieldName));
+        }
     }
 
     /** Returns the Java type of the field whose DB column name matches {@code viewColumn}. */
