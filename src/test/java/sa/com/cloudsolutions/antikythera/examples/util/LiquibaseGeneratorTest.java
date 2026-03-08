@@ -922,7 +922,7 @@ class LiquibaseGeneratorTest {
                 "test", supported, false, true, null, "changes");
         LiquibaseGenerator customGenerator = new LiquibaseGenerator(config);
 
-        Map<DatabaseDialect, String> sqlByDialect = new HashMap<>();
+        Map<DatabaseDialect, String> sqlByDialect = new EnumMap<>(DatabaseDialect.class);
         sqlByDialect.put(DatabaseDialect.POSTGRESQL, "CREATE TABLE pg (id INT);");
         sqlByDialect.put(DatabaseDialect.ORACLE, "CREATE TABLE ora (id INT);");
 
@@ -941,10 +941,10 @@ class LiquibaseGeneratorTest {
                 "test", supported, false, true, null, "changes");
         LiquibaseGenerator customGenerator = new LiquibaseGenerator(config);
 
-        Map<DatabaseDialect, String> sqlByDialect = new HashMap<>();
+        Map<DatabaseDialect, String> sqlByDialect = new EnumMap<>(DatabaseDialect.class);
         sqlByDialect.put(DatabaseDialect.POSTGRESQL, "CREATE TABLE pg (id INT);");
 
-        assertThrows(IllegalArgumentException.class, () -> 
+        assertThrows(IllegalArgumentException.class, () ->
             customGenerator.createDialectSqlChangeset("test_fail", sqlByDialect)
         );
     }
@@ -956,10 +956,10 @@ class LiquibaseGeneratorTest {
                 "test", supported, false, true, null, "changes");
         LiquibaseGenerator customGenerator = new LiquibaseGenerator(config);
 
-        Map<DatabaseDialect, String> sqlByDialect = new HashMap<>();
+        Map<DatabaseDialect, String> sqlByDialect = new EnumMap<>(DatabaseDialect.class);
         sqlByDialect.put(DatabaseDialect.POSTGRESQL, "CREATE TABLE pg (id INT);");
 
-        Map<DatabaseDialect, String> rollbackByDialect = new HashMap<>();
+        Map<DatabaseDialect, String> rollbackByDialect = new EnumMap<>(DatabaseDialect.class);
         rollbackByDialect.put(DatabaseDialect.POSTGRESQL, "DROP TABLE pg;");
         rollbackByDialect.put(DatabaseDialect.ORACLE, "DROP TABLE ora;");
 
