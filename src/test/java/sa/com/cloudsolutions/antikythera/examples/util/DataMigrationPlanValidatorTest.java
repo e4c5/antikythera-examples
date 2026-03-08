@@ -4,8 +4,6 @@ import org.junit.jupiter.api.Test;
 import sa.com.cloudsolutions.antikythera.examples.SchemaNormalizationAnalyzer.DataMigrationPlan;
 import sa.com.cloudsolutions.antikythera.examples.SchemaNormalizationAnalyzer.EntityProfile;
 import sa.com.cloudsolutions.antikythera.examples.SchemaNormalizationAnalyzer.FieldProfile;
-import sa.com.cloudsolutions.antikythera.examples.SchemaNormalizationAnalyzer.RelationshipProfile;
-import sa.com.cloudsolutions.antikythera.examples.util.DataMigrationPlanValidator.ValidationResult;
 
 import java.util.List;
 
@@ -58,15 +56,13 @@ class DataMigrationPlanValidatorTest {
 
     @Test
     void testValidPlanReturnsValid() {
-        ValidationResult result = DataMigrationPlanValidator.validate(validTwoTablePlan(), null);
-
-        assertTrue(result.valid(), "A well-formed plan should be valid");
-        assertTrue(result.errors().isEmpty(), "No errors expected for a valid plan");
+        assertDoesNotThrow(() -> DataMigrationPlanValidator.validate(validTwoTablePlan(), null),
+                "A well-formed plan should not throw any exception");
     }
 
     @Test
     void testValidPlanWithProfilePassesColumnCoverage() {
-        // The plan maps id, name, customer_id, street; profile has id, name, street — all covered
+        // The plan maps id, name, street; profile has id, name, street — all covered
         DataMigrationPlan plan = new DataMigrationPlan(
                 "old_customer",
                 "customer",
@@ -92,9 +88,8 @@ class DataMigrationPlanValidatorTest {
                 List.of()
         );
 
-        ValidationResult result = DataMigrationPlanValidator.validate(plan, profile);
-        assertTrue(result.valid());
-        assertTrue(result.warnings().isEmpty(), "All profile columns are mapped — no warnings expected");
+        assertDoesNotThrow(() -> DataMigrationPlanValidator.validate(plan, profile),
+                "All profile columns are mapped — no exception expected");
     }
 
     // -------------------------------------------------------------------------
@@ -116,11 +111,12 @@ class DataMigrationPlanValidatorTest {
                 )
         );
 
-        ValidationResult result = DataMigrationPlanValidator.validate(plan, null);
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> DataMigrationPlanValidator.validate(plan, null),
+                "Plan with unknown baseTable should throw IllegalArgumentException");
 
-        assertFalse(result.valid(), "Plan with unknown baseTable should be invalid");
-        assertTrue(result.errors().stream().anyMatch(e -> e.contains("nonexistent_base")),
-                "Error should mention the unknown baseTable");
+        assertTrue(exception.getMessage().contains("nonexistent_base"),
+                "Exception message should mention the unknown baseTable");
     }
 
     // -------------------------------------------------------------------------
@@ -140,11 +136,12 @@ class DataMigrationPlanValidatorTest {
                 List.of()
         );
 
-        ValidationResult result = DataMigrationPlanValidator.validate(plan, null);
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> DataMigrationPlanValidator.validate(plan, null),
+                "Plan with unknown table in column mapping should throw IllegalArgumentException");
 
-        assertFalse(result.valid());
-        assertTrue(result.errors().stream().anyMatch(e -> e.contains("address")),
-                "Error should mention the unknown table 'address'");
+        assertTrue(exception.getMessage().contains("address"),
+                "Exception message should mention the unknown table 'address'");
     }
 
     // -------------------------------------------------------------------------
@@ -170,11 +167,13 @@ class DataMigrationPlanValidatorTest {
                 )
         );
 
-        ValidationResult result = DataMigrationPlanValidator.validate(plan, null);
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> DataMigrationPlanValidator.validate(plan, null),
+                "Plan with cyclic FKs should throw IllegalArgumentException");
 
-        assertFalse(result.valid(), "Plan with cyclic FKs should be invalid");
-        assertTrue(result.errors().stream().anyMatch(e -> e.toLowerCase().contains("circular")),
-                "Error should mention circular/cycle dependency");
+        assertTrue(exception.getMessage().toLowerCase().contains("circular") ||
+                   exception.getMessage().toLowerCase().contains("cycle"),
+                "Exception message should mention circular/cycle dependency");
     }
 
     // -------------------------------------------------------------------------
@@ -204,18 +203,16 @@ class DataMigrationPlanValidatorTest {
                 List.of()
         );
 
-        ValidationResult result = DataMigrationPlanValidator.validate(plan, profile);
-
-        assertTrue(result.valid(), "Missing column mapping is a warning, not an error");
-        assertFalse(result.warnings().isEmpty(), "Should have at least one warning");
-        assertTrue(result.warnings().stream().anyMatch(w -> w.contains("email")),
-                "Warning should mention the unmapped column 'email'");
+        // Missing column mapping generates a warning to stderr, but validation still passes
+        assertDoesNotThrow(() -> DataMigrationPlanValidator.validate(plan, profile),
+                "Missing column mapping is a warning, not an error");
+        // Note: The warning "Column 'email' from source profile is not mapped" will be printed to stderr
     }
 
     @Test
     void testValidateWithNullProfileSkipsColumnCoverage() {
-        ValidationResult result = DataMigrationPlanValidator.validate(validTwoTablePlan(), null);
-        // Null profile means no column-coverage check — no warning expected from that check
-        assertTrue(result.valid());
+        // Null profile means no column-coverage check — validation passes without warnings
+        assertDoesNotThrow(() -> DataMigrationPlanValidator.validate(validTwoTablePlan(), null),
+                "Validation with null profile should not throw exception");
     }
 }

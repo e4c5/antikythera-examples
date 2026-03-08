@@ -838,16 +838,12 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
                     .orElse(null);
 
             // Validate the plan before generating artifacts
-            DataMigrationPlanValidator.ValidationResult validationResult =
-                    DataMigrationPlanValidator.validate(plan, sourceProfile);
-            if (!validationResult.valid()) {
+            try {
+                DataMigrationPlanValidator.validate(plan, sourceProfile);
+            } catch (IllegalArgumentException e) {
                 logger.warn("Skipping plan for '{}' — validation failed: {}",
-                        plan.sourceTable(), validationResult.errors());
+                        plan.sourceTable(), e.getMessage());
                 continue;
-            }
-            if (!validationResult.warnings().isEmpty()) {
-                logger.warn("Plan for '{}' has warnings: {}",
-                        plan.sourceTable(), validationResult.warnings());
             }
 
             InsteadOfTriggerGenerator.ViewDescriptor view = toViewDescriptor(plan);
