@@ -9,6 +9,7 @@ import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.AnnotationExpr;
 import com.github.javaparser.ast.expr.Expression;
+import com.github.javaparser.ast.nodeTypes.NodeWithName;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -257,12 +258,10 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
 
         // Detect javax vs jakarta persistence from the compilation unit (check once)
         if ("javax.persistence".equals(persistencePackage)) {
-            typeWrapper.getType().findCompilationUnit().ifPresent(cu ->
-                cu.getImports().stream()
-                    .map(id -> id.getNameAsString())
+            typeWrapper.getType().findCompilationUnit().flatMap(cu -> cu.getImports().stream()
+                    .map(NodeWithName::getNameAsString)
                     .filter(name -> name.startsWith("jakarta") && name.contains("persistence"))
-                    .findFirst()
-                    .ifPresent(ignored -> persistencePackage = "jakarta.persistence"));
+                    .findFirst()).ifPresent(ignored -> persistencePackage = "jakarta.persistence");
         }
 
         if (!quietMode) {
@@ -287,52 +286,67 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
             System.out.println("No entity profiles collected — nothing to send to LLM.");
             return;
         }
-
-        int maxAttempts = getMaxContinuations();
-        int attempt = 0;
-
         System.out.printf("%n🤖 Sending all %d entity profiles to LLM…%n", allProfiles.size());
+        sendWithRetry();
+        reportAllResults();
+        generateMigrationArtifacts();
+    }
 
-        while (attempt < maxAttempts) {
+    /**
+     * Sends the full profile batch to the LLM, retrying up to {@code max_continuations} times
+     * on empty, malformed, or failed responses. Populates {@link #allReports} on success.
+     */
+    private void sendWithRetry() throws InterruptedException {
+        int maxAttempts = getMaxContinuations();
+        for (int attempt = 0; attempt < maxAttempts; attempt++) {
             if (attempt > 0) {
                 System.out.printf("  ↩ Retry %d/%d…%n", attempt, maxAttempts - 1);
             }
-
-            try {
-                List<EntityNormalizationReport> reports = sendBatchToLLM(allProfiles);
-
-                TokenUsage tokenUsage = aiService.getLastTokenUsage();
-                cumulativeTokenUsage.add(tokenUsage);
-                if (!quietMode) {
-                    System.out.printf("  🤖 AI analysis (attempt %d): %s%n",
-                            attempt + 1, tokenUsage.getFormattedReport());
-                }
-
-                if (!lastResponseTruncated && !reports.isEmpty()) {
-                    allReports.addAll(reports);
-                    break;
-                }
-
-                logger.warn("Response empty or malformed on attempt {}; retrying full request", attempt + 1);
-            } catch (Exception e) {
-                logger.error("LLM batch request failed on attempt {}: {}", attempt + 1, e.getMessage());
-                lastResponseTruncated = true;
-
-                // Even on failure, try to capture tokens used by the provider
-                TokenUsage tokenUsage = aiService.getLastTokenUsage();
-                if (tokenUsage != null) {
-                    cumulativeTokenUsage.add(tokenUsage);
-                }
+            if (trySendOnce(attempt)) {
+                return;
             }
-
-            attempt++;
         }
-
         if (lastResponseTruncated) {
             logger.warn("LLM response was malformed after {} attempts — no results recorded", maxAttempts);
         }
+    }
 
-        // Report only entities that had violations (clean entities are omitted per prompt)
+    /**
+     * Performs a single LLM attempt. Returns {@code true} when a valid, non-empty
+     * response was received and added to {@link #allReports}.
+     */
+    private boolean trySendOnce(int attempt) throws InterruptedException {
+        try {
+            List<EntityNormalizationReport> reports = sendBatchToLLM(allProfiles);
+
+            TokenUsage tokenUsage = aiService.getLastTokenUsage();
+            cumulativeTokenUsage.add(tokenUsage);
+            if (!quietMode) {
+                System.out.printf("  🤖 AI analysis (attempt %d): %s%n",
+                        attempt + 1, tokenUsage.getFormattedReport());
+            }
+
+            if (!lastResponseTruncated && !reports.isEmpty()) {
+                allReports.addAll(reports);
+                return true;
+            }
+            logger.warn("Response empty or malformed on attempt {}; retrying full request", attempt + 1);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw ie;
+        } catch (Exception e) {
+            logger.error("LLM batch request failed on attempt {}: {}", attempt + 1, e.getMessage());
+            lastResponseTruncated = true;
+            TokenUsage tokenUsage = aiService.getLastTokenUsage();
+            if (tokenUsage != null) {
+                cumulativeTokenUsage.add(tokenUsage);
+            }
+        }
+        return false;
+    }
+
+    /** Reports results for all entities that had violations. */
+    private void reportAllResults() {
         for (EntityNormalizationReport report : allReports) {
             String tableName = allProfiles.stream()
                     .filter(p -> p.entityName().equals(report.entityName()))
@@ -342,8 +356,6 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
             reportEntityResults(report.entityName(), tableName, report.issues());
             totalRecommendations += report.issues().size();
         }
-
-        generateMigrationArtifacts();
     }
 
     /**
@@ -1327,12 +1339,6 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
                 .orElse(true);
     }
 
-    /** Returns true if the field whose DB column is {@code viewColumn} is auto-generated. */
-    private boolean isAutoGeneratedColumn(String viewColumn, EntityProfile sourceProfile) {
-        return sourceProfile.fields().stream()
-                .anyMatch(f -> f.columnName().equals(viewColumn) && f.isAutoGenerated());
-    }
-
     /** Converts a snake_case table/column name to PascalCase (e.g. {@code patient_address → PatientAddress}). */
     private String toPascalCase(String snakeCase) {
         if (snakeCase == null || snakeCase.isBlank()) return snakeCase;
@@ -1348,10 +1354,6 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
         if (pascal == null || pascal.isEmpty()) return pascal;
         return Character.toLowerCase(pascal.charAt(0)) + pascal.substring(1);
     }
-
-    // -------------------------------------------------------------------------
-    // Reporting
-    // -------------------------------------------------------------------------
 
     private void reportEntityResults(String entityName, String tableName,
                                      List<NormalizationIssue> issues) {
