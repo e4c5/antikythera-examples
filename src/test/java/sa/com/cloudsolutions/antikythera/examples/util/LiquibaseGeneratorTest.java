@@ -218,12 +218,12 @@ class LiquibaseGeneratorTest {
         // Test with empty changeset
         WriteResult result = generator.writeChangesetToFile(masterFile, "");
         assertFalse(result.wasWritten());
-        assertNull(result.getChangesFile());
+        assertNull(result.changesFile());
 
         // Test with null changeset
         WriteResult result2 = generator.writeChangesetToFile(masterFile, null);
         assertFalse(result2.wasWritten());
-        assertNull(result2.getChangesFile());
+        assertNull(result2.changesFile());
     }
 
     @Test
@@ -599,10 +599,10 @@ class LiquibaseGeneratorTest {
 
         assertNotNull(result);
         assertTrue(result.wasWritten());
-        assertNotNull(result.getChangesFile());
-        assertTrue(result.getChangesFile().exists());
+        assertNotNull(result.changesFile());
+        assertTrue(result.changesFile().exists());
 
-        String content = Files.readString(result.getChangesFile().toPath());
+        String content = Files.readString(result.changesFile().toPath());
         assertTrue(content.contains("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
         assertTrue(content.contains("content"));
     }
@@ -617,8 +617,8 @@ class LiquibaseGeneratorTest {
 
         assertNotNull(result);
         assertTrue(result.wasWritten());
-        assertNotNull(result.getChangesFile());
-        assertTrue(result.getChangesFile().exists());
+        assertNotNull(result.changesFile());
+        assertTrue(result.changesFile().exists());
     }
 
     @Test
@@ -636,10 +636,10 @@ class LiquibaseGeneratorTest {
         WriteResult result1 = new WriteResult(testFile, true);
         WriteResult result2 = new WriteResult(null, false);
 
-        assertEquals(testFile, result1.getChangesFile());
+        assertEquals(testFile, result1.changesFile());
         assertTrue(result1.wasWritten());
 
-        assertNull(result2.getChangesFile());
+        assertNull(result2.changesFile());
         assertFalse(result2.wasWritten());
     }
 
@@ -887,9 +887,9 @@ class LiquibaseGeneratorTest {
         WriteResult result = customGen.writeChangesetToFile(masterFile, changeset);
 
         assertTrue(result.wasWritten());
-        assertNotNull(result.getChangesFile());
-        assertTrue(result.getChangesFile().getName().contains("antikythera-normalize-"),
-                "File name should contain the custom prefix. Got: " + result.getChangesFile().getName());
+        assertNotNull(result.changesFile());
+        assertTrue(result.changesFile().getName().contains("antikythera-normalize-"),
+                "File name should contain the custom prefix. Got: " + result.changesFile().getName());
 
         // Master file should reference the new file
         String updatedMaster = Files.readString(masterFile);

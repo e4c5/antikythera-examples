@@ -1017,10 +1017,10 @@ public class QueryOptimizationChecker extends AbstractRepositoryAnalyzer {
         LiquibaseGenerator.WriteResult result = liquibaseGenerator.writeChangesetToFile(liquibaseXmlPath,
                 allChangesets);
 
-        if (result.wasWritten() && result.getChangesFile() != null) {
+        if (result.wasWritten() && result.changesFile() != null) {
             logger.debug(
                     "Generated Liquibase changes file: {} with {} index create recommendations and {} drop recommendations",
-                    result.getChangesFile().getName(), OptimizationStatsLogger.getTotalIndexesGenerated(),
+                    result.changesFile().getName(), OptimizationStatsLogger.getTotalIndexesGenerated(),
                     OptimizationStatsLogger.getTotalIndexesDropped());
         }
     }

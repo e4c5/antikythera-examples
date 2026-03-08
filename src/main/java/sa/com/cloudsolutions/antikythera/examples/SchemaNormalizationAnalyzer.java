@@ -128,6 +128,18 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
         public record ForeignKeyEntry(String fromTable, String fromColumn, String toTable, String toColumn) {}
     }
 
+    /**
+     * Parameter object for building migration changesets.
+     * Groups configuration and generator instances to reduce method argument count.
+     */
+    private record MigrationContext(
+            String ddlMode,
+            String renameOldTableTo,
+            LiquibaseGenerator liquibaseGenerator,
+            DataMigrationGenerator dataMigrationGenerator,
+            InsteadOfTriggerGenerator triggerGenerator,
+            NormalizedTableDDLGenerator ddlGenerator) {}
+
     record NormalizationIssue(
             String normalizationForm,
             String violation,
@@ -828,6 +840,10 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
         InsteadOfTriggerGenerator triggerGenerator = new InsteadOfTriggerGenerator();
         NormalizedTableDDLGenerator ddlGenerator = new NormalizedTableDDLGenerator();
 
+        MigrationContext context = new MigrationContext(
+                ddlMode, renameOldTableTo, liquibaseGenerator,
+                dataMigrationGenerator, triggerGenerator, ddlGenerator);
+
         List<String> allChangesets = new ArrayList<>();
 
         for (DataMigrationPlan plan : plans) {
@@ -850,9 +866,7 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
             System.out.printf("  📦 %s → [%s]%n", plan.sourceTable(),
                     String.join(", ", plan.newTables()));
 
-            List<String> planChangesets = buildChangesetsForPlan(
-                    plan, view, sourceProfile, ddlMode, renameOldTableTo,
-                    liquibaseGenerator, dataMigrationGenerator, triggerGenerator, ddlGenerator);
+            List<String> planChangesets = buildChangesetsForPlan(plan, view, sourceProfile, context);
             allChangesets.addAll(planChangesets);
 
             // Write mapping artifact JSON
@@ -865,7 +879,7 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
                     liquibaseGenerator.writeChangesetToConfiguredFile(composite);
             if (result.wasWritten()) {
                 System.out.printf("  ✅ Changesets written to: %s%n",
-                        result.getChangesFile().getAbsolutePath());
+                        result.changesFile().getAbsolutePath());
             }
         } catch (IllegalStateException e) {
             System.out.println("  ⚠️  liquibase_master_file not configured — printing changeset to stdout:");
@@ -908,52 +922,47 @@ public class SchemaNormalizationAnalyzer extends AbstractRepositoryAnalyzer {
     private List<String> buildChangesetsForPlan(DataMigrationPlan plan,
                                                   InsteadOfTriggerGenerator.ViewDescriptor view,
                                                   EntityProfile sourceProfile,
-                                                  String ddlMode,
-                                                  String renameOldTableTo,
-                                                  LiquibaseGenerator liquibaseGenerator,
-                                                  DataMigrationGenerator dataMigrationGenerator,
-                                                  InsteadOfTriggerGenerator triggerGenerator,
-                                                  NormalizedTableDDLGenerator ddlGenerator) {
+                                                  MigrationContext context) {
         List<String> changesets = new ArrayList<>();
 
         // 1. CREATE TABLE changesets for each new normalized table (topological order)
-        List<String> createTableDdls = ddlGenerator.generate(view, sourceProfile, ddlMode);
+        List<String> createTableDdls = context.ddlGenerator().generate(view, sourceProfile, context.ddlMode());
         changesets.addAll(createTableDdls);
 
         // 2. Data migration INSERT-SELECT statements
-        List<String> migrationSqls = dataMigrationGenerator.generateMigrationSql(view);
+        List<String> migrationSqls = context.dataMigrationGenerator().generateMigrationSql(view);
         for (int i = 0; i < migrationSqls.size(); i++) {
-            changesets.add(liquibaseGenerator.createRawSqlChangeset(
+            changesets.add(context.liquibaseGenerator().createRawSqlChangeset(
                     "migrate_data_" + plan.sourceTable() + "_" + i,
                     migrationSqls.get(i)));
         }
 
         // 3 + 4. Drop FKs referencing old table, then rename old table to backup
         List<String> dropFkAndRenameCs = buildDropFkAndRenameChangesets(
-                plan.sourceTable(), renameOldTableTo, liquibaseGenerator);
+                plan.sourceTable(), context.renameOldTableTo(), context.liquibaseGenerator());
         changesets.addAll(dropFkAndRenameCs);
 
         // 5. Compatibility view
         String viewSql = buildCompatibilityViewSql(view);
-        changesets.add(liquibaseGenerator.createViewChangeset(view.viewName(), viewSql));
+        changesets.add(context.liquibaseGenerator().createViewChangeset(view.viewName(), viewSql));
 
         // 6. INSTEAD OF triggers with rollback DDL
         Map<LiquibaseGenerator.DatabaseDialect, String> insertRollback =
-                triggerGenerator.generateInsertRollback(view);
+                context.triggerGenerator().generateInsertRollback(view);
         Map<LiquibaseGenerator.DatabaseDialect, String> updateRollback =
-                triggerGenerator.generateUpdateRollback(view);
+                context.triggerGenerator().generateUpdateRollback(view);
         Map<LiquibaseGenerator.DatabaseDialect, String> deleteRollback =
-                triggerGenerator.generateDeleteRollback(view);
+                context.triggerGenerator().generateDeleteRollback(view);
 
-        changesets.add(liquibaseGenerator.createDialectSqlChangesetWithRollback(
+        changesets.add(context.liquibaseGenerator().createDialectSqlChangesetWithRollback(
                 "trigger_insert_" + view.viewName(),
-                triggerGenerator.generateInsert(view), insertRollback));
-        changesets.add(liquibaseGenerator.createDialectSqlChangesetWithRollback(
+                context.triggerGenerator().generateInsert(view), insertRollback));
+        changesets.add(context.liquibaseGenerator().createDialectSqlChangesetWithRollback(
                 "trigger_update_" + view.viewName(),
-                triggerGenerator.generateUpdate(view), updateRollback));
-        changesets.add(liquibaseGenerator.createDialectSqlChangesetWithRollback(
+                context.triggerGenerator().generateUpdate(view), updateRollback));
+        changesets.add(context.liquibaseGenerator().createDialectSqlChangesetWithRollback(
                 "trigger_delete_" + view.viewName(),
-                triggerGenerator.generateDelete(view), deleteRollback));
+                context.triggerGenerator().generateDelete(view), deleteRollback));
 
         return changesets;
     }
