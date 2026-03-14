@@ -131,7 +131,9 @@ public abstract class AbstractAIService {
             return response.body();
         } catch (HttpTimeoutException e) {
             if (retryCount > 0) {
-                logger.info("HTTP timeout occurred, retrying... ({} retries remaining)", retryCount);
+                if (logger.isInfoEnabled()) {
+                    logger.info("HTTP timeout occurred, retrying... ({} retries remaining)", retryCount);
+                }
                 return sendApiRequest(payload, retryCount - 1);
             }
             throw e;
@@ -326,8 +328,10 @@ public abstract class AbstractAIService {
             RepositoryQuery rq = queries.stream().findFirst().orElseThrow();
             return new OptimizedQueryResult(rq, extractColumnOrderFromRepositoryQuery(rq));
         } catch (Exception e) {
-            logger.warn("Failed optimized code element: {}", optimizedCodeElement);
-            logger.warn("Error parsing optimized code element, falling back to original: {}", e.getMessage());
+            if (logger.isWarnEnabled()) {
+                logger.warn("Failed optimized code element: {}", optimizedCodeElement);
+                logger.warn("Error parsing optimized code element, falling back to original: {}", e.getMessage());
+            }
             return new OptimizedQueryResult(originalQuery, extractColumnOrderFromRepositoryQuery(originalQuery));
         }
     }
@@ -541,7 +545,7 @@ public abstract class AbstractAIService {
     protected List<OptimizationIssue> parseRecommendationsFromJson(String jsonResponse, QueryBatch batch) throws IOException {
         List<OptimizationIssue> issues = new ArrayList<>();
 
-        if (jsonResponse.trim().isEmpty()) {
+        if (jsonResponse.trim().isEmpty() && logger.isWarnEnabled()) {
             logger.warn("No valid JSON found in AI response");
             return issues;
         }
@@ -565,9 +569,7 @@ public abstract class AbstractAIService {
         }
 
         if (!responseArray.isArray()) {
-            logger.warn("AI response does not contain a JSON array as expected");
-            logger.warn(jsonResponse);
-            System.exit(1);
+            throw new AIResponseException("AI response does not contain a JSON array as expected. Full response:\n" + jsonResponse);
         }
 
         // Process each optimization recommendation
@@ -584,21 +586,110 @@ public abstract class AbstractAIService {
     }
 
     /**
+     * Extracts the JSON payload from an AI response that may include:
+     * - Markdown code fences (```json ... ```)
+     * - Preamble text before the JSON array/object
+     * - Multiple attempts: a truncated first response followed by the complete one
+     *
+     * When the response contains multiple code fences (the model leaked a partial
+     * attempt before the real response), the LAST fence opening is used because
+     * it always precedes the complete JSON output.
+     */
+    static String extractJson(String textResponse) {
+        String s = textResponse.trim();
+
+        // Find the last code fence opening (```json or ``` followed by [ or {).
+        // When a model outputs a truncated attempt then the real response, the last
+        // fence opening is the one that introduces the complete JSON.
+        int lastFenceStart = -1;
+        lastFenceStart = getLastFenceStart(s, lastFenceStart);
+
+        if (lastFenceStart != -1) {
+            int newline = s.indexOf('\n', lastFenceStart);
+            if (newline != -1) {
+                String content = s.substring(newline + 1).stripLeading();
+                int closingFence = content.lastIndexOf("```");
+                if (closingFence != -1) {
+                    content = content.substring(0, closingFence).stripTrailing();
+                }
+                if (lastFenceStart > 0 && logger.isWarnEnabled()) {
+                        logger.warn("AI response had {} chars of preamble/garbage before last code fence",
+                                lastFenceStart);
+                }
+                return content;
+            }
+        }
+
+        // No code fence — find the last [ or { that starts on its own line,
+        // preferring the last occurrence to skip any truncated first attempt
+        int jsonStart = getJsonStart(s);
+
+        if (jsonStart > 0 && logger.isWarnEnabled()) {
+                logger.warn("AI response contains preamble text before JSON (skipping {} chars): {}",
+                        jsonStart, s.substring(0, Math.min(jsonStart, 200)));
+        }
+        return s.substring(jsonStart);
+    }
+
+    private static int getLastFenceStart(String s, int lastFenceStart) {
+        int pos = 0;
+        while (pos < s.length()) {
+            int idx = s.indexOf("```", pos);
+            if (idx == -1) break;
+            String tail = s.substring(Math.min(idx + 3, s.length()));
+            // Treat as an opening fence if followed by "json", a newline with [/{, or whitespace
+            if (tail.startsWith("json") || tail.startsWith("\n[") || tail.startsWith("\n{")
+                    || tail.startsWith("\n ") || tail.startsWith("\n\n")) {
+                lastFenceStart = idx;
+            }
+            pos = idx + 3;
+        }
+        return lastFenceStart;
+    }
+
+    static int getJsonStart(String s) {
+        int lastOnLine = Math.max(s.lastIndexOf("\n["), s.lastIndexOf("\n{"));
+        if (lastOnLine != -1) {
+            return lastOnLine + 1;
+        }
+
+        int arrayStart = s.indexOf('[');
+        int objectStart = s.indexOf('{');
+
+        if (arrayStart == -1 && objectStart == -1) {
+            throw new AIResponseException("AI response contains no JSON array or object. Full response:\n" + s);
+        }
+
+        if (arrayStart == -1) {
+            return objectStart;
+        }
+        if (objectStart == -1) {
+            return arrayStart;
+        }
+
+        return Math.min(arrayStart, objectStart);
+    }
+
+    /**
      * Parses the text response from AI to extract optimization recommendations.
      * Since Gemini is configured with JSON mode, the response should already be valid JSON.
      */
     List<OptimizationIssue> parseRecommendations(String textResponse, QueryBatch batch) throws IOException {
         if (textResponse == null || textResponse.trim().isEmpty()) {
-            logger.warn("Empty response from AI service");
+            if (logger.isWarnEnabled()) {
+                logger.warn("Empty response from AI service");
+            }
             return new ArrayList<>();
         }
 
         try {
-            return parseRecommendationsFromJson(textResponse, batch);
+            String json = extractJson(textResponse);
+            return parseRecommendationsFromJson(json, batch);
         } catch (Exception e) {
-            logger.error("Failed to parse AI response as JSON. Response: {}",
-                    textResponse.substring(0, Math.min(200, textResponse.length())), e);
-            return new ArrayList<>();
+            if (logger.isErrorEnabled()) {
+                logger.error("Failed to parse AI response. Full raw response follows:\n{}", textResponse);
+            }
+            throw e;
         }
     }
 }

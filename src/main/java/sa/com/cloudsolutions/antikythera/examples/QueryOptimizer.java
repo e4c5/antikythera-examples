@@ -1178,7 +1178,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
 
         // Parse command-line flags
         boolean quietMode = hasFlag(args, "--quiet") || hasFlag(args, "-q");
-        QueryOptimizationChecker.setQuietMode(quietMode);
+        AbstractRepositoryAnalyzer.setQuietMode(quietMode);
 
         // Check for --fresh flag to clear checkpoint and start fresh
         boolean freshStart = hasFlag(args, "--fresh") || hasFlag(args, "-f");
@@ -1195,6 +1195,7 @@ public class QueryOptimizer extends QueryOptimizationChecker {
 
         AbstractCompiler.loadDependencies();
         AbstractCompiler.preProcess();
+        AbstractCompiler.preProcessTestSources();
 
         if (!quietMode) {
             System.out.println("Time to preprocess   " + (System.currentTimeMillis() - s) + "ms");

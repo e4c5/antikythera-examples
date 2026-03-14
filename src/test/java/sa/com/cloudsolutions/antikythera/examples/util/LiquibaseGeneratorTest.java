@@ -166,6 +166,21 @@ class LiquibaseGeneratorTest {
     }
 
     @Test
+    void testCreateDropIndexChangesetForMySQL() {
+        // MySQL requires the table name, so createDropIndexChangeset should fail fast
+        ChangesetConfig mySqlConfig = new ChangesetConfig(
+                "author", 
+                Set.of(DatabaseDialect.MYSQL),
+                true, true, "master.xml", "changes"
+        );
+        LiquibaseGenerator mySqlGenerator = new LiquibaseGenerator(mySqlConfig);
+        
+        assertThrows(UnsupportedOperationException.class, () -> {
+            mySqlGenerator.createDropIndexChangeset("idx_name");
+        });
+    }
+
+    @Test
     void testCreateDropIndexChangesetWithNullName() {
         // Test with null index name
         String changeset = generator.createDropIndexChangeset(null);
@@ -218,12 +233,12 @@ class LiquibaseGeneratorTest {
         // Test with empty changeset
         WriteResult result = generator.writeChangesetToFile(masterFile, "");
         assertFalse(result.wasWritten());
-        assertNull(result.getChangesFile());
+        assertNull(result.changesFile());
 
         // Test with null changeset
         WriteResult result2 = generator.writeChangesetToFile(masterFile, null);
         assertFalse(result2.wasWritten());
-        assertNull(result2.getChangesFile());
+        assertNull(result2.changesFile());
     }
 
     @Test
@@ -338,7 +353,7 @@ class LiquibaseGeneratorTest {
         ChangesetConfig config = new ChangesetConfig("test-author",
                 Set.of(DatabaseDialect.POSTGRESQL, DatabaseDialect.ORACLE,
                         DatabaseDialect.MYSQL, DatabaseDialect.H2),
-                true, true, null);
+                true, true, null, null);
 
         LiquibaseGenerator dialectGenerator = new LiquibaseGenerator(config);
         String changeset = dialectGenerator.createIndexChangeset("users", "email");
@@ -347,6 +362,11 @@ class LiquibaseGeneratorTest {
         assertTrue(changeset.contains("postgresql"));
         assertTrue(changeset.contains("oracle"));
         assertTrue(changeset.contains("mysql"));
+        assertTrue(changeset.contains("h2"));
+
+        // Verify MySQL specific DROP INDEX in rollback (requires table name)
+        assertTrue(changeset.contains("<rollback>"));
+        assertTrue(changeset.contains("DROP INDEX idx_users_email ON users;"));
     }
 
     @Test
@@ -396,7 +416,7 @@ class LiquibaseGeneratorTest {
     void testGetConfiguredMasterFileNotConfigured() {
         // Test when liquibase_master_file is not configured
         ChangesetConfig configWithoutMaster = new ChangesetConfig("author",
-                Set.of(DatabaseDialect.POSTGRESQL), true, true, null);
+                Set.of(DatabaseDialect.POSTGRESQL), true, true, null, null);
         LiquibaseGenerator gen = new LiquibaseGenerator(configWithoutMaster);
 
         Optional<Path> configuredMasterFile = gen.getConfiguredMasterFile();
@@ -408,7 +428,7 @@ class LiquibaseGeneratorTest {
         // Test that writeChangesetToConfiguredFile throws when master file is not
         // configured
         ChangesetConfig configWithoutMaster = new ChangesetConfig("author",
-                Set.of(DatabaseDialect.POSTGRESQL), true, true, null);
+                Set.of(DatabaseDialect.POSTGRESQL), true, true, null, null);
         LiquibaseGenerator gen = new LiquibaseGenerator(configWithoutMaster);
 
         assertThrows(IllegalStateException.class,
@@ -437,7 +457,7 @@ class LiquibaseGeneratorTest {
     void testChangesetConfigOptions() {
         // Test custom configuration
         ChangesetConfig customConfig = new ChangesetConfig("custom-author",
-                Set.of(DatabaseDialect.POSTGRESQL), false, false, null);
+                Set.of(DatabaseDialect.POSTGRESQL), false, false, null, null);
 
         LiquibaseGenerator customGenerator = new LiquibaseGenerator(customConfig);
         String changeset = customGenerator.createIndexChangeset("users", "email");
@@ -533,6 +553,7 @@ class LiquibaseGeneratorTest {
                 Set.of(DatabaseDialect.MYSQL),
                 false,
                 false,
+                null,
                 null);
 
         LiquibaseGenerator customGenerator = new LiquibaseGenerator(config);
@@ -598,10 +619,10 @@ class LiquibaseGeneratorTest {
 
         assertNotNull(result);
         assertTrue(result.wasWritten());
-        assertNotNull(result.getChangesFile());
-        assertTrue(result.getChangesFile().exists());
+        assertNotNull(result.changesFile());
+        assertTrue(result.changesFile().exists());
 
-        String content = Files.readString(result.getChangesFile().toPath());
+        String content = Files.readString(result.changesFile().toPath());
         assertTrue(content.contains("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
         assertTrue(content.contains("content"));
     }
@@ -616,8 +637,8 @@ class LiquibaseGeneratorTest {
 
         assertNotNull(result);
         assertTrue(result.wasWritten());
-        assertNotNull(result.getChangesFile());
-        assertTrue(result.getChangesFile().exists());
+        assertNotNull(result.changesFile());
+        assertTrue(result.changesFile().exists());
     }
 
     @Test
@@ -635,10 +656,10 @@ class LiquibaseGeneratorTest {
         WriteResult result1 = new WriteResult(testFile, true);
         WriteResult result2 = new WriteResult(null, false);
 
-        assertEquals(testFile, result1.getChangesFile());
+        assertEquals(testFile, result1.changesFile());
         assertTrue(result1.wasWritten());
 
-        assertNull(result2.getChangesFile());
+        assertNull(result2.changesFile());
         assertFalse(result2.wasWritten());
     }
 
@@ -667,7 +688,7 @@ class LiquibaseGeneratorTest {
         String updatedMaster = Files.readString(masterFile);
 
         // The new include should have the same path prefix as existing entries
-        assertTrue(updatedMaster.contains("<include file=\"/db/changelog/antikythera-indexes-"),
+        assertTrue(updatedMaster.contains("<include file=\"/db/changelog/antikythera-changes-"),
                 "New include should have the /db/changelog/ prefix. Actual content:\n" + updatedMaster);
     }
 
@@ -693,7 +714,7 @@ class LiquibaseGeneratorTest {
         String updatedMaster = Files.readString(masterFile);
 
         // The new include should have no path prefix (just the filename)
-        assertTrue(updatedMaster.contains("<include file=\"antikythera-indexes-"),
+        assertTrue(updatedMaster.contains("<include file=\"antikythera-changes-"),
                 "New include should have no prefix when existing entries have none. Actual content:\n" + updatedMaster);
         assertFalse(updatedMaster.contains("<include file=\"/"),
                 "New include should not have a leading slash when existing entries don't have paths");
@@ -723,7 +744,7 @@ class LiquibaseGeneratorTest {
         String updatedMaster = Files.readString(masterFile);
 
         // The new include should use the most common prefix (/db/changelog/)
-        assertTrue(updatedMaster.contains("<include file=\"/db/changelog/antikythera-indexes-"),
+        assertTrue(updatedMaster.contains("<include file=\"/db/changelog/antikythera-changes-"),
                 "New include should use the most common path prefix. Actual content:\n" + updatedMaster);
     }
 
@@ -747,7 +768,205 @@ class LiquibaseGeneratorTest {
         String updatedMaster = Files.readString(masterFile);
 
         // The new include should have no prefix when there are no existing entries
-        assertTrue(updatedMaster.contains("<include file=\"antikythera-indexes-"),
+        assertTrue(updatedMaster.contains("<include file=\"antikythera-changes-"),
                 "New include should have no prefix when no existing entries. Actual content:\n" + updatedMaster);
+    }
+
+    // -------------------------------------------------------------------------
+    // New tests for plan implementation
+    // -------------------------------------------------------------------------
+
+    @Test
+    void testCreateRawSqlChangeset() {
+        String sql = "CREATE TABLE patient (id BIGINT PRIMARY KEY, name VARCHAR(255));";
+        String changeset = generator.createRawSqlChangeset("create_patient", sql);
+
+        assertNotNull(changeset);
+        assertTrue(changeset.contains("<changeSet"));
+        assertTrue(changeset.contains("</changeSet>"));
+        assertTrue(changeset.contains("create_patient"));
+        assertTrue(changeset.contains("<sql>"));
+        assertTrue(changeset.contains(sql));
+        assertTrue(changeset.contains("<rollback><!-- manual rollback required --></rollback>"));
+        // No dialect-specific dbms attribute — dialect-agnostic
+        assertFalse(changeset.contains("dbms=\""));
+    }
+
+    @Test
+    void testCreateRawSqlChangesetNoRollbackWhenDisabled() {
+        ChangesetConfig noRollback = new ChangesetConfig("antikythera",
+                Set.of(DatabaseDialect.POSTGRESQL), true, false, null, null);
+        LiquibaseGenerator gen = new LiquibaseGenerator(noRollback);
+
+        String changeset = gen.createRawSqlChangeset("create_address", "CREATE TABLE address (id BIGINT);");
+
+        assertFalse(changeset.contains("<rollback>"));
+    }
+
+    @Test
+    void testCreateViewChangeset() {
+        String selectSql = "SELECT p.id, p.name, a.street FROM patient p JOIN address a ON a.patient_id = p.id";
+        String changeset = generator.createViewChangeset("old_patient", selectSql);
+
+        assertNotNull(changeset);
+        assertTrue(changeset.contains("<changeSet"));
+        assertTrue(changeset.contains("</changeSet>"));
+        assertTrue(changeset.contains("<createView viewName=\"old_patient\" replaceIfExists=\"true\">"));
+        assertTrue(changeset.contains(selectSql));
+        assertTrue(changeset.contains("</createView>"));
+        assertTrue(changeset.contains("<rollback><dropView viewName=\"old_patient\"/></rollback>"));
+    }
+
+    @Test
+    void testCreateViewChangesetNoRollbackWhenDisabled() {
+        ChangesetConfig noRollback = new ChangesetConfig("antikythera",
+                Set.of(DatabaseDialect.POSTGRESQL), true, false, null, null);
+        LiquibaseGenerator gen = new LiquibaseGenerator(noRollback);
+
+        String changeset = gen.createViewChangeset("v_orders", "SELECT * FROM orders");
+
+        assertTrue(changeset.contains("<createView viewName=\"v_orders\""));
+        assertFalse(changeset.contains("<rollback>"));
+    }
+
+    @Test
+    void testCreateDialectSqlChangeset() {
+        Map<DatabaseDialect, String> sqlByDialect = new LinkedHashMap<>();
+        sqlByDialect.put(DatabaseDialect.POSTGRESQL,
+                "CREATE OR REPLACE FUNCTION fn_old_patient_insert() RETURNS TRIGGER AS $$ BEGIN RETURN NEW; END; $$ LANGUAGE plpgsql;");
+        sqlByDialect.put(DatabaseDialect.ORACLE,
+                "CREATE OR REPLACE TRIGGER trig_old_patient_insert INSTEAD OF INSERT ON old_patient FOR EACH ROW BEGIN NULL; END;\n/");
+
+        String changeset = generator.createDialectSqlChangeset("trigger_old_patient_insert", sqlByDialect);
+
+        assertNotNull(changeset);
+        assertTrue(changeset.contains("<changeSet"));
+        assertTrue(changeset.contains("trigger_old_patient_insert"));
+        // One <sql dbms="..."> block per dialect
+        assertTrue(changeset.contains("<sql dbms=\"postgresql\">"));
+        assertTrue(changeset.contains("<sql dbms=\"oracle\">"));
+        assertTrue(changeset.contains("<rollback><!-- manual rollback required --></rollback>"));
+    }
+
+    @Test
+    void testCreateDialectSqlChangesetSingleDialect() {
+        Map<DatabaseDialect, String> sqlByDialect = Map.of(
+                DatabaseDialect.POSTGRESQL, "CREATE OR REPLACE TRIGGER t INSTEAD OF INSERT ON v FOR EACH ROW BEGIN END;");
+
+        String changeset = generator.createDialectSqlChangeset("trigger_pg_only", sqlByDialect);
+
+        assertTrue(changeset.contains("<sql dbms=\"postgresql\">"));
+        assertFalse(changeset.contains("oracle"));
+    }
+
+    @Test
+    void testFromConfigurationWithSection() {
+        // Verify that fromConfiguration(String) reads from the specified YAML section
+        // The test generator.yml has a query_optimizer section with postgresql + oracle
+        ChangesetConfig config = ChangesetConfig.fromConfiguration("query_optimizer");
+
+        assertNotNull(config);
+        assertTrue(config.supportedDialects().contains(DatabaseDialect.POSTGRESQL));
+        assertTrue(config.supportedDialects().contains(DatabaseDialect.ORACLE));
+    }
+
+    @Test
+    void testFromConfigurationWithNonExistentSection() {
+        // A section that doesn't exist should fall back to defaultConfig()
+        ChangesetConfig config = ChangesetConfig.fromConfiguration("nonexistent_section");
+
+        assertNotNull(config);
+        // defaultConfig defaults apply
+        assertEquals("antikythera", config.author());
+        assertEquals("changes", config.filePrefix());
+        assertTrue(config.supportedDialects().contains(DatabaseDialect.POSTGRESQL));
+        assertTrue(config.supportedDialects().contains(DatabaseDialect.ORACLE));
+    }
+
+    @Test
+    void testFilePrefixDefaultIsChanges() {
+        // null filePrefix in constructor should be coerced to "changes"
+        ChangesetConfig config = new ChangesetConfig("author",
+                Set.of(DatabaseDialect.POSTGRESQL), true, true, null, null);
+        assertEquals("changes", config.filePrefix());
+
+        // blank filePrefix should also become "changes"
+        ChangesetConfig config2 = new ChangesetConfig("author",
+                Set.of(DatabaseDialect.POSTGRESQL), true, true, null, "  ");
+        assertEquals("changes", config2.filePrefix());
+    }
+
+    @Test
+    void testWriteChangesetToFileWithCustomPrefix() throws IOException {
+        ChangesetConfig customConfig = new ChangesetConfig("antikythera",
+                Set.of(DatabaseDialect.POSTGRESQL, DatabaseDialect.ORACLE),
+                true, true, null, "normalize");
+        LiquibaseGenerator customGen = new LiquibaseGenerator(customConfig);
+
+        String changeset = customGen.createIndexChangeset("users", "email");
+        WriteResult result = customGen.writeChangesetToFile(masterFile, changeset);
+
+        assertTrue(result.wasWritten());
+        assertNotNull(result.changesFile());
+        assertTrue(result.changesFile().getName().contains("antikythera-normalize-"),
+                "File name should contain the custom prefix. Got: " + result.changesFile().getName());
+
+        // Master file should reference the new file
+        String updatedMaster = Files.readString(masterFile);
+        assertTrue(updatedMaster.contains("antikythera-normalize-"));
+    }
+    @Test
+    void testCreateDialectSqlChangesetWithFiltering() {
+        Set<DatabaseDialect> supported = Set.of(DatabaseDialect.POSTGRESQL);
+        LiquibaseGenerator.ChangesetConfig config = new LiquibaseGenerator.ChangesetConfig(
+                "test", supported, false, true, null, "changes");
+        LiquibaseGenerator customGenerator = new LiquibaseGenerator(config);
+
+        Map<DatabaseDialect, String> sqlByDialect = new EnumMap<>(DatabaseDialect.class);
+        sqlByDialect.put(DatabaseDialect.POSTGRESQL, "CREATE TABLE pg (id INT);");
+        sqlByDialect.put(DatabaseDialect.ORACLE, "CREATE TABLE ora (id INT);");
+
+        String changeset = customGenerator.createDialectSqlChangeset("test_filter", sqlByDialect);
+
+        assertTrue(changeset.contains("dbms=\"postgresql\""));
+        assertFalse(changeset.contains("dbms=\"oracle\""));
+        assertTrue(changeset.contains("CREATE TABLE pg"));
+        assertFalse(changeset.contains("CREATE TABLE ora"));
+    }
+
+    @Test
+    void testCreateDialectSqlChangesetThrowsWhenNoSupportedDialects() {
+        Set<DatabaseDialect> supported = Set.of(DatabaseDialect.MYSQL);
+        LiquibaseGenerator.ChangesetConfig config = new LiquibaseGenerator.ChangesetConfig(
+                "test", supported, false, true, null, "changes");
+        LiquibaseGenerator customGenerator = new LiquibaseGenerator(config);
+
+        Map<DatabaseDialect, String> sqlByDialect = new EnumMap<>(DatabaseDialect.class);
+        sqlByDialect.put(DatabaseDialect.POSTGRESQL, "CREATE TABLE pg (id INT);");
+
+        assertThrows(IllegalArgumentException.class, () ->
+            customGenerator.createDialectSqlChangeset("test_fail", sqlByDialect)
+        );
+    }
+
+    @Test
+    void testCreateDialectSqlChangesetWithRollbackFiltering() {
+        Set<DatabaseDialect> supported = Set.of(DatabaseDialect.POSTGRESQL);
+        LiquibaseGenerator.ChangesetConfig config = new LiquibaseGenerator.ChangesetConfig(
+                "test", supported, false, true, null, "changes");
+        LiquibaseGenerator customGenerator = new LiquibaseGenerator(config);
+
+        Map<DatabaseDialect, String> sqlByDialect = new EnumMap<>(DatabaseDialect.class);
+        sqlByDialect.put(DatabaseDialect.POSTGRESQL, "CREATE TABLE pg (id INT);");
+
+        Map<DatabaseDialect, String> rollbackByDialect = new EnumMap<>(DatabaseDialect.class);
+        rollbackByDialect.put(DatabaseDialect.POSTGRESQL, "DROP TABLE pg;");
+        rollbackByDialect.put(DatabaseDialect.ORACLE, "DROP TABLE ora;");
+
+        String changeset = customGenerator.createDialectSqlChangesetWithRollback("test_rb_filter", sqlByDialect, rollbackByDialect);
+
+        assertTrue(changeset.contains("<rollback>"));
+        assertTrue(changeset.contains("DROP TABLE pg;"));
+        assertFalse(changeset.contains("DROP TABLE ora;"));
     }
 }

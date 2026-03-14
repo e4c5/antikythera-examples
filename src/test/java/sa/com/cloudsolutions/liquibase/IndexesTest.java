@@ -13,6 +13,9 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import sa.com.cloudsolutions.liquibase.Indexes.FKConstraintInfo;
+import sa.com.cloudsolutions.liquibase.Indexes.LoadResult;
+
 /**
  * Test cases for the Indexes class, specifically testing the path resolution
  * fix
@@ -284,5 +287,188 @@ class IndexesTest {
 
         assertTrue(hasTypeIndex, "Should have idx_events_type");
         assertTrue(hasDateIndex, "Should have idx_events_date");
+    }
+
+    // -------------------------------------------------------------------------
+    // FK constraint tests
+    // -------------------------------------------------------------------------
+
+    private static File writeFkChangelog(Path dir, String xml) throws IOException {
+        File f = dir.resolve("changelog.xml").toFile();
+        try (FileWriter fw = new FileWriter(f)) { fw.write(xml); }
+        return f;
+    }
+
+    private static final String HEADER = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <databaseChangeLog
+                xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+            """;
+    private static final String FOOTER = "</databaseChangeLog>\n";
+
+    @Test
+    void testLoadAllReturnsBothMaps(@TempDir Path tempDir) throws IOException, LiquibaseException {
+        String xml = HEADER + """
+              <changeSet id="1" author="test">
+                <createTable tableName="customers">
+                  <column name="id" type="bigint"><constraints primaryKey="true"/></column>
+                  <column name="name" type="varchar(100)"/>
+                </createTable>
+              </changeSet>
+              <changeSet id="2" author="test">
+                <createTable tableName="orders">
+                  <column name="id" type="bigint"><constraints primaryKey="true"/></column>
+                  <column name="customer_id" type="bigint"/>
+                </createTable>
+              </changeSet>
+              <changeSet id="3" author="test">
+                <addForeignKeyConstraint
+                  constraintName="fk_orders_customer"
+                  baseTableName="orders" baseColumnNames="customer_id"
+                  referencedTableName="customers" referencedColumnNames="id"/>
+              </changeSet>
+            """ + FOOTER;
+
+        LoadResult result = Indexes.loadAll(writeFkChangelog(tempDir, xml));
+
+        // Index map still populated
+        assertTrue(result.indexMap().containsKey("customers"));
+        assertTrue(result.indexMap().containsKey("orders"));
+
+        // FK map populated
+        assertFalse(result.fkConstraintMap().isEmpty(), "FK map should not be empty");
+        assertTrue(result.fkConstraintMap().containsKey("orders"), "FK map should contain 'orders'");
+
+        Set<FKConstraintInfo> fks = result.fkConstraintMap().get("orders");
+        assertEquals(1, fks.size());
+        FKConstraintInfo fk = fks.iterator().next();
+        assertEquals("fk_orders_customer", fk.constraintName());
+        assertEquals("orders",    fk.baseTableName());
+        assertEquals("customer_id", fk.baseColumnName());
+        assertEquals("customers", fk.referencedTableName());
+        assertEquals("id",        fk.referencedColumnName());
+    }
+
+    @Test
+    void testLookupFKConstraintNameFound(@TempDir Path tempDir) throws IOException, LiquibaseException {
+        String xml = HEADER + """
+              <changeSet id="1" author="test">
+                <createTable tableName="departments">
+                  <column name="id" type="bigint"><constraints primaryKey="true"/></column>
+                </createTable>
+              </changeSet>
+              <changeSet id="2" author="test">
+                <createTable tableName="employees">
+                  <column name="id" type="bigint"><constraints primaryKey="true"/></column>
+                  <column name="dept_id" type="bigint"/>
+                </createTable>
+              </changeSet>
+              <changeSet id="3" author="test">
+                <addForeignKeyConstraint
+                  constraintName="fk_emp_dept"
+                  baseTableName="employees" baseColumnNames="dept_id"
+                  referencedTableName="departments" referencedColumnNames="id"/>
+              </changeSet>
+            """ + FOOTER;
+
+        LoadResult result = Indexes.loadAll(writeFkChangelog(tempDir, xml));
+        Map<String, Set<FKConstraintInfo>> fkMap = result.fkConstraintMap();
+
+        String name = Indexes.lookupFKConstraintName(fkMap, "employees", "dept_id", "departments");
+        assertEquals("fk_emp_dept", name);
+    }
+
+    @Test
+    void testLookupFKConstraintNameCaseInsensitive(@TempDir Path tempDir) throws IOException, LiquibaseException {
+        String xml = HEADER + """
+              <changeSet id="1" author="test">
+                <addForeignKeyConstraint
+                  constraintName="fk_inv_prod"
+                  baseTableName="invoice_lines" baseColumnNames="product_id"
+                  referencedTableName="products" referencedColumnNames="id"/>
+              </changeSet>
+            """ + FOOTER;
+
+        LoadResult result = Indexes.loadAll(writeFkChangelog(tempDir, xml));
+        Map<String, Set<FKConstraintInfo>> fkMap = result.fkConstraintMap();
+
+        // Uppercase lookup should still work
+        String name = Indexes.lookupFKConstraintName(fkMap, "INVOICE_LINES", "PRODUCT_ID", "PRODUCTS");
+        assertEquals("fk_inv_prod", name);
+    }
+
+    @Test
+    void testLookupFKConstraintNameNotFound(@TempDir Path tempDir) throws IOException, LiquibaseException {
+        String xml = HEADER + """
+              <changeSet id="1" author="test">
+                <addForeignKeyConstraint
+                  constraintName="fk_orders_customer"
+                  baseTableName="orders" baseColumnNames="customer_id"
+                  referencedTableName="customers" referencedColumnNames="id"/>
+              </changeSet>
+            """ + FOOTER;
+
+        LoadResult result = Indexes.loadAll(writeFkChangelog(tempDir, xml));
+        Map<String, Set<FKConstraintInfo>> fkMap = result.fkConstraintMap();
+
+        assertNull(Indexes.lookupFKConstraintName(fkMap, "orders", "customer_id", "wrong_table"));
+        assertNull(Indexes.lookupFKConstraintName(fkMap, "no_such_table", "customer_id", "customers"));
+        assertNull(Indexes.lookupFKConstraintName(fkMap, "orders", "no_such_col", "customers"));
+    }
+
+    @Test
+    void testLookupFKConstraintNameNullSafe() {
+        // Null map and blank inputs must not throw
+        assertNull(Indexes.lookupFKConstraintName(null, "t", "c", "r"));
+        assertNull(Indexes.lookupFKConstraintName(Map.of(), "t", "c", "r"));
+        assertNull(Indexes.lookupFKConstraintName(Map.of(), null, "c", "r"));
+        assertNull(Indexes.lookupFKConstraintName(Map.of(), "t", "", "r"));
+    }
+
+    @Test
+    void testMultipleFKsOnSameTable(@TempDir Path tempDir) throws IOException, LiquibaseException {
+        String xml = HEADER + """
+              <changeSet id="1" author="test">
+                <addForeignKeyConstraint
+                  constraintName="fk_order_customer"
+                  baseTableName="orders" baseColumnNames="customer_id"
+                  referencedTableName="customers" referencedColumnNames="id"/>
+              </changeSet>
+              <changeSet id="2" author="test">
+                <addForeignKeyConstraint
+                  constraintName="fk_order_product"
+                  baseTableName="orders" baseColumnNames="product_id"
+                  referencedTableName="products" referencedColumnNames="id"/>
+              </changeSet>
+            """ + FOOTER;
+
+        LoadResult result = Indexes.loadAll(writeFkChangelog(tempDir, xml));
+        Map<String, Set<FKConstraintInfo>> fkMap = result.fkConstraintMap();
+
+        assertEquals(1, fkMap.size(), "All FKs on 'orders' should be under one key");
+        assertEquals(2, fkMap.get("orders").size(), "orders has two FK constraints");
+
+        assertEquals("fk_order_customer",
+                Indexes.lookupFKConstraintName(fkMap, "orders", "customer_id", "customers"));
+        assertEquals("fk_order_product",
+                Indexes.lookupFKConstraintName(fkMap, "orders", "product_id", "products"));
+    }
+
+    @Test
+    void testLoadStillWorksAfterRefactor(@TempDir Path tempDir) throws IOException, LiquibaseException {
+        // Ensure the existing load() convenience method still delegates correctly
+        String xml = HEADER + """
+              <changeSet id="1" author="test">
+                <createTable tableName="widgets">
+                  <column name="id" type="bigint"><constraints primaryKey="true"/></column>
+                </createTable>
+              </changeSet>
+            """ + FOOTER;
+        File f = writeFkChangelog(tempDir, xml);
+        Map<String, Set<Indexes.IndexInfo>> indexMap = Indexes.load(f);
+        assertTrue(indexMap.containsKey("widgets"));
     }
 }

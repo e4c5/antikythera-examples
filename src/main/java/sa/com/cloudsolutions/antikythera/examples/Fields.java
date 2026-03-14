@@ -235,7 +235,7 @@ public class Fields {
      */
     static boolean isMockitoStubbingOrVerify(MethodCallExpr call) {
         String name = call.getNameAsString();
-        return "verify".equals(name) || "when".equals(name);
+        return "verify".equals(name) || "when".equals(name) || "given".equals(name);
     }
 
     /**

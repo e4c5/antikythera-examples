@@ -1,0 +1,34 @@
+# Schema Normalization — Task List
+
+This document is a **checklist** for implementing the schema normalization workflow.
+For full details (files, APIs, acceptance criteria), see
+`schema-normalization-implementation-plan.md`.
+
+---
+
+## Tasks
+
+| # | Task | Details in implementation plan |
+|---|------|--------------------------------|
+| 1 | Add `schema_normalization` config keys to `generator.yml` (ddl_mode, rename_old_table_to, liquibase_master_file, supported_dialects, base_path, mapping_output_dir). | [`schema-normalization-implementation-plan.md` — Phase 0: Configuration](schema-normalization-implementation-plan.md#phase-0-configuration) |
+| 2 | Create `DataMigrationPlanValidator` with ValidationResult, table consistency check, base-table check, DAG check, optional column-coverage warning. | [`schema-normalization-implementation-plan.md` — Phase 1: DataMigrationPlanValidator](schema-normalization-implementation-plan.md#phase-1-datamigrationplanvalidator) |
+| 3 | Add unit tests for `DataMigrationPlanValidator` (valid plan, invalid base, cycle). | [`schema-normalization-implementation-plan.md` — Phases 1 and 9](schema-normalization-implementation-plan.md#phase-9-tests-and-small-fixes) |
+| 4 | Create `NormalizedTableDDLGenerator`: input ViewDescriptor + EntityProfile + ddlMode; output List of CREATE TABLE (raw SQL or Liquibase changeSet XML) in topological order; include type mapping (Java → SQL/Liquibase). | [`schema-normalization-implementation-plan.md` — Phase 2: NormalizedTableDDLGenerator](schema-normalization-implementation-plan.md#phase-2-normalizedtableddlgenerator) |
+| 5 | Add unit test for `NormalizedTableDDLGenerator` (two-table view, correct order and types). | [`schema-normalization-implementation-plan.md` — Phase 9](schema-normalization-implementation-plan.md#phase-9-tests-and-small-fixes) |
+| 6 | Implement discovery of FKs that reference the old table (scan all EntityProfiles for relationships whose target table = sourceTable); produce list of (referencingTable, constraintName). | [`schema-normalization-implementation-plan.md` — Phase 3: Discover FKs and generate drop/rename changesets](schema-normalization-implementation-plan.md#phase-3-discover-fks-referencing-old-table-and-generate-droprename-changesets) |
+| 7 | Generate Liquibase changesets: one per drop FK (dropForeignKeyConstraint or raw ALTER … DROP CONSTRAINT), then one rename-table changeset (rename_old_table_to, substitute {sourceTable} if present). | [`schema-normalization-implementation-plan.md` — Phase 3](schema-normalization-implementation-plan.md#phase-3-discover-fks-referencing-old-table-and-generate-droprename-changesets) |
+| 8 | Fix `buildCompatibilityViewSql` in `SchemaNormalizationAnalyzer`: build JOINs in topological order (TopologicalSorter.sort), not FK list order; FROM baseTable, then for each other table in order add JOIN using FK to parent. | [`schema-normalization-implementation-plan.md` — Phase 4: Fix compatibility view JOIN order](schema-normalization-implementation-plan.md#phase-4-fix-compatibility-view-join-order) |
+| 9 | In `generateMigrationArtifacts()`, use `ChangesetConfig.fromConfiguration("schema_normalization")` for LiquibaseGenerator; fallback to query_optimizer for liquibase_master_file if unset. | [`schema-normalization-implementation-plan.md` — Phase 5: Reorder migration pipeline](schema-normalization-implementation-plan.md#phase-5-reorder-migration-pipeline-and-integrate-ddl-drop-fks-rename) |
+| 10 | For each plan, call `DataMigrationPlanValidator.validate`; if invalid, log and skip. | [`schema-normalization-implementation-plan.md` — Phase 5](schema-normalization-implementation-plan.md#phase-5-reorder-migration-pipeline-and-integrate-ddl-drop-fks-rename) |
+| 11 | Implement `buildChangesetsForPlan(...)` that returns changesets in order: (1) CREATE TABLE from NormalizedTableDDLGenerator, (2) data migration from DataMigrationGenerator, (3) drop FKs, (4) rename old table, (5) create view, (6) triggers. | [`schema-normalization-implementation-plan.md` — Phase 5](schema-normalization-implementation-plan.md#phase-5-reorder-migration-pipeline-and-integrate-ddl-drop-fks-rename) |
+| 12 | Replace the current per-plan loop in `generateMigrationArtifacts()` with building the full changeset list via `buildChangesetsForPlan` and appending to the composite. | [`schema-normalization-implementation-plan.md` — Phase 5](schema-normalization-implementation-plan.md#phase-5-reorder-migration-pipeline-and-integrate-ddl-drop-fks-rename) |
+| 13 | After generating changesets for a plan, write mapping artifact JSON to `<base_path>/<mapping_output_dir>/normalization-mapping-<sourceTable>.json` with sourceTable, sourceEntity, viewName, newTables, newEntities, columnMappings, foreignKeys. | [`schema-normalization-implementation-plan.md` — Phase 6: Old–new mapping artifact](schema-normalization-implementation-plan.md#phase-6-oldnew-mapping-artifact) |
+| 14 | In `InsteadOfTriggerGenerator`, add rollback DDL for each trigger: PostgreSQL DROP TRIGGER + DROP FUNCTION; Oracle DROP TRIGGER. Expose via new method or return type that includes rollback per dialect. | [`schema-normalization-implementation-plan.md` — Phase 7: Trigger rollback DDL](schema-normalization-implementation-plan.md#phase-7-trigger-rollback-ddl) |
+| 15 | When building trigger changesets in the analyzer, include the generated rollback in the changeSet (so Liquibase can roll back). | [`schema-normalization-implementation-plan.md` — Phase 7](schema-normalization-implementation-plan.md#phase-7-trigger-rollback-ddl) |
+| 16 | If needed, add `LiquibaseGenerator.createDialectSqlChangesetWithRollback(id, sqlByDialect, rollbackByDialect)` and use it for trigger changeSets. | [`schema-normalization-implementation-plan.md` — Phase 8: LiquibaseGenerator support for trigger rollback](schema-normalization-implementation-plan.md#phase-8-liquibasegenerator-support-for-trigger-rollback-if-needed) |
+| 17 | Add DataMigrationGeneratorTest for three-level dependency order (customer → address → phone). | [`schema-normalization-implementation-plan.md` — Phase 9](schema-normalization-implementation-plan.md#phase-9-tests-and-small-fixes) |
+| 18 | Add InsteadOfTriggerGeneratorTest assertions: INSERT order, UPDATE WHERE, DELETE reverse order; optionally rollback DDL. | [`schema-normalization-implementation-plan.md` — Phase 9](schema-normalization-implementation-plan.md#phase-9-tests-and-small-fixes) |
+| 19 | Fix duplicate section number and stray character in `schema-normalization-improvement-plan.md` if still present. | [`schema-normalization-implementation-plan.md` — Phase 9](schema-normalization-implementation-plan.md#phase-9-tests-and-small-fixes) |
+
+**Execution order:** Complete tasks in numerical order; tasks 6–7 depend on 1; 9–12 depend on 1, 2, 4, 6–7, 8; 13 depends on 12; 14–16 depend on each other as in Phases 7–8.
+
