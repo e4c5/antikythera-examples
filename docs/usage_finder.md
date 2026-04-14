@@ -12,6 +12,26 @@ UsageFinder is a static analysis tool that scans Java codebases to identify coll
 - **Fully Qualified Output**: Reports class name, collection type, and field name
 - **Simple Output Format**: Easy to parse and analyze
 
+## Programmatic API
+
+`UsageFinder` also exposes reusable helper methods so the analysis can be validated in tests or compared against other tools without parsing console output:
+
+- `findCollectionFields()` scans the parsed project loaded by Antikythera and returns a `List<CollectionFieldUsage>`.
+- `findCollectionFields(Collection<CompilationUnit>)` runs the same scan over an explicit set of JavaParser compilation units.
+- `countCollectionFields(Collection<CompilationUnit>)` returns the total number of matching collection fields.
+
+Each `CollectionFieldUsage` contains:
+
+- `classFqn`: the fully qualified class name
+- `fieldType`: the collection type string as parsed from source
+- `fieldName`: the field name
+
+### Validation metric
+
+When comparing `UsageFinder` output to an IDE or another data source, the metric is **collection-field count**: the number of field declarations that match the scan rules in the supplied compilation units.
+
+That count is deterministic for a given source set and is well-suited for regression tests because it accepts `Collection<CompilationUnit>` directly.
+
 ## Usage
 
 ### Basic Usage

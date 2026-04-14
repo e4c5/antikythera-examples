@@ -1,7 +1,11 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
+import com.github.javaparser.StaticJavaParser;
+import com.github.javaparser.ast.CompilationUnit;
 import org.junit.jupiter.api.Test;
+
 import java.io.IOException;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -14,11 +18,8 @@ class UsageFinderCoverageTest {
 
     @Test
     void testUsageFinderClassExists() {
-        // Verify the class exists and can be instantiated
-        assertDoesNotThrow(() -> {
-            UsageFinder finder = new UsageFinder();
-            assertNotNull(finder);
-        });
+        // Verify the class exists
+        assertNotNull(UsageFinder.class);
     }
 
     @Test
@@ -40,7 +41,7 @@ class UsageFinderCoverageTest {
         
         assertTrue(java.lang.reflect.Modifier.isPublic(clazz.getModifiers()));
         assertFalse(java.lang.reflect.Modifier.isAbstract(clazz.getModifiers()));
-        assertFalse(java.lang.reflect.Modifier.isFinal(clazz.getModifiers()));
+        assertTrue(java.lang.reflect.Modifier.isFinal(clazz.getModifiers()));
         assertFalse(java.lang.reflect.Modifier.isInterface(clazz.getModifiers()));
     }
 
@@ -54,12 +55,12 @@ class UsageFinderCoverageTest {
     }
 
     @Test
-    void testConstructorExists() throws NoSuchMethodException {
-        // Verify default constructor exists
-        var constructor = UsageFinder.class.getConstructor();
-        
+    void testConstructorIsPrivate() throws NoSuchMethodException {
+        // Verify this is a utility class with a private constructor
+        var constructor = UsageFinder.class.getDeclaredConstructor();
+
         assertNotNull(constructor);
-        assertTrue(java.lang.reflect.Modifier.isPublic(constructor.getModifiers()));
+        assertTrue(java.lang.reflect.Modifier.isPrivate(constructor.getModifiers()));
         assertEquals(0, constructor.getParameterCount());
     }
 
@@ -78,5 +79,64 @@ class UsageFinderCoverageTest {
 
         assertTrue(throwsIOException, "Main method should declare IOException");
 
+    }
+
+    @Test
+    void testFindCollectionFieldsReturnsDeterministicMatches() {
+        CompilationUnit normalClass = StaticJavaParser.parse("""
+                package demo;
+
+                import java.util.List;
+                import java.util.Map;
+                import java.util.Set;
+
+                public class SampleUsage {
+                    private List<String> names;
+                    private Set<Integer> ids;
+                    private Map<String, Long> lookup;
+                    private String ignored;
+                }
+                """);
+
+        CompilationUnit entityClass = StaticJavaParser.parse("""
+                package demo.entity;
+
+                import jakarta.persistence.Entity;
+                import java.util.List;
+
+                @Entity
+                public class EntityUsage {
+                    private List<String> skipped;
+                }
+                """);
+
+        CompilationUnit dtoClass = StaticJavaParser.parse("""
+                package demo.dto;
+
+                import java.util.List;
+
+                public class SampleDto {
+                    private List<String> skipped;
+                }
+                """);
+
+        List<UsageFinder.CollectionFieldUsage> matches = UsageFinder.findCollectionFields(
+                List.of(normalClass, entityClass, dtoClass));
+
+        assertEquals(3, matches.size());
+        assertEquals(3, UsageFinder.countCollectionFields(List.of(normalClass, entityClass, dtoClass)));
+
+        assertTrue(matches.stream().anyMatch(match ->
+                match.classFqn().equals("demo.SampleUsage")
+                        && match.fieldName().equals("names")
+                        && match.fieldType().contains("List")));
+        assertTrue(matches.stream().anyMatch(match ->
+                match.classFqn().equals("demo.SampleUsage")
+                        && match.fieldName().equals("ids")
+                        && match.fieldType().contains("Set")));
+        assertTrue(matches.stream().anyMatch(match ->
+                match.classFqn().equals("demo.SampleUsage")
+                        && match.fieldName().equals("lookup")
+                        && match.fieldType().contains("Map")));
     }
 }
