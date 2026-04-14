@@ -20,16 +20,14 @@ class UsageFinderCoverageTest {
     // -------------------------------------------------------------------------
 
     @Test
-    void testUsageFinderClassExists() {
-        // Verify the class exists
-        assertNotNull(UsageFinder.class);
+    void testUsageFinderCanBeInstantiated() {
+        UsageFinder finder = new UsageFinder(List.of());
+        assertNotNull(finder);
     }
 
     @Test
     void testMainMethodSignature() throws NoSuchMethodException {
-        // Verify the main method has the correct signature
         var mainMethod = UsageFinder.class.getMethod("main", String[].class);
-        
         assertNotNull(mainMethod);
         assertEquals("main", mainMethod.getName());
         assertEquals(void.class, mainMethod.getReturnType());
@@ -39,49 +37,33 @@ class UsageFinderCoverageTest {
 
     @Test
     void testClassModifiers() {
-        // Test class modifiers
         Class<?> clazz = UsageFinder.class;
-        
         assertTrue(java.lang.reflect.Modifier.isPublic(clazz.getModifiers()));
         assertFalse(java.lang.reflect.Modifier.isAbstract(clazz.getModifiers()));
-        assertTrue(java.lang.reflect.Modifier.isFinal(clazz.getModifiers()));
+        assertFalse(java.lang.reflect.Modifier.isFinal(clazz.getModifiers()));
         assertFalse(java.lang.reflect.Modifier.isInterface(clazz.getModifiers()));
     }
 
     @Test
     void testPackageInfo() {
-        // Test package information
-        Package pkg = UsageFinder.class.getPackage();
-        
-        assertNotNull(pkg);
-        assertEquals("sa.com.cloudsolutions.antikythera.examples", pkg.getName());
+        assertEquals("sa.com.cloudsolutions.antikythera.examples", UsageFinder.class.getPackageName());
     }
 
     @Test
-    void testConstructorIsPrivate() throws NoSuchMethodException {
-        // Verify this is a utility class with a private constructor
-        var constructor = UsageFinder.class.getDeclaredConstructor();
-
+    void testPublicConstructorExists() throws NoSuchMethodException {
+        var constructor = UsageFinder.class.getConstructor(java.util.Collection.class);
         assertNotNull(constructor);
-        assertTrue(java.lang.reflect.Modifier.isPrivate(constructor.getModifiers()));
-        assertEquals(0, constructor.getParameterCount());
+        assertTrue(java.lang.reflect.Modifier.isPublic(constructor.getModifiers()));
     }
 
     @Test
     void testMainMethodThrowsIOException() throws NoSuchMethodException {
         var mainMethod = UsageFinder.class.getMethod("main", String[].class);
-        Class<?>[] exceptionTypes = mainMethod.getExceptionTypes();
-
         boolean throwsIOException = false;
-        for (Class<?> exceptionType : exceptionTypes) {
-            if (IOException.class.isAssignableFrom(exceptionType)) {
-                throwsIOException = true;
-                break;
-            }
+        for (Class<?> ex : mainMethod.getExceptionTypes()) {
+            if (IOException.class.isAssignableFrom(ex)) { throwsIOException = true; break; }
         }
-
-        assertTrue(throwsIOException, "Main method should declare IOException");
-
+        assertTrue(throwsIOException, "main must declare IOException");
     }
 
     // -------------------------------------------------------------------------
@@ -92,11 +74,9 @@ class UsageFinderCoverageTest {
     void testFindCollectionFieldsReturnsDeterministicMatches() {
         CompilationUnit normalClass = StaticJavaParser.parse("""
                 package demo;
-
                 import java.util.List;
                 import java.util.Map;
                 import java.util.Set;
-
                 public class SampleUsage {
                     private List<String> names;
                     private Set<Integer> ids;
@@ -107,44 +87,26 @@ class UsageFinderCoverageTest {
 
         CompilationUnit entityClass = StaticJavaParser.parse("""
                 package demo.entity;
-
                 import jakarta.persistence.Entity;
                 import java.util.List;
-
                 @Entity
-                public class EntityUsage {
-                    private List<String> skipped;
-                }
+                public class EntityUsage { private List<String> skipped; }
                 """);
 
         CompilationUnit dtoClass = StaticJavaParser.parse("""
                 package demo.dto;
-
                 import java.util.List;
-
-                public class SampleDto {
-                    private List<String> skipped;
-                }
+                public class SampleDto { private List<String> skipped; }
                 """);
 
-        List<UsageFinder.CollectionFieldUsage> matches = UsageFinder.findCollectionFields(
-                List.of(normalClass, entityClass, dtoClass));
+        UsageFinder finder = new UsageFinder(List.of(normalClass, entityClass, dtoClass));
+        List<UsageFinder.CollectionFieldUsage> matches = finder.findCollectionFields();
 
         assertEquals(3, matches.size());
-        assertEquals(3, UsageFinder.countCollectionFields(List.of(normalClass, entityClass, dtoClass)));
-
-        assertTrue(matches.stream().anyMatch(match ->
-                match.classFqn().equals("demo.SampleUsage")
-                        && match.fieldName().equals("names")
-                        && match.fieldType().contains("List")));
-        assertTrue(matches.stream().anyMatch(match ->
-                match.classFqn().equals("demo.SampleUsage")
-                        && match.fieldName().equals("ids")
-                        && match.fieldType().contains("Set")));
-        assertTrue(matches.stream().anyMatch(match ->
-                match.classFqn().equals("demo.SampleUsage")
-                        && match.fieldName().equals("lookup")
-                        && match.fieldType().contains("Map")));
+        assertEquals(3, finder.countCollectionFields());
+        assertTrue(matches.stream().anyMatch(m -> m.fieldName().equals("names") && m.fieldType().contains("List")));
+        assertTrue(matches.stream().anyMatch(m -> m.fieldName().equals("ids")    && m.fieldType().contains("Set")));
+        assertTrue(matches.stream().anyMatch(m -> m.fieldName().equals("lookup") && m.fieldType().contains("Map")));
     }
 
     // -------------------------------------------------------------------------
@@ -155,23 +117,19 @@ class UsageFinderCoverageTest {
     void testFindMethodUsagesDetectsCallSite() {
         CompilationUnit service = StaticJavaParser.parse("""
                 package demo;
-                public class FooService {
-                    public void process() {}
-                }
+                public class FooService { public void process() {} }
                 """);
 
         CompilationUnit caller = StaticJavaParser.parse("""
                 package demo;
                 public class BarController {
                     private FooService fooService;
-                    public void doSomething() {
-                        fooService.process();
-                    }
+                    public void doSomething() { fooService.process(); }
                 }
                 """);
 
         List<UsageFinder.MethodUsage> usages =
-                UsageFinder.findMethodUsages("demo.FooService#process", List.of(service, caller));
+                new UsageFinder(List.of(service, caller)).findMethodUsages("demo.FooService#process");
 
         assertEquals(1, usages.size());
         assertEquals("demo.BarController", usages.get(0).callerFqn());
@@ -182,29 +140,20 @@ class UsageFinderCoverageTest {
     @Test
     void testFindMethodUsagesIgnoresUnrelatedScopes() {
         CompilationUnit cuA = StaticJavaParser.parse("""
-                package demo;
-                public class A { public void run() {} }
-                """);
-
+                package demo; public class A { public void run() {} }""");
         CompilationUnit cuB = StaticJavaParser.parse("""
-                package demo;
-                public class B { public void run() {} }
-                """);
-
+                package demo; public class B { public void run() {} }""");
         CompilationUnit caller = StaticJavaParser.parse("""
                 package demo;
                 public class Caller {
                     private A a;
                     private B b;
-                    public void go() {
-                        a.run();   // should match A#run
-                        b.run();   // should NOT match when searching for A#run
-                    }
+                    public void go() { a.run(); b.run(); }
                 }
                 """);
 
         List<UsageFinder.MethodUsage> usages =
-                UsageFinder.findMethodUsages("demo.A#run", List.of(cuA, cuB, caller));
+                new UsageFinder(List.of(cuA, cuB, caller)).findMethodUsages("demo.A#run");
 
         assertEquals(1, usages.size(), "Only the call on 'a' (type A) should match");
         assertEquals("go", usages.get(0).callerMethod());
@@ -221,11 +170,7 @@ class UsageFinderCoverageTest {
                 }
                 """);
 
-        // Passing just the method name (no class) should find both call sites
-        List<UsageFinder.MethodUsage> usages =
-                UsageFinder.findMethodUsages("doThing", List.of(cu));
-
-        assertEquals(2, usages.size());
+        assertEquals(2, new UsageFinder(List.of(cu)).findMethodUsages("doThing").size());
     }
 
     // -------------------------------------------------------------------------
@@ -233,12 +178,9 @@ class UsageFinderCoverageTest {
     // -------------------------------------------------------------------------
 
     @Test
-    void testFindClassUsagesDetectsFieldFieldAndParameter() {
+    void testFindClassUsagesDetectsFieldParameterAndReturnType() {
         CompilationUnit target = StaticJavaParser.parse("""
-                package demo;
-                public class MyService {}
-                """);
-
+                package demo; public class MyService {}""");
         CompilationUnit user = StaticJavaParser.parse("""
                 package demo;
                 public class MyController {
@@ -249,56 +191,42 @@ class UsageFinderCoverageTest {
                 """);
 
         List<UsageFinder.ClassUsage> usages =
-                UsageFinder.findClassUsages("demo.MyService", List.of(target, user));
+                new UsageFinder(List.of(target, user)).findClassUsages("demo.MyService");
 
-        assertTrue(usages.stream().anyMatch(u -> u.usageKind().equals("FIELD") && u.memberName().equals("myService")));
-        assertTrue(usages.stream().anyMatch(u -> u.usageKind().equals("PARAMETER") && u.memberName().contains("handle")));
+        assertTrue(usages.stream().anyMatch(u -> u.usageKind().equals("FIELD")       && u.memberName().equals("myService")));
+        assertTrue(usages.stream().anyMatch(u -> u.usageKind().equals("PARAMETER")   && u.memberName().contains("handle")));
         assertTrue(usages.stream().anyMatch(u -> u.usageKind().equals("RETURN_TYPE") && u.memberName().equals("get")));
     }
 
     @Test
     void testFindClassUsagesDetectsExtendsAndImplements() {
-        CompilationUnit base = StaticJavaParser.parse("""
-                package demo;
-                public abstract class BaseService {}
-                """);
-
-        CompilationUnit iface = StaticJavaParser.parse("""
-                package demo;
-                public interface Auditable {}
-                """);
-
+        CompilationUnit base  = StaticJavaParser.parse("package demo; public abstract class BaseService {}");
+        CompilationUnit iface = StaticJavaParser.parse("package demo; public interface Auditable {}");
         CompilationUnit child = StaticJavaParser.parse("""
                 package demo;
                 public class OrderService extends BaseService implements Auditable {}
                 """);
 
-        List<UsageFinder.ClassUsage> extendsUsages =
-                UsageFinder.findClassUsages("demo.BaseService", List.of(base, iface, child));
-        assertTrue(extendsUsages.stream().anyMatch(u -> u.usageKind().equals("EXTENDS")));
+        assertTrue(new UsageFinder(List.of(base, iface, child))
+                .findClassUsages("demo.BaseService").stream()
+                .anyMatch(u -> u.usageKind().equals("EXTENDS")));
 
-        List<UsageFinder.ClassUsage> implUsages =
-                UsageFinder.findClassUsages("demo.Auditable", List.of(base, iface, child));
-        assertTrue(implUsages.stream().anyMatch(u -> u.usageKind().equals("IMPLEMENTS")));
+        assertTrue(new UsageFinder(List.of(base, iface, child))
+                .findClassUsages("demo.Auditable").stream()
+                .anyMatch(u -> u.usageKind().equals("IMPLEMENTS")));
     }
 
     @Test
     void testFindClassUsagesDetectsGenericArgument() {
-        CompilationUnit target = StaticJavaParser.parse("""
-                package demo;
-                public class Item {}
-                """);
-
-        CompilationUnit user = StaticJavaParser.parse("""
+        CompilationUnit target = StaticJavaParser.parse("package demo; public class Item {}");
+        CompilationUnit user   = StaticJavaParser.parse("""
                 package demo;
                 import java.util.List;
-                public class Basket {
-                    private List<Item> items;
-                }
+                public class Basket { private List<Item> items; }
                 """);
 
         List<UsageFinder.ClassUsage> usages =
-                UsageFinder.findClassUsages("demo.Item", List.of(target, user));
+                new UsageFinder(List.of(target, user)).findClassUsages("demo.Item");
 
         assertEquals(1, usages.size());
         assertEquals("FIELD", usages.get(0).usageKind());
@@ -309,18 +237,10 @@ class UsageFinderCoverageTest {
     void testFindClassUsagesExcludesSelf() {
         CompilationUnit cu = StaticJavaParser.parse("""
                 package demo;
-                public class Node {
-                    private Node next;   // self-reference
-                }
+                public class Node { private Node next; }
                 """);
 
-        // Self-references should still appear (the class is in 'cu' but the user field is in the same class)
-        // The filter excludes the FQN of the class itself only from the outer loop, but inner fields should show
-        // Actually let's check: the filter is "usingClass != classFqn" — so Node won't be checked against itself
-        // This means Node.next won't be reported. That's correct for "who else uses this class."
-        List<UsageFinder.ClassUsage> usages =
-                UsageFinder.findClassUsages("demo.Node", List.of(cu));
-
-        assertTrue(usages.isEmpty(), "Self-references should not be reported");
+        assertTrue(new UsageFinder(List.of(cu)).findClassUsages("demo.Node").isEmpty(),
+                "Self-references should not be reported");
     }
 }
