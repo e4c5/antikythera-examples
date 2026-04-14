@@ -10,11 +10,14 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Comprehensive test coverage for UsageFinder
- * Note: These tests focus on the class structure and basic functionality
- * without requiring the full Antikythera runtime environment.
+ * Behaviour-level tests for UsageFinder using in-memory JavaParser fixtures.
+ * No Antikythera runtime is required.
  */
 class UsageFinderCoverageTest {
+
+    // -------------------------------------------------------------------------
+    // Class shape tests
+    // -------------------------------------------------------------------------
 
     @Test
     void testUsageFinderClassExists() {
@@ -81,6 +84,10 @@ class UsageFinderCoverageTest {
 
     }
 
+    // -------------------------------------------------------------------------
+    // Collection field tests
+    // -------------------------------------------------------------------------
+
     @Test
     void testFindCollectionFieldsReturnsDeterministicMatches() {
         CompilationUnit normalClass = StaticJavaParser.parse("""
@@ -138,5 +145,182 @@ class UsageFinderCoverageTest {
                 match.classFqn().equals("demo.SampleUsage")
                         && match.fieldName().equals("lookup")
                         && match.fieldType().contains("Map")));
+    }
+
+    // -------------------------------------------------------------------------
+    // Method usage tests
+    // -------------------------------------------------------------------------
+
+    @Test
+    void testFindMethodUsagesDetectsCallSite() {
+        CompilationUnit service = StaticJavaParser.parse("""
+                package demo;
+                public class FooService {
+                    public void process() {}
+                }
+                """);
+
+        CompilationUnit caller = StaticJavaParser.parse("""
+                package demo;
+                public class BarController {
+                    private FooService fooService;
+                    public void doSomething() {
+                        fooService.process();
+                    }
+                }
+                """);
+
+        List<UsageFinder.MethodUsage> usages =
+                UsageFinder.findMethodUsages("demo.FooService#process", List.of(service, caller));
+
+        assertEquals(1, usages.size());
+        assertEquals("demo.BarController", usages.get(0).callerFqn());
+        assertEquals("doSomething", usages.get(0).callerMethod());
+        assertTrue(usages.get(0).lineNumber() > 0);
+    }
+
+    @Test
+    void testFindMethodUsagesIgnoresUnrelatedScopes() {
+        CompilationUnit cuA = StaticJavaParser.parse("""
+                package demo;
+                public class A { public void run() {} }
+                """);
+
+        CompilationUnit cuB = StaticJavaParser.parse("""
+                package demo;
+                public class B { public void run() {} }
+                """);
+
+        CompilationUnit caller = StaticJavaParser.parse("""
+                package demo;
+                public class Caller {
+                    private A a;
+                    private B b;
+                    public void go() {
+                        a.run();   // should match A#run
+                        b.run();   // should NOT match when searching for A#run
+                    }
+                }
+                """);
+
+        List<UsageFinder.MethodUsage> usages =
+                UsageFinder.findMethodUsages("demo.A#run", List.of(cuA, cuB, caller));
+
+        assertEquals(1, usages.size(), "Only the call on 'a' (type A) should match");
+        assertEquals("go", usages.get(0).callerMethod());
+    }
+
+    @Test
+    void testFindMethodUsagesWithNoClassFilter() {
+        CompilationUnit cu = StaticJavaParser.parse("""
+                package demo;
+                public class Util {
+                    public void doThing() {}
+                    public void caller1() { doThing(); }
+                    public void caller2() { doThing(); }
+                }
+                """);
+
+        // Passing just the method name (no class) should find both call sites
+        List<UsageFinder.MethodUsage> usages =
+                UsageFinder.findMethodUsages("doThing", List.of(cu));
+
+        assertEquals(2, usages.size());
+    }
+
+    // -------------------------------------------------------------------------
+    // Class usage tests
+    // -------------------------------------------------------------------------
+
+    @Test
+    void testFindClassUsagesDetectsFieldFieldAndParameter() {
+        CompilationUnit target = StaticJavaParser.parse("""
+                package demo;
+                public class MyService {}
+                """);
+
+        CompilationUnit user = StaticJavaParser.parse("""
+                package demo;
+                public class MyController {
+                    private MyService myService;
+                    public void handle(MyService svc) {}
+                    public MyService get() { return null; }
+                }
+                """);
+
+        List<UsageFinder.ClassUsage> usages =
+                UsageFinder.findClassUsages("demo.MyService", List.of(target, user));
+
+        assertTrue(usages.stream().anyMatch(u -> u.usageKind().equals("FIELD") && u.memberName().equals("myService")));
+        assertTrue(usages.stream().anyMatch(u -> u.usageKind().equals("PARAMETER") && u.memberName().contains("handle")));
+        assertTrue(usages.stream().anyMatch(u -> u.usageKind().equals("RETURN_TYPE") && u.memberName().equals("get")));
+    }
+
+    @Test
+    void testFindClassUsagesDetectsExtendsAndImplements() {
+        CompilationUnit base = StaticJavaParser.parse("""
+                package demo;
+                public abstract class BaseService {}
+                """);
+
+        CompilationUnit iface = StaticJavaParser.parse("""
+                package demo;
+                public interface Auditable {}
+                """);
+
+        CompilationUnit child = StaticJavaParser.parse("""
+                package demo;
+                public class OrderService extends BaseService implements Auditable {}
+                """);
+
+        List<UsageFinder.ClassUsage> extendsUsages =
+                UsageFinder.findClassUsages("demo.BaseService", List.of(base, iface, child));
+        assertTrue(extendsUsages.stream().anyMatch(u -> u.usageKind().equals("EXTENDS")));
+
+        List<UsageFinder.ClassUsage> implUsages =
+                UsageFinder.findClassUsages("demo.Auditable", List.of(base, iface, child));
+        assertTrue(implUsages.stream().anyMatch(u -> u.usageKind().equals("IMPLEMENTS")));
+    }
+
+    @Test
+    void testFindClassUsagesDetectsGenericArgument() {
+        CompilationUnit target = StaticJavaParser.parse("""
+                package demo;
+                public class Item {}
+                """);
+
+        CompilationUnit user = StaticJavaParser.parse("""
+                package demo;
+                import java.util.List;
+                public class Basket {
+                    private List<Item> items;
+                }
+                """);
+
+        List<UsageFinder.ClassUsage> usages =
+                UsageFinder.findClassUsages("demo.Item", List.of(target, user));
+
+        assertEquals(1, usages.size());
+        assertEquals("FIELD", usages.get(0).usageKind());
+        assertEquals("items", usages.get(0).memberName());
+    }
+
+    @Test
+    void testFindClassUsagesExcludesSelf() {
+        CompilationUnit cu = StaticJavaParser.parse("""
+                package demo;
+                public class Node {
+                    private Node next;   // self-reference
+                }
+                """);
+
+        // Self-references should still appear (the class is in 'cu' but the user field is in the same class)
+        // The filter excludes the FQN of the class itself only from the outer loop, but inner fields should show
+        // Actually let's check: the filter is "usingClass != classFqn" — so Node won't be checked against itself
+        // This means Node.next won't be reported. That's correct for "who else uses this class."
+        List<UsageFinder.ClassUsage> usages =
+                UsageFinder.findClassUsages("demo.Node", List.of(cu));
+
+        assertTrue(usages.isEmpty(), "Self-references should not be reported");
     }
 }

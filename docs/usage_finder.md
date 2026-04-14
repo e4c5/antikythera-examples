@@ -12,52 +12,112 @@ UsageFinder is a static analysis tool that scans Java codebases to identify coll
 - **Fully Qualified Output**: Reports class name, collection type, and field name
 - **Simple Output Format**: Easy to parse and analyze
 
+## Modes
+
+`UsageFinder` operates in three modes depending on the command-line argument:
+
+| Invocation | Mode |
+|---|---|
+| No arguments | Collection-field scan (default) |
+| `com.example.Foo` | Class usage scan |
+| `com.example.Foo#doSomething` | Method usage scan |
+
+```bash
+# Collection fields (default)
+mvn exec:java -Dexec.mainClass="sa.com.cloudsolutions.antikythera.examples.UsageFinder"
+
+# All usages of a class
+mvn exec:java -Dexec.mainClass="sa.com.cloudsolutions.antikythera.examples.UsageFinder" \
+  -Dexec.args="com.example.MyService"
+
+# All callers of a method
+mvn exec:java -Dexec.mainClass="sa.com.cloudsolutions.antikythera.examples.UsageFinder" \
+  -Dexec.args="com.example.MyService#processOrder"
+```
+
 ## Programmatic API
 
-`UsageFinder` also exposes reusable helper methods so the analysis can be validated in tests or compared against other tools without parsing console output:
+Every mode is also accessible as a static helper so the analysis can be called from tests or other tools without parsing console output.
 
-- `findCollectionFields()` scans the parsed project loaded by Antikythera and returns a `List<CollectionFieldUsage>`.
-- `findCollectionFields(Collection<CompilationUnit>)` runs the same scan over an explicit set of JavaParser compilation units.
-- `countCollectionFields(Collection<CompilationUnit>)` returns the total number of matching collection fields.
+### Collection fields
 
-Each `CollectionFieldUsage` contains:
+```java
+// Scan the full parsed project
+List<CollectionFieldUsage> hits = UsageFinder.findCollectionFields();
 
-- `classFqn`: the fully qualified class name
-- `fieldType`: the collection type string as parsed from source
-- `fieldName`: the field name
+// Scan an explicit set of CUs (useful in tests)
+List<CollectionFieldUsage> hits = UsageFinder.findCollectionFields(compilationUnits);
+
+int count = UsageFinder.countCollectionFields(compilationUnits);
+```
+
+Each `CollectionFieldUsage` record contains:
+
+| Field | Description |
+|---|---|
+| `classFqn` | Fully-qualified class name |
+| `fieldType` | Collection type string as written in source |
+| `fieldName` | Field name |
+
+### Method usages
+
+Finds every method in the project that calls the given target method.
+
+```java
+// Full project scan
+List<MethodUsage> callers = UsageFinder.findMethodUsages("com.example.Foo#doSomething");
+
+// Targeted scan over specific CUs (useful in tests)
+List<MethodUsage> callers = UsageFinder.findMethodUsages("com.example.Foo#doSomething", compilationUnits);
+```
+
+Each `MethodUsage` record contains:
+
+| Field | Description |
+|---|---|
+| `callerFqn` | Fully-qualified name of the calling class |
+| `callerMethod` | Name of the method that contains the call |
+| `lineNumber` | 1-based line number of the call site, or -1 if unknown |
+
+**Scope resolution**: when a declaring class is given (`Foo#doSomething`), only call sites where the receiver's declared type matches `Foo` are returned.  Calls without an explicit scope (same-class or unqualified calls) are always included.  Method references (`Foo::doSomething`) are included and tagged with a `[ref]` suffix on the caller method name.
+
+### Class usages
+
+Finds every reference to the target class across the project: fields, method parameters, return types, constructor parameters, `extends`, and `implements`.
+
+```java
+// Full project scan
+List<ClassUsage> refs = UsageFinder.findClassUsages("com.example.MyService");
+
+// Targeted scan over specific CUs (useful in tests)
+List<ClassUsage> refs = UsageFinder.findClassUsages("com.example.MyService", compilationUnits);
+```
+
+Each `ClassUsage` record contains:
+
+| Field | Description |
+|---|---|
+| `usingClassFqn` | Fully-qualified name of the class that contains the reference |
+| `usageKind` | One of `FIELD`, `PARAMETER`, `RETURN_TYPE`, `EXTENDS`, `IMPLEMENTS` |
+| `memberName` | Field name, method name, or class name depending on `usageKind` |
+| `typeName` | The type string exactly as written in source |
+| `lineNumber` | 1-based line number, or -1 if unknown |
+
+Generic arguments are matched too: a `List<MyService>` field is reported as a `FIELD` usage of `MyService`.
 
 ### Validation metric
 
-When comparing `UsageFinder` output to an IDE or another data source, the metric is **collection-field count**: the number of field declarations that match the scan rules in the supplied compilation units.
+When comparing `UsageFinder` output to an IDE or another data source, note that:
 
-That count is deterministic for a given source set and is well-suited for regression tests because it accepts `Collection<CompilationUnit>` directly.
+- `findCollectionFields` counts **field declarations** (one entry per variable, not per field statement).
+- `findMethodUsages` counts **call sites** (one entry per `MethodCallExpr` or `MethodReferenceExpr` that matches).
+- `findClassUsages` counts **structural references** in signatures and inheritance, but does **not** count local variable declarations inside method bodies.
+
+All three helpers accept `Collection<CompilationUnit>` directly, so they are deterministic for a given source set and easy to unit-test with in-memory JavaParser fixtures without bootstrapping the full Antikythera runtime.
 
 ## Usage
 
-### Basic Usage
-
-```bash
-mvn exec:java -Dexec.mainClass="sa.com.cloudsolutions.antikythera.examples.UsageFinder"
-```
-
-### Output to File
-
-```bash
-mvn exec:java -Dexec.mainClass="sa.com.cloudsolutions.antikythera.examples.UsageFinder" \
-  > collection-usage-report.txt
-```
-
-### Filter Specific Collection Types
-
-```bash
-# Find only List fields
-mvn exec:java -Dexec.mainClass="sa.com.cloudsolutions.antikythera.examples.UsageFinder" | \
-  grep "List<"
-
-# Find only Map fields
-mvn exec:java -Dexec.mainClass="sa.com.cloudsolutions.antikythera.examples.UsageFinder" | \
-  grep "Map<"
-```
+See the [Modes](#modes) section above for the three invocation patterns.
 
 ## Output Format
 
