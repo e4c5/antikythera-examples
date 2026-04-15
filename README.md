@@ -270,7 +270,7 @@ Analyzes collection usage (List, Set, Map) in non-entity classes to detect poten
 ```bash
 mvn exec:java -Dexec.mainClass="sa.com.cloudsolutions.antikythera.examples.UsageFinder"
 ```
-📖 **[Documentation](docs/usage_finder.md)**
+📖 **[Documentation](docs/usage_finder.md)** — includes the helper API and validation metric used in tests.
 
 ---
 

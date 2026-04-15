@@ -36,15 +36,10 @@ public class KnowledgeGraphCLI {
     private static final String BASE_PATH_OPTION = "--base-path=";
     private static final String PROJECT_PATH_OPTION = "--project-path=";
 
-    public static void main(String[] args) {
-        try {
+    public static void main(String[] args) throws IOException, SQLException, XmlPullParserException {
             CliOptions options = parseArgs(args);
             new KnowledgeGraphCLI().run(options.basePath(), options.configPath());
-        } catch (Exception e) {
-            logger.error("Analysis failed", e);
-            System.exit(1);
-        }
-    }
+   }
 
     static CliOptions parseArgs(String[] args) throws IOException {
         List<String> positionalArgs = Arrays.stream(args)
