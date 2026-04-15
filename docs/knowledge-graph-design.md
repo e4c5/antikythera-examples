@@ -24,7 +24,7 @@ The Knowledge Graph Builder maps structural and behavioral relationships within 
 #### Nodes
 Reuses `sa.com.cloudsolutions.antikythera.depsolver.GraphNode`.
 *   **Identity**: Stable Signature (FQN + logical name/params).
-*   **Supported Types**: `TypeDeclaration` (Class/Interface/Enum), `CallableDeclaration`, `FieldDeclaration`, `InitializerDeclaration`, `EnumConstantDeclaration`, `LambdaExpr`.
+*   **Supported Types**: `TypeDeclaration` (Class/Interface/Enum), `CallableDeclaration`, `FieldDeclaration`, `InitializerDeclaration`, `EnumConstantDeclaration`, `LambdaExpr`, `Annotation`, `Parameter`.
 
 #### Edges (`KnowledgeGraphEdge`)
 ```java
@@ -36,7 +36,7 @@ public record KnowledgeGraphEdge(
 #### Edge Types
 | Type | Category | Description |
 | :--- | :--- | :--- |
-| `CONTAINS` | Structural | Class contains Member |
+| `CONTAINS` | Structural | Class contains Member; callable contains Parameter (when annotated) |
 | `ENCLOSES` | Structural | Outer class encloses Inner class/Lambda |
 | `IMPLEMENTS` | Structural | Class implements Interface |
 | `EXTENDS` | Structural | Class extends Class |
@@ -44,6 +44,7 @@ public record KnowledgeGraphEdge(
 | `ACCESSES` | Behavioral | Method reads/writes Field |
 | `USES` | Dependency | Method uses Type |
 | `REFERENCES` | Behavioral | Method references Method (Method Reference) |
+| `ANNOTATED_BY` | Declarative | Type/Method/Constructor/Field/Parameter/EnumConstant is decorated by an Annotation class |
 
 ### 3.3 Streaming Architecture
 Edges are **NOT accumulated in memory**. As each edge is discovered during DFS traversal, it is immediately persisted to the graph store via batch transactions.
@@ -55,9 +56,11 @@ Traverse AST → discover edge → GraphStore.persistEdge(edge) → commit every
 ### 3.4 Graph Storage
 
 #### Schema
-*   **Nodes**: Labeled by type (`Class`, `Interface`, `Enum`, `Method`, `Field`, `StaticBlock`, `Lambda`).
-*   **Properties**: `signature`, `name`, `fqn`, `lineNumber`.
-*   **Relationships**: Labeled by edge type with `attributes` map.
+*   **Nodes**: Labeled by type (`Class`, `Interface`, `Enum`, `Method`, `Constructor`, `Field`, `StaticBlock`, `Lambda`, `EnumConstant`, `Annotation`, `Parameter`).
+*   **Properties**: `signature`, `name`, `fqn`.
+*   **Relationships**: Labeled by edge type with optional `attributes` map.
+
+> Both Neo4j and Apache AGE are **schemaless** — no DDL migration is needed when new node labels or relationship types are introduced. The `MERGE` statements in the store implementations create them on first use. The only schema-adjacent artefact that should be kept in sync is this document and any performance indexes (see below).
 
 #### Backend Abstraction
 The `GraphStore` interface decouples the builder from any specific database. `GraphStoreFactory` reads the `graph:` section from the YAML configuration (loaded via `Settings`) and creates the appropriate implementation.
@@ -76,6 +79,7 @@ All graph settings live under a single `graph:` key. The `type` field selects th
 graph:
   type: neo4j
   batch_size: 1000
+  clear_on_start: true   # wipe graph before each full-project scan; false to upsert only
   neo4j:
     uri: bolt://localhost:7687
     username: neo4j
@@ -88,6 +92,7 @@ graph:
 graph:
   type: age
   batch_size: 1000
+  clear_on_start: true   # wipe graph before each full-project scan; false to upsert only
   age:
     url: jdbc:postgresql://localhost:5432/postgres
     user: postgres
@@ -136,6 +141,28 @@ Enums are treated as `TypeDeclaration` nodes. Their constants are linked via `CO
 
 ### 5.3 Chain Resolution
 Behavioral chains (fluent APIs, Streams) must be decomposed into individual edges. Intermediate types in the chain (e.g., `Stream<T>`) are captured via `USES` edges.
+
+### 5.4 Annotations
+*   Every annotation encountered on a type, method, constructor, field, or enum constant is modeled as an `Annotation` node (its FQN is the signature) and linked via an `ANNOTATED_BY` edge from the annotated element to the annotation node.
+*   Parameters are only materialized as `Parameter` nodes when they carry at least one annotation (e.g. `@RequestBody`, `@PathVariable`, `@Valid`). Plain unannotated parameters are tracked in the symbol table only and are not persisted to the graph.
+*   Parameter signature format: `CallableSignature#paramName:ParamType` — the type suffix disambiguates same-named parameters across overloads.
+
+### 5.5 Performance Indexes
+Neither store creates indexes automatically. For large codebases, the following are strongly recommended to speed up `MERGE` lookups on `signature`:
+
+**Neo4j**
+```cypher
+CREATE CONSTRAINT code_element_signature IF NOT EXISTS
+  FOR (n:CodeElement) REQUIRE n.signature IS UNIQUE;
+```
+
+**Apache AGE**
+```sql
+-- Run after the graph is created
+SELECT * FROM cypher('antikythera_graph', $$
+    CREATE INDEX ON CodeElement(signature)
+$$) AS (v agtype);
+```
 
 ## Appendix: Original Finding (Revised)
 
