@@ -43,11 +43,9 @@ public class UsageFinder {
 
     /** Output logger used by {@link #main} — separate from the class logger so output can be configured independently. */
     private static final Logger out = LoggerFactory.getLogger("UsageFinder.output");
-    private String methodSignature;
     private ParsedSignature parsedMethodSignature;
 
     private final Collection<CompilationUnit> compilationUnits;
-    private String className;
     private String simpleClassName;
 
     public UsageFinder(Collection<CompilationUnit> compilationUnits) {
@@ -141,7 +139,6 @@ public class UsageFinder {
      * are reported with a {@code [ref]} suffix on the caller method name.</p>
      */
     public List<MethodUsage> findMethodUsages(String methodSignature) {
-        this.methodSignature = methodSignature;
         this.parsedMethodSignature = parseMethodSignature(methodSignature);
 
         List<MethodUsage> results = new ArrayList<>();
@@ -166,7 +163,6 @@ public class UsageFinder {
      * usage of {@code Foo}.
      */
     public List<ClassUsage> findClassUsages(String classFqn) {
-        this.className = classFqn;
         this.simpleClassName = AbstractCompiler.fullyQualifiedToShortName(classFqn);
 
         List<ClassUsage> results = new ArrayList<>();
