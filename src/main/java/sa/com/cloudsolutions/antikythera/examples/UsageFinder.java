@@ -1,9 +1,11 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.MethodCallExpr;
@@ -112,7 +114,7 @@ public class UsageFinder {
     public List<CollectionFieldUsage> findCollectionFields() {
         List<CollectionFieldUsage> matches = new ArrayList<>();
         for (CompilationUnit cu : compilationUnits) {
-            if (cu == null) continue;
+
             cu.getTypes().stream()
                     .filter(TypeDeclaration::isClassOrInterfaceDeclaration)
                     .map(TypeDeclaration::asClassOrInterfaceDeclaration)
@@ -165,7 +167,7 @@ public class UsageFinder {
      */
     public List<ClassUsage> findClassUsages(String classFqn) {
         this.className = classFqn;
-        this.simpleClassName = simpleNameOf(classFqn);
+        this.simpleClassName = AbstractCompiler.fullyQualifiedToShortName(classFqn);
 
         List<ClassUsage> results = new ArrayList<>();
 
@@ -252,28 +254,25 @@ public class UsageFinder {
 
     private void collectConstructorParamUsages(ClassOrInterfaceDeclaration cid,
                                                String usingClass, List<ClassUsage> results) {
-        cid.getConstructors().forEach(ctor -> ctor.getParameters().forEach(param -> {
+        cid.getConstructors().forEach(ctor -> findParamUsage(ctor.getParameters(), results, usingClass, cid.getNameAsString()));
+    }
+
+    private void findParamUsage(NodeList<Parameter> ctor, List<ClassUsage> results, String usingClass, String cid) {
+        ctor.forEach(param -> {
             String paramType = param.getTypeAsString();
             if (typeContainsClass(paramType, simpleClassName)) {
                 int line = param.getBegin().map(p -> p.line).orElse(-1);
                 results.add(new ClassUsage(usingClass, "PARAMETER",
-                        cid.getNameAsString() + "(" + param.getNameAsString() + ")", paramType, line));
+                        cid + "(" + param.getNameAsString() + ")", paramType, line));
             }
-        }));
+        });
     }
 
     private void collectMethodSignatureUsages(ClassOrInterfaceDeclaration cid,
                                               String usingClass, List<ClassUsage> results) {
         cid.getMethods().forEach(method -> {
             collectReturnTypeUsage(method, simpleClassName, usingClass, results);
-            method.getParameters().forEach(param -> {
-                String paramType = param.getTypeAsString();
-                if (typeContainsClass(paramType, simpleClassName)) {
-                    int line = param.getBegin().map(p -> p.line).orElse(-1);
-                    results.add(new ClassUsage(usingClass, "PARAMETER",
-                            method.getNameAsString() + "(" + param.getNameAsString() + ")", paramType, line));
-                }
-            });
+            findParamUsage(method.getParameters(), results, usingClass, method.getNameAsString());
         });
     }
 
@@ -308,12 +307,9 @@ public class UsageFinder {
         String methodPart = parts[1];
         String targetMethod = methodPart.contains("(")
                 ? methodPart.substring(0, methodPart.indexOf('(')) : methodPart;
-        return new ParsedSignature(simpleNameOf(parts[0]), targetMethod);
+        return new ParsedSignature(AbstractCompiler.fullyQualifiedToShortName(parts[0]), targetMethod);
     }
 
-    private static String simpleNameOf(String fqn) {
-        return fqn.contains(".") ? fqn.substring(fqn.lastIndexOf('.') + 1) : fqn;
-    }
 
     private static Map<String, String> buildFieldTypeMap(ClassOrInterfaceDeclaration cid) {
         Map<String, String> map = new HashMap<>();
@@ -341,7 +337,7 @@ public class UsageFinder {
     private static boolean matchesSimpleType(String typeStr, String simpleClass) {
         if (typeStr == null || simpleClass == null) return false;
         String raw = typeStr.contains("<") ? typeStr.substring(0, typeStr.indexOf('<')) : typeStr;
-        return simpleNameOf(raw).equals(simpleClass);
+        return AbstractCompiler.fullyQualifiedToShortName(raw).equals(simpleClass);
     }
 
     /**
