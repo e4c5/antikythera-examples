@@ -15,6 +15,7 @@ import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.body.VariableDeclarator;
+import com.github.javaparser.ast.expr.AnnotationExpr;
 import com.github.javaparser.ast.expr.CastExpr;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.FieldAccessExpr;
@@ -25,6 +26,7 @@ import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.expr.ObjectCreationExpr;
 import com.github.javaparser.ast.expr.ThisExpr;
 import com.github.javaparser.ast.expr.VariableDeclarationExpr;
+import com.github.javaparser.ast.nodeTypes.NodeWithAnnotations;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.ast.type.Type;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
@@ -275,6 +277,9 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
         String typeSignature = SignatureUtils.getTypeSignature(type);
         persistNode(typeSignature, nodeTypeLabel(type), type.getNameAsString(), typeSignature);
 
+        CompilationUnit typeCu = type.findCompilationUnit().orElse(null);
+        emitAnnotations(typeSignature, type, typeCu);
+
         if (enclosingSignature != null) {
             graphStore.persistEdge(KnowledgeGraphEdge.builder()
                     .source(enclosingSignature)
@@ -305,6 +310,7 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
             for (EnumConstantDeclaration constant : enumDeclaration.getEntries()) {
                 String constantSignature = SignatureUtils.getEnumConstantSignature(typeSignature, constant);
                 persistNode(constantSignature, "EnumConstant", constant.getNameAsString(), typeSignature);
+                emitAnnotations(constantSignature, constant, typeCu);
 
                 graphStore.persistEdge(KnowledgeGraphEdge.builder()
                         .source(typeSignature)
@@ -321,6 +327,7 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
         if (member instanceof MethodDeclaration md) {
             String methodSignature = SignatureUtils.getMethodSignature(ownerSignature, md);
             persistNode(methodSignature, "Method", md.getNameAsString(), ownerSignature);
+            emitAnnotations(methodSignature, md, cu);
             processCallableBody(cu, ownerSignature, methodSignature, md, md.getParameters(), md.getBody().orElse(null));
             return;
         }
@@ -328,6 +335,7 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
         if (member instanceof ConstructorDeclaration cd) {
             String constructorSignature = SignatureUtils.getMethodSignature(ownerSignature, cd);
             persistNode(constructorSignature, "Constructor", cd.getNameAsString(), ownerSignature);
+            emitAnnotations(constructorSignature, cd, cu);
             processCallableBody(cu, ownerSignature, constructorSignature, cd, cd.getParameters(), cd.getBody());
             return;
         }
@@ -336,6 +344,7 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
             for (VariableDeclarator v : fd.getVariables()) {
                 String fieldSignature = SignatureUtils.getFieldSignature(ownerSignature, v.getNameAsString());
                 persistNode(fieldSignature, "Field", v.getNameAsString(), ownerSignature);
+                emitAnnotations(fieldSignature, fd, cu);
 
                 v.getInitializer().ifPresent(init -> {
                     ScopeContext context = new ScopeContext(ownerSignature, ownerSignature, cu, new HashMap<>(), new AtomicInteger());
@@ -367,7 +376,21 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
         symbols.put("this", ownerTypeSignature);
 
         for (Parameter parameter : parameters) {
-            symbols.put(parameter.getNameAsString(), resolveTypeSignature(cu, parameter.getType()));
+            String paramType = resolveTypeSignature(cu, parameter.getType());
+            symbols.put(parameter.getNameAsString(), paramType);
+
+            if (!parameter.getAnnotations().isEmpty()) {
+                String paramSignature = SignatureUtils.getParameterSignature(callableSignature, parameter);
+                persistNode(paramSignature, "Parameter", parameter.getNameAsString(), callableSignature);
+
+                graphStore.persistEdge(KnowledgeGraphEdge.builder()
+                        .source(callableSignature)
+                        .target(paramSignature)
+                        .type(EdgeType.CONTAINS)
+                        .build());
+
+                emitAnnotations(paramSignature, parameter, cu);
+            }
         }
 
         ScopeContext context = new ScopeContext(callableSignature, ownerTypeSignature, cu, symbols, new AtomicInteger());
@@ -406,6 +429,27 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
                 .target(memberSignature)
                 .type(EdgeType.CONTAINS)
                 .build());
+    }
+
+    private void emitAnnotations(String sourceSignature, NodeWithAnnotations<?> annotated, CompilationUnit cu) {
+        for (AnnotationExpr annotation : annotated.getAnnotations()) {
+            String annotationName = annotation.getNameAsString();
+            String annotationFqn = AbstractCompiler.findFullyQualifiedName(cu, annotationName);
+            if (annotationFqn == null) {
+                annotationFqn = annotationName;
+            }
+
+            persistNode(annotationFqn, "Annotation", annotationName, annotationFqn);
+
+            KnowledgeGraphEdge edge = KnowledgeGraphEdge.builder()
+                    .source(sourceSignature)
+                    .target(annotationFqn)
+                    .type(EdgeType.ANNOTATED_BY)
+                    .build();
+
+            graphStore.persistEdge(edge);
+            logger.trace("Edge: {} --ANNOTATED_BY--> {}", sourceSignature, annotationFqn);
+        }
     }
 
     private void emitMethodCall(ScopeContext context, MethodCallExpr mce) {
