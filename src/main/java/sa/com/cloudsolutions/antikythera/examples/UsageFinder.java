@@ -41,8 +41,12 @@ public class UsageFinder {
 
     /** Output logger used by {@link #main} — separate from the class logger so output can be configured independently. */
     private static final Logger out = LoggerFactory.getLogger("UsageFinder.output");
+    private String methodSignature;
+    private ParsedSignature parsedMethodSignature;
 
     private final Collection<CompilationUnit> compilationUnits;
+    private String className;
+    private String simpleClassName;
 
     public UsageFinder(Collection<CompilationUnit> compilationUnits) {
         this.compilationUnits = compilationUnits == null ? Collections.emptyList() : compilationUnits;
@@ -135,15 +139,17 @@ public class UsageFinder {
      * are reported with a {@code [ref]} suffix on the caller method name.</p>
      */
     public List<MethodUsage> findMethodUsages(String methodSignature) {
-        ParsedSignature sig = parseMethodSignature(methodSignature);
+        this.methodSignature = methodSignature;
+        this.parsedMethodSignature = parseMethodSignature(methodSignature);
+
         List<MethodUsage> results = new ArrayList<>();
 
         for (CompilationUnit cu : compilationUnits) {
-            if (cu == null) continue;
-            cu.getTypes().stream()
-                    .filter(TypeDeclaration::isClassOrInterfaceDeclaration)
-                    .map(TypeDeclaration::asClassOrInterfaceDeclaration)
-                    .forEach(cid -> collectMethodCallsFromClass(cid, sig, results));
+            for (TypeDeclaration<?> td : cu.getTypes()) {
+                if (!td.isClassOrInterfaceDeclaration()) continue;
+                ClassOrInterfaceDeclaration cid = td.asClassOrInterfaceDeclaration();
+                collectMethodCallsFromClass(cid, results);
+            }
         }
 
         results.sort(Comparator.comparing(MethodUsage::callerFqn).thenComparing(MethodUsage::callerMethod));
@@ -173,14 +179,12 @@ public class UsageFinder {
         return results;
     }
 
-    private void collectMethodCallsFromClass(ClassOrInterfaceDeclaration cid,
-                                             ParsedSignature sig,
-                                             List<MethodUsage> results) {
+    private void collectMethodCallsFromClass(ClassOrInterfaceDeclaration cid, List<MethodUsage> results) {
         String callerFqn = cid.getFullyQualifiedName().orElse("");
         Map<String, String> fieldTypes = buildFieldTypeMap(cid);
         for (MethodDeclaration method : cid.getMethods()) {
             Map<String, String> paramTypes = buildParamTypeMap(method);
-            collectCallSites(method, sig, callerFqn, fieldTypes, paramTypes, results);
+            collectCallSites(method, parsedMethodSignature, callerFqn, fieldTypes, paramTypes, results);
         }
     }
 
