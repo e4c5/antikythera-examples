@@ -14,6 +14,7 @@ import java.io.IOException;
 import java.sql.SQLException;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 /**
@@ -35,13 +36,15 @@ public class KnowledgeGraphCLI {
     private static final String CONFIG_OPTION = "--config=";
     private static final String BASE_PATH_OPTION = "--base-path=";
     private static final String PROJECT_PATH_OPTION = "--project-path=";
+    private static final String CLEAR_FLAG = "--clear";
+    private static final String NO_CLEAR_FLAG = "--no-clear";
 
     public static void main(String[] args) {
         try {
             CliOptions options = parseArgs(args);
-            new KnowledgeGraphCLI().run(options.basePath(), options.configPath());
-        } catch (Exception e) {
-            logger.error("Analysis failed", e);
+            new KnowledgeGraphCLI().run(options.basePath(), options.configPath(), options.clearOnStart());
+        } catch (IOException | SQLException | XmlPullParserException | RuntimeException e) {
+            logger.error("Knowledge graph build failed", e);
             System.exit(1);
         }
     }
@@ -82,7 +85,11 @@ public class KnowledgeGraphCLI {
                     """.stripIndent());
         }
 
-        return new CliOptions(basePath, configPath);
+        // --clear / --no-clear flags override the config file value.
+        // Absence of either flag falls back to graph.clear_on_start in the YAML.
+        Boolean clearOnStart = parseClearOverride(args);
+
+        return new CliOptions(basePath, configPath, clearOnStart);
     }
 
     private static Optional<String> findOptionValue(String[] args, String prefix) {
@@ -93,7 +100,25 @@ public class KnowledgeGraphCLI {
                 .findFirst();
     }
 
+    static Boolean parseClearOverride(String[] args) {
+        List<String> argList = Arrays.asList(args);
+        boolean hasClear = argList.contains(CLEAR_FLAG);
+        boolean hasNoClear = argList.contains(NO_CLEAR_FLAG);
+        if (hasClear && hasNoClear) {
+            throw new IllegalArgumentException("--clear and --no-clear cannot be used together");
+        }
+        if (hasClear) {
+            return true;
+        }
+        return hasNoClear ? false : null;
+    }
+
     public void run(String projectPath, String configPath) throws IOException, SQLException, XmlPullParserException {
+        run(projectPath, configPath, null);
+    }
+
+    @SuppressWarnings("unchecked")
+    public void run(String projectPath, String configPath, Boolean clearOverride) throws IOException, SQLException, XmlPullParserException {
         logger.info("Initializing Knowledge Graph Builder...");
         logger.info("Target Project: {}", projectPath);
         logger.info("Configuration: {}", configPath);
@@ -128,8 +153,54 @@ public class KnowledgeGraphCLI {
         // 5. Build Graph (Settings already loaded above, use the no-arg variant
         //    so the base_path override from step 2 is preserved)
         GraphStore store = GraphStoreFactory.createGraphStore();
+
+        // 6. Decide whether to wipe the graph before building.
+        //    Priority: CLI flag > graph.clear_on_start in YAML > default false.
+        boolean shouldClear;
+        if (clearOverride != null) {
+            shouldClear = clearOverride;
+        } else {
+            java.util.Map<String, Object> graphConfig = Settings.getProperty("graph", java.util.Map.class)
+                    .orElse(java.util.Map.of());
+            Object configValue = graphConfig.get("clear_on_start");
+            shouldClear = parseClearOnStart(configValue);
+        }
+
+        if (shouldClear) {
+            logger.info("Clearing existing graph data before build (clear_on_start=true)");
+            store.clearGraph();
+        } else {
+            logger.info("Upserting into existing graph (clear_on_start=false)");
+        }
+
         KnowledgeGraphBuilder builder = new KnowledgeGraphBuilder(store);
         builder.build(units);
+    }
+
+    static boolean parseClearOnStart(Object configValue) {
+        if (configValue == null) {
+            return false;
+        }
+        if (configValue instanceof Boolean boolValue) {
+            return boolValue;
+        }
+        if (configValue instanceof Number numberValue) {
+            int intValue = numberValue.intValue();
+            if (intValue == 1) {
+                return true;
+            }
+            if (intValue == 0) {
+                return false;
+            }
+        }
+        if (configValue instanceof String stringValue) {
+            return switch (stringValue.trim().toLowerCase(Locale.ROOT)) {
+                case "true", "yes", "1", "on" -> true;
+                case "false", "no", "0", "off" -> false;
+                default -> throw new IllegalArgumentException("Invalid graph.clear_on_start value: " + stringValue);
+            };
+        }
+        throw new IllegalArgumentException("Invalid graph.clear_on_start value: " + configValue);
     }
 
     private void updateBasePath(String projectPath) {
@@ -140,6 +211,6 @@ public class KnowledgeGraphCLI {
         return new java.util.ArrayList<>(AntikytheraRunTime.getResolvedCompilationUnits().values());
     }
 
-    record CliOptions(String basePath, String configPath) {
+    record CliOptions(String basePath, String configPath, Boolean clearOnStart) {
     }
 }

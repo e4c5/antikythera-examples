@@ -8,6 +8,7 @@ import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.InitializerDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.BodyDeclaration;
+import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.expr.LambdaExpr;
 import sa.com.cloudsolutions.antikythera.depsolver.GraphNode;
@@ -103,6 +104,15 @@ public final class SignatureUtils {
 
     public static String getFieldSignature(String className, String fieldName) {
         return className + "#" + fieldName;
+    }
+
+    /**
+     * Get signature for a parameter within a callable.
+     * Format: CallableSignature#paramName:ParamType
+     * The type is included to distinguish same-named params across overloads.
+     */
+    public static String getParameterSignature(String callableSignature, Parameter parameter) {
+        return callableSignature + "#" + parameter.getNameAsString() + ":" + parameter.getType().asString();
     }
 
     /**
