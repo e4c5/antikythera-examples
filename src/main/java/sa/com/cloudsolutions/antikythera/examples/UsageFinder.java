@@ -48,6 +48,7 @@ public class UsageFinder {
 
     /** Output logger used by {@link #main} — separate from the class logger so output can be configured independently. */
     private static final Logger out = LoggerFactory.getLogger("UsageFinder.output");
+    private static final String IMPLEMENTS_USAGE = "IMPLEMENTS";
     private ParsedSignature parsedMethodSignature;
 
     private final Collection<CompilationUnit> compilationUnits;
@@ -118,8 +119,8 @@ public class UsageFinder {
         List<CollectionFieldUsage> matches = new ArrayList<>();
         for (CompilationUnit cu : compilationUnits) {
             for (TypeDeclaration<?> type : findAllTypes(cu)) {
-                if (type.getAnnotationByName("Entity").isPresent()) continue;
-                if (type.getFullyQualifiedName().orElse("").contains("dto")) continue;
+                if (type.getAnnotationByName("Entity").isPresent()
+                        || type.getFullyQualifiedName().orElse("").contains("dto")) continue;
                 collectCollectionFields(type, matches);
             }
         }
@@ -234,7 +235,7 @@ public class UsageFinder {
             cid.getImplementedTypes().forEach(impl -> {
                 if (matchesSimpleType(impl.getNameAsString(), simpleClassName)) {
                     int line = impl.getBegin().map(p -> p.line).orElse(-1);
-                    results.add(new ClassUsage(usingClass, "IMPLEMENTS", cid.getNameAsString(), impl.getNameAsString(), line));
+                    results.add(new ClassUsage(usingClass, IMPLEMENTS_USAGE, cid.getNameAsString(), impl.getNameAsString(), line));
                 }
             });
             return;
@@ -243,7 +244,7 @@ public class UsageFinder {
             enumDeclaration.getImplementedTypes().forEach(impl -> {
                 if (matchesSimpleType(impl.getNameAsString(), simpleClassName)) {
                     int line = impl.getBegin().map(p -> p.line).orElse(-1);
-                    results.add(new ClassUsage(usingClass, "IMPLEMENTS", enumDeclaration.getNameAsString(), impl.getNameAsString(), line));
+                    results.add(new ClassUsage(usingClass, IMPLEMENTS_USAGE, enumDeclaration.getNameAsString(), impl.getNameAsString(), line));
                 }
             });
             return;
@@ -252,7 +253,7 @@ public class UsageFinder {
             recordDeclaration.getImplementedTypes().forEach(impl -> {
                 if (matchesSimpleType(impl.getNameAsString(), simpleClassName)) {
                     int line = impl.getBegin().map(p -> p.line).orElse(-1);
-                    results.add(new ClassUsage(usingClass, "IMPLEMENTS", recordDeclaration.getNameAsString(), impl.getNameAsString(), line));
+                    results.add(new ClassUsage(usingClass, IMPLEMENTS_USAGE, recordDeclaration.getNameAsString(), impl.getNameAsString(), line));
                 }
             });
         }
