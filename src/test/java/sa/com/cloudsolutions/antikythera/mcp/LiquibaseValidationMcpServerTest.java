@@ -5,6 +5,8 @@ import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
+import java.net.URL;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -22,7 +24,7 @@ class LiquibaseValidationMcpServerTest {
 
     @Test
     void testValidateToolReturnsSuccessfulMcpResultForValidChangelog() throws Exception {
-        String changelog = "src/test/resources/liquibase/sample-changelog.xml";
+        String changelog = resourcePath("liquibase/sample-changelog.xml");
 
         CallToolResult result = invokeValidate(changelog);
 
@@ -73,6 +75,12 @@ class LiquibaseValidationMcpServerTest {
         Method method = LiquibaseValidationMcpServer.class.getDeclaredMethod("handleValidateLiquibase", String.class);
         method.setAccessible(true);
         return (CallToolResult) method.invoke(new LiquibaseValidationMcpServer(), filepath);
+    }
+
+    private static String resourcePath(String name) throws Exception {
+        URL url = LiquibaseValidationMcpServerTest.class.getClassLoader().getResource(name);
+        assertNotNull(url, "Missing test resource: " + name);
+        return Path.of(url.toURI()).toString();
     }
 
     private static String text(CallToolResult result) {

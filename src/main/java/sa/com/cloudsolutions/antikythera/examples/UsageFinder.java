@@ -52,6 +52,7 @@ public class UsageFinder {
     private ParsedSignature parsedMethodSignature;
 
     private final Collection<CompilationUnit> compilationUnits;
+    private String targetClassFqn;
     private String simpleClassName;
 
     public UsageFinder(Collection<CompilationUnit> compilationUnits) {
@@ -162,6 +163,7 @@ public class UsageFinder {
      * usage of {@code Foo}.
      */
     public List<ClassUsage> findClassUsages(String classFqn) {
+        this.targetClassFqn = classFqn;
         this.simpleClassName = AbstractCompiler.fullyQualifiedToShortName(classFqn);
 
         List<ClassUsage> results = new ArrayList<>();
@@ -197,19 +199,21 @@ public class UsageFinder {
                                   Map<String, String> fieldTypes,
                                   Map<String, String> paramTypes,
                                   List<MethodUsage> results) {
-        Map<String, String> localTypes = buildLocalTypeMap(searchRoot);
-
         searchRoot.findAll(MethodCallExpr.class).forEach(call -> {
             if (!call.getNameAsString().equals(parsedMethodSignature.targetMethod())) return;
+            Map<String, String> localTypes = buildVisibleLocalTypeMap(searchRoot, call);
             Expression scope = call.getScope().orElse(null);
-            if (!scopeMatchesClass(scope, parsedMethodSignature.targetClass(), callerFqn, fieldTypes, paramTypes, localTypes)) return;
+            if (!scopeMatchesClass(scope, parsedMethodSignature.targetClassFqn(), parsedMethodSignature.targetClass(),
+                    callerFqn, fieldTypes, paramTypes, localTypes)) return;
             int line = call.getBegin().map(p -> p.line).orElse(-1);
             results.add(new MethodUsage(callerFqn, callerMethod, line));
         });
 
         searchRoot.findAll(MethodReferenceExpr.class).forEach(ref -> {
             if (!ref.getIdentifier().equals(parsedMethodSignature.targetMethod())) return;
-            if (parsedMethodSignature.targetClass() != null && !matchesSimpleType(ref.getScope().toString(), parsedMethodSignature.targetClass())) return;
+            Map<String, String> localTypes = buildVisibleLocalTypeMap(searchRoot, ref);
+            if (!scopeMatchesClass(ref.getScope(), parsedMethodSignature.targetClassFqn(), parsedMethodSignature.targetClass(),
+                    callerFqn, fieldTypes, paramTypes, localTypes)) return;
             int line = ref.getBegin().map(p -> p.line).orElse(-1);
             results.add(new MethodUsage(callerFqn, callerMethod + "[ref]", line));
         });
@@ -227,13 +231,13 @@ public class UsageFinder {
                                           String usingClass, List<ClassUsage> results) {
         if (type instanceof ClassOrInterfaceDeclaration cid) {
             cid.getExtendedTypes().forEach(ext -> {
-                if (matchesSimpleType(ext.getNameAsString(), simpleClassName)) {
+                if (matchesTargetType(ext.toString(), targetClassFqn, simpleClassName)) {
                     int line = ext.getBegin().map(p -> p.line).orElse(-1);
                     results.add(new ClassUsage(usingClass, "EXTENDS", cid.getNameAsString(), ext.getNameAsString(), line));
                 }
             });
             cid.getImplementedTypes().forEach(impl -> {
-                if (matchesSimpleType(impl.getNameAsString(), simpleClassName)) {
+                if (matchesTargetType(impl.toString(), targetClassFqn, simpleClassName)) {
                     int line = impl.getBegin().map(p -> p.line).orElse(-1);
                     results.add(new ClassUsage(usingClass, IMPLEMENTS_USAGE, cid.getNameAsString(), impl.getNameAsString(), line));
                 }
@@ -242,7 +246,7 @@ public class UsageFinder {
         }
         if (type instanceof EnumDeclaration enumDeclaration) {
             enumDeclaration.getImplementedTypes().forEach(impl -> {
-                if (matchesSimpleType(impl.getNameAsString(), simpleClassName)) {
+                if (matchesTargetType(impl.toString(), targetClassFqn, simpleClassName)) {
                     int line = impl.getBegin().map(p -> p.line).orElse(-1);
                     results.add(new ClassUsage(usingClass, IMPLEMENTS_USAGE, enumDeclaration.getNameAsString(), impl.getNameAsString(), line));
                 }
@@ -251,7 +255,7 @@ public class UsageFinder {
         }
         if (type instanceof RecordDeclaration recordDeclaration) {
             recordDeclaration.getImplementedTypes().forEach(impl -> {
-                if (matchesSimpleType(impl.getNameAsString(), simpleClassName)) {
+                if (matchesTargetType(impl.toString(), targetClassFqn, simpleClassName)) {
                     int line = impl.getBegin().map(p -> p.line).orElse(-1);
                     results.add(new ClassUsage(usingClass, IMPLEMENTS_USAGE, recordDeclaration.getNameAsString(), impl.getNameAsString(), line));
                 }
@@ -263,7 +267,7 @@ public class UsageFinder {
                                     String usingClass, List<ClassUsage> results) {
         type.getFields().forEach(field -> field.getVariables().forEach(variable -> {
             String typeName = variable.getTypeAsString();
-            if (typeContainsClass(typeName, simpleClassName)) {
+            if (typeContainsClass(typeName, targetClassFqn, simpleClassName)) {
                 int line = field.getBegin().map(p -> p.line).orElse(-1);
                 results.add(new ClassUsage(usingClass, "FIELD", variable.getNameAsString(), typeName, line));
             }
@@ -272,16 +276,27 @@ public class UsageFinder {
 
     private void collectConstructorParamUsages(TypeDeclaration<?> type,
                                                String usingClass, List<ClassUsage> results) {
-        type.getConstructors().forEach(ctor -> findParamUsage(ctor.getParameters(), results, usingClass, type.getNameAsString()));
+        Set<String> seen = new HashSet<>();
+        type.getConstructors().forEach(ctor -> findParamUsage(ctor.getParameters(), results, usingClass, type.getNameAsString(), seen));
+        if (type instanceof RecordDeclaration recordDeclaration) {
+            findParamUsage(recordDeclaration.getParameters(), results, usingClass, type.getNameAsString(), seen);
+        }
     }
 
     private void findParamUsage(NodeList<Parameter> ctor, List<ClassUsage> results, String usingClass, String cid) {
+        findParamUsage(ctor, results, usingClass, cid, new HashSet<>());
+    }
+
+    private void findParamUsage(NodeList<Parameter> ctor, List<ClassUsage> results, String usingClass, String cid,
+                                Set<String> seen) {
         ctor.forEach(param -> {
             String paramType = param.getTypeAsString();
-            if (typeContainsClass(paramType, simpleClassName)) {
+            if (typeContainsClass(paramType, targetClassFqn, simpleClassName)) {
                 int line = param.getBegin().map(p -> p.line).orElse(-1);
-                results.add(new ClassUsage(usingClass, "PARAMETER",
-                        cid + "(" + param.getNameAsString() + ")", paramType, line));
+                String memberName = cid + "(" + param.getNameAsString() + ")";
+                if (seen.add(memberName + ":" + paramType)) {
+                    results.add(new ClassUsage(usingClass, "PARAMETER", memberName, paramType, line));
+                }
             }
         });
     }
@@ -297,7 +312,7 @@ public class UsageFinder {
     private void collectReturnTypeUsage(MethodDeclaration method, String simpleClass,
                                         String usingClass, List<ClassUsage> results) {
         String retType = method.getTypeAsString();
-        if (typeContainsClass(retType, simpleClass)) {
+        if (typeContainsClass(retType, targetClassFqn, simpleClass)) {
             int line = method.getBegin().map(p -> p.line).orElse(-1);
             results.add(new ClassUsage(usingClass, "RETURN_TYPE", method.getNameAsString(), retType, line));
         }
@@ -315,17 +330,17 @@ public class UsageFinder {
         }
     }
 
-    private record ParsedSignature(String targetClass, String targetMethod) {}
+    private record ParsedSignature(String targetClassFqn, String targetClass, String targetMethod) {}
 
     private ParsedSignature parseMethodSignature(String signature) {
         if (!signature.contains("#")) {
-            return new ParsedSignature(null, signature);
+            return new ParsedSignature(null, null, signature);
         }
         String[] parts = signature.split("#", 2);
         String methodPart = parts[1];
         String targetMethod = methodPart.contains("(")
                 ? methodPart.substring(0, methodPart.indexOf('(')) : methodPart;
-        return new ParsedSignature(AbstractCompiler.fullyQualifiedToShortName(parts[0]), targetMethod);
+        return new ParsedSignature(parts[0], AbstractCompiler.fullyQualifiedToShortName(parts[0]), targetMethod);
     }
 
 
@@ -342,10 +357,17 @@ public class UsageFinder {
         return map;
     }
 
-    private static Map<String, String> buildLocalTypeMap(Node node) {
+    private static Map<String, String> buildVisibleLocalTypeMap(Node node, Node usage) {
         Map<String, String> map = new HashMap<>();
-        node.findAll(VariableDeclarator.class).forEach(v -> map.put(v.getNameAsString(), v.getTypeAsString()));
+        node.findAll(VariableDeclarator.class).stream()
+                .filter(v -> isDeclaredBefore(v, usage))
+                .forEach(v -> map.put(v.getNameAsString(), v.getTypeAsString()));
         return map;
+    }
+
+    private static boolean isDeclaredBefore(VariableDeclarator variable, Node usage) {
+        return variable.getBegin().flatMap(variablePosition -> usage.getBegin()
+                .map(variablePosition::isBefore)).orElse(false);
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
@@ -364,12 +386,20 @@ public class UsageFinder {
      * {@code simpleClass}. E.g. {@code "UserService<T>"} matches {@code "UserService"}.
      */
     private static boolean matchesSimpleType(String typeStr, String simpleClass) {
+        return matchesTargetType(typeStr, null, simpleClass);
+    }
+
+    private static boolean matchesTargetType(String typeStr, String targetClassFqn, String simpleClass) {
         if (typeStr == null || simpleClass == null) return false;
         String raw = typeStr.contains("<") ? typeStr.substring(0, typeStr.indexOf('<')) : typeStr;
         while (raw.endsWith("[]")) {
             raw = raw.substring(0, raw.length() - 2);
         }
-        return AbstractCompiler.fullyQualifiedToShortName(raw.trim()).equals(simpleClass);
+        raw = raw.trim();
+        if (targetClassFqn != null && raw.contains(".")) {
+            return raw.equals(targetClassFqn);
+        }
+        return AbstractCompiler.fullyQualifiedToShortName(raw).equals(simpleClass);
     }
 
     /**
@@ -377,15 +407,15 @@ public class UsageFinder {
      * ({@code Foo}, {@code Foo<Bar>}) or as a generic argument ({@code List<Foo>},
      * {@code Map<String, Foo>}).
      */
-    private static boolean typeContainsClass(String typeStr, String simpleClass) {
+    private static boolean typeContainsClass(String typeStr, String targetClassFqn, String simpleClass) {
         if (typeStr == null || simpleClass == null) return false;
-        if (matchesSimpleType(typeStr, simpleClass)) return true;
+        if (matchesTargetType(typeStr, targetClassFqn, simpleClass)) return true;
         int lt = typeStr.indexOf('<');
         if (lt < 0) return false;
         int gt = typeStr.lastIndexOf('>');
         String inner = typeStr.substring(lt + 1, gt < 0 ? typeStr.length() : gt);
         for (String part : inner.split("[,<>]")) {
-            if (matchesSimpleType(part.trim(), simpleClass)) return true;
+            if (matchesTargetType(part.trim(), targetClassFqn, simpleClass)) return true;
         }
         return false;
     }
@@ -397,21 +427,21 @@ public class UsageFinder {
      * @param scope       scope expression of the call site, or {@code null} when absent
      * @param targetClass simple name of the declaring class, or {@code null} to match all
      */
-    private static boolean scopeMatchesClass(Expression scope, String targetClass, String callerFqn,
+    private static boolean scopeMatchesClass(Expression scope, String targetClassFqn, String targetClass, String callerFqn,
                                              Map<String, String> fieldTypes,
                                              Map<String, String> paramTypes,
                                              Map<String, String> localTypes) {
         if (targetClass == null || scope == null) return true;
         String scopeStr = scope.toString();
         if ("this".equals(scopeStr)) {
-            return matchesSimpleType(callerFqn, targetClass);
+            return targetClassFqn == null ? matchesSimpleType(callerFqn, targetClass) : callerFqn.equals(targetClassFqn);
         }
         if (scopeStr.startsWith("this.")) {
             String fieldName = scopeStr.substring("this.".length());
-            return matchesSimpleType(fieldTypes.get(fieldName), targetClass);
+            return matchesTargetType(fieldTypes.getOrDefault(fieldName, fieldName), targetClassFqn, targetClass);
         }
         String resolved = localTypes.getOrDefault(scopeStr,
                 paramTypes.getOrDefault(scopeStr, fieldTypes.getOrDefault(scopeStr, scopeStr)));
-        return matchesSimpleType(resolved, targetClass);
+        return matchesTargetType(resolved, targetClassFqn, targetClass);
     }
 }

@@ -62,6 +62,7 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
     public static final String EXACT = "exact";
     public static final String PARTIAL = "partial";
     private static final String ANNOTATION_SIGNATURE_PREFIX = "annotation:";
+    private static final String UNRESOLVED_ANNOTATION_PREFIX = "unresolved:";
 
     private final GraphStore graphStore;
     private boolean autoClose = true;
@@ -437,7 +438,9 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
             String annotationName = annotation.getNameAsString();
             String annotationFqn = findFullyQualifiedName(cu, annotationName);
             if (annotationFqn == null) {
-                annotationFqn = annotationName;
+                annotationFqn = annotationName.contains(".")
+                        ? annotationName
+                        : UNRESOLVED_ANNOTATION_PREFIX + sourceSignature + ":" + annotationName;
             }
 
             String annotationSignature = ANNOTATION_SIGNATURE_PREFIX + annotationFqn;

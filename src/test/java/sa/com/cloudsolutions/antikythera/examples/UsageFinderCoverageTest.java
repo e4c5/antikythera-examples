@@ -268,6 +268,72 @@ class UsageFinderCoverageTest {
     }
 
     @Test
+    void testFindMethodUsagesResolvesMethodReferenceScopesWithClassFilter() {
+        CompilationUnit target = StaticJavaParser.parse("package demo; public class Worker { public void run() {} }");
+        CompilationUnit other = StaticJavaParser.parse("package demo; public class Other { public void run() {} }");
+        CompilationUnit caller = StaticJavaParser.parse("""
+                package demo;
+                public class Caller {
+                    private Worker worker;
+                    private Other other;
+                    public void go(Worker param) {
+                        Runnable fieldRef = this.worker::run;
+                        Worker local = new Worker();
+                        Runnable localRef = local::run;
+                        Runnable paramRef = param::run;
+                        Runnable otherRef = other::run;
+                    }
+                }
+                """);
+
+        List<UsageFinder.MethodUsage> usages =
+                new UsageFinder(List.of(target, other, caller)).findMethodUsages("demo.Worker#run");
+
+        assertEquals(3, usages.size());
+        assertTrue(usages.stream().allMatch(u -> u.callerMethod().equals("go[ref]")));
+    }
+
+    @Test
+    void testFindMethodUsagesUsesOnlyLocalsDeclaredBeforeCallSite() {
+        CompilationUnit target = StaticJavaParser.parse("package demo; public class Worker { public void run() {} }");
+        CompilationUnit other = StaticJavaParser.parse("package demo; public class Other { public void run() {} }");
+        CompilationUnit caller = StaticJavaParser.parse("""
+                package demo;
+                public class Caller {
+                    private Worker worker;
+                    public void go() {
+                        worker.run();
+                        Other worker = new Other();
+                        worker.run();
+                    }
+                }
+                """);
+
+        List<UsageFinder.MethodUsage> usages =
+                new UsageFinder(List.of(target, other, caller)).findMethodUsages("demo.Worker#run");
+
+        assertEquals(1, usages.size());
+        assertEquals("go", usages.getFirst().callerMethod());
+    }
+
+    @Test
+    void testFindMethodUsagesDoesNotMatchFullyQualifiedDifferentClassScope() {
+        CompilationUnit target = StaticJavaParser.parse("package demo; public class Worker { public void run() {} }");
+        CompilationUnit other = StaticJavaParser.parse("package other; public class Worker { public void run() {} }");
+        CompilationUnit caller = StaticJavaParser.parse("""
+                package demo;
+                public class Caller {
+                    private other.Worker worker;
+                    public void go() { worker.run(); }
+                }
+                """);
+
+        assertTrue(new UsageFinder(List.of(target, other, caller))
+                .findMethodUsages("demo.Worker#run")
+                .isEmpty());
+    }
+
+    @Test
     void testFindMethodUsagesResolvesThisScopeForSameClass() {
         CompilationUnit cu = StaticJavaParser.parse("""
                 package demo;
@@ -365,6 +431,22 @@ class UsageFinderCoverageTest {
                 && u.usageKind().equals("FIELD") && u.memberName().equals("item")));
         assertTrue(usages.stream().anyMatch(u -> u.usingClassFqn().equals("demo.Outer.Holder")
                 && u.usageKind().equals("RETURN_TYPE") && u.typeName().equals("Item[]")));
+        assertTrue(usages.stream().anyMatch(u -> u.usingClassFqn().equals("demo.Outer.Holder")
+                && u.usageKind().equals("PARAMETER") && u.memberName().equals("Holder(item)")));
+    }
+
+    @Test
+    void testFindClassUsagesDoesNotMatchFullyQualifiedDifferentClass() {
+        CompilationUnit target = StaticJavaParser.parse("package demo; public class Item {}");
+        CompilationUnit other = StaticJavaParser.parse("package other; public class Item {}");
+        CompilationUnit user = StaticJavaParser.parse("""
+                package demo;
+                public class Basket { private other.Item item; }
+                """);
+
+        assertTrue(new UsageFinder(List.of(target, other, user))
+                .findClassUsages("demo.Item")
+                .isEmpty());
     }
 
     @Test

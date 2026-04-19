@@ -240,6 +240,33 @@ class RelationshipExtractionTest {
         assertTrue(foundAnnotationUsageNode, "Expected a persisted Annotation usage node");
     }
 
+    @Test
+    @DisplayName("Unresolved annotation nodes include the annotated source")
+    void testUnresolvedAnnotationNodesDoNotCollideBySimpleName() {
+        CompilationUnit cu = StaticJavaParser.parse("""
+            package com.example;
+            @Marker
+            class First {}
+            @Marker
+            class Second {}
+            """);
+
+        builder.build(List.of(cu));
+
+        ArgumentCaptor<String> signatureCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> typeCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> nameCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> fqnCaptor = ArgumentCaptor.forClass(String.class);
+        verify(mockStore, atLeastOnce()).persistNode(
+                signatureCaptor.capture(),
+                typeCaptor.capture(),
+                nameCaptor.capture(),
+                fqnCaptor.capture());
+
+        assertTrue(signatureCaptor.getAllValues().contains("annotation:unresolved:com.example.First:Marker"));
+        assertTrue(signatureCaptor.getAllValues().contains("annotation:unresolved:com.example.Second:Marker"));
+    }
+
     private List<KnowledgeGraphEdge> captureEdges() {
         ArgumentCaptor<KnowledgeGraphEdge> captor = ArgumentCaptor.forClass(KnowledgeGraphEdge.class);
         verify(mockStore, atLeastOnce()).persistEdge(captor.capture());

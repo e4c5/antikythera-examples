@@ -12,19 +12,21 @@
 // removing the large in-memory list entirely.
 //
 // Recommended indexes (run once before executing this query):
-//   CREATE INDEX annotation_sig IF NOT EXISTS
-//     FOR (a:Annotation) ON (a.signature);
+//   CREATE INDEX annotation_fqn IF NOT EXISTS
+//     FOR (a:Annotation) ON (a.fqn);
 //   CREATE CONSTRAINT method_sig IF NOT EXISTS
 //     FOR (m:Method) REQUIRE m.signature IS UNIQUE;
 // ============================================================
 
 // Step 1 – walk every CALLS edge and tag each caller as test/non-test inline.
+//          A caller can be the test method itself or a nested element such as a lambda.
 MATCH (callee:Method)<-[:CALLS]-(caller:CodeElement)
 WITH callee,
      caller,
      EXISTS {
-         MATCH (caller)-[:ANNOTATED_BY]->(a:Annotation)
-         WHERE a.signature IN [
+         MATCH (testMethod:Method)-[:ENCLOSES*0..]->(caller)
+         MATCH (testMethod)-[:ANNOTATED_BY]->(a:Annotation)
+         WHERE a.fqn IN [
              'org.junit.Test',                             // JUnit 4
              'org.junit.jupiter.api.Test',                 // JUnit 5
              'org.junit.jupiter.params.ParameterizedTest', // JUnit 5 parameterized
@@ -44,7 +46,7 @@ WHERE totalCallers > 0
   AND totalCallers = testCallers
   AND NOT EXISTS {
       MATCH (callee)-[:ANNOTATED_BY]->(a:Annotation)
-      WHERE a.signature IN [
+      WHERE a.fqn IN [
           'org.junit.Test',
           'org.junit.jupiter.api.Test',
           'org.junit.jupiter.params.ParameterizedTest',
