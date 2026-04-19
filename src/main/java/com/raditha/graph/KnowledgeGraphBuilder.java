@@ -381,7 +381,7 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
 
             if (!parameter.getAnnotations().isEmpty()) {
                 String paramSignature = SignatureUtils.getParameterSignature(callableSignature, parameter);
-                persistNode(paramSignature, "Parameter", parameter.getNameAsString(), callableSignature);
+                persistNode(paramSignature, "Parameter", parameter.getNameAsString(), paramSignature);
 
                 graphStore.persistEdge(KnowledgeGraphEdge.builder()
                         .source(callableSignature)
@@ -434,7 +434,7 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
     private void emitAnnotations(String sourceSignature, NodeWithAnnotations<?> annotated, CompilationUnit cu) {
         for (AnnotationExpr annotation : annotated.getAnnotations()) {
             String annotationName = annotation.getNameAsString();
-            String annotationFqn = AbstractCompiler.findFullyQualifiedName(cu, annotationName);
+            String annotationFqn = findFullyQualifiedName(cu, annotationName);
             if (annotationFqn == null) {
                 annotationFqn = annotationName;
             }
@@ -529,7 +529,7 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
                 return fromSymbols;
             }
 
-            return AbstractCompiler.findFullyQualifiedName(context.compilationUnit(), name);
+            return findFullyQualifiedName(context.compilationUnit(), name);
         }
 
         if (expression instanceof ThisExpr) {
@@ -552,7 +552,7 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
     }
 
     private String resolveTypeSignature(CompilationUnit compilationUnit, Type type) {
-        TypeWrapper wrapper = AbstractCompiler.findType(compilationUnit, type);
+        TypeWrapper wrapper = findType(compilationUnit, type);
         if (wrapper != null) {
             String fqn = wrapper.getFullyQualifiedName();
             if (fqn != null) {
@@ -565,6 +565,24 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
             }
         }
         return type.asString();
+    }
+
+    private String findFullyQualifiedName(CompilationUnit compilationUnit, String name) {
+        try {
+            return AbstractCompiler.findFullyQualifiedName(compilationUnit, name);
+        } catch (RuntimeException e) {
+            logger.trace("Unable to resolve fully qualified name for {}", name, e);
+            return null;
+        }
+    }
+
+    private TypeWrapper findType(CompilationUnit compilationUnit, Type type) {
+        try {
+            return AbstractCompiler.findType(compilationUnit, type);
+        } catch (RuntimeException e) {
+            logger.trace("Unable to resolve type {}", type, e);
+            return null;
+        }
     }
 
     /**

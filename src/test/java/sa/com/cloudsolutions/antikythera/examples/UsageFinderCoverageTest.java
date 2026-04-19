@@ -1,7 +1,9 @@
 package sa.com.cloudsolutions.antikythera.examples;
 
+import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -14,6 +16,12 @@ import static org.junit.jupiter.api.Assertions.*;
  * No Antikythera runtime is required.
  */
 class UsageFinderCoverageTest {
+
+    @BeforeAll
+    static void configureParser() {
+        StaticJavaParser.setConfiguration(new ParserConfiguration()
+                .setLanguageLevel(ParserConfiguration.LanguageLevel.JAVA_21));
+    }
 
     // -------------------------------------------------------------------------
     // Class shape tests
@@ -109,6 +117,26 @@ class UsageFinderCoverageTest {
         assertTrue(matches.stream().anyMatch(m -> m.fieldName().equals("lookup") && m.fieldType().contains("Map")));
     }
 
+    @Test
+    void testFindCollectionFieldsIncludesNestedEnumsAndRecords() {
+        CompilationUnit cu = StaticJavaParser.parse("""
+                package demo;
+                import java.util.List;
+                import java.util.Set;
+                public class Outer {
+                    static class Nested { private List<String> names; }
+                    enum State { READY; private Set<String> labels; }
+                    record Holder(List<String> values) { private static List<String> cache; }
+                }
+                """);
+
+        List<UsageFinder.CollectionFieldUsage> matches = new UsageFinder(List.of(cu)).findCollectionFields();
+
+        assertTrue(matches.stream().anyMatch(m -> m.classFqn().equals("demo.Outer.Nested") && m.fieldName().equals("names")));
+        assertTrue(matches.stream().anyMatch(m -> m.classFqn().equals("demo.Outer.State") && m.fieldName().equals("labels")));
+        assertTrue(matches.stream().anyMatch(m -> m.classFqn().equals("demo.Outer.Holder") && m.fieldName().equals("cache")));
+    }
+
     // -------------------------------------------------------------------------
     // Method usage tests
     // -------------------------------------------------------------------------
@@ -173,6 +201,66 @@ class UsageFinderCoverageTest {
         assertEquals(2, new UsageFinder(List.of(cu)).findMethodUsages("doThing").size());
     }
 
+    @Test
+    void testFindMethodUsagesScansConstructorsAndInitializers() {
+        CompilationUnit target = StaticJavaParser.parse("package demo; public class Worker { public void run() {} }");
+        CompilationUnit caller = StaticJavaParser.parse("""
+                package demo;
+                public class Caller {
+                    private Worker worker;
+                    { worker.run(); }
+                    static { Worker worker = new Worker(); worker.run(); }
+                    public Caller(Worker worker) { worker.run(); }
+                }
+                """);
+
+        List<UsageFinder.MethodUsage> usages =
+                new UsageFinder(List.of(target, caller)).findMethodUsages("demo.Worker#run");
+
+        assertTrue(usages.stream().anyMatch(u -> u.callerMethod().equals("Caller")));
+        assertTrue(usages.stream().anyMatch(u -> u.callerMethod().equals("<init>")));
+        assertTrue(usages.stream().anyMatch(u -> u.callerMethod().equals("<clinit>")));
+    }
+
+    @Test
+    void testFindMethodUsagesResolvesThisFieldAndLocalScopes() {
+        CompilationUnit target = StaticJavaParser.parse("package demo; public class Worker { public void run() {} }");
+        CompilationUnit caller = StaticJavaParser.parse("""
+                package demo;
+                public class Caller {
+                    private Worker worker;
+                    public void go() {
+                        this.worker.run();
+                        Worker local = new Worker();
+                        local.run();
+                    }
+                }
+                """);
+
+        List<UsageFinder.MethodUsage> usages =
+                new UsageFinder(List.of(target, caller)).findMethodUsages("demo.Worker#run");
+
+        assertEquals(2, usages.size());
+        assertTrue(usages.stream().allMatch(u -> u.callerMethod().equals("go")));
+    }
+
+    @Test
+    void testFindMethodUsagesResolvesThisScopeForSameClass() {
+        CompilationUnit cu = StaticJavaParser.parse("""
+                package demo;
+                public class Worker {
+                    public void run() {}
+                    public void go() { this.run(); }
+                }
+                """);
+
+        List<UsageFinder.MethodUsage> usages =
+                new UsageFinder(List.of(cu)).findMethodUsages("demo.Worker#run");
+
+        assertEquals(1, usages.size());
+        assertEquals("go", usages.getFirst().callerMethod());
+    }
+
     // -------------------------------------------------------------------------
     // Class usage tests
     // -------------------------------------------------------------------------
@@ -231,6 +319,29 @@ class UsageFinderCoverageTest {
         assertEquals(1, usages.size());
         assertEquals("FIELD", usages.get(0).usageKind());
         assertEquals("items", usages.get(0).memberName());
+    }
+
+    @Test
+    void testFindClassUsagesDetectsArrayTypeAndNestedTypes() {
+        CompilationUnit target = StaticJavaParser.parse("package demo; public class Item {}");
+        CompilationUnit user = StaticJavaParser.parse("""
+                package demo;
+                public class Outer {
+                    static class Nested { private Item[] items; }
+                    enum State { READY; private Item item; }
+                    record Holder(Item item) { Item[] copy() { return null; } }
+                }
+                """);
+
+        List<UsageFinder.ClassUsage> usages =
+                new UsageFinder(List.of(target, user)).findClassUsages("demo.Item");
+
+        assertTrue(usages.stream().anyMatch(u -> u.usingClassFqn().equals("demo.Outer.Nested")
+                && u.usageKind().equals("FIELD") && u.typeName().equals("Item[]")));
+        assertTrue(usages.stream().anyMatch(u -> u.usingClassFqn().equals("demo.Outer.State")
+                && u.usageKind().equals("FIELD") && u.memberName().equals("item")));
+        assertTrue(usages.stream().anyMatch(u -> u.usingClassFqn().equals("demo.Outer.Holder")
+                && u.usageKind().equals("RETURN_TYPE") && u.typeName().equals("Item[]")));
     }
 
     @Test

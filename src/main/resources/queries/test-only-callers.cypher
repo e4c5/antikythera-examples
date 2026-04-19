@@ -19,7 +19,7 @@
 // ============================================================
 
 // Step 1 – walk every CALLS edge and tag each caller as test/non-test inline.
-MATCH (callee:Method)<-[:CALLS]-(caller:Method)
+MATCH (callee:Method)<-[:CALLS]-(caller:CodeElement)
 WITH callee,
      caller,
      EXISTS {
@@ -27,14 +27,16 @@ WITH callee,
          WHERE a.signature IN [
              'org.junit.Test',                             // JUnit 4
              'org.junit.jupiter.api.Test',                 // JUnit 5
-             'org.junit.jupiter.params.ParameterizedTest'  // JUnit 5 parameterized
+             'org.junit.jupiter.params.ParameterizedTest', // JUnit 5 parameterized
+             'Test',                                      // unresolved imports
+             'ParameterizedTest'
          ]
      } AS callerIsTest
 
 // Step 2 – aggregate per callee: total callers vs. test callers.
 WITH callee,
-     count(caller)                             AS totalCallers,
-     count(CASE WHEN callerIsTest THEN 1 END)  AS testCallers
+     count(DISTINCT caller)                                   AS totalCallers,
+     count(DISTINCT CASE WHEN callerIsTest THEN caller END)    AS testCallers
 
 // Step 3 – keep only methods where every caller is a test method
 //           and the callee itself is not a test method.
@@ -45,7 +47,9 @@ WHERE totalCallers > 0
       WHERE a.signature IN [
           'org.junit.Test',
           'org.junit.jupiter.api.Test',
-          'org.junit.jupiter.params.ParameterizedTest'
+          'org.junit.jupiter.params.ParameterizedTest',
+          'Test',
+          'ParameterizedTest'
       ]
   }
 
@@ -54,4 +58,3 @@ RETURN
     callee.signature AS signature,
     testCallers      AS testCallerCount
 ORDER BY fqn;
-

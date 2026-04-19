@@ -38,10 +38,15 @@ public class KnowledgeGraphCLI {
     private static final String CLEAR_FLAG = "--clear";
     private static final String NO_CLEAR_FLAG = "--no-clear";
 
-    public static void main(String[] args) throws IOException, SQLException, XmlPullParserException {
+    public static void main(String[] args) {
+        try {
             CliOptions options = parseArgs(args);
             new KnowledgeGraphCLI().run(options.basePath(), options.configPath(), options.clearOnStart());
-   }
+        } catch (IOException | SQLException | XmlPullParserException | RuntimeException e) {
+            logger.error("Knowledge graph build failed", e);
+            System.exit(1);
+        }
+    }
 
     static CliOptions parseArgs(String[] args) throws IOException {
         List<String> positionalArgs = Arrays.stream(args)

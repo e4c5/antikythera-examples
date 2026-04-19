@@ -6,8 +6,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.depsolver.Graph;
 
+import java.io.File;
+import java.io.IOException;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -22,8 +25,9 @@ class RelationshipExtractionTest {
     private KnowledgeGraphBuilder builder;
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws IOException {
         Graph.getNodes().clear();
+        Settings.loadConfigMap(new File("src/test/resources/graph-test.yml"));
         mockStore = mock(GraphStore.class);
         builder = new KnowledgeGraphBuilder(mockStore);
         builder.setAutoClose(false);
@@ -168,6 +172,37 @@ class RelationshipExtractionTest {
                 .orElseThrow();
 
         assertEquals("partial", partial.attributes().get("resolution"));
+    }
+
+    @Test
+    @DisplayName("Annotated parameter nodes keep parameter signatures as FQNs")
+    void testAnnotatedParameterFqn() {
+        CompilationUnit cu = StaticJavaParser.parse("""
+            package com.example;
+            class Service {
+                void work(@Deprecated String value) {}
+            }
+            """);
+
+        builder.build(List.of(cu));
+
+        ArgumentCaptor<String> signatureCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> typeCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> nameCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> fqnCaptor = ArgumentCaptor.forClass(String.class);
+        verify(mockStore, atLeastOnce()).persistNode(
+                signatureCaptor.capture(),
+                typeCaptor.capture(),
+                nameCaptor.capture(),
+                fqnCaptor.capture());
+
+        for (int i = 0; i < typeCaptor.getAllValues().size(); i++) {
+            if ("Parameter".equals(typeCaptor.getAllValues().get(i))) {
+                assertEquals(signatureCaptor.getAllValues().get(i), fqnCaptor.getAllValues().get(i));
+                return;
+            }
+        }
+        throw new AssertionError("Expected a persisted Parameter node");
     }
 
     private List<KnowledgeGraphEdge> captureEdges() {

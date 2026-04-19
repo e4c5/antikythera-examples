@@ -205,10 +205,12 @@ Output includes `FIELD`, `PARAMETER`, and `RETURN_TYPE` usages for `MyService`.
 ### Method usage scan
 
 ```java
+import java.util.function.Consumer;
+
 public class OrderProcessor {
     public void process() {
         orderService.processOrder();
-        OrderService::processOrder;
+        Consumer<OrderService> ref = OrderService::processOrder;
     }
 }
 ```
