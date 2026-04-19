@@ -245,6 +245,29 @@ class UsageFinderCoverageTest {
     }
 
     @Test
+    void testFindMethodUsagesDoesNotLetLocalVariableShadowExplicitThisFieldScope() {
+        CompilationUnit target = StaticJavaParser.parse("package demo; public class Worker { public void run() {} }");
+        CompilationUnit other = StaticJavaParser.parse("package demo; public class Other { public void run() {} }");
+        CompilationUnit caller = StaticJavaParser.parse("""
+                package demo;
+                public class Caller {
+                    private Worker worker;
+                    public void go() {
+                        Other worker = new Other();
+                        this.worker.run();
+                        worker.run();
+                    }
+                }
+                """);
+
+        List<UsageFinder.MethodUsage> usages =
+                new UsageFinder(List.of(target, other, caller)).findMethodUsages("demo.Worker#run");
+
+        assertEquals(1, usages.size());
+        assertEquals("go", usages.getFirst().callerMethod());
+    }
+
+    @Test
     void testFindMethodUsagesResolvesThisScopeForSameClass() {
         CompilationUnit cu = StaticJavaParser.parse("""
                 package demo;

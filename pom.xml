@@ -108,19 +108,13 @@
         <dependency>
             <groupId>io.modelcontextprotocol.sdk</groupId>
             <artifactId>mcp</artifactId>
-            <version>1.0.0</version>
+            <version>0.17.1</version>
             <scope>compile</scope>
         </dependency>
         <dependency>
             <groupId>io.modelcontextprotocol.sdk</groupId>
-            <artifactId>mcp-json-jackson3</artifactId>
-            <version>1.0.0</version>
-            <scope>compile</scope>
-        </dependency>
-        <dependency>
-            <groupId>tools.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
-            <version>3.0.3</version>
+            <artifactId>mcp-json-jackson2</artifactId>
+            <version>0.17.1</version>
             <scope>compile</scope>
         </dependency>
 

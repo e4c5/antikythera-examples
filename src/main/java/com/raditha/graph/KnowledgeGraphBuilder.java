@@ -61,6 +61,7 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
     public static final String LAMBDA = "lambda";
     public static final String EXACT = "exact";
     public static final String PARTIAL = "partial";
+    private static final String ANNOTATION_SIGNATURE_PREFIX = "annotation:";
 
     private final GraphStore graphStore;
     private boolean autoClose = true;
@@ -439,16 +440,17 @@ public class KnowledgeGraphBuilder extends DependencyAnalyzer {
                 annotationFqn = annotationName;
             }
 
-            persistNode(annotationFqn, "Annotation", annotationName, annotationFqn);
+            String annotationSignature = ANNOTATION_SIGNATURE_PREFIX + annotationFqn;
+            persistNode(annotationSignature, "Annotation", annotationName, annotationFqn);
 
             KnowledgeGraphEdge edge = KnowledgeGraphEdge.builder()
                     .source(sourceSignature)
-                    .target(annotationFqn)
+                    .target(annotationSignature)
                     .type(EdgeType.ANNOTATED_BY)
                     .build();
 
             graphStore.persistEdge(edge);
-            logger.trace("Edge: {} --ANNOTATED_BY--> {}", sourceSignature, annotationFqn);
+            logger.trace("Edge: {} --ANNOTATED_BY--> {}", sourceSignature, annotationSignature);
         }
     }
 

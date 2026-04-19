@@ -406,7 +406,8 @@ public class UsageFinder {
             return matchesSimpleType(callerFqn, targetClass);
         }
         if (scopeStr.startsWith("this.")) {
-            scopeStr = scopeStr.substring("this.".length());
+            String fieldName = scopeStr.substring("this.".length());
+            return matchesSimpleType(fieldTypes.get(fieldName), targetClass);
         }
         String resolved = localTypes.getOrDefault(scopeStr,
                 paramTypes.getOrDefault(scopeStr, fieldTypes.getOrDefault(scopeStr, scopeStr)));

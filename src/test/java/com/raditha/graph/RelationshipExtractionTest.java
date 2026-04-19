@@ -205,6 +205,41 @@ class RelationshipExtractionTest {
         throw new AssertionError("Expected a persisted Parameter node");
     }
 
+    @Test
+    @DisplayName("Annotation nodes use annotation-specific signatures")
+    void testAnnotationNodeDoesNotReuseTypeSignature() {
+        CompilationUnit cu = StaticJavaParser.parse("""
+            package com.example;
+            @interface Marker {}
+            @Marker
+            class Service {}
+            """);
+
+        builder.build(List.of(cu));
+
+        ArgumentCaptor<String> signatureCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> typeCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> nameCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> fqnCaptor = ArgumentCaptor.forClass(String.class);
+        verify(mockStore, atLeastOnce()).persistNode(
+                signatureCaptor.capture(),
+                typeCaptor.capture(),
+                nameCaptor.capture(),
+                fqnCaptor.capture());
+
+        boolean foundAnnotationUsageNode = false;
+        for (int i = 0; i < typeCaptor.getAllValues().size(); i++) {
+            if ("Annotation".equals(typeCaptor.getAllValues().get(i))
+                    && "Marker".equals(nameCaptor.getAllValues().get(i))) {
+                foundAnnotationUsageNode = true;
+                assertEquals("annotation:com.example.Marker", signatureCaptor.getAllValues().get(i));
+                assertEquals("com.example.Marker", fqnCaptor.getAllValues().get(i));
+            }
+        }
+
+        assertTrue(foundAnnotationUsageNode, "Expected a persisted Annotation usage node");
+    }
+
     private List<KnowledgeGraphEdge> captureEdges() {
         ArgumentCaptor<KnowledgeGraphEdge> captor = ArgumentCaptor.forClass(KnowledgeGraphEdge.class);
         verify(mockStore, atLeastOnce()).persistEdge(captor.capture());
