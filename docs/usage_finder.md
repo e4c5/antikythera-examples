@@ -1,357 +1,234 @@
-# UsageFinder - Collection Usage Analysis Tool
+# UsageFinder
 
 ## Overview
 
-UsageFinder is a static analysis tool that scans Java codebases to identify collection fields (List, Set, Map) in non-entity classes. This helps identify data structures that may need optimization, such as using appropriate collection types, analyzing N+1 query patterns, or detecting potential memory issues.
+`UsageFinder` is a Java source analysis utility that works over parsed `CompilationUnit`s. It now has three core analysis modes:
 
-## Features
+1. **Collection field scan** — find `List`, `Set`, and `Map` fields in non-entity, non-DTO classes.
+2. **Class usage scan** — find structural references to a target class in fields, constructor parameters, method parameters, return types, `extends`, and `implements` clauses.
+3. **Method usage scan** — find call sites and method references for a target method.
 
-- **Collection Detection**: Identifies `List`, `Set`, and `Map` fields
-- **Entity Filtering**: Excludes JPA `@Entity` classes (which have different optimization concerns)
-- **DTO Filtering**: Excludes DTO classes (data transfer objects)
-- **Fully Qualified Output**: Reports class name, collection type, and field name
-- **Simple Output Format**: Easy to parse and analyze
+The collection scan is still useful, but it is only one part of the tool now.
 
-## Usage
+## CLI modes
 
-### Basic Usage
+`UsageFinder` switches mode based on the first command-line argument:
+
+| Invocation | Mode | Notes |
+|---|---|---|
+| No arguments | Collection field scan | Default mode |
+| `com.example.Foo` | Class usage scan | Matches the class by simple name |
+| `com.example.Foo#doSomething` | Method usage scan | Parameter list suffix, if present, is ignored |
+
+### Examples
 
 ```bash
+# Collection fields
 mvn exec:java -Dexec.mainClass="sa.com.cloudsolutions.antikythera.examples.UsageFinder"
-```
 
-### Output to File
-
-```bash
+# Class usages
 mvn exec:java -Dexec.mainClass="sa.com.cloudsolutions.antikythera.examples.UsageFinder" \
-  > collection-usage-report.txt
+  -Dexec.args="com.example.MyService"
+
+# Method usages
+mvn exec:java -Dexec.mainClass="sa.com.cloudsolutions.antikythera.examples.UsageFinder" \
+  -Dexec.args="com.example.MyService#processOrder"
 ```
 
-### Filter Specific Collection Types
+## Public API
 
-```bash
-# Find only List fields
-mvn exec:java -Dexec.mainClass="sa.com.cloudsolutions.antikythera.examples.UsageFinder" | \
-  grep "List<"
+`UsageFinder` is instance-based. The available entry points are:
 
-# Find only Map fields
-mvn exec:java -Dexec.mainClass="sa.com.cloudsolutions.antikythera.examples.UsageFinder" | \
-  grep "Map<"
+| API | Purpose |
+|---|---|
+| `new UsageFinder(Collection<CompilationUnit>)` | Scan a supplied set of parsed compilation units |
+| `UsageFinder.forProject()` | Scan the project currently loaded in `AntikytheraRunTime` |
+| `findCollectionFields()` | Return collection field matches |
+| `countCollectionFields()` | Convenience wrapper around `findCollectionFields().size()` |
+| `findClassUsages(String classFqn)` | Return structural usages of the target class |
+| `findMethodUsages(String methodSignature)` | Return call-site usages of the target method |
+
+There are no static search helpers on this class.
+
+## Output records
+
+### `CollectionFieldUsage`
+
+Returned by `findCollectionFields()`.
+
+| Field | Description |
+|---|---|
+| `classFqn` | Fully-qualified name of the containing class |
+| `fieldType` | Field type exactly as written in source |
+| `fieldName` | Field variable name |
+
+Console format:
+
+```text
+FullyQualifiedClassName : CollectionType : FieldName
 ```
 
-## Output Format
+Example:
 
-Format: `FullyQualifiedClassName : CollectionType : FieldName`
-
-```
-com.example.service.OrderService : List<String> : orderNumbers
-com.example.service.UserService : Set<Long> : processedUserIds
-com.example.cache.ProductCache : Map<String, Product> : productCache
-com.example.analyzer.DataAggregator : List<Order> : pendingOrders
+```text
+com.example.service.OrderService : List<Order> : pendingOrders
 ```
 
-### Fields
+### `MethodUsage`
 
-1. **FullyQualifiedClassName**: Complete package and class name
-2. **CollectionType**: The full generic type (e.g., `List<Order>`, `Map<String, User>`)
-3. **FieldName**: Name of the collection field
+Returned by `findMethodUsages(String)`.
 
-## What Gets Analyzed
+| Field | Description |
+|---|---|
+| `callerFqn` | Fully-qualified name of the calling class |
+| `callerMethod` | Method containing the call site |
+| `lineNumber` | 1-based line number, or `-1` if unknown |
 
-### Included Classes
+Console format:
 
-✅ Service classes
-✅ Controller classes  
-✅ Component classes
-✅ Configuration classes
-✅ Utility classes
-✅ Any non-entity, non-DTO classes
+```text
+Found N call site(s) for com.example.Foo#doSomething
+  caller.fqn#callerMethod  (line 12)
+  caller.fqn#callerMethod[ref]  (line 20)
+```
 
-### Excluded Classes
+Notes:
 
-❌ Classes annotated with `@Entity`
-❌ Classes in packages containing "dto"
-❌ Interface definitions (only implementations)
+- Plain method calls use `callerMethod` as-is.
+- Method references (`Foo::doSomething`) are reported with a `[ref]` suffix on the caller method name.
+- When a declaring class is supplied, the receiver scope is checked against field and parameter types to filter unrelated calls with the same method name.
+- Unqualified calls (same-class or super calls) are always included.
 
-## Examples
+### `ClassUsage`
 
-### Example 1: Service with Collection Field
+Returned by `findClassUsages(String)`.
 
-**Code:**
+| Field | Description |
+|---|---|
+| `usingClassFqn` | Fully-qualified name of the class containing the reference |
+| `usageKind` | One of `FIELD`, `PARAMETER`, `RETURN_TYPE`, `EXTENDS`, `IMPLEMENTS` |
+| `memberName` | Field name, method name, constructor name, or class name depending on `usageKind` |
+| `typeName` | Type string exactly as written in source |
+| `lineNumber` | 1-based line number, or `-1` if unknown |
+
+Console format:
+
+```text
+Found N usage(s) of com.example.MyService
+  FIELD  com.example.SomeClass  myField : MyService  (line 14)
+```
+
+## What each mode analyzes
+
+### Collection field scan
+
+Includes field declarations whose type string contains `List`, `Set`, or `Map`.
+
+Important details:
+
+- One record is emitted per field variable, not per field statement.
+- Only classes are scanned; interfaces are ignored.
+- Classes annotated with `@Entity` are skipped.
+- Classes whose fully-qualified name contains `dto` are skipped.
+
+### Class usage scan
+
+Matches references in:
+
+- fields
+- constructor parameters
+- method parameters
+- method return types
+- `extends`
+- `implements`
+
+Generic arguments are also checked, so `List<MyService>` counts as a field usage of `MyService`.
+
+### Method usage scan
+
+Matches:
+
+- `MethodCallExpr`
+- `MethodReferenceExpr`
+
+The method name is matched directly. If the query includes a class name, the class part is reduced to a simple name and used as a lightweight scope filter.
+
+## Limitations and matching rules
+
+These are the current implementation constraints and should be treated as behavior, not just documentation gaps:
+
+- Class matching is based on simple names, not full type resolution.
+- Generic matching is string-based and only checks the top-level generic arguments.
+- `findClassUsages(String)` skips the exact target class itself.
+- `findMethodUsages(String)` accepts a parameter-list suffix such as `Foo#doWork(String)` but ignores the parameter list.
+- Scope filtering for method calls relies on the declared type of fields and parameters in the enclosing class; it does not perform full semantic type resolution.
+- Local variables inside method bodies are not used for class-usage scanning.
+- Collection scanning does not analyze collection contents, runtime allocation, or collection usage patterns.
+
+## Usage examples
+
+### Collection field scan
+
 ```java
-package com.example.service;
-
 @Service
 public class OrderService {
-    @Autowired
-    private OrderRepository orderRepository;
-    
     private List<Order> pendingOrders = new ArrayList<>();
     private Set<String> processedOrderIds = new HashSet<>();
 }
 ```
 
-**Output:**
-```
+Output:
+
+```text
 com.example.service.OrderService : List<Order> : pendingOrders
 com.example.service.OrderService : Set<String> : processedOrderIds
 ```
 
-### Example 2: Cache Implementation
+### Class usage scan
 
-**Code:**
 ```java
-package com.example.cache;
+public class ReportService {
+    private MyService myService;
 
-@Component
-public class UserCache {
-    private Map<Long, User> userCache = new ConcurrentHashMap<>();
-    private Map<String, Long> emailToIdCache = new HashMap<>();
+    public ReportService(MyService myService) {
+        this.myService = myService;
+    }
+
+    public MyService getMyService() {
+        return myService;
+    }
 }
 ```
 
-**Output:**
-```
-com.example.cache.UserCache : Map<Long, User> : userCache
-com.example.cache.UserCache : Map<String, Long> : emailToIdCache
-```
+Output includes `FIELD`, `PARAMETER`, and `RETURN_TYPE` usages for `MyService`.
 
-### Example 3: Entity (Excluded)
+### Method usage scan
 
-**Code:**
 ```java
-package com.example.model;
+import java.util.function.Consumer;
 
-@Entity
-@Table(name = "orders")
-public class Order {
-    @Id
-    private Long id;
-    
-    @OneToMany
-    private List<OrderItem> items;  // NOT reported (entity class)
+public class OrderProcessor {
+    public void process() {
+        orderService.processOrder();
+        Consumer<OrderService> ref = OrderService::processOrder;
+    }
 }
 ```
 
-**Output:**
-```
-(no output - entity classes are excluded)
-```
-
-## Use Cases
-
-### 1. Memory Analysis
-
-Identify classes holding large collections in memory:
-
-```bash
-mvn exec:java -Dexec.mainClass="sa.com.cloudsolutions.antikythera.examples.UsageFinder" | \
-  grep "List<"
-```
-
-Review these for:
-- Unbounded collection growth
-- Missing cleanup/eviction logic
-- Potential memory leaks
-
-### 2. N+1 Query Detection
-
-Find services that might be aggregating data:
-
-```bash
-mvn exec:java -Dexec.mainClass="sa.com.cloudsolutions.antikythera.examples.UsageFinder" | \
-  grep "Service"
-```
-
-Then review the source to check for:
-- Loops fetching individual entities
-- Missing JOIN FETCH in queries
-- Batch fetching opportunities
-
-### 3. Caching Audit
-
-Identify all cache-like structures:
-
-```bash
-mvn exec:java -Dexec.mainClass="sa.com.cloudsolutions.antikythera.examples.UsageFinder" | \
-  grep "Map<"
-```
-
-Review for:
-- Proper cache eviction
-- Thread safety (use `ConcurrentHashMap`)
-- Cache invalidation strategy
-
-### 4. Collection Type Optimization
-
-Find collections that could use more efficient types:
-
-```bash
-# Find List fields that might need Set
-mvn exec:java -Dexec.mainClass="sa.com.cloudsolutions.antikythera.examples.UsageFinder" | \
-  grep "List<" | grep -i "id"
-```
-
-If a List stores unique IDs, consider using `Set` instead.
-
-### 5. Code Cleanup
-
-Identify unused or redundant collections:
-
-```bash
-mvn exec:java -Dexec.mainClass="sa.com.cloudsolutions.antikythera.examples.UsageFinder" > collections.txt
-
-# Then review each field in the codebase to check usage
-```
+Output includes a summary line plus call-site rows for the matching invocations and method references.
 
 ## Configuration
 
-### Required Configuration File
+`UsageFinder.main` loads `depsolver.yml` from the classpath resources and then calls `AbstractCompiler.preProcess()` before running the scan. When using the API directly, you can provide your own `Collection<CompilationUnit>` instead of bootstrapping the full runtime.
 
-UsageFinder requires `depsolver.yml` in the resources directory:
+## Related tools
 
-```yaml
-variables:
-  projects_folder: ${HOME}/your-projects
+- `QueryOptimizationChecker` for query-pattern analysis
+- `HardDelete` for delete-usage analysis
+- `Fields` for dependency tracking in the examples module
 
-base_path: ${projects_folder}/your-project/
-```
+## See also
 
-### Custom Configuration
-
-To use a different configuration:
-
-```java
-File yamlFile = new File("/path/to/custom-config.yml");
-Settings.loadConfigMap(yamlFile);
-```
-
-## Analysis Patterns
-
-### Pattern 1: Stateful Service Anti-Pattern
-
-**Finding:**
-```
-com.example.service.OrderService : List<Order> : pendingOrders
-```
-
-**Concern**: Stateful services don't scale horizontally
-
-**Recommendation**: Move state to database or cache
-
-### Pattern 2: Manual Caching
-
-**Finding:**
-```
-com.example.service.ProductService : Map<Long, Product> : productCache
-```
-
-**Concern**: Manual cache management is error-prone
-
-**Recommendation**: Use Spring `@Cacheable` or dedicated cache (Redis, Caffeine)
-
-### Pattern 3: Constructor Injection Needed
-
-**Finding:**
-```
-com.example.config.AppConfig : List<String> : allowedOrigins
-```
-
-**Concern**: Mutable collection in configuration
-
-**Recommendation**: Make immutable with `List.of()` or `Collections.unmodifiableList()`
-
-### Pattern 4: Potential N+1 Query
-
-**Finding:**
-```
-com.example.service.ReportService : List<User> : users
-```
-
-**Concern**: May be fetching users one-by-one in a loop
-
-**Recommendation**: Review for batch fetching opportunities
-
-## Best Practices
-
-### 1. Prefer Immutability
-
-❌ **Bad:**
-```java
-private List<String> allowedRoles = new ArrayList<>();
-```
-
-✅ **Good:**
-```java
-private final List<String> allowedRoles = List.of("ADMIN", "USER");
-```
-
-### 2. Use Appropriate Collection Types
-
-❌ **Bad:**
-```java
-private List<Long> processedIds = new ArrayList<>();
-// Then: if (processedIds.contains(id)) { ... }  // O(n) lookup
-```
-
-✅ **Good:**
-```java
-private Set<Long> processedIds = new HashSet<>();
-// Then: if (processedIds.contains(id)) { ... }  // O(1) lookup
-```
-
-### 3. Consider Thread Safety
-
-❌ **Bad:**
-```java
-private Map<String, User> cache = new HashMap<>();  // Not thread-safe
-```
-
-✅ **Good:**
-```java
-private Map<String, User> cache = new ConcurrentHashMap<>();
-```
-
-### 4. Set Collection Bounds
-
-❌ **Bad:**
-```java
-private List<Event> events = new ArrayList<>();  // Unbounded
-```
-
-✅ **Good:**
-```java
-private Queue<Event> events = new LinkedBlockingQueue<>(1000);  // Bounded
-```
-
-## Limitations
-
-- **Only Field Declarations**: Doesn't track local variables or method parameters
-- **No Collection Content Analysis**: Doesn't analyze what's stored in collections
-- **No Usage Tracking**: Doesn't report how collections are used
-- **Static Analysis Only**: Doesn't detect runtime collection creation
-
-## Extending the Tool
-
-To analyze additional collection types:
-
-```java
-private static boolean isCollectionType(String type) {
-    return type.contains("List<") || type.contains("List ") || 
-           type.contains("Set<") || type.contains("Set ") || 
-           type.contains("Map<") || type.contains("Map ") ||
-           type.contains("Queue<") || type.contains("Deque<");  // Add Queue/Deque
-}
-```
-
-## Related Tools
-
-- **QueryOptimizationChecker**: Analyzes N+1 query issues
-- **HardDelete**: Detects data management patterns
-- **Fields**: Tracks repository usage dependencies
-
-## See Also
-
-- [Query Optimization](../README.md) - Detecting N+1 queries
-- Java Collections Framework Documentation
-- [Effective Java](https://www.oreilly.com/library/view/effective-java/9780134686097/) - Item 28: Prefer lists to arrays
+- `README.md` in the examples module
+- JavaParser documentation
+- Java Collections Framework documentation

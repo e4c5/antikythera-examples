@@ -4,8 +4,8 @@ import io.modelcontextprotocol.server.McpAsyncServer;
 import io.modelcontextprotocol.server.McpServer;
 import io.modelcontextprotocol.server.transport.StdioServerTransportProvider;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
-import io.modelcontextprotocol.json.jackson.JacksonMcpJsonMapper;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import io.modelcontextprotocol.json.jackson2.JacksonMcpJsonMapper;
+import com.fasterxml.jackson.databind.json.JsonMapper;
 import io.modelcontextprotocol.spec.McpSchema.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,7 +38,7 @@ public class LiquibaseValidationMcpServer {
     public void start() {
         logger.info("Starting Liquibase Validation MCP Server");
 
-        JacksonMcpJsonMapper mapper = new JacksonMcpJsonMapper(new ObjectMapper());
+        JacksonMcpJsonMapper mapper = new JacksonMcpJsonMapper(JsonMapper.builder().build());
         StdioServerTransportProvider transportProvider = new StdioServerTransportProvider(mapper);
 
         McpAsyncServer server = McpServer.async(transportProvider)

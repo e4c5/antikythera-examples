@@ -27,5 +27,8 @@ public enum EdgeType {
     USES,
 
     /** Behavioral: A method/block references a method (e.g. method references). */
-    REFERENCES
+    REFERENCES,
+
+    /** Declarative: A type, method, field, or parameter is decorated by an annotation class. */
+    ANNOTATED_BY
 }
