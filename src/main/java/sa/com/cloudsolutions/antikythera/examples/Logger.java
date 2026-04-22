@@ -183,6 +183,7 @@ public class Logger {
             // Common stream terminal operations and forEach methods
             if (methodName.equals("forEach") ||
                 methodName.equals("forEachOrdered") ||
+                methodName.equals("forEachRemaining") ||
                 methodName.equals("peek") ||
                 methodName.equals("ifPresent")) {
 
