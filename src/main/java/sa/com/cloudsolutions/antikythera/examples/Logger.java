@@ -132,6 +132,11 @@ public class Logger {
                         parentNode.remove();
                         return null;
                     }
+                    // Don't remove lambda body blocks — EmptyForEachRemover handles the
+                    // enclosing forEach/ifPresent/peek call removal when the body is empty
+                    if (parentNode instanceof LambdaExpr) {
+                        return block;
+                    }
                     if (parentNode instanceof IfStmt ifStmt) {
                         if (ifStmt.getElseStmt().isPresent()) {
                             Statement elseStmt = ifStmt.getElseStmt().orElseThrow();
