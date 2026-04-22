@@ -16,6 +16,7 @@ import com.github.javaparser.ast.expr.StringLiteralExpr;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.ExpressionStmt;
 import com.github.javaparser.ast.stmt.CatchClause;
+import com.github.javaparser.ast.stmt.DoStmt;
 import com.github.javaparser.ast.stmt.ForEachStmt;
 import com.github.javaparser.ast.stmt.ForStmt;
 import com.github.javaparser.ast.stmt.IfStmt;
@@ -24,7 +25,6 @@ import com.github.javaparser.ast.stmt.WhileStmt;
 import com.github.javaparser.ast.visitor.ModifierVisitor;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import com.github.javaparser.printer.lexicalpreservation.LexicalPreservingPrinter;
-import com.sun.source.tree.DoWhileLoopTree;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
@@ -136,6 +136,12 @@ public class Logger {
                     // enclosing forEach/ifPresent/peek call removal when the body is empty
                     if (parentNode instanceof LambdaExpr) {
                         return block;
+                    }
+                    // When a loop body is now empty, remove the entire loop statement
+                    if (parentNode instanceof ForStmt || parentNode instanceof WhileStmt
+                            || parentNode instanceof ForEachStmt || parentNode instanceof DoStmt) {
+                        parentNode.remove();
+                        return null;
                     }
                     if (parentNode instanceof IfStmt ifStmt) {
                         if (ifStmt.getElseStmt().isPresent()) {
@@ -338,7 +344,7 @@ public class Logger {
             if (n instanceof MethodDeclaration || n instanceof ClassOrInterfaceDeclaration || n instanceof CatchClause) {
                 return false;
             }
-            if (n instanceof ForEachStmt || n instanceof WhileStmt || n instanceof ForStmt || n instanceof DoWhileLoopTree) {
+            if (n instanceof ForEachStmt || n instanceof WhileStmt || n instanceof ForStmt || n instanceof DoStmt) {
                 return true;
             }
             if (n.getParentNode().isPresent()) {
