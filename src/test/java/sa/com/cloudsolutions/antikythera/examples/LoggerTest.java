@@ -8,6 +8,7 @@ import com.github.javaparser.printer.lexicalpreservation.LexicalPreservingPrinte
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Test class to verify Logger utility behavior
@@ -296,5 +297,138 @@ import static org.junit.jupiter.api.Assertions.*;
             "log.info should be changed to log.debug");
         assertTrue(result.contains("auditLogger.debug("),
             "auditLogger.info should be changed to auditLogger.debug");
+    }
+
+    @Test
+    void testSimpleStringConcatenationConverted() {
+        String code = """
+            package test;
+            import org.slf4j.Logger;
+            import org.slf4j.LoggerFactory;
+
+             class TestClass {
+                private static final Logger log = LoggerFactory.getLogger(TestClass.class);
+
+                 void testMethod(String patientId, long hospitalTime) {
+                    log.info("Updating Expected Time of patient " + patientId);
+                    log.info("now Time Of the Hospital" + hospitalTime);
+                }
+            }
+            """;
+
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        LexicalPreservingPrinter.setup(cu);
+
+        Logger.loggerFields.clear();
+        Logger.loggerFields.add("log");
+        cu.findAll(MethodDeclaration.class).forEach(m ->
+            m.accept(new Logger.LoggerVisitor(m.findAncestor(TypeDeclaration.class).orElseThrow()), false)
+        );
+
+        String result = LexicalPreservingPrinter.print(cu);
+
+        assertTrue(result.contains("log.debug(\"Updating Expected Time of patient {}\", patientId)"),
+            "String concatenation should be converted to placeholder syntax");
+        assertTrue(result.contains("log.debug(\"now Time Of the Hospital{}\", hospitalTime)"),
+            "String concatenation should be converted to placeholder syntax");
+        assertFalse(result.contains("\"Updating Expected Time of patient \" + patientId"),
+            "Original concatenation should no longer appear");
+    }
+
+    @Test
+    void testMultiPartConcatenationConverted() {
+        String code = """
+            package test;
+            import org.slf4j.Logger;
+            import org.slf4j.LoggerFactory;
+
+             class TestClass {
+                private static final Logger log = LoggerFactory.getLogger(TestClass.class);
+
+                 void testMethod(String name, int age) {
+                    log.info("User " + name + " has age " + age);
+                }
+            }
+            """;
+
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        LexicalPreservingPrinter.setup(cu);
+
+        Logger.loggerFields.clear();
+        Logger.loggerFields.add("log");
+        cu.findAll(MethodDeclaration.class).forEach(m ->
+            m.accept(new Logger.LoggerVisitor(m.findAncestor(TypeDeclaration.class).orElseThrow()), false)
+        );
+
+        String result = LexicalPreservingPrinter.print(cu);
+
+        assertTrue(result.contains("log.debug(\"User {} has age {}\", name, age)"),
+            "Multi-part concatenation should produce a format string with multiple placeholders");
+    }
+
+    @Test
+    void testConcatenationInCatchBlockConvertedToError() {
+        String code = """
+            package test;
+            import org.slf4j.Logger;
+            import org.slf4j.LoggerFactory;
+
+             class TestClass {
+                private static final Logger log = LoggerFactory.getLogger(TestClass.class);
+
+                 void testMethod() {
+                    try {
+                        // some code
+                    } catch (Exception e) {
+                        log.warn("Failed for user " + e.getMessage());
+                    }
+                }
+            }
+            """;
+
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        LexicalPreservingPrinter.setup(cu);
+
+        Logger.loggerFields.clear();
+        Logger.loggerFields.add("log");
+        cu.findAll(MethodDeclaration.class).forEach(m ->
+            m.accept(new Logger.LoggerVisitor(m.findAncestor(TypeDeclaration.class).orElseThrow()), false)
+        );
+
+        String result = LexicalPreservingPrinter.print(cu);
+
+        assertTrue(result.contains("log.error(\"Failed for user {}\", e.getMessage())"),
+            "Concatenated log in catch block should become error level with placeholder syntax");
+    }
+
+    @Test
+    void testAlreadyPlaceholderStyleNotModified() {
+        String code = """
+            package test;
+            import org.slf4j.Logger;
+            import org.slf4j.LoggerFactory;
+
+             class TestClass {
+                private static final Logger log = LoggerFactory.getLogger(TestClass.class);
+
+                 void testMethod(String name) {
+                    log.info("Hello {}", name);
+                }
+            }
+            """;
+
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        LexicalPreservingPrinter.setup(cu);
+
+        Logger.loggerFields.clear();
+        Logger.loggerFields.add("log");
+        cu.findAll(MethodDeclaration.class).forEach(m ->
+            m.accept(new Logger.LoggerVisitor(m.findAncestor(TypeDeclaration.class).orElseThrow()), false)
+        );
+
+        String result = LexicalPreservingPrinter.print(cu);
+
+        assertTrue(result.contains("log.debug(\"Hello {}\", name)"),
+            "Already-correct placeholder style should only have info→debug changed, not broken");
     }
 }

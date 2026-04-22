@@ -2,14 +2,17 @@ package sa.com.cloudsolutions.antikythera.examples;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Node;
+import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.body.VariableDeclarator;
+import com.github.javaparser.ast.expr.BinaryExpr;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.LambdaExpr;
 import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.ast.expr.StringLiteralExpr;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.ExpressionStmt;
 import com.github.javaparser.ast.stmt.CatchClause;
@@ -31,7 +34,9 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -234,6 +239,7 @@ public class Logger {
                         Node node = n.get();
                         if (node instanceof CatchClause) {
                             mce.setName("error");
+                            convertStringConcatenation(mce);
                             return mce;
                         }
                     }
@@ -243,6 +249,7 @@ public class Logger {
                     return null;
                 }
                 mce.setName("debug");
+                convertStringConcatenation(mce);
             } else if (isSystemOut) {
                 // Handle System.out.println, System.out.print, System.out.printf, System.err.*
                 // Always remove these statements completely
@@ -260,6 +267,66 @@ public class Logger {
                 }
             }
             return mce;
+        }
+
+        private void convertStringConcatenation(MethodCallExpr mce) {
+            NodeList<Expression> args = mce.getArguments();
+            if (args.isEmpty()) return;
+
+            Expression firstArg = args.get(0);
+            if (!firstArg.isBinaryExpr()) return;
+            if (firstArg.asBinaryExpr().getOperator() != BinaryExpr.Operator.PLUS) return;
+
+            List<Expression> parts = new ArrayList<>();
+            flattenStringConcat(firstArg, parts);
+
+            if (parts.stream().noneMatch(Expression::isStringLiteralExpr)) return;
+
+            StringBuilder formatStr = new StringBuilder();
+            List<Expression> extraArgs = new ArrayList<>();
+            for (Expression part : parts) {
+                if (part.isStringLiteralExpr()) {
+                    formatStr.append(part.asStringLiteralExpr().asString());
+                } else {
+                    formatStr.append("{}");
+                    extraArgs.add(part);
+                }
+            }
+
+            NodeList<Expression> newArgs = new NodeList<>();
+            newArgs.add(new StringLiteralExpr(formatStr.toString()));
+            newArgs.addAll(extraArgs);
+            for (int i = 1; i < args.size(); i++) {
+                newArgs.add(args.get(i));
+            }
+            mce.setArguments(newArgs);
+        }
+
+        private void flattenStringConcat(Expression expr, List<Expression> parts) {
+            if (expr.isBinaryExpr()) {
+                BinaryExpr bin = expr.asBinaryExpr();
+                if (bin.getOperator() == BinaryExpr.Operator.PLUS && isStringConcatExpr(bin)) {
+                    flattenStringConcat(bin.getLeft(), parts);
+                    flattenStringConcat(bin.getRight(), parts);
+                    return;
+                }
+            }
+            parts.add(expr);
+        }
+
+        private boolean isStringConcatExpr(BinaryExpr bin) {
+            if (bin.getLeft().isStringLiteralExpr() || bin.getRight().isStringLiteralExpr()) {
+                return true;
+            }
+            if (bin.getLeft().isBinaryExpr()) {
+                BinaryExpr left = bin.getLeft().asBinaryExpr();
+                if (left.getOperator() == BinaryExpr.Operator.PLUS && isStringConcatExpr(left)) return true;
+            }
+            if (bin.getRight().isBinaryExpr()) {
+                BinaryExpr right = bin.getRight().asBinaryExpr();
+                if (right.getOperator() == BinaryExpr.Operator.PLUS && isStringConcatExpr(right)) return true;
+            }
+            return false;
         }
 
         private boolean isLooping(Node n) {
