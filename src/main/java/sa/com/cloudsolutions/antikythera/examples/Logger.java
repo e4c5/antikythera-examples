@@ -21,8 +21,10 @@ import com.github.javaparser.ast.stmt.ForEachStmt;
 import com.github.javaparser.ast.stmt.ForStmt;
 import com.github.javaparser.ast.stmt.IfStmt;
 import com.github.javaparser.ast.stmt.Statement;
+import com.github.javaparser.ast.stmt.TryStmt;
 import com.github.javaparser.ast.stmt.WhileStmt;
 import com.github.javaparser.ast.visitor.ModifierVisitor;
+import com.github.javaparser.ast.visitor.Visitable;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import com.github.javaparser.printer.lexicalpreservation.LexicalPreservingPrinter;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
@@ -55,7 +57,6 @@ public class Logger {
                 System.out.println(entry.getKey() + " : " + uoe.getMessage());
             }
         }
-
     }
 
     private static void processClass(String classname, CompilationUnit cu) throws FileNotFoundException {
@@ -83,6 +84,8 @@ public class Logger {
                 m.accept(blockVisitor, null);
                 // Remove forEach calls with empty lambda bodies
                 m.accept(new EmptyForEachRemover(), null);
+                // Remove catch clauses for checked exceptions whose throwers were removed
+                m.accept(new TryCatchCleaner(), null);
             }
 
             String fullPath = Settings.getBasePath() + "/src/main/java/" + AbstractCompiler.classToPath(classname);
@@ -208,6 +211,63 @@ public class Logger {
             }
 
             return false;
+        }
+    }
+
+    static class TryCatchCleaner extends ModifierVisitor<Void> {
+        private static final Set<String> JACKSON_THROWING_METHODS = Set.of(
+            "writeValueAsString", "writeValueAsBytes", "readValue", "readTree",
+            "writeValue", "convertValue", "treeToValue", "valueToTree", "readValues"
+        );
+
+        @Override
+        public Visitable visit(BlockStmt block, Void arg) {
+            super.visit(block, arg);
+
+            NodeList<Statement> stmts = block.getStatements();
+            for (int i = stmts.size() - 1; i >= 0; i--) {
+                Statement stmt = stmts.get(i);
+                if (!(stmt instanceof TryStmt tryStmt)) continue;
+
+                boolean hasJacksonCalls = hasJacksonMethodCalls(tryStmt.getTryBlock());
+                NodeList<CatchClause> cleaned = new NodeList<>();
+                boolean modified = false;
+
+                for (CatchClause cc : tryStmt.getCatchClauses()) {
+                    String type = cc.getParameter().getType().asString();
+                    if (isJacksonCheckedException(type) && !hasJacksonCalls) {
+                        modified = true;
+                    } else {
+                        cleaned.add(cc);
+                    }
+                }
+
+                if (!modified) continue;
+
+                tryStmt.setCatchClauses(cleaned);
+
+                // No catches and no finally: try block is now invalid — inline the body
+                if (cleaned.isEmpty() && tryStmt.getFinallyBlock().isEmpty()) {
+                    NodeList<Statement> tryBody = tryStmt.getTryBlock().getStatements();
+                    stmts.remove(i);
+                    for (int j = 0; j < tryBody.size(); j++) {
+                        stmts.add(i + j, tryBody.get(j));
+                    }
+                }
+            }
+
+            return block;
+        }
+
+        private boolean isJacksonCheckedException(String typeName) {
+            return typeName.equals("JsonProcessingException") ||
+                   typeName.equals("JsonMappingException") ||
+                   typeName.equals("JsonGenerationException");
+        }
+
+        private boolean hasJacksonMethodCalls(BlockStmt block) {
+            return block.findAll(MethodCallExpr.class).stream()
+                .anyMatch(m -> JACKSON_THROWING_METHODS.contains(m.getNameAsString()));
         }
     }
 

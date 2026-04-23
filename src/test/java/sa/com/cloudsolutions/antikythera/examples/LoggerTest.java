@@ -431,4 +431,100 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
         assertTrue(result.contains("log.debug(\"Hello {}\", name)"),
             "Already-correct placeholder style should only have info→debug changed, not broken");
     }
+
+    @Test
+    void testOrphanedJsonProcessingExceptionCatchRemovedWhenInLoop() {
+        // Logger inside a loop is removed entirely; that leaves the catch(JsonProcessingException)
+        // unreachable — TryCatchCleaner must remove it and inline the try body.
+        String code = """
+            package test;
+            import org.slf4j.Logger;
+            import org.slf4j.LoggerFactory;
+            import com.fasterxml.jackson.core.JsonProcessingException;
+            import com.fasterxml.jackson.databind.ObjectMapper;
+            import java.util.List;
+
+             class TestClass {
+                private static final Logger log = LoggerFactory.getLogger(TestClass.class);
+
+                 void testMethod(List<Object> items) {
+                    for (Object obj : items) {
+                        try {
+                            ObjectMapper mapper = new ObjectMapper();
+                            log.info("Value: {}", mapper.writeValueAsString(obj));
+                        } catch (JsonProcessingException e) {
+                            throw new RuntimeException(e);
+                        }
+                    }
+                }
+            }
+            """;
+
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        LexicalPreservingPrinter.setup(cu);
+
+        Logger.loggerFields.clear();
+        Logger.loggerFields.add("log");
+        cu.findAll(MethodDeclaration.class).forEach(m -> {
+            m.accept(new Logger.LoggerVisitor(m.findAncestor(TypeDeclaration.class).orElseThrow()), false);
+            m.accept(new Logger.BlockVisitor(), null);
+            m.accept(new Logger.EmptyForEachRemover(), null);
+            m.accept(new Logger.TryCatchCleaner(), null);
+        });
+
+        String result = LexicalPreservingPrinter.print(cu);
+
+        assertFalse(result.contains("catch (JsonProcessingException"),
+            "Orphaned JsonProcessingException catch should be removed when logger was removed by loop rule");
+    }
+
+    @Test
+    void testOrphanedJsonProcessingExceptionCatchRemovedWithRealCode() {
+        String code = """
+            package test;
+            import org.slf4j.Logger;
+            import org.slf4j.LoggerFactory;
+            import com.fasterxml.jackson.core.JsonProcessingException;
+            import com.fasterxml.jackson.databind.ObjectMapper;
+
+             class TestClass {
+                private static final Logger log = LoggerFactory.getLogger(TestClass.class);
+
+                 void testMethod(java.util.List<String> items) {
+                    for (String item : items) {
+                        try {
+                            doWork(item);
+                            ObjectMapper mapper = new ObjectMapper();
+                            log.debug("item: {}", mapper.writeValueAsString(item));
+                        } catch (RuntimeException e) {
+                            log.error("failed", e);
+                        } catch (JsonProcessingException e) {
+                            throw new RuntimeException(e);
+                        }
+                    }
+                }
+
+                 void doWork(String s) {}
+            }
+            """;
+
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        LexicalPreservingPrinter.setup(cu);
+
+        Logger.loggerFields.clear();
+        Logger.loggerFields.add("log");
+        cu.findAll(MethodDeclaration.class).forEach(m -> {
+            m.accept(new Logger.LoggerVisitor(m.findAncestor(TypeDeclaration.class).orElseThrow()), false);
+            m.accept(new Logger.BlockVisitor(), null);
+            m.accept(new Logger.EmptyForEachRemover(), null);
+            m.accept(new Logger.TryCatchCleaner(), null);
+        });
+
+        String result = LexicalPreservingPrinter.print(cu);
+
+        assertFalse(result.contains("catch (JsonProcessingException"),
+            "Orphaned JsonProcessingException catch should be removed");
+        assertTrue(result.contains("catch (RuntimeException"),
+            "Real RuntimeException catch should be kept");
+    }
 }
