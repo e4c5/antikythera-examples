@@ -30,6 +30,34 @@ This module provides a suite of advanced utilities and tools built on top of the
 
 ---
 
+## All Executables - Quick Reference
+
+| Class | Description |
+|-------|-------------|
+| **QueryOptimizationChecker** | Analyzes JPA repositories for query optimization opportunities (read-only mode) |
+| **QueryOptimizer** | Analyzes and automatically rewrites `@Query` annotations, reorders parameters, and updates call sites |
+| **HardDelete** | Detects hard delete operations in repository usage patterns |
+| **UsageFinder** | Finds and analyzes collection usage patterns across the codebase |
+| **JPARepositoryAnalyzer** | Exports all repository queries to CSV for analysis and reporting |
+| **Logger** | Adds or updates SLF4J logger fields in Java classes |
+| **TestFixer** | Refactors tests, converts embedded resources, and optionally migrates JUnit 4→5 |
+| **SpringBoot21to22Migrator** | Upgrades Spring Boot 2.1 apps to 2.2 |
+| **SpringBoot22to23Migrator** | Upgrades Spring Boot 2.2 apps to 2.3 with validation and H2 console updates |
+| **SpringBoot23to24Migrator** | Upgrades Spring Boot 2.3 apps to 2.4 |
+| **SpringBoot24to25Migrator** | Upgrades Spring Boot 2.4 apps to 2.5 |
+| **SpringBootVersionDetector** | Detects Spring Boot version from a POM file |
+| **CircularDependencyTool** | Detects and resolves circular bean dependencies using `@Lazy`, setter injection, and method extraction |
+| **PomFlattenerCLI** | Converts Maven POMs with parent inheritance into standalone POMs |
+| **KnowledgeGraphCLI** | Generates knowledge graphs from Java codebases, visualizing class and dependency relationships |
+| **Indexes** | Audits database indexes defined in Liquibase changelogs |
+| **AnnotationFinder** | Finds all classes and methods annotated with a specific annotation |
+| **LiquibaseValidator** | Validates Liquibase changelog XML files for syntax errors and structural issues |
+| **LiquibaseValidationMcpServer** | MCP server providing Liquibase validation capabilities via Model Context Protocol |
+| **SchemaNormalizationAnalyzer** | Analyzes database schema for normalization opportunities and generates migration plans |
+| **JavaParserMethodFindingBenchmark** | Benchmarks JavaParser performance for method finding operations (test utility) |
+
+---
+
 ## General Configuration
 
 Many tools in this project utilize a shared configuration format (typically `generator.yml`) to define project paths, AI service credentials, and other environment specifics.
